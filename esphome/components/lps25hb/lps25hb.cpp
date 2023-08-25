@@ -61,7 +61,7 @@ void LPS25HBComponent::dump_config() {
 
 void LPS25HBComponent::read_pressure_() {
   this->write_register(CTRL_REG2, 0x09);  // One shot conversion
-  uint8_t buffer[4];
+  uint8_t buffer[6];
   buffer[0] = PRESS_OUT_XL | 0xC0;  // increment read
   this->enable();
   this->transfer_array(buffer, sizeof buffer);
@@ -71,13 +71,9 @@ void LPS25HBComponent::read_pressure_() {
     p |= ~0UL << 24;      // sign extend
   float const pressure = p / 4096.0f;
   ESP_LOGV(TAG, "Got raw pressure=%d, converted %.1f", p, pressure);
-  buffer[0] = TEMP_OUT_L | 0xC0;
-  this->enable();
-  this->transfer_array(buffer, 3);
-  this->disable();
-  int16_t const t = buffer[1] + (buffer[2] << 8);
-  float const temperature = t / 480.0f;
-  ESP_LOGV(TAG, "Got raw temperature=%d, converted %.1f", t, temperature);
+  int16_t const t = buffer[4] + (buffer[5] << 8);
+  float const temperature = t / -480.0f;
+  ESP_LOGV(TAG, "Got raw temperature=%X, converted %.1f", t, temperature);
   this->publish_state(pressure);
   this->status_clear_warning();
 }
