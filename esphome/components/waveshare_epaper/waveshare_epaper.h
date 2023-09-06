@@ -10,7 +10,7 @@ namespace waveshare_epaper {
 class WaveshareEPaper : public PollingComponent,
                         public display::DisplayBuffer,
                         public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW,
-                                              spi::CLOCK_PHASE_LEADING, spi::DATA_RATE_2MHZ> {
+                                              spi::CLOCK_PHASE_LEADING, spi::DATA_RATE_4MHZ> {
  public:
   void set_dc_pin(GPIOPin *dc_pin) { dc_pin_ = dc_pin; }
   float get_setup_priority() const override;
@@ -20,6 +20,7 @@ class WaveshareEPaper : public PollingComponent,
 
   void command(uint8_t value);
   void data(uint8_t value);
+  void cmd_data(const uint8_t *data, size_t length);
 
   virtual void display() = 0;
   virtual void initialize() = 0;
@@ -50,7 +51,7 @@ class WaveshareEPaper : public PollingComponent,
       this->reset_pin_->digital_write(false);
       delay(reset_duration_);  // NOLINT
       this->reset_pin_->digital_write(true);
-      delay(200);  // NOLINT
+      delay(20);  // NOLINT
     }
   }
 
@@ -560,5 +561,51 @@ class WaveshareEPaper2P13InDKE : public WaveshareEPaper {
   uint32_t at_update_{0};
 };
 
+class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
+ public:
+
+  void display() override;
+
+  void dump_config() override;
+
+  void deep_sleep() override {
+    // COMMAND POWER DOWN
+    this->command(0x10);
+    this->data(0x01);
+    // cannot wait until idle here, the device no longer responds
+  }
+
+  void set_full_update_every(uint32_t full_update_every);
+
+  void setup() override;
+  void initialize() override;
+
+ protected:
+  int get_width_internal() override;
+  int get_height_internal() override;
+  uint32_t idle_timeout_() override;
+
+  void write_buffer_();
+  void set_window_();
+  void send_reset_();
+  void partial_update_();
+  void full_update_();
+
+  uint32_t full_update_every_{30};
+  uint32_t at_update_{0};
+  bool is_busy_{false};
+  void EPD_2in13_V3_Display_Partial(uint8_t *Image);
+  void EPD_2in13_V3_TurnOnDisplay(void);
+  void EPD_2in13_V3_TurnOnDisplay_Partial(void);
+  void write_lut_(const uint8_t *lut);
+  void EPD_2in13_V3_SetWindows(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend);
+  void EPD_2in13_V3_SetCursor(uint16_t Xstart, uint16_t Ystart);
+  void EPD_2in13_V3_Init(void);
+  void EPD_2in13_V3_Clear(void);
+  void EPD_2in13_V3_Display(uint8_t *Image);
+  void EPD_2in13_V3_Display_Base(uint8_t *Image);
+
+  void activate_();
+};
 }  // namespace waveshare_epaper
 }  // namespace esphome
