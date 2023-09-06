@@ -10,7 +10,7 @@ namespace waveshare_epaper {
 class WaveshareEPaper : public PollingComponent,
                         public display::DisplayBuffer,
                         public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW,
-                                              spi::CLOCK_PHASE_LEADING, spi::DATA_RATE_4MHZ> {
+                                              spi::CLOCK_PHASE_LEADING, spi::DATA_RATE_2MHZ> {
  public:
   void set_dc_pin(GPIOPin *dc_pin) { dc_pin_ = dc_pin; }
   float get_setup_priority() const override;
@@ -594,9 +594,8 @@ class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
   uint32_t full_update_every_{30};
   uint32_t at_update_{0};
   bool is_busy_{false};
-  void EPD_2in13_V3_Display_Partial(uint8_t *Image);
+  bool was_partial{false};
   void EPD_2in13_V3_TurnOnDisplay(void);
-  void EPD_2in13_V3_TurnOnDisplay_Partial(void);
   void write_lut_(const uint8_t *lut);
   void EPD_2in13_V3_SetWindows(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend);
   void EPD_2in13_V3_SetCursor(uint16_t Xstart, uint16_t Ystart);

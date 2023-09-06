@@ -87,6 +87,7 @@ static const uint8_t WS_20_30_2IN13_V3[159] =
     0x22, 0x17, 0x41, 0x0, 0x32, 0x36
   };
 
+static const uint8_t SW_RESET = 0x12;
 static const uint8_t ACTIVATE = 0x20;
 static const uint8_t WRITE_BUFFER = 0x24;
 static const uint8_t ON_FULL[] = {0x22, 0xC7};
@@ -99,10 +100,10 @@ static const uint8_t VCOM[] = {0x2C, 0x36};
 static const uint8_t CMD5[] = {0x37, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00};
 static const uint8_t UPSEQ[] = {0x22, 0xC0};
 
-static const uint8_t INIT1[] = {0x01, 0xF9, 0x00, 0x00};  // driver output control
-static const uint8_t INIT2[] = {0x11, 0x03};              // data entry mode
-static const uint8_t INIT3[] = {0x21, 0x00, 0x80};        // Display update control
-static const uint8_t INIT4[] = {0x18, 0x80};              // Temp sensor
+static const uint8_t DRV_OUT_CTL[] = {0x01, 0xF9, 0x00, 0x00};  // driver output control
+static const uint8_t DATA_ENTRY[] = {0x11, 0x03};              // data entry mode
+static const uint8_t DISPLAY_UPDATE[] = {0x21, 0x00, 0x80};        // Display update control
+static const uint8_t TEMP_SENS[] = {0x18, 0x80};              // Temp sensor
 
 static const uint8_t RAM_X_START[] = {0x44, 0x00, 121 / 8};     // set ram_x_address_start_end
 static const uint8_t RAM_Y_START[] = {0x45, 0x00, 0x00, 250 - 1, 0};// set ram_y_address_start_end
@@ -125,22 +126,12 @@ void WaveshareEPaper2P13InV3::EPD_2in13_V3_TurnOnDisplay(void) {
 }
 
 /******************************************************************************
-function :	Turn On Display
-parameter:
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_TurnOnDisplay_Partial(void) {
-  this->command(0x22); // Display Update Control
-  data(0x0f);  // fast:0x0c, quality:0x0f, 0xcf
-  this->command(0x20); // Activate Display Update Sequence
-  wait_until_idle_();
-}
-
-/******************************************************************************
 function :	Send lut data and configuration
 parameter:
     lut :   lut data
 ******************************************************************************/
 void WaveshareEPaper2P13InV3::write_lut_(const uint8_t *lut) {
+  this->wait_until_idle_();
   this->cmd_data(lut, sizeof(PARTIAL_LUT));
   SEND(CMD1);
   SEND(GATEV);
@@ -190,76 +181,38 @@ parameter:
 void WaveshareEPaper2P13InV3::EPD_2in13_V3_Init(void) {
   this->send_reset_();
   delay(100);
-
   wait_until_idle_();
-  this->command(0x12);  //SWRESET
+  this->command(SW_RESET);
   wait_until_idle_();
 
-  this->command(0x01); //Driver output control
-  data(0xf9);
-  data(0x00);
-  data(0x00);
+  SEND(DRV_OUT_CTL);
+  //this->command(0x01); //Driver output control
+  //data(0xf9);
+  //data(0x00);
+  //data(0x00);
 
-  this->command(0x11); //data entry mode
-  data(0x03);
+  SEND(DATA_ENTRY);
+  //this->command(0x11); //data entry mode
+  //data(0x03);
 
   this->set_window_();
-  //EPD_2in13_V3_SetWindows(0, 0, 122 - 1, 250 - 1);
-  //EPD_2in13_V3_SetCursor(0, 0);
 
-  this->command(0x3C); //BorderWaveform
-  data(0x05);
+  SEND(BORDER_FULL);
+  //.this->command(0x3C); //BorderWaveform
+  //.data(0x05);
 
-  this->command(0x21); //  Display update control
-  data(0x00);
-  data(0x80);
+  SEND(DISPLAY_UPDATE);
+  //this->command(0x21); //  Display update control
+  //data(0x00);
+  //data(0x80);
 
-  this->command(0x18); //Read built-in temperature sensor
-  data(0x80);
+  SEND(TEMP_SENS);
+  //this->command(0x18); //Read built-in temperature sensor
+  //data(0x80);
 
   wait_until_idle_();
-  write_lut_(FULL_LUT);
+  this->write_lut_(FULL_LUT);
 }
-
-/******************************************************************************
-function :	Clear screen
-parameter:
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_Clear(void) {
-  uint16_t Width, Height;
-  Width = (122 % 8 == 0) ? (122 / 8) : (122 / 8 + 1);
-  Height = 250;
-
-  this->command(0x24);
-  for (uint16_t j = 0; j < Height; j++) {
-    for (uint16_t i = 0; i < Width; i++) {
-      data(0XFF);
-    }
-  }
-
-  EPD_2in13_V3_TurnOnDisplay();
-}
-
-/******************************************************************************
-function :	Sends the image buffer in RAM to e-Paper and displays
-parameter:
-	image : Image data
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_Display(uint8_t *Image) {
-  uint16_t Width, Height;
-  Width = (122 % 8 == 0) ? (122 / 8) : (122 / 8 + 1);
-  Height = 250;
-
-  this->command(0x24);
-  for (uint16_t j = 0; j < Height; j++) {
-    for (uint16_t i = 0; i < Width; i++) {
-      data(Image[i + j * Width]);
-    }
-  }
-
-  EPD_2in13_V3_TurnOnDisplay();
-}
-
 
 /******************************************************************************
 function :	Refresh a base image
@@ -284,34 +237,6 @@ void WaveshareEPaper2P13InV3::EPD_2in13_V3_Display_Base(uint8_t *Image) {
     }
   }
   EPD_2in13_V3_TurnOnDisplay();
-}
-
-/******************************************************************************
-function :	Sends the image buffer in RAM to e-Paper and partial refresh
-parameter:
-	image : Image data
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_Display_Partial(uint8_t *Image) {
-  uint16_t Width, Height;
-  Width = (122 % 8 == 0) ? (122 / 8) : (122 / 8 + 1);
-  Height = 250;
-
-  //Reset
-  this->send_reset_();
-
-  write_lut_(PARTIAL_LUT);
-
-  SEND(CMD5);
-  SEND(BORDER_PART);
-  SEND(UPSEQ);
-  this->activate_();
-
-  this->set_window_();
-  //EPD_2in13_V3_SetWindows(0, 0, 122 - 1, 250 - 1);
-  //EPD_2in13_V3_SetCursor(0, 0);
-
-  this->write_buffer_();
-  EPD_2in13_V3_TurnOnDisplay_Partial();
 }
 
 void WaveshareEPaper2P13InV3::activate_() {
@@ -392,46 +317,37 @@ void WaveshareEPaper2P13InV3::initialize() {}
 
 void WaveshareEPaper2P13InV3::partial_update_() {
   ESP_LOGD(TAG, "Performing partial e-paper update.");
-  this->EPD_2in13_V3_Display_Partial(this->buffer_);
-  /*
+  this->send_reset_();
+  this->write_lut_(PARTIAL_LUT);
   SEND(CMD5);
-  SEND(RAM_PP);
   SEND(BORDER_PART);
   SEND(UPSEQ);
-  SEND(PARTIAL_LUT);
-  this->command(0x20);
+  this->command(ACTIVATE);
   this->set_timeout(100, [this] {
+    this->wait_until_idle_();
+    this->set_window_();
     this->write_buffer_();
     SEND(ON_PARTIAL);
-    this->command(0x20);
+    this->command(ACTIVATE); // Activate Display Update Sequence
     this->is_busy_ = false;
   });
-   */
 }
 
 void WaveshareEPaper2P13InV3::full_update_() {
   ESP_LOGI(TAG, "Performing full e-paper update.");
-  this->EPD_2in13_V3_Display(this->buffer_);
-  /*
-  SEND(FULL_LUT); // this may take some time
-  this->set_timeout(750, [this] {
-    this->write_buffer_();
-    SEND(ON_FULL);
-    this->command(0x20);
-    this->is_busy_ = false;
-  });
-   */
+  //this->EPD_2in13_V3_Display(this->buffer_);
+  this->write_lut_(FULL_LUT);
+  this->write_buffer_();
+  SEND(ON_FULL);
+  this->command(ACTIVATE);    // don't wait here
+  this->is_busy_ = false;
 }
 
 void WaveshareEPaper2P13InV3::display() {
-  /*
-  if (this->is_busy_)
-   return;
+  if (this->is_busy_ || (this->busy_pin_ != nullptr && this->busy_pin_->digital_read()))
+    return;
   this->is_busy_ = true;
   this->wait_until_idle_();
-  this->set_window_();
-
-   */
   const bool partial = this->at_update_ != 0;
   this->at_update_ = (this->at_update_ + 1) % this->full_update_every_;
   if (partial) {
