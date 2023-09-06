@@ -1,6 +1,7 @@
 #include "waveshare_epaper.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
+#include <cinttypes>
 
 namespace esphome {
 namespace waveshare_epaper {
@@ -318,18 +319,20 @@ void WaveshareEPaper2P13InV3::initialize() {}
 void WaveshareEPaper2P13InV3::partial_update_() {
   ESP_LOGD(TAG, "Performing partial e-paper update.");
   this->send_reset_();
-  this->write_lut_(PARTIAL_LUT);
-  SEND(CMD5);
-  SEND(BORDER_PART);
-  SEND(UPSEQ);
-  this->command(ACTIVATE);
   this->set_timeout(100, [this] {
-    this->wait_until_idle_();
-    this->set_window_();
-    this->write_buffer_();
-    SEND(ON_PARTIAL);
-    this->command(ACTIVATE); // Activate Display Update Sequence
-    this->is_busy_ = false;
+    this->write_lut_(PARTIAL_LUT);
+    SEND(CMD5);
+    SEND(BORDER_PART);
+    SEND(UPSEQ);
+    this->command(ACTIVATE);
+    this->set_timeout(100, [this] {
+      this->wait_until_idle_();
+      this->set_window_();
+      this->write_buffer_();
+      SEND(ON_PARTIAL);
+      this->command(ACTIVATE); // Activate Display Update Sequence
+      this->is_busy_ = false;
+    });
   });
 }
 
@@ -344,10 +347,10 @@ void WaveshareEPaper2P13InV3::full_update_() {
 }
 
 void WaveshareEPaper2P13InV3::display() {
+  uint32_t now = millis();
   if (this->is_busy_ || (this->busy_pin_ != nullptr && this->busy_pin_->digital_read()))
     return;
   this->is_busy_ = true;
-  this->wait_until_idle_();
   const bool partial = this->at_update_ != 0;
   this->at_update_ = (this->at_update_ + 1) % this->full_update_every_;
   if (partial) {
@@ -355,7 +358,6 @@ void WaveshareEPaper2P13InV3::display() {
   } else {
     this->full_update_();
   }
-  ESP_LOGD(TAG, "Completed e-paper update.");
 }
 
 int WaveshareEPaper2P13InV3::get_width_internal() { return 128; }
