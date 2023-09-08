@@ -86,6 +86,7 @@ CONFIG_SCHEMA = cv.All(
     cv.require_framework_version(
         esp8266_arduino=cv.Version(2, 5, 1),
         esp32_arduino=cv.Version(0, 0, 0),
+        bk72xx_arduino=cv.Version(1, 3, 0),
     ),
 )
 

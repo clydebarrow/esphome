@@ -13,6 +13,9 @@
 #include <utility>
 #include <vector>
 
+#ifdef USE_LIBRETINY
+#include <HTTPClient.h>
+#endif
 #ifdef USE_ESP32
 #include <HTTPClient.h>
 #endif
@@ -65,7 +68,7 @@ class HttpRequestComponent : public Component {
   uint16_t timeout_{5000};
   std::string body_;
   std::list<Header> headers_;
-#ifdef USE_ESP8266
+#if defined(USE_ESP8266) || defined(USE_LIBRETINY)
   std::shared_ptr<WiFiClient> wifi_client_;
 #ifdef USE_HTTP_REQUEST_ESP8266_HTTPS
   std::shared_ptr<BearSSL::WiFiClientSecure> wifi_client_secure_;

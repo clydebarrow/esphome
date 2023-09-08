@@ -1832,6 +1832,7 @@ def require_framework_version(
     esp32_arduino=None,
     esp8266_arduino=None,
     rp2040_arduino=None,
+    bk72xx_arduino=None,
     max_version=False,
     extra_message=None,
 ):
@@ -1866,6 +1867,13 @@ def require_framework_version(
                     msg += f". {extra_message}"
                 raise Invalid(msg)
             required = rp2040_arduino
+        elif CORE.is_bk72xx and framework == "arduino":
+            if bk72xx_arduino is None:
+                msg = "This feature is incompatible with bk72xx"
+                if extra_message:
+                    msg += f". {extra_message}"
+                raise Invalid(msg)
+            required = bk72xx_arduino
         else:
             raise Invalid(
                 f"""

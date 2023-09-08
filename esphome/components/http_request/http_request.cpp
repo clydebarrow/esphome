@@ -4,6 +4,7 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/log.h"
 #include "esphome/components/network/util.h"
+#include <StreamString.h>
 
 namespace esphome {
 namespace http_request {
@@ -41,7 +42,7 @@ void HttpRequestComponent::send(const std::vector<HttpRequestResponseTrigger *> 
   bool begin_status = false;
   const String url = this->url_.c_str();
 #if defined(USE_ESP32) || (defined(USE_ESP8266) && USE_ARDUINO_VERSION_CODE >= VERSION_CODE(2, 6, 0))
-#if defined(USE_ESP32) || USE_ARDUINO_VERSION_CODE >= VERSION_CODE(2, 7, 0)
+#if defined(USE_ESP32) || USE_ARDUINO_VERSION_CODE >= VERSION_CODE(2, 7, 0) || defined(USE_LIBRETINY)
   if (this->follow_redirects_) {
     this->client_.setFollowRedirects(HTTPC_FORCE_FOLLOW_REDIRECTS);
   } else {
@@ -55,6 +56,8 @@ void HttpRequestComponent::send(const std::vector<HttpRequestResponseTrigger *> 
 #if defined(USE_ESP32)
   begin_status = this->client_.begin(url);
 #elif defined(USE_ESP8266)
+  begin_status = this->client_.begin(*this->get_wifi_client_(), url);
+#elif defined(USE_LIBRETINY)
   begin_status = this->client_.begin(*this->get_wifi_client_(), url);
 #endif
 
@@ -99,7 +102,7 @@ void HttpRequestComponent::send(const std::vector<HttpRequestResponseTrigger *> 
   ESP_LOGD(TAG, "HTTP Request completed; URL: %s; Code: %d; Duration: %u ms", this->url_.c_str(), http_code, duration);
 }
 
-#ifdef USE_ESP8266
+#if defined(USE_ESP8266) || defined(USE_LIBRETINY)
 std::shared_ptr<WiFiClient> HttpRequestComponent::get_wifi_client_() {
 #ifdef USE_HTTP_REQUEST_ESP8266_HTTPS
   if (this->secure_) {
@@ -125,17 +128,19 @@ void HttpRequestComponent::close() {
 }
 
 const char *HttpRequestComponent::get_string() {
-#if defined(ESP32)
-  // The static variable is here because HTTPClient::getString() returns a String on ESP32,
-  // and we need something to keep a buffer alive.
-  static String str;
-#else
-  // However on ESP8266, HTTPClient::getString() returns a String& to a member variable.
-  // Leaving this the default so that any new platform either doesn't copy, or encounters a compilation error.
-  auto &
-#endif
-  str = this->client_.getString();
-  return str.c_str();
+  auto size = this->client_.getSize();
+  // size can be -1 when Server sends no Content-Length header
+  if (size >= -1) {
+    StreamString sstring;
+    // try to reserve needed memory (noop if size == -1)
+    if (sstring.reserve((size + 1))) {
+      this->client_.writeToStream(&sstring);
+      return sstring.c_str();
+    } else {
+      log_d("not enough memory to reserve a string! need: %d", (size + 1));
+    }
+  }
+  return "";
 }
 
 }  // namespace http_request
