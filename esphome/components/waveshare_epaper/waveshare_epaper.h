@@ -65,10 +65,17 @@ class WaveshareEPaper : public PollingComponent,
   void start_data_();
   void end_data_();
 
+  struct {
+    int l;
+    int t;
+    int r;
+    int b;
+  } dirty_rect_;
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *dc_pin_;
   GPIOPin *busy_pin_{nullptr};
   virtual uint32_t idle_timeout_() { return 1000u; }  // NOLINT(readability-identifier-naming)
+  void reset_dirty_();
 };
 
 enum WaveshareEPaperTypeAModel {
@@ -585,8 +592,8 @@ class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
   int get_height_internal() override;
   uint32_t idle_timeout_() override;
 
-  void write_buffer_();
-  void set_window_();
+  void write_buffer_(int t, int b);
+  void set_window_(int t, int b);
   void send_reset_();
   void partial_update_();
   void full_update_();

@@ -109,7 +109,7 @@ static const uint8_t TEMP_SENS[] = {0x18, 0x80};              // Temp sensor
 static const uint8_t RAM_X_START[] = {0x44, 0x00, 121 / 8};     // set ram_x_address_start_end
 static const uint8_t RAM_Y_START[] = {0x45, 0x00, 0x00, 250 - 1, 0};// set ram_y_address_start_end
 static const uint8_t RAM_X_POS[] = {0x4E, 0x01};              // set ram_x_address_counter
-static const uint8_t RAM_Y_POS[] = {0x4F, 0x00, 0x00};        // set ram_x_address_counter
+static const uint8_t RAM_Y_POS[] = {0x4F, 0x00, 0x00};        // set ram_y_address_counter
 static const uint8_t BORDER_PART[] = {0x3C, 0x80};              // border waveform
 static const uint8_t BORDER_FULL[] = {0x3C, 0x05};              // border waveform
 static const uint8_t SLEEP[] = {0x10, 0x01};              // border waveform
@@ -187,30 +187,11 @@ void WaveshareEPaper2P13InV3::EPD_2in13_V3_Init(void) {
   wait_until_idle_();
 
   SEND(DRV_OUT_CTL);
-  //this->command(0x01); //Driver output control
-  //data(0xf9);
-  //data(0x00);
-  //data(0x00);
-
   SEND(DATA_ENTRY);
-  //this->command(0x11); //data entry mode
-  //data(0x03);
-
-  this->set_window_();
-
+  this->set_window_(0, this->get_height_internal() + 1);
   SEND(BORDER_FULL);
-  //.this->command(0x3C); //BorderWaveform
-  //.data(0x05);
-
   SEND(DISPLAY_UPDATE);
-  //this->command(0x21); //  Display update control
-  //data(0x00);
-  //data(0x80);
-
   SEND(TEMP_SENS);
-  //this->command(0x18); //Read built-in temperature sensor
-  //data(0x80);
-
   wait_until_idle_();
   this->write_lut_(FULL_LUT);
 }
@@ -246,18 +227,18 @@ void WaveshareEPaper2P13InV3::activate_() {
 }
 
 
-void WaveshareEPaper2P13InV3::write_buffer_() {
+void WaveshareEPaper2P13InV3::write_buffer_(int t, int b) {
   this->wait_until_idle_();
   this->command(WRITE_BUFFER);
   this->start_data_();
-  this->write_array(this->buffer_, this->get_buffer_length_());
+  this->write_array(this->buffer_ + t * this->get_width_internal(), (b - t) * this->get_width_internal());
   this->end_data_();
 }
 
 void WaveshareEPaper2P13InV3::send_reset_() {
   if (this->reset_pin_ != nullptr) {
     this->reset_pin_->digital_write(false);
-    delay(1);
+    delay(2);
     this->reset_pin_->digital_write(true);
   }
 }
@@ -266,58 +247,25 @@ void WaveshareEPaper2P13InV3::setup() {
   this->setup_pins_();
   delay(20);
   this->EPD_2in13_V3_Init();
-  //this->EPD_2in13_V3_Clear();
-  /*
-  this->send_reset_();
-  delay(120); //NOLINT
-  if (!this->wait_until_idle_())
-    this->mark_failed();
-  this->command(0x12); // SW reset
-  if (!this->wait_until_idle_())
-    this->mark_failed();
-  SEND(INIT1);
-  SEND(INIT2);
-  SEND(RAM_X_START);
-  SEND(RAM_Y_START);
-  SEND(RAM_X_POS);
-  SEND(RAM_Y_POS);
-  SEND(BORDER_FULL);
-  SEND(INIT3);
-  SEND(INIT4);
-  this->wait_until_idle_();
-  SEND(FULL_LUT);
-  this->wait_until_idle_();
-  SEND(CMD1);
-  SEND(CMD2);
-  SEND(CMD3);
-  SEND(CMD4);
-  this->wait_until_idle_();
-  SEND(FULL_LUT);
-  this->command(0x24);
-  size_t bytes = this->get_width_internal() * this->get_height_internal() / 8;
-  while (bytes-- != 0)
-    this->data(0xFF);
-  // write a white base image
-  this->command(0x26);
-  bytes = this->get_width_internal() * this->get_height_internal() / 8;
-  while (bytes-- != 0)
-    this->data(0xFF);
-  SEND(ON_FULL);
-  this->command(0x20);
-   */
 }
 
-void WaveshareEPaper2P13InV3::set_window_() {
+void WaveshareEPaper2P13InV3::set_window_(int t, int b) {
+  uint8_t buffer[3];
+
   SEND(RAM_X_START);
   SEND(RAM_Y_START);
   SEND(RAM_X_POS);
-  SEND(RAM_Y_POS);
+  buffer[0] = 0x45;
+  buffer[1] = (uint8_t)t;
+  buffer[2] = (uint8_t)(t >> 8);
+  SEND(buffer);
 }
 
 void WaveshareEPaper2P13InV3::initialize() {}
 
 void WaveshareEPaper2P13InV3::partial_update_() {
-  ESP_LOGD(TAG, "Performing partial e-paper update.");
+  ESP_LOGD(TAG, "Performing partial e-paper update, dirty={%d,%d,%d,%d}",
+           this->dirty_rect_.l, this->dirty_rect_.t, this->dirty_rect_.r, this->dirty_rect_.b);
   this->send_reset_();
   this->set_timeout(100, [this] {
     this->write_lut_(PARTIAL_LUT);
@@ -327,8 +275,13 @@ void WaveshareEPaper2P13InV3::partial_update_() {
     this->command(ACTIVATE);
     this->set_timeout(100, [this] {
       this->wait_until_idle_();
-      this->set_window_();
-      this->write_buffer_();
+      int t = 0, b = this->get_width_internal();
+      if (this->dirty_rect_.t <= this->dirty_rect_.b) {
+        t = this->dirty_rect_.t;
+        b = this->dirty_rect_.b + 1;
+      }
+      this->set_window_(t, b);
+      this->write_buffer_(t, b);
       SEND(ON_PARTIAL);
       this->command(ACTIVATE); // Activate Display Update Sequence
       this->is_busy_ = false;
@@ -338,16 +291,14 @@ void WaveshareEPaper2P13InV3::partial_update_() {
 
 void WaveshareEPaper2P13InV3::full_update_() {
   ESP_LOGI(TAG, "Performing full e-paper update.");
-  //this->EPD_2in13_V3_Display(this->buffer_);
   this->write_lut_(FULL_LUT);
-  this->write_buffer_();
+  this->write_buffer_(0, this->get_height_internal());
   SEND(ON_FULL);
   this->command(ACTIVATE);    // don't wait here
   this->is_busy_ = false;
 }
 
 void WaveshareEPaper2P13InV3::display() {
-  uint32_t now = millis();
   if (this->is_busy_ || (this->busy_pin_ != nullptr && this->busy_pin_->digital_read()))
     return;
   this->is_busy_ = true;
