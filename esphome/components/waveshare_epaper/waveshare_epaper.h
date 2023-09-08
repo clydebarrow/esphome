@@ -563,7 +563,6 @@ class WaveshareEPaper2P13InDKE : public WaveshareEPaper {
 
 class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
  public:
-
   void display() override;
 
   void dump_config() override;
@@ -585,7 +584,7 @@ class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
   int get_height_internal() override;
   uint32_t idle_timeout_() override;
 
-  void write_buffer_(uint8_t cmd, int t, int b);
+  void write_buffer_(uint8_t cmd, int top, int bottom);
   void set_window_(int t, int b);
   void send_reset_();
   void partial_update_();
@@ -595,8 +594,6 @@ class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
   uint32_t at_update_{0};
   bool is_busy_{false};
   void write_lut_(const uint8_t *lut);
-
-  void activate_();
 };
 }  // namespace waveshare_epaper
 }  // namespace esphome
