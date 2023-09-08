@@ -1,7 +1,6 @@
 #include "waveshare_epaper.h"
 #include "esphome/core/log.h"
 #include "esphome/core/application.h"
-#include <cinttypes>
 
 namespace esphome {
 namespace waveshare_epaper {
@@ -42,95 +41,32 @@ static const uint8_t FULL_LUT[] = {
   0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x0, 0x0, 0x0,
 };
 
-static const uint8_t WF_PARTIAL_2IN13_V3[159] =
-  {
-    0x0, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x80, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x40, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x14, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x0, 0x0, 0x0,
-    0x22, 0x17, 0x41, 0x00, 0x32, 0x36,
-  };
-
-static const uint8_t WS_20_30_2IN13_V3[159] =
-  {
-    0x80, 0x4A, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x40, 0x4A, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x80, 0x4A, 0x40, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x40, 0x4A, 0x80, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0xF, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0xF, 0x0, 0x0, 0xF, 0x0, 0x0, 0x2,
-    0xF, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0,
-    0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x0, 0x0, 0x0,
-    0x22, 0x17, 0x41, 0x0, 0x32, 0x36
-  };
-
 static const uint8_t SW_RESET = 0x12;
 static const uint8_t ACTIVATE = 0x20;
 static const uint8_t WRITE_BUFFER = 0x24;
+static const uint8_t WRITE_BASE = 0x26;
+
+static const uint8_t DRV_OUT_CTL[] = {0x01, 0x27, 0x01, 0x00};  // driver output control
+static const uint8_t GATEV[] = {0x03, 0x17};
+static const uint8_t SRCV[] = {0x04, 0x41, 0x0C, 0x32};
+static const uint8_t SLEEP[] = {0x10, 0x01};              // border waveform
+static const uint8_t DATA_ENTRY[] = {0x11, 0x03};              // data entry mode
+static const uint8_t TEMP_SENS[] = {0x18, 0x80};              // Temp sensor
+static const uint8_t DISPLAY_UPDATE[] = {0x21, 0x00, 0x80};        // Display update control
+static const uint8_t UPSEQ[] = {0x22, 0xC0};
 static const uint8_t ON_FULL[] = {0x22, 0xC7};
 static const uint8_t ON_PARTIAL[] = {0x22, 0x0F};
-
-static const uint8_t CMD1[] = {0x3F, 0x22};
-static const uint8_t GATEV[] = {0x03, 0x17};
-static const uint8_t SRCV[] = {0x04, 0x41, 0x00, 0x32};
 static const uint8_t VCOM[] = {0x2C, 0x36};
 static const uint8_t CMD5[] = {0x37, 0x00, 0x00, 0x00, 0x00, 0x00, 0x40, 0x00, 0x00, 0x00, 0x00};
-static const uint8_t UPSEQ[] = {0x22, 0xC0};
-
-static const uint8_t DRV_OUT_CTL[] = {0x01, 0xF9, 0x00, 0x00};  // driver output control
-static const uint8_t DATA_ENTRY[] = {0x11, 0x03};              // data entry mode
-static const uint8_t DISPLAY_UPDATE[] = {0x21, 0x00, 0x80};        // Display update control
-static const uint8_t TEMP_SENS[] = {0x18, 0x80};              // Temp sensor
-
-static const uint8_t RAM_X_START[] = {0x44, 0x00, 121 / 8};     // set ram_x_address_start_end
-static const uint8_t RAM_Y_START[] = {0x45, 0x00, 0x00, 250 - 1, 0};// set ram_y_address_start_end
-static const uint8_t RAM_X_POS[] = {0x4E, 0x01};              // set ram_x_address_counter
-static const uint8_t RAM_Y_POS[] = {0x4F, 0x00, 0x00};        // set ram_y_address_counter
 static const uint8_t BORDER_PART[] = {0x3C, 0x80};              // border waveform
 static const uint8_t BORDER_FULL[] = {0x3C, 0x05};              // border waveform
-static const uint8_t SLEEP[] = {0x10, 0x01};              // border waveform
+static const uint8_t CMD1[] = {0x3F, 0x22};
+static const uint8_t RAM_X_START[] = {0x44, 0x00, 121 / 8};     // set ram_x_address_start_end
+static const uint8_t RAM_Y_START[] = {0x45, 0x00, 0x00, 250 - 1, 0};// set ram_y_address_start_end
+static const uint8_t RAM_X_POS[] = {0x4E, 0x00};              // set ram_x_address_counter
+static const uint8_t RAM_Y_POS[] = {0x4F, 0x00, 0x00};        // set ram_y_address_counter
 #define SEND(x) this->cmd_data(x, sizeof(x))
 
-/******************************************************************************
-function :	Turn On Display
-parameter:
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_TurnOnDisplay(void) {
-  this->command(0x22); // Display Update Control
-  data(0xc7);
-  this->command(0x20); // Activate Display Update Sequence
-  wait_until_idle_();
-}
-
-/******************************************************************************
-function :	Send lut data and configuration
-parameter:
-    lut :   lut data
-******************************************************************************/
 void WaveshareEPaper2P13InV3::write_lut_(const uint8_t *lut) {
   this->wait_until_idle_();
   this->cmd_data(lut, sizeof(PARTIAL_LUT));
@@ -140,98 +76,20 @@ void WaveshareEPaper2P13InV3::write_lut_(const uint8_t *lut) {
   SEND(VCOM);
 }
 
-/******************************************************************************
-function :	Setting the display window
-parameter:
-  Xstart : X-axis starting position
-  Ystart : Y-axis starting position
-  Xend : End position of X-axis
-  Yend : End position of Y-axis
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_SetWindows(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend) {
-  this->command(0x44); // SET_RAM_X_ADDRESS_START_END_POSITION
-  data((Xstart >> 3) & 0xFF);
-  data((Xend >> 3) & 0xFF);
-
-  this->command(0x45); // SET_RAM_Y_ADDRESS_START_END_POSITION
-  data(Ystart & 0xFF);
-  data((Ystart >> 8) & 0xFF);
-  data(Yend & 0xFF);
-  data((Yend >> 8) & 0xFF);
-}
-
-/******************************************************************************
-function :	Set Cursor
-parameter:
-	Xstart : X-axis starting position
-	Ystart : Y-axis starting position
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_SetCursor(uint16_t Xstart, uint16_t Ystart) {
-  this->command(0x4E); // SET_RAM_X_ADDRESS_COUNTER
-  data(Xstart & 0xFF);
-
-  this->command(0x4F); // SET_RAM_Y_ADDRESS_COUNTER
-  data(Ystart & 0xFF);
-  data((Ystart >> 8) & 0xFF);
-}
-
-/******************************************************************************
-function :	Initialize the e-Paper register
-parameter:
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_Init(void) {
-  this->send_reset_();
-  delay(100);
-  wait_until_idle_();
-  this->command(SW_RESET);
-  wait_until_idle_();
-
-  SEND(DRV_OUT_CTL);
-  SEND(DATA_ENTRY);
-  this->set_window_(0, this->get_height_internal() + 1);
-  SEND(BORDER_FULL);
-  SEND(DISPLAY_UPDATE);
-  SEND(TEMP_SENS);
-  wait_until_idle_();
-  this->write_lut_(FULL_LUT);
-}
-
-/******************************************************************************
-function :	Refresh a base image
-parameter:
-	image : Image data
-******************************************************************************/
-void WaveshareEPaper2P13InV3::EPD_2in13_V3_Display_Base(uint8_t *Image) {
-  uint16_t Width, Height;
-  Width = (122 % 8 == 0) ? (122 / 8) : (122 / 8 + 1);
-  Height = 250;
-
-  this->command(0x24);   //Write Black and White image to RAM
-  for (uint16_t j = 0; j < Height; j++) {
-    for (uint16_t i = 0; i < Width; i++) {
-      data(Image[i + j * Width]);
-    }
-  }
-  this->command(0x26);   //Write Black and White image to RAM
-  for (uint16_t j = 0; j < Height; j++) {
-    for (uint16_t i = 0; i < Width; i++) {
-      data(Image[i + j * Width]);
-    }
-  }
-  EPD_2in13_V3_TurnOnDisplay();
-}
-
 void WaveshareEPaper2P13InV3::activate_() {
   this->command(ACTIVATE);  //Activate Display Update Sequence
   wait_until_idle_();
 }
 
 
-void WaveshareEPaper2P13InV3::write_buffer_(int t, int b) {
+void WaveshareEPaper2P13InV3::write_buffer_(uint8_t cmd, int t, int b) {
   this->wait_until_idle_();
-  this->command(WRITE_BUFFER);
+  this->set_window_(t, b);
+  this->command(cmd);
   this->start_data_();
-  this->write_array(this->buffer_ + t * this->get_width_internal(), (b - t) * this->get_width_internal());
+  auto width_bytes = this->get_width_internal() / 8;
+  this->write_array(this->buffer_ + t * width_bytes, (b - t) * width_bytes);
+  //this->write_array(this->buffer_ , this->get_buffer_length_());
   this->end_data_();
 }
 
@@ -244,18 +102,32 @@ void WaveshareEPaper2P13InV3::send_reset_() {
 }
 
 void WaveshareEPaper2P13InV3::setup() {
-  this->setup_pins_();
+  setup_pins_();
   delay(20);
-  this->EPD_2in13_V3_Init();
+  this->send_reset_();
+  delay(100);
+  this->wait_until_idle_();
+  this->command(SW_RESET);
+  this->wait_until_idle_();
+
+  SEND(DRV_OUT_CTL);
+  SEND(DATA_ENTRY);
+  this->set_window_(0, this->get_height_internal());
+  SEND(BORDER_FULL);
+  SEND(DISPLAY_UPDATE);
+  SEND(TEMP_SENS);
+  this->wait_until_idle_();
+  this->write_lut_(FULL_LUT);
 }
 
+// t and b are y positions, i.e. line numbers.
 void WaveshareEPaper2P13InV3::set_window_(int t, int b) {
   uint8_t buffer[3];
 
   SEND(RAM_X_START);
   SEND(RAM_Y_START);
   SEND(RAM_X_POS);
-  buffer[0] = 0x45;
+  buffer[0] = 0x4F;
   buffer[1] = (uint8_t)t;
   buffer[2] = (uint8_t)(t >> 8);
   SEND(buffer);
@@ -264,8 +136,6 @@ void WaveshareEPaper2P13InV3::set_window_(int t, int b) {
 void WaveshareEPaper2P13InV3::initialize() {}
 
 void WaveshareEPaper2P13InV3::partial_update_() {
-  ESP_LOGD(TAG, "Performing partial e-paper update, dirty={%d,%d,%d,%d}",
-           this->dirty_rect_.l, this->dirty_rect_.t, this->dirty_rect_.r, this->dirty_rect_.b);
   this->send_reset_();
   this->set_timeout(100, [this] {
     this->write_lut_(PARTIAL_LUT);
@@ -275,13 +145,7 @@ void WaveshareEPaper2P13InV3::partial_update_() {
     this->command(ACTIVATE);
     this->set_timeout(100, [this] {
       this->wait_until_idle_();
-      int t = 0, b = this->get_width_internal();
-      if (this->dirty_rect_.t <= this->dirty_rect_.b) {
-        t = this->dirty_rect_.t;
-        b = this->dirty_rect_.b + 1;
-      }
-      this->set_window_(t, b);
-      this->write_buffer_(t, b);
+      this->write_buffer_(WRITE_BUFFER, 0, this->get_height_internal());
       SEND(ON_PARTIAL);
       this->command(ACTIVATE); // Activate Display Update Sequence
       this->is_busy_ = false;
@@ -292,7 +156,8 @@ void WaveshareEPaper2P13InV3::partial_update_() {
 void WaveshareEPaper2P13InV3::full_update_() {
   ESP_LOGI(TAG, "Performing full e-paper update.");
   this->write_lut_(FULL_LUT);
-  this->write_buffer_(0, this->get_height_internal());
+  this->write_buffer_(WRITE_BUFFER, 0, this->get_height_internal());
+  this->write_buffer_(WRITE_BASE, 0, this->get_height_internal());
   SEND(ON_FULL);
   this->command(ACTIVATE);    // don't wait here
   this->is_busy_ = false;
@@ -318,13 +183,13 @@ int WaveshareEPaper2P13InV3::get_height_internal() { return 250; }
 uint32_t WaveshareEPaper2P13InV3::idle_timeout_() { return 5000; }
 
 void WaveshareEPaper2P13InV3::dump_config() {
-  LOG_DISPLAY("", "Waveshare E-Paper", this);
+  LOG_DISPLAY("", "Waveshare E-Paper", this)
   ESP_LOGCONFIG(TAG, "  Model: 2.13inV3");
-  LOG_PIN("  CS Pin: ", this->cs_);
-  LOG_PIN("  Reset Pin: ", this->reset_pin_);
-  LOG_PIN("  DC Pin: ", this->dc_pin_);
-  LOG_PIN("  Busy Pin: ", this->busy_pin_);
-  LOG_UPDATE_INTERVAL(this);
+  LOG_PIN("  CS Pin: ", this->cs_)
+  LOG_PIN("  Reset Pin: ", this->reset_pin_)
+  LOG_PIN("  DC Pin: ", this->dc_pin_)
+  LOG_PIN("  Busy Pin: ", this->busy_pin_)
+  LOG_UPDATE_INTERVAL(this)
 }
 
 void WaveshareEPaper2P13InV3::set_full_update_every(uint32_t full_update_every) {

@@ -65,17 +65,10 @@ class WaveshareEPaper : public PollingComponent,
   void start_data_();
   void end_data_();
 
-  struct {
-    int l;
-    int t;
-    int r;
-    int b;
-  } dirty_rect_;
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *dc_pin_;
   GPIOPin *busy_pin_{nullptr};
   virtual uint32_t idle_timeout_() { return 1000u; }  // NOLINT(readability-identifier-naming)
-  void reset_dirty_();
 };
 
 enum WaveshareEPaperTypeAModel {
@@ -592,7 +585,7 @@ class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
   int get_height_internal() override;
   uint32_t idle_timeout_() override;
 
-  void write_buffer_(int t, int b);
+  void write_buffer_(uint8_t cmd, int t, int b);
   void set_window_(int t, int b);
   void send_reset_();
   void partial_update_();
@@ -601,15 +594,7 @@ class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
   uint32_t full_update_every_{30};
   uint32_t at_update_{0};
   bool is_busy_{false};
-  bool was_partial{false};
-  void EPD_2in13_V3_TurnOnDisplay(void);
   void write_lut_(const uint8_t *lut);
-  void EPD_2in13_V3_SetWindows(uint16_t Xstart, uint16_t Ystart, uint16_t Xend, uint16_t Yend);
-  void EPD_2in13_V3_SetCursor(uint16_t Xstart, uint16_t Ystart);
-  void EPD_2in13_V3_Init(void);
-  void EPD_2in13_V3_Clear(void);
-  void EPD_2in13_V3_Display(uint8_t *Image);
-  void EPD_2in13_V3_Display_Base(uint8_t *Image);
 
   void activate_();
 };

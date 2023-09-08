@@ -83,16 +83,8 @@ static const uint8_t PARTIAL_UPDATE_LUT_TTGO_B1[LUT_SIZE_TTGO_B1] = {
     0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x0F, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
-void WaveshareEPaper::reset_dirty_() {
-  this->dirty_rect_.l = 32768;
-  this->dirty_rect_.t = 32768;
-  this->dirty_rect_.r = -1;
-  this->dirty_rect_.b = -1;
-}
-
 void WaveshareEPaper::setup_pins_() {
   this->init_internal_(this->get_buffer_length_());
-  this->reset_dirty_();
   this->dc_pin_->setup();  // OUTPUT
   this->dc_pin_->digital_write(false);
   if (this->reset_pin_ != nullptr) {
@@ -147,7 +139,6 @@ bool WaveshareEPaper::wait_until_idle_() {
 void WaveshareEPaper::update() {
   this->do_update_();
   this->display();
-  this->reset_dirty_();
 }
 void WaveshareEPaper::fill(Color color) {
   // flip logic
@@ -158,16 +149,6 @@ void WaveshareEPaper::fill(Color color) {
 void HOT WaveshareEPaper::draw_absolute_pixel_internal(int x, int y, Color color) {
   if (x >= this->get_width_internal() || y >= this->get_height_internal() || x < 0 || y < 0)
     return;
-
-  // expand dirty rectangle.
-  if (this->dirty_rect_.l > x)
-    this->dirty_rect_.l = x;
-  if (this->dirty_rect_.r < x)
-    this->dirty_rect_.r = x;
-  if (this->dirty_rect_.t > y)
-    this->dirty_rect_.t = y;
-  if (this->dirty_rect_.b < y)
-    this->dirty_rect_.b = y;
 
   const uint32_t pos = (x + y * this->get_width_controller()) / 8u;
   const uint8_t subpos = x & 0x07;
