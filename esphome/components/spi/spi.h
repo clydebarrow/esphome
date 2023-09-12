@@ -222,6 +222,9 @@ class SPIDelegate {
       this->transfer(ptr[i]);
   }
 
+  // write buffer async (if possible). Fallback implementation is same as write_array
+  virtual void write_array_async(const uint8_t *ptr, size_t length) { this->write_array(ptr, length); }
+
   // read into a buffer, write nulls
   virtual void read_array(uint8_t *ptr, size_t length) {
     for (size_t i = 0; i != length; i++)
@@ -411,6 +414,7 @@ class SPIDevice : public SPIClient {
 
   void write_byte(uint8_t data) { this->delegate_->write_array(&data, 1); }
 
+  // simultaneous read and write. Buffer will be overwritten by read data
   void transfer_array(uint8_t *data, size_t length) { this->delegate_->transfer(data, length); }
 
   uint8_t transfer_byte(uint8_t data) { return this->delegate_->transfer(data); }
@@ -421,11 +425,17 @@ class SPIDevice : public SPIClient {
   // avoid use of this if possible. It's inefficient and ugly.
   void write_array16(const uint16_t *data, size_t length) { this->delegate_->write_array16(data, length); }
 
+  // will assert /CS
   void enable() { this->delegate_->begin_transaction(); }
 
+  // wait for transaction end and de-assert /CS
   void disable() { this->delegate_->end_transaction(); }
 
+  // write data, blocking.
   void write_array(const uint8_t *data, size_t length) { this->delegate_->write_array(data, length); }
+
+  // write data, non-blocking
+  void write_array_async(const uint8_t *data, size_t length) { this->delegate_->write_array_async(data, length); }
 
   template<size_t N> void write_array(const std::array<uint8_t, N> &data) { this->write_array(data.data(), N); }
 
