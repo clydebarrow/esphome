@@ -2,12 +2,12 @@ import esphome.codegen as cg
 import esphome.core as core
 from esphome.components.display import DisplayBuffer
 import esphome.config_validation as cv
-from build.lib.esphome.components.display_menu_base import CONF_TEXT
 from esphome.const import (
     CONF_ID,
 )
 
 
+DOMAIN = "lvgl"
 DEPENDENCIES = ["display"]
 CODEOWNERS = ["@clydebarrow"]
 
@@ -21,6 +21,7 @@ CONF_LINE = "line"
 CONF_WIDGETS = "widgets"
 CONF_DISPLAY_ID = "display_id"
 CONF_COLOR_DEPTH = "color_depth"
+CONF_TEXT = "text"
 
 WIDGET = "widget"
 

@@ -1,12 +1,13 @@
 //
 // Created by Clyde Stubbs on 12/9/2023.
 //
-
 #pragma once
 
 #include "esphome/core/component.h"
-#include "esphome/components/display.h"
-#include "../../../.pio/libdeps/esp32-idf/lvgl/src/lvgl.h"
+//#include "esphome/components/display.h"
+#include <lvgl.h>
+#include "../../core/component.h"
+#include "../display/display_buffer.h"
 
 
 namespace esphome {
