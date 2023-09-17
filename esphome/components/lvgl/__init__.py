@@ -104,6 +104,10 @@ CONFIG_SCHEMA = cv.Schema(
 async def to_code(config):
     cg.add_library("lvgl/lvgl", "8.3.9")
     core.CORE.add_build_flag("-DLV_CONF_SKIP=1")
+    core.CORE.add_build_flag("-DLV_USE_USER_DATA=1")
+    # core.CORE.add_build_flag("-DLV_TICK_CUSTOM=1")
+    # core.CORE.add_build_flag("-DLV_TICK_CUSTOM_INCLUDE=\\'<esphome/core/hal.h>\\'")
+    # core.CORE.add_build_flag("-DLV_TICK_CUSTOM_SYS_TIME_EXPR=\\'(millis())\\'")
     core.CORE.add_build_flag("-DLV_USE_METER=0")
     core.CORE.add_build_flag(f"-DLV_COLOR_DEPTH={config[CONF_COLOR_DEPTH]}")
     core.CORE.add_build_flag("-I src")
