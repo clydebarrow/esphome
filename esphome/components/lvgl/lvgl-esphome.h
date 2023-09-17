@@ -22,6 +22,7 @@ class LvglComponent : public PollingComponent {
   }
 
   void setup() override {
+    return;
     lv_init();
     this->draw_buf_ = static_cast<lv_disp_draw_buf_t *>(lv_mem_alloc(10 * this->display_->get_width()));  // NOLINT
     lv_disp_drv_init(&this->disp_drv_);
@@ -30,15 +31,10 @@ class LvglComponent : public PollingComponent {
     this->disp_drv_.draw_buf = this->draw_buf_;
     this->disp_drv_.user_data = this;
     this->disp_drv_.flush_cb = static_flush_cb;
-    this->set_interval(10, [] { lv_tick_inc(10); });
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
-    /*Create an array for the points of the line*/
 
-    return;
-    /*Create style*/
-
-    /*Create a line and apply the new style*/
     set_timeout(30000, [] {
+      return;
       static lv_point_t line_points[] = {{5, 5}, {70, 70}, {120, 10}, {180, 60}, {240, 10}};
       ESP_LOGI(TAG, "addng line");
       static lv_style_t style_line;
@@ -54,6 +50,7 @@ class LvglComponent : public PollingComponent {
       lv_obj_add_style(line1, &style_line, 0);
       lv_obj_center(line1);
     });
+    //this->set_interval(10, [] { lv_tick_inc(10); });
   }
 
   void update() override { lv_timer_handler(); }
@@ -62,7 +59,8 @@ class LvglComponent : public PollingComponent {
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
-    ESP_LOGI(TAG, "flush_cb called, %d%d,%d/%d", area->x1, area->y1, area->x2, area->y2);
+    if (area->y2 >= area->y1)
+      ESP_LOGI(TAG, "flush_cb called, %d/%d,%d/%d", area->x1, area->y1, area->x2, area->y2);
     lv_disp_flush_ready(disp_drv);
   }
   display::DisplayBuffer *display_{};
