@@ -134,9 +134,10 @@ static const uint8_t TXB_EXIDE_MASK = 0x08;
 static const uint8_t DLC_MASK = 0x0F;
 static const uint8_t RTR_MASK = 0x40;
 
-static const uint8_t RXB_CTRL_RXM_STD = 0x20;
-static const uint8_t RXB_CTRL_RXM_EXT = 0x40;
-static const uint8_t RXB_CTRL_RXM_STDEXT = 0x00;
+//static const uint8_t RXB_CTRL_RXM_STD = 0x20;
+//static const uint8_t RXB_CTRL_RXM_EXT = 0x40;
+static const uint8_t RXB_CTRL_RXM_FILTERED = 0x00;
+static const uint8_t RXB_CTRL_RXM_STDEXT = 0x60;
 static const uint8_t RXB_CTRL_RXM_MASK = 0x60;
 static const uint8_t RXB_CTRL_RTR = 0x08;
 static const uint8_t RXB_0_CTRL_BUKT = 0x04;
