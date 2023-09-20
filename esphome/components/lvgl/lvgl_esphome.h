@@ -7,7 +7,9 @@
 #endif
 #include "../../core/log.h"
 #include "../../core/helpers.h"
+#include "lvgl_hal.h"
 #include <lvgl.h>
+
 
 namespace esphome {
 namespace lvgl {
@@ -25,7 +27,12 @@ class LvglComponent : public Component {
   void setup() override {
     lv_init();
     size_t buf_size = this->display_->get_width() * this->display_->get_height() / 4;
-    auto buf = malloc(buf_size);
+    auto buf = lv_custom_mem_alloc(buf_size);
+    if (buf == nullptr) {
+      ESP_LOGE(TAG, "Malloc failed to allocate %d bytes", buf_size);
+      this->mark_failed();
+      return;
+    }
     lv_disp_draw_buf_init(&this->draw_buf_, buf, nullptr, buf_size);
     lv_disp_drv_init(&this->disp_drv_);
     this->disp_drv_.hor_res = this->display_->get_width();
@@ -34,20 +41,15 @@ class LvglComponent : public Component {
     this->disp_drv_.user_data = this;
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
-    //lv_timer_del(this->disp_->refr_timer);
-    //this->disp_->refr_timer = nullptr;
-    this->display_->set_writer([](display::Display &d) {
-      ESP_LOGD(TAG, "writer called");
-      //_lv_disp_refr_timer(nullptr);
-      lv_timer_handler();
-    });
+    this->display_->set_writer([this](display::Display &d) { lv_timer_handler(); });
 
+    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), LV_PART_MAIN);
     static lv_point_t line_points[] = {{5, 5}, {70, 70}, {120, 10}, {180, 60}, {240, 10}};
     ESP_LOGI(TAG, "adding line");
     static lv_style_t style_line;
     lv_style_init(&style_line);
     lv_style_set_line_width(&style_line, 8);
-    lv_style_set_line_color(&style_line, lv_palette_main(LV_PALETTE_BLUE));
+    lv_style_set_line_color(&style_line, lv_color_make(0, 0, 0xff));
     lv_style_set_line_rounded(&style_line, true);
 
     lv_obj_t *line1;
@@ -55,15 +57,6 @@ class LvglComponent : public Component {
     lv_line_set_points(line1, line_points, 5); /*Set the points*/
     lv_obj_add_style(line1, &style_line, 0);
     lv_obj_center(line1);
-  }
-
-  void loop() override {
-    uint32_t now = millis();
-    auto diff = now - this->last_millis_;
-    if (diff != 0) {
-      lv_tick_inc(diff);
-      this->last_millis_ = now;
-    }
   }
 
   void set_display(display::DisplayBuffer *display) { display_ = display; }
@@ -74,9 +67,8 @@ class LvglComponent : public Component {
     ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d", area->x1, area->y1, area->x2, area->y2);
     for (auto y = area->y1; y <= area->y2; y++) {
       for (auto x = area->x1; x <= area->x2; x++) {
-        auto colour = *color_p++;
-        this->display_->draw_pixel_at(x, y,
-                                      Color(LV_COLOR_GET_R(colour)<< 3, LV_COLOR_GET_G(colour) << 2, LV_COLOR_GET_B(colour) << 3));
+        auto color = lv_color_to32(*color_p++);
+        this->display_->draw_pixel_at(x, y, Color(color));
       }
     }
     lv_disp_flush_ready(disp_drv);

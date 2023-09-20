@@ -1,6 +1,7 @@
 import esphome.codegen as cg
 import esphome.core as core
 from esphome.components.display import DisplayBuffer
+from esphome.components import color
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ID,
@@ -21,6 +22,7 @@ CONF_LINE = "line"
 CONF_WIDGETS = "widgets"
 CONF_DISPLAY_ID = "display_id"
 CONF_COLOR_DEPTH = "color_depth"
+CONF_BACKGROUND_COLOR = "background_color"
 CONF_TEXT = "text"
 
 WIDGET = "widget"
@@ -87,6 +89,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.GenerateID(): cv.declare_id(LvglComponent),
         cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
         cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
+        cv.Optional(CONF_BACKGROUND_COLOR): cv.use_id(color),
         cv.Required(CONF_WIDGETS): (
             cv.ensure_list(
                 cv.Any(
@@ -103,11 +106,20 @@ CONFIG_SCHEMA = cv.Schema(
 
 async def to_code(config):
     cg.add_library("lvgl/lvgl", "8.3.9")
+    core.CORE.add_build_flag("-D\\'_STRINGIFY(x)=_STRINGIFY_(x)\\'")
+    core.CORE.add_build_flag("-D\\'_STRINGIFY_(x)=#x\\'")
     core.CORE.add_build_flag("-DLV_CONF_SKIP=1")
     core.CORE.add_build_flag("-DLV_USE_USER_DATA=1")
-    # core.CORE.add_build_flag("-DLV_TICK_CUSTOM=1")
-    # core.CORE.add_build_flag("-DLV_TICK_CUSTOM_INCLUDE=\\'<esphome/core/hal.h>\\'")
-    # core.CORE.add_build_flag("-DLV_TICK_CUSTOM_SYS_TIME_EXPR=\\'(millis())\\'")
+    core.CORE.add_build_flag("-DLV_TICK_CUSTOM=1")
+    core.CORE.add_build_flag(
+        "-DLV_TICK_CUSTOM_INCLUDE=\\'_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)\\'"
+    )
+    core.CORE.add_build_flag("-DLV_TICK_CUSTOM_SYS_TIME_EXPR=\\'(lv_millis())\\'")
+    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM=1")
+    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_ALLOC=lv_custom_mem_alloc")
+    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_FREE=lv_custom_mem_free")
+    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_REALLOC=lv_custom_mem_realloc")
+    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_INCLUDE=\\'_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)\\'")
     core.CORE.add_build_flag("-DLV_USE_METER=0")
     core.CORE.add_build_flag(f"-DLV_COLOR_DEPTH={config[CONF_COLOR_DEPTH]}")
     core.CORE.add_build_flag("-I src")
@@ -118,3 +130,6 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     cg.add(var.set_display(display))
+    if CONF_BACKGROUND_COLOR in config:
+        color_component = await cg.get_variable(config[CONF_BACKGROUND_COLOR])
+        cg.add(var.set_background_color(color_component))
