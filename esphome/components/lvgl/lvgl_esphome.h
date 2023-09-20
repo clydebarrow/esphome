@@ -18,6 +18,10 @@ static const char *const TAG = "lvgl";
 
 typedef lv_obj_t LvglObj;
 
+static lv_color_t lv_color_from(Color color) {
+  return lv_color_make(color.red, color.green, color.blue);
+}
+
 class LvglComponent : public Component {
  public:
   static void static_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
@@ -43,7 +47,7 @@ class LvglComponent : public Component {
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
     this->display_->set_writer([this](display::Display &d) { lv_timer_handler(); });
 
-    lv_obj_set_style_bg_color(lv_scr_act(), lv_color_black(), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(lv_scr_act(), color_from(this->background_color_), LV_PART_MAIN);
     static lv_point_t line_points[] = {{5, 5}, {70, 70}, {120, 10}, {180, 60}, {240, 10}};
     ESP_LOGI(TAG, "adding line");
     static lv_style_t style_line;
@@ -61,6 +65,7 @@ class LvglComponent : public Component {
 
   void set_display(display::DisplayBuffer *display) { display_ = display; }
   void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
+  void set_background_color(Color color) { this->background_color_ = color; }
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
@@ -73,6 +78,7 @@ class LvglComponent : public Component {
     }
     lv_disp_flush_ready(disp_drv);
   }
+
 
   display::DisplayBuffer *display_{};
   lv_disp_draw_buf_t draw_buf_{};
