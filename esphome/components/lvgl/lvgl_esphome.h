@@ -45,11 +45,10 @@ class LvglComponent : public Component {
     this->disp_drv_.user_data = this;
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
-    this->display_->set_writer([this](display::Display &d) { lv_timer_handler(); });
+    this->init_lambda_(this->disp_);
+    this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
 
-    lv_obj_set_style_bg_color(lv_scr_act(), color_from(this->background_color_), LV_PART_MAIN);
     static lv_point_t line_points[] = {{5, 5}, {70, 70}, {120, 10}, {180, 60}, {240, 10}};
-    ESP_LOGI(TAG, "adding line");
     static lv_style_t style_line;
     lv_style_init(&style_line);
     lv_style_set_line_width(&style_line, 8);
@@ -64,12 +63,12 @@ class LvglComponent : public Component {
   }
 
   void set_display(display::DisplayBuffer *display) { display_ = display; }
+  void set_init_lambda(std::function<void(lv_disp_t *)>lamb) { init_lambda_ = lamb; }
   void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
-  void set_background_color(Color color) { this->background_color_ = color; }
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
-    ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d", area->x1, area->y1, area->x2, area->y2);
+    auto now = millis();
     for (auto y = area->y1; y <= area->y2; y++) {
       for (auto x = area->x1; x <= area->x2; x++) {
         auto color = lv_color_to32(*color_p++);
@@ -77,6 +76,7 @@ class LvglComponent : public Component {
       }
     }
     lv_disp_flush_ready(disp_drv);
+    ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, area->x2, area->y2, (int)(millis()-now));
   }
 
 
@@ -84,7 +84,8 @@ class LvglComponent : public Component {
   lv_disp_draw_buf_t draw_buf_{};
   lv_disp_drv_t disp_drv_{};
   lv_disp_t *disp_{};
-  uint32_t last_millis_{};
+  std::function<void(lv_disp_t *)> init_lambda_;
+
 };
 
 }  // namespace lvgl
