@@ -29,7 +29,6 @@ class LvglComponent : public Component {
   }
 
   void setup() override {
-    lv_init();
     size_t buf_size = this->display_->get_width() * this->display_->get_height() / 4;
     auto buf = lv_custom_mem_alloc(buf_size);
     if (buf == nullptr) {
@@ -47,19 +46,6 @@ class LvglComponent : public Component {
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
     this->init_lambda_(this->disp_);
     this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
-
-    static lv_point_t line_points[] = {{5, 5}, {70, 70}, {120, 10}, {180, 60}, {240, 10}};
-    static lv_style_t style_line;
-    lv_style_init(&style_line);
-    lv_style_set_line_width(&style_line, 8);
-    lv_style_set_line_color(&style_line, lv_color_make(0, 0, 0xff));
-    lv_style_set_line_rounded(&style_line, true);
-
-    lv_obj_t *line1;
-    line1 = lv_line_create(lv_scr_act());
-    lv_line_set_points(line1, line_points, 5); /*Set the points*/
-    lv_obj_add_style(line1, &style_line, 0);
-    lv_obj_center(line1);
   }
 
   void set_display(display::DisplayBuffer *display) { display_ = display; }

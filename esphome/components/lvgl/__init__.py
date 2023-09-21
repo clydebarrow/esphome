@@ -1,6 +1,6 @@
-import pprint
 import esphome.codegen as cg
 import esphome.core as core
+from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import DisplayBuffer
 from esphome.components import color
 import esphome.config_validation as cv
@@ -14,11 +14,11 @@ CODEOWNERS = ["@clydebarrow"]
 
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.Component)
-lv_obj_t = lvgl_ns.class_("lv_obj_t")
+lv_obj_t = cg.global_ns.struct("lv_obj_t")
 lv_style_t = cg.global_ns.struct("lv_style_t")
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
+lv_point_t = cg.global_ns.struct("lv_point_t")
 
-CONF_ALIGNMENT = "alignment"
 CONF_BACKGROUND_STYLE = "background_style"
 CONF_COLOR_DEPTH = "color_depth"
 CONF_DISPLAY_ID = "display_id"
@@ -69,8 +69,8 @@ ALIGNMENTS = [
 
 
 # Create a schema from a list of optional properties
-def prop_schema(props):
-    return cv.Schema({cv.Optional(k): v for k, v in props.items()})
+def prop_schema():
+    return cv.Schema({cv.Optional(k): v for k, v in STYLE_PROPS.items()})
 
 
 def lv_color(value):
@@ -85,6 +85,13 @@ def lv_bool(value):
     if cv.boolean(value):
         return "true"
     return "false"
+
+
+# A position in one axis - either a number (pixels) or a percentage
+def lv_position(value):
+    if isinstance(value, int):
+        return str(cv.int_(value))
+    return f"lv_pct({int(cv.percentage(value) * 100)})"
 
 
 def lv_opa(value):
@@ -108,17 +115,38 @@ def lv_opa(value):
     )(value)
 
 
+def lv_one_of(list, prefix):
+    @schema_extractor("lv_one_of")
+    def validator(value):
+        if value == SCHEMA_EXTRACT:
+            return list
+        return prefix + cv.one_of(*list, upper=True)(value)
+
+    return validator
+
+
 STYLE_PROPS = {
+    "align": lv_one_of(ALIGNMENTS, "LV_ALIGN_"),
     "bg_color": lv_color,
     "bg_grad_color": lv_color,
     "bg_opa": lv_opa,
-    "bg_grad_dir": cv.one_of("LV_GRAD_DIR_NONE", "LV_GRAD_DIR_HOR", "LV_GRAD_DIR_VER", upper=True),
+    "bg_grad_dir": lv_one_of(["NONE", "HOR", "VER"], "LV_GRAD_DIR_"),
     "line_width": cv.positive_int,
     "line_dash_width": cv.positive_int,
     "line_dash_gap": cv.positive_int,
     "line_rounded": lv_bool,
     "line_color": lv_color,
+    "x": lv_position,
+    "y": lv_position,
 }
+
+
+def generate_id(base):
+    generate_id.counter += 1
+    return f"lvgl_{base}_{generate_id.counter}"
+
+
+generate_id.counter = 0
 
 
 def int_list(il):
@@ -132,40 +160,52 @@ def point_list(value):
     values = list(map(int_list, value))
     for v in values:
         if (
-                not isinstance(v, list)
-                or not len(v) == 2
-                or not isinstance(v[0], int)
-                or not isinstance(v[1], int)
+            not isinstance(v, list)
+            or not len(v) == 2
+            or not isinstance(v[0], int)
+            or not isinstance(v[1], int)
         ):
             raise cv.Invalid("Points must be a list of x,y integer pairs")
-    return values
+    return {
+        CONF_ID: cv.declare_id(lv_point_t)(generate_id(CONF_POINTS)),
+        CONF_POINTS: values,
+    }
 
 
 STYLE_LIST = cv.ensure_list(
-    cv.Required(CONF_STYLE_ID), cv.use_id(lv_style_t),
-    cv.Required(CONF_STATES), cv.ensure_list(
-        cv.one_of(STATES, upper=True)
-    )
+    cv.Required(CONF_STYLE_ID),
+    cv.use_id(lv_style_t),
+    cv.Required(CONF_STATES),
+    cv.ensure_list(cv.one_of(STATES, upper=True)),
 )
 
 
 # Schema for an object style. Can either be a style id, or a list of entries each with style_id: and states:
 def style_schema(value):
-    if isinstance(value, list):
+    if isinstance(value, list) and len(value) != 0:
         return STYLE_LIST(value)
-    return {
-        CONF_STYLE_ID: cv.use_id(lv_style_t)(value),
-        CONF_STATES: STATES[0]
-    }
+    return {CONF_STYLE_ID: cv.use_id(lv_style_t)(value), CONF_STATES: STATES[0:1]}
 
 
 OBJ_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(lv_obj_t),
-        cv.Optional(CONF_STYLE): cv.use_id(lv_style_t),
-        cv.Optional(CONF_ALIGNMENT, default="top_left"): cv.one_of(ALIGNMENTS),
+        cv.Optional(CONF_STYLE): style_schema,
     }
-)
+).extend(prop_schema())
+
+
+def widgets():
+    return cv.Any(
+        {
+            # cv.Exclusive(CONF_LABEL, WIDGET) ,
+            cv.Exclusive(CONF_LINE, CONF_WIDGETS): OBJ_SCHEMA.extend(
+                {cv.Required(CONF_POINTS): point_list}
+            )
+        }
+    )
+
+
 CONFIG_SCHEMA = cv.Schema(
     {
         cv.GenerateID(): cv.declare_id(LvglComponent),
@@ -173,23 +213,11 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
         cv.Optional(CONF_BACKGROUND_STYLE): cv.use_id(lv_style_t),
         cv.Optional(CONF_STYLES): cv.ensure_list(
-            cv.Schema({cv.Required(CONF_ID): cv.declare_id(lv_style_t)})
-            .extend(prop_schema(STYLE_PROPS))
-        ),
-        cv.Required(CONF_WIDGETS): (
-            cv.ensure_list(
-                cv.Any(
-                    {
-                        # cv.Exclusive(CONF_LABEL, WIDGET) ,
-                        cv.Exclusive(CONF_LINE, CONF_WIDGETS): OBJ_SCHEMA.extend(
-                            {
-                                cv.Required(CONF_POINTS): point_list,
-                            }
-                        )
-                    }
-                )
+            cv.Schema({cv.Required(CONF_ID): cv.declare_id(lv_style_t)}).extend(
+                prop_schema()
             )
         ),
+        cv.Required(CONF_WIDGETS): cv.ensure_list(widgets()),
     }
 )
 
@@ -201,30 +229,43 @@ async def styles_to_code(styles):
         cg.add(cg.RawExpression(f"lv_style_init({svar})"))
         for prop in STYLE_PROPS:
             if prop in style:
-                init.append(f"lv_style_set_{prop}({svar}, {style[prop]})")
+                cg.add(cg.RawExpression(f"lv_style_set_{prop}({svar}, {style[prop]})"))
     return init
 
 
+# Write object creation code for an lv_obj_t
 async def obj_to_code(t, config, screen):
+    print(config)
     init = []
-    var = cg.Pvariable(config[CONF_ID], f"lv_{t}_create({screen}")
+    var = cg.Pvariable(config[CONF_ID], cg.nullptr)
+    init.append(f"{var} = lv_{t}_create({screen})")
     if CONF_STYLE in config:
         style = config[CONF_STYLE]
-        init.append(f"lv_obj_add_style({var}, {style[CONF_STYLE_ID]}, {style[CONF_STATES]}")
-    return init
+        states = "|".join(map(lambda s: f"LV_STATE_{s}", style[CONF_STATES]))
+        init.append(f"lv_obj_add_style({var}, {style[CONF_STYLE_ID]}, {states})")
+    for prop in STYLE_PROPS:
+        if prop in config:
+            init.append(f"lv_obj_set_style_{prop}({var}, {config[prop]}, 0)")
+    return var, init
 
 
-async def line_to_code(line, screen):
-
-
+# For a line object, create and add the points
+async def line_to_code(var, line):
+    data = line[CONF_POINTS]
+    point_list = data[CONF_POINTS]
+    initialiser = cg.RawExpression(
+        "{" + ",".join(map(lambda p: "{" + f"{p[0]}, {p[1]}" + "}", point_list)) + "}"
+    )
+    points = cg.static_const_array(data[CONF_ID], initialiser)
+    return [f"lv_line_set_points({var}, {points}, {len(point_list)})"]
 
 
 async def widget_to_code(widget, screen):
-    (t, v) = widget.items()
-    init = await obj_to_code(t, v, screen)
+    (t, v) = next(iter(widget.items()))
+    (var, init) = await obj_to_code(t, v, screen)
     if t == "line":
-        return init.append(await line_to_code(v, screen))
-    raise cv.Invalid(f"Unimplemented widget \"{t}\"")
+        init.extend(await line_to_code(var, v))
+    return init
 
 
 async def to_code(config):
@@ -248,19 +289,22 @@ async def to_code(config):
     core.CORE.add_build_flag("-I src")
     core.CORE.add_build_flag("-Wenum-conversion")
 
-    pprint.pprint(config)
     display = await cg.get_variable(config[CONF_DISPLAY_ID])
     cg.add_global(lvgl_ns.using)
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     cg.add(var.set_display(display))
+    cg.add(cg.RawExpression("lv_init()"))
     init = []
     if CONF_STYLES in config:
-        init.append(await styles_to_code(config[CONF_STYLES]))
+        init.extend(await styles_to_code(config[CONF_STYLES]))
     for widget in config[CONF_WIDGETS]:
+        init.extend(await widget_to_code(widget, "lv_scr_act()"))
 
     if CONF_BACKGROUND_STYLE in config:
         background_style = await cg.get_variable(config[CONF_BACKGROUND_STYLE])
         init.append(f"lv_obj_add_style(lv_scr_act(), {background_style}, 0)")
-    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ''])), [(lv_disp_t_ptr, "lv_disp")])
+    lamb = await cg.process_lambda(
+        core.Lambda(";\n".join([*init, ""])), [(lv_disp_t_ptr, "lv_disp")]
+    )
     cg.add(var.set_init_lambda(lamb))
