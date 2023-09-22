@@ -87,11 +87,57 @@ def lv_bool(value):
     return "false"
 
 
+def lv_one_of(list, prefix):
+    @schema_extractor("lv_one_of")
+    def validator(value):
+        if value == SCHEMA_EXTRACT:
+            return list
+        return prefix + cv.one_of(*list, upper=True)(value)
+
+    return validator
+
+
 # A position in one axis - either a number (pixels) or a percentage
-def lv_position(value):
-    if isinstance(value, int):
-        return str(cv.int_(value))
-    return f"lv_pct({int(cv.percentage(value) * 100)})"
+def lv_pixel_pc():
+    """A length in one axis - either a number (pixels) or a percentage"""
+
+    @schema_extractor("lv_position")
+    def validator(value):
+        if isinstance(value, int):
+            return str(cv.int_(value))
+        # Will throw an exception if not a percentage.
+        return f"lv_pct({int(cv.percentage(value) * 100)})"
+
+    return validator
+
+
+def lv_zoom(value):
+    value = cv.float_range(0.1, 10.0)(value)
+    return int(value * 256)
+
+
+def lv_angle(value):
+    value = cv.float_range(-360.0, 360.0)(value)
+    return int(value * 10)
+
+
+def lv_size():
+    """A size in one axis - one of "size_content", a number (pixels) or a percentage"""
+
+    @schema_extractor("lv_size")
+    def validator(value):
+        if value == SCHEMA_EXTRACT:
+            return ["content_size", "%"]
+        if isinstance(value, str):
+            if value.upper() == "SIZE_CONTENT":
+                return "LV_SIZE_CONTENT"
+            raise cv.Invalid("must be 'size_content', a pixel position or a percentage")
+        if isinstance(value, int):
+            return str(cv.int_(value))
+        # Will throw an exception if not a percentage.
+        return f"lv_pct({int(cv.percentage(value) * 100)})"
+
+    return validator
 
 
 def lv_opa(value):
@@ -115,29 +161,30 @@ def lv_opa(value):
     )(value)
 
 
-def lv_one_of(list, prefix):
-    @schema_extractor("lv_one_of")
-    def validator(value):
-        if value == SCHEMA_EXTRACT:
-            return list
-        return prefix + cv.one_of(*list, upper=True)(value)
-
-    return validator
-
-
 STYLE_PROPS = {
     "align": lv_one_of(ALIGNMENTS, "LV_ALIGN_"),
     "bg_color": lv_color,
     "bg_grad_color": lv_color,
     "bg_opa": lv_opa,
     "bg_grad_dir": lv_one_of(["NONE", "HOR", "VER"], "LV_GRAD_DIR_"),
+    "height": lv_size,
     "line_width": cv.positive_int,
     "line_dash_width": cv.positive_int,
     "line_dash_gap": cv.positive_int,
     "line_rounded": lv_bool,
     "line_color": lv_color,
-    "x": lv_position,
-    "y": lv_position,
+    "text_color": lv_color,
+    "transform_angle": lv_angle,
+    "transform_width": lv_pixel_pc(),
+    "transform_height": lv_pixel_pc(),
+    "transform_zoom": lv_zoom,
+    "max_height": lv_pixel_pc(),
+    "max_width": lv_pixel_pc(),
+    "min_height": lv_pixel_pc(),
+    "min_width": lv_pixel_pc(),
+    "width": lv_size(),
+    "x": lv_pixel_pc(),
+    "y": lv_pixel_pc(),
 }
 
 
@@ -198,10 +245,12 @@ OBJ_SCHEMA = cv.Schema(
 def widgets():
     return cv.Any(
         {
-            # cv.Exclusive(CONF_LABEL, WIDGET) ,
+            cv.Exclusive(CONF_LABEL, CONF_WIDGETS): OBJ_SCHEMA.extend(
+                {cv.Optional(CONF_TEXT): cv.string}
+            ),
             cv.Exclusive(CONF_LINE, CONF_WIDGETS): OBJ_SCHEMA.extend(
                 {cv.Required(CONF_POINTS): point_list}
-            )
+            ),
         }
     )
 
@@ -249,8 +298,15 @@ async def obj_to_code(t, config, screen):
     return var, init
 
 
-# For a line object, create and add the points
+async def label_to_code(var, label):
+    """For a text object, create and set text"""
+    if CONF_TEXT in label:
+        return [f'lv_label_set_text({var}, "{label[CONF_TEXT]}")']
+    return []
+
+
 async def line_to_code(var, line):
+    """For a line object, create and add the points"""
     data = line[CONF_POINTS]
     point_list = data[CONF_POINTS]
     initialiser = cg.RawExpression(
@@ -263,8 +319,12 @@ async def line_to_code(var, line):
 async def widget_to_code(widget, screen):
     (t, v) = next(iter(widget.items()))
     (var, init) = await obj_to_code(t, v, screen)
-    if t == "line":
-        init.extend(await line_to_code(var, v))
+    fun = f"{t}_to_code"
+    if fun in globals():
+        fun = globals()[fun]
+        init.extend(await fun(var, v))
+    else:
+        raise cv.Invalid(f"No handler for widget `{t}'")
     return init
 
 
@@ -275,6 +335,10 @@ async def to_code(config):
     core.CORE.add_build_flag("-DLV_CONF_SKIP=1")
     core.CORE.add_build_flag("-DLV_USE_USER_DATA=1")
     core.CORE.add_build_flag("-DLV_TICK_CUSTOM=1")
+    core.CORE.add_build_flag("-DLV_USE_LOG=1")
+    core.CORE.add_build_flag("-DLV_FONT_MONTSERRAT_28=1")
+    core.CORE.add_build_flag("-DLV_FONT_DEFAULT=\\'&lv_font_montserrat_28\\'")
+    core.CORE.add_build_flag("-DLV_LOG_LEVEL=LV_LOG_LEVEL_INFO")
     core.CORE.add_build_flag(
         "-DLV_TICK_CUSTOM_INCLUDE=\\'_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)\\'"
     )

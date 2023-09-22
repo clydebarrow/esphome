@@ -28,7 +28,12 @@ class LvglComponent : public Component {
     reinterpret_cast<LvglComponent *>(disp_drv->user_data)->flush_cb_(disp_drv, area, color_p);
   }
 
+  static void log_cb(const char * buf) {
+    esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%s", buf);
+  }
+
   void setup() override {
+    lv_log_register_print_cb(log_cb);
     size_t buf_size = this->display_->get_width() * this->display_->get_height() / 4;
     auto buf = lv_custom_mem_alloc(buf_size);
     if (buf == nullptr) {
