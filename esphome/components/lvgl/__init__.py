@@ -4,6 +4,7 @@ from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import DisplayBuffer
 from esphome.components import color
 import esphome.config_validation as cv
+from esphome.components.font import Font
 from esphome.const import (
     CONF_ID,
 )
@@ -75,10 +76,29 @@ def prop_schema():
 
 def lv_color(value):
     if isinstance(value, int):
-        hex = cv.hex_int(value)
-        return f"lv_color_hex({hex})"
-    id = cv.use_id(color)(value)
-    return f"lv_color_from({id})"
+        hexval = cv.hex_int(value)
+        return f"lv_color_hex({hexval})"
+    color_id = cv.use_id(color)(value)
+    return f"lv_color_from({color_id})"
+
+
+LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2)))
+lv_fonts_used = set()
+
+
+def lv_font():
+    @schema_extractor("lv_font")
+    def validator(value):
+        global lv_fonts_used
+        if value == SCHEMA_EXTRACT:
+            return LV_FONTS
+        if isinstance(value, str):
+            font = cv.one_of(*LV_FONTS, lower=True)(value)
+            lv_fonts_used.add(font)
+            return "&lv_font_" + font
+        return cv.use_id(Font)(value)
+
+    return validator
 
 
 def lv_bool(value):
@@ -87,12 +107,12 @@ def lv_bool(value):
     return "false"
 
 
-def lv_one_of(list, prefix):
+def lv_one_of(choices, prefix):
     @schema_extractor("lv_one_of")
     def validator(value):
         if value == SCHEMA_EXTRACT:
-            return list
-        return prefix + cv.one_of(*list, upper=True)(value)
+            return choices
+        return prefix + cv.one_of(*choices, upper=True)(value)
 
     return validator
 
@@ -174,6 +194,7 @@ STYLE_PROPS = {
     "line_rounded": lv_bool,
     "line_color": lv_color,
     "text_color": lv_color,
+    "text_font": lv_font(),
     "transform_angle": lv_angle,
     "transform_width": lv_pixel_pc(),
     "transform_height": lv_pixel_pc(),
@@ -196,15 +217,15 @@ def generate_id(base):
 generate_id.counter = 0
 
 
-def int_list(il):
+def cv_int_list(il):
     nl = il.replace(" ", "").split(",")
     return list(map(lambda x: int(x), nl))
 
 
-def point_list(value):
+def cv_point_list(value):
     if not isinstance(value, list):
         raise cv.Invalid("List of points required")
-    values = list(map(int_list, value))
+    values = list(map(cv_int_list, value))
     for v in values:
         if (
             not isinstance(v, list)
@@ -249,7 +270,7 @@ def widgets():
                 {cv.Optional(CONF_TEXT): cv.string}
             ),
             cv.Exclusive(CONF_LINE, CONF_WIDGETS): OBJ_SCHEMA.extend(
-                {cv.Required(CONF_POINTS): point_list}
+                {cv.Required(CONF_POINTS): cv_point_list}
             ),
         }
     )
@@ -272,6 +293,7 @@ CONFIG_SCHEMA = cv.Schema(
 
 
 async def styles_to_code(styles):
+    """Convert styles to C__ code."""
     init = []
     for style in styles:
         svar = cg.new_Pvariable(style[CONF_ID])
@@ -282,8 +304,8 @@ async def styles_to_code(styles):
     return init
 
 
-# Write object creation code for an lv_obj_t
 async def obj_to_code(t, config, screen):
+    """Write object creation code for an object extending lv_obj_t"""
     print(config)
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr)
@@ -336,13 +358,14 @@ async def to_code(config):
     core.CORE.add_build_flag("-DLV_USE_USER_DATA=1")
     core.CORE.add_build_flag("-DLV_TICK_CUSTOM=1")
     core.CORE.add_build_flag("-DLV_USE_LOG=1")
-    core.CORE.add_build_flag("-DLV_FONT_MONTSERRAT_28=1")
-    core.CORE.add_build_flag("-DLV_FONT_DEFAULT=\\'&lv_font_montserrat_28\\'")
     core.CORE.add_build_flag("-DLV_LOG_LEVEL=LV_LOG_LEVEL_INFO")
     core.CORE.add_build_flag(
         "-DLV_TICK_CUSTOM_INCLUDE=\\'_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)\\'"
     )
     core.CORE.add_build_flag("-DLV_TICK_CUSTOM_SYS_TIME_EXPR=\\'(lv_millis())\\'")
+    for font in lv_fonts_used:
+        core.CORE.add_build_flag(f"-DLV_FONT_{font.upper()}=1")
+
     # core.CORE.add_build_flag("-DLV_MEM_CUSTOM=1")
     # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_ALLOC=lv_custom_mem_alloc")
     # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_FREE=lv_custom_mem_free")

@@ -1,12 +1,9 @@
 #pragma once
 
-#include "../display/display_buffer.h"
-#include "../../core/component.h"
-#if !LV_CONF_SKIP
-#include "../../../.pio/libdeps/esp32-idf/lvgl/src/lvgl.h"
-#endif
-#include "../../core/log.h"
-#include "../../core/helpers.h"
+#include "esphome/components/display/display_buffer.h"
+#include "esphome/core/component.h"
+#include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
 #include "lvgl_hal.h"
 #include <lvgl.h>
 

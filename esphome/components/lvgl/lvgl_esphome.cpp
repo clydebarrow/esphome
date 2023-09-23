@@ -1,6 +1,6 @@
-#include "../../core/hal.h"
-#include "../../core/helpers.h"
-#include "../../core/log.h"
+#include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/hal.h"
 #include "lvgl_hal.h"
 
 static const char *TAG = "lvgl";
