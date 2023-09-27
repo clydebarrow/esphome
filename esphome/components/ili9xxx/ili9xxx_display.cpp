@@ -158,6 +158,56 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
   }
 }
 
+void ILI9XXXDisplay::draw_pixels_in_window(int x_start, int y_start, int w, int h, const uint8_t *ptr,
+                                           display::ColorOrder order, display::ColorBitness bitness, bool big_endian) {
+  if (bitness != display::COLOR_BITNESS_565 || order != display::COLOR_ORDER_RGB) {
+    DisplayBuffer::draw_pixels_in_window(x_start, y_start, w, h, ptr, order, bitness, big_endian);
+    return;
+  }
+
+  ESP_LOGD(TAG, "copy with rotation %d degrees", (int) this->rotation_);
+  switch (this->rotation_) {
+    case display::DISPLAY_ROTATION_0_DEGREES: {
+      size_t start = (y_start * this->width_ + x_start) * 2;
+      for (int y = y_start; y != y_start + h; y++) {
+        memcpy(this->buffer_ + start, ptr, w * 2);
+        ptr += w * 2;
+        start += w * 2;
+      }
+      return;
+    }
+    case display::DISPLAY_ROTATION_180_DEGREES: {
+      for (int py = 0; py != h; py++) {
+        for (int px = 0; px != w; px++) {
+          ((uint16_t *) this
+               ->buffer_)[(this->height_ - y_start - py - 1) * this->width_ + this->width_ - x_start - px - 1] =
+              *(uint16_t *) ptr;
+          ptr += 2;
+        }
+      }
+      break;
+    }
+    case display::DISPLAY_ROTATION_90_DEGREES: {
+      for (int py = 0; py != h; py++) {
+        for (int px = 0; px != w; px++) {
+          ((uint16_t *) this->buffer_)[(x_start + px + 1) * this->width_ - y_start - py - 1] = *(uint16_t *) ptr;
+          ptr += 2;
+        }
+      }
+      break;
+    }
+    case display::DISPLAY_ROTATION_270_DEGREES: {
+      for (int py = 0; py != h; py++) {
+        for (int px = 0; px != w; px++) {
+          ((uint16_t *) this->buffer_)[(this->height_ - x_start - px) * this->width_ + y_start + py] = *(uint16_t *) ptr;
+          ptr += 2;
+        }
+      }
+      break;
+    }
+  }
+}
+
 void ILI9XXXDisplay::update() {
   if (this->prossing_update_) {
     this->need_update_ = true;

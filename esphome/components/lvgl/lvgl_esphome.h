@@ -260,8 +260,8 @@ class LvglComponent : public Component {
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
-    this->display_->draw_pixels_in_window(area->x1, area->y1, area->x2 + 1, area->y2 + 1, (const uint8_t *) color_p,
-                                          display::COLOR_ORDER_RGB, LV_BITNESS);
+    this->display_->draw_pixels_in_window(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
+                                          (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS);
     lv_disp_flush_ready(disp_drv);
     ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
              lv_area_get_height(area), (int) (millis() - now));
