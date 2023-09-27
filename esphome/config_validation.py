@@ -458,7 +458,7 @@ def validate_id_name(value):
     if not value:
         raise Invalid("ID must not be empty")
     if value[0].isdigit():
-        raise Invalid("First character in ID cannot be a digit.")
+        raise Invalid(f"First character in ID ({value}) cannot be a digit.")
     if "-" in value:
         raise Invalid(
             "Dashes are not supported in IDs, please use underscores instead."
