@@ -3,6 +3,7 @@
 #include "esphome/components/display/display_buffer.h"
 #include "esphome/components/image/image.h"
 #include "esphome/components/font/font.h"
+#include "esphome/components/display/display_color_utils.h"
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -15,6 +16,13 @@ namespace esphome {
 namespace lvgl {
 
 static const char *const TAG = "lvgl";
+#if LV_COLOR_DEPTH == 16
+static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
+#elif LV_COLOR_DEPTH == 32
+static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_888;
+#else
+static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
+#endif
 
 typedef lv_obj_t LvglObj;
 typedef std::function<float(void)> value_lambda_t;
@@ -252,15 +260,11 @@ class LvglComponent : public Component {
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
-    for (auto y = area->y1; y <= area->y2; y++) {
-      for (auto x = area->x1; x <= area->x2; x++) {
-        auto color = lv_color_to32(*color_p++);
-        this->display_->draw_pixel_at(x, y, Color(color));
-      }
-    }
+    this->display_->draw_pixels_in_window(area->x1, area->y1, area->x2 + 1, area->y2 + 1, (const uint8_t *) color_p,
+                                          display::COLOR_ORDER_RGB, LV_BITNESS);
     lv_disp_flush_ready(disp_drv);
-    ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, area->x2, area->y2,
-             (int) (millis() - now));
+    ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
+             lv_area_get_height(area), (int) (millis() - now));
   }
 
   display::DisplayBuffer *display_{};
