@@ -159,48 +159,58 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
 }
 
 void ILI9XXXDisplay::draw_pixels_in_window(int x_start, int y_start, int w, int h, const uint8_t *ptr,
-                                           display::ColorOrder order, display::ColorBitness bitness, bool big_endian) {
-  if (bitness != display::COLOR_BITNESS_565 || order != display::COLOR_ORDER_RGB) {
+                                           display::ColorOrder order, display::ColorBitness bitness, bool big_endian,
+                                           int x_offset, int y_offset, int x_pad) {
+  // optimal case is when everybody uses 16 bit big-endian colour format. Anything else we hand off.
+  if (this->buffer_color_mode_ != BITS_16 || bitness != display::COLOR_BITNESS_565 ||
+      order != display::COLOR_ORDER_RGB || !big_endian) {
     DisplayBuffer::draw_pixels_in_window(x_start, y_start, w, h, ptr, order, bitness, big_endian);
     return;
   }
 
-  ESP_LOGD(TAG, "copy with rotation %d degrees", (int) this->rotation_);
+  ESP_LOGV(TAG, "copy with rotation %d degrees", (int) this->rotation_);
+  size_t line_stride = x_start + w + x_pad;
+  uint16_t *src_ptr;
+  uint16_t *dst_ptr;
   switch (this->rotation_) {
     case display::DISPLAY_ROTATION_0_DEGREES: {
-      size_t start = (y_start * this->width_ + x_start) * 2;
-      for (int y = y_start; y != y_start + h; y++) {
-        memcpy(this->buffer_ + start, ptr, w * 2);
-        ptr += w * 2;
-        start += w * 2;
+      src_ptr = ((uint16_t *) ptr) + y_offset  * line_stride + x_offset;
+      dst_ptr = ((uint16_t *) this->buffer_) + y_start * this->width_ + x_start;
+      for (int y = 0; y != h; y++) {
+        memcpy(dst_ptr, src_ptr, w * 2);
+        src_ptr += line_stride;
+        dst_ptr += this->width_;
       }
       return;
     }
     case display::DISPLAY_ROTATION_180_DEGREES: {
       for (int py = 0; py != h; py++) {
+        src_ptr = ((uint16_t *) ptr) + (y_offset + py) * line_stride + x_offset;
+        dst_ptr = ((uint16_t *) this->buffer_) + (this->height_ - y_start - py) * this->width_ - x_start;
         for (int px = 0; px != w; px++) {
-          ((uint16_t *) this
-               ->buffer_)[(this->height_ - y_start - py - 1) * this->width_ + this->width_ - x_start - px - 1] =
-              *(uint16_t *) ptr;
-          ptr += 2;
+          *--dst_ptr = *src_ptr++;
         }
       }
       break;
     }
     case display::DISPLAY_ROTATION_90_DEGREES: {
       for (int py = 0; py != h; py++) {
+        src_ptr = ((uint16_t *) ptr) + (y_offset + py) * line_stride + x_offset;
+        dst_ptr = ((uint16_t *) this->buffer_) + x_start * this->width_ + this->width_ - y_start - py - 1;
         for (int px = 0; px != w; px++) {
-          ((uint16_t *) this->buffer_)[(x_start + px + 1) * this->width_ - y_start - py - 1] = *(uint16_t *) ptr;
-          ptr += 2;
+          *dst_ptr = *src_ptr++;
+          dst_ptr += this->width_;
         }
       }
       break;
     }
     case display::DISPLAY_ROTATION_270_DEGREES: {
       for (int py = 0; py != h; py++) {
+        src_ptr = ((uint16_t *) ptr) + (y_offset + py) * line_stride + x_offset;
+        dst_ptr = ((uint16_t *) this->buffer_) + (this->height_ - x_start) * this->width_ + y_start + py;
         for (int px = 0; px != w; px++) {
-          ((uint16_t *) this->buffer_)[(this->height_ - x_start - px) * this->width_ + y_start + py] = *(uint16_t *) ptr;
-          ptr += 2;
+          dst_ptr -= this->width_;
+          *dst_ptr = *src_ptr++;
         }
       }
       break;
