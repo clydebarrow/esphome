@@ -89,6 +89,7 @@ CONF_PIVOT_Y = "pivot_y"
 CONF_START_VALUE = "start_value"
 CONF_END_VALUE = "end_value"
 CONF_DEFAULT = "default"
+CONF_BYTE_ORDER = "byte_order"
 
 STATES = [
     CONF_DEFAULT,
@@ -455,6 +456,9 @@ CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(OBJ_SCHEMA).extend(
         cv.GenerateID(): cv.declare_id(LvglComponent),
         cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
         cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
+        cv.Optional(CONF_BYTE_ORDER, default="big_endian"): cv.one_of(
+            "big_endian", "little_endian"
+        ),
         cv.Optional(CONF_STYLE_DEFINITIONS): cv.ensure_list(
             cv.Schema({cv.Required(CONF_ID): cv.declare_id(lv_style_t)})
             .extend(PROP_SCHEMA)
@@ -711,7 +715,11 @@ async def to_code(config):
     # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_REALLOC=lv_custom_mem_realloc")
     # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_INCLUDE=\\'_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)\\'")
     core.CORE.add_build_flag(f"-DLV_COLOR_DEPTH={config[CONF_COLOR_DEPTH]}")
-    core.CORE.add_build_flag("-DLV_COLOR_16_SWAP=1")
+    if config[CONF_COLOR_DEPTH] == 16:
+        if config[CONF_BYTE_ORDER] == "big_endian":
+            core.CORE.add_build_flag("-DLV_COLOR_16_SWAP=1")
+        else:
+            core.CORE.add_build_flag("-DLV_COLOR_16_SWAP=0")
     core.CORE.add_build_flag("-Isrc")
 
     display = await cg.get_variable(config[CONF_DISPLAY_ID])

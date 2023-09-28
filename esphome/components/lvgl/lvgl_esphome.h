@@ -19,7 +19,7 @@ static const char *const TAG = "lvgl";
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
 #elif LV_COLOR_DEPTH == 32
-static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_888;
+static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_A888;
 #else
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 #endif
@@ -261,7 +261,8 @@ class LvglComponent : public Component {
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
     this->display_->draw_pixels_in_window(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
-                                          (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS);
+                                          (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS,
+                                          LV_COLOR_16_SWAP);
     lv_disp_flush_ready(disp_drv);
     ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
              lv_area_get_height(area), (int) (millis() - now));
