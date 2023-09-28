@@ -7,7 +7,7 @@
 namespace esphome {
 namespace ili9xxx {
 
-const size_t ILI9XXX_TRANSFER_BUFFER_SIZE = 126;  // ensure this is divisible by 6
+const uint32_t ILI9XXX_TRANSFER_BUFFER_SIZE = 64;
 
 enum ILI9XXXColorMode {
   BITS_8 = 0x08,
@@ -19,7 +19,8 @@ enum ILI9XXXColorMode {
 #define ILI9XXXDisplay_DATA_RATE spi::DATA_RATE_40MHZ
 #endif  // ILI9XXXDisplay_DATA_RATE
 
-class ILI9XXXDisplay : public display::DisplayBuffer,
+class ILI9XXXDisplay : public PollingComponent,
+                       public display::DisplayBuffer,
                        public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW,
                                              spi::CLOCK_PHASE_LEADING, ILI9XXXDisplay_DATA_RATE> {
  public:
@@ -48,15 +49,15 @@ class ILI9XXXDisplay : public display::DisplayBuffer,
 
  protected:
   void draw_absolute_pixel_internal(int x, int y, Color color) override;
-  virtual void draw_pixels_in_window(int x_start, int y_start, int w, int h, const uint8_t *ptr,
-                                     display::ColorOrder order, display::ColorBitness bitness, bool big_endian = true,
-                                     int x_offset = 0, int y_offset = 0, int x_pad = 0) override;
+  void draw_pixels_in_window(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
+                             display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset,
+                             int x_pad) override;
   void setup_pins_();
   virtual void initialize() = 0;
 
   void display_();
   void init_lcd_(const uint8_t *init_cmd);
-  void set_addr_window_(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2);
+  void set_addr_window_(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
   void invert_display_(bool invert);
   void reset_();
 
@@ -78,6 +79,10 @@ class ILI9XXXDisplay : public display::DisplayBuffer,
   void end_command_();
   void start_data_();
   void end_data_();
+
+  uint16_t transfer_buffer_[ILI9XXX_TRANSFER_BUFFER_SIZE];
+
+  uint32_t buffer_to_transfer_(uint32_t pos, uint32_t sz);
 
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *dc_pin_{nullptr};

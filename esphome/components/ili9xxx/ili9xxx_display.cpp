@@ -8,14 +8,6 @@ namespace esphome {
 namespace ili9xxx {
 
 static const char *const TAG = "ili9xxx";
-static const uint16_t SPI_SETUP_US = 100;         // estimated fixed overhead in microseconds for an SPI write
-static const uint16_t SPI_MAX_BLOCK_SIZE = 4092;  // Max size of continuous SPI transfer
-
-// store a 16 bit value in a buffer, big endian.
-static inline void put16_be(uint8_t *buf, uint16_t value) {
-  buf[0] = value >> 8;
-  buf[1] = value;
-}
 
 void ILI9XXXDisplay::setup() {
   this->setup_pins_();
@@ -174,7 +166,7 @@ void ILI9XXXDisplay::draw_pixels_in_window(int x_start, int y_start, int w, int 
   uint16_t *dst_ptr;
   switch (this->rotation_) {
     case display::DISPLAY_ROTATION_0_DEGREES: {
-      src_ptr = ((uint16_t *) ptr) + y_offset  * line_stride + x_offset;
+      src_ptr = ((uint16_t *) ptr) + y_offset * line_stride + x_offset;
       dst_ptr = ((uint16_t *) this->buffer_) + y_start * this->width_ + x_start;
       for (int y = 0; y != h; y++) {
         memcpy(dst_ptr, src_ptr, w * 2);
@@ -233,86 +225,84 @@ void ILI9XXXDisplay::update() {
 }
 
 void ILI9XXXDisplay::display_() {
-  uint8_t transfer_buffer[ILI9XXX_TRANSFER_BUFFER_SIZE];
+  // we will only update the changed window to the display
+  uint16_t w = this->x_high_ - this->x_low_ + 1;  // NOLINT
+  uint16_t h = this->y_high_ - this->y_low_ + 1;  // NOLINT
+  size_t start_pos = ((this->y_low_ * this->width_) + x_low_);
+
   // check if something was displayed
   if ((this->x_high_ < this->x_low_) || (this->y_high_ < this->y_low_)) {
     ESP_LOGV(TAG, "Nothing to display");
     return;
   }
 
-  // we will only update the changed rows to the display
-  size_t const w = this->x_high_ - this->x_low_ + 1;
-  size_t const h = this->y_high_ - this->y_low_ + 1;
+  set_addr_window_(this->x_low_, this->y_low_, w, h);
 
-  size_t mhz = this->data_rate_ / 1000000;
-  // estimate time for a single write
-  size_t sw_time = this->width_ * h * 16 / mhz + this->width_ * h * 2 / SPI_MAX_BLOCK_SIZE * SPI_SETUP_US * 2;
-  // estimate time for multiple writes
-  size_t mw_time = (w * h * 16) / mhz + w * h * 2 / ILI9XXX_TRANSFER_BUFFER_SIZE * SPI_SETUP_US;
   ESP_LOGV(TAG,
            "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, "
-           "height:%d, mode=%d, 18bit=%d, sw_time=%dus, mw_time=%dus)",
-           this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, this->buffer_color_mode_,
-           this->is_18bitdisplay_, sw_time, mw_time);
-  auto now = millis();
-  if (this->buffer_color_mode_ == BITS_16 && !this->is_18bitdisplay_ && sw_time < mw_time) {
-    // 16 bit mode maps directly to display format
-    ESP_LOGV(TAG, "Doing single write of %d bytes", this->width_ * h * 2);
-    set_addr_window_(0, this->y_low_, this->width_ - 1, this->y_high_);
-    this->write_array(this->buffer_ + this->y_low_ * this->width_ * 2, h * this->width_ * 2);
-  } else {
-    ESP_LOGV(TAG, "Doing multiple write");
-    size_t rem = h * w;  // remaining number of pixels to write
-    set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
-    size_t idx = 0;    // index into transfer_buffer
-    size_t pixel = 0;  // pixel number offset
-    size_t pos = this->y_low_ * this->width_ + this->x_low_;
-    while (rem-- != 0) {
-      uint16_t color_val;
-      switch (this->buffer_color_mode_) {
-        case BITS_8:
-          color_val = display::ColorUtil::color_to_565(display::ColorUtil::rgb332_to_color(this->buffer_[pos++]));
-          break;
-        case BITS_8_INDEXED:
-          color_val = display::ColorUtil::color_to_565(
-              display::ColorUtil::index8_to_color_palette888(this->buffer_[pos++], this->palette_));
-          break;
-        default:  // case BITS_16:
-          color_val = (buffer_[pos * 2] << 8) + buffer_[pos * 2 + 1];
-          pos++;
-          break;
-      }
+           "heigth:%d, start_pos:%d)",
+           this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, start_pos);
+
+  this->start_data_();
+  for (uint16_t row = 0; row < h; row++) {
+    uint32_t pos = start_pos + (row * width_);
+    uint32_t rem = w;
+
+    while (rem > 0) {
+      uint32_t sz = std::min(rem, ILI9XXX_TRANSFER_BUFFER_SIZE);
+      // ESP_LOGVV(TAG, "Send to display(pos:%d, rem:%d, zs:%d)", pos, rem, sz);
+      buffer_to_transfer_(pos, sz);
       if (this->is_18bitdisplay_) {
-        transfer_buffer[idx++] = (uint8_t) ((color_val & 0xF800) >> 8);  // Blue
-        transfer_buffer[idx++] = (uint8_t) ((color_val & 0x7E0) >> 3);   // Green
-        transfer_buffer[idx++] = (uint8_t) (color_val << 3);             // Red
+        for (uint32_t i = 0; i < sz; ++i) {
+          uint16_t color_val = transfer_buffer_[i];
+
+          uint8_t red = color_val & 0x1F;
+          uint8_t green = (color_val & 0x7E0) >> 5;
+          uint8_t blue = (color_val & 0xF800) >> 11;
+
+          uint8_t pass_buff[3];
+
+          pass_buff[2] = (uint8_t) ((red / 32.0) * 64) << 2;
+          pass_buff[1] = (uint8_t) green << 2;
+          pass_buff[0] = (uint8_t) ((blue / 32.0) * 64) << 2;
+
+          this->write_array(pass_buff, sizeof(pass_buff));
+        }
       } else {
-        put16_be(transfer_buffer + idx, color_val);
-        idx += 2;
+        this->write_array16(transfer_buffer_, sz);
       }
-      if (idx == ILI9XXX_TRANSFER_BUFFER_SIZE) {
-        this->write_array(transfer_buffer, idx);
-        idx = 0;
-        App.feed_wdt();
-      }
-      // end of line? Skip to the next.
-      if (++pixel == w) {
-        pixel = 0;
-        pos += this->width_ - w;
-      }
+      pos += sz;
+      rem -= sz;
     }
-    // flush any balance.
-    if (idx != 0) {
-      this->write_array(transfer_buffer, idx);
-    }
+    App.feed_wdt();
   }
-  ESP_LOGV(TAG, "Data write took %dms", (unsigned) (millis() - now));
   this->end_data_();
+
   // invalidate watermarks
   this->x_low_ = this->width_;
   this->y_low_ = this->height_;
   this->x_high_ = 0;
   this->y_high_ = 0;
+}
+
+uint32_t ILI9XXXDisplay::buffer_to_transfer_(uint32_t pos, uint32_t sz) {
+  for (uint32_t i = 0; i < sz; ++i) {
+    switch (this->buffer_color_mode_) {
+      case BITS_8_INDEXED:
+        transfer_buffer_[i] = display::ColorUtil::color_to_565(
+            display::ColorUtil::index8_to_color_palette888(this->buffer_[pos + i], this->palette_));
+        break;
+      case BITS_16:
+        transfer_buffer_[i] = ((uint16_t) this->buffer_[(pos + i) * 2] << 8) | this->buffer_[((pos + i) * 2) + 1];
+        continue;
+        break;
+      default:
+        transfer_buffer_[i] =
+            display::ColorUtil::color_to_565(display::ColorUtil::rgb332_to_color(this->buffer_[pos + i]));
+        break;
+    }
+  }
+  return sz;
 }
 
 // should return the total size: return this->get_width_internal() * this->get_height_internal() * 2 // 16bit color
@@ -386,22 +376,23 @@ void ILI9XXXDisplay::init_lcd_(const uint8_t *init_cmd) {
   }
 }
 
-void ILI9XXXDisplay::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2) {
-  uint8_t buf[4];
+void ILI9XXXDisplay::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t w, uint16_t h) {
+  uint16_t x2 = (x1 + w - 1), y2 = (y1 + h - 1);
   this->command(ILI9XXX_CASET);  // Column address set
-  put16_be(buf, x1);
-  put16_be(buf + 2, x2);
   this->start_data_();
-  this->write_array(buf, sizeof buf);
+  this->write_byte(x1 >> 8);
+  this->write_byte(x1);
+  this->write_byte(x2 >> 8);
+  this->write_byte(x2);
   this->end_data_();
   this->command(ILI9XXX_PASET);  // Row address set
-  put16_be(buf, y1);
-  put16_be(buf + 2, y2);
   this->start_data_();
-  this->write_array(buf, sizeof buf);
+  this->write_byte(y1 >> 8);
+  this->write_byte(y1);
+  this->write_byte(y2 >> 8);
+  this->write_byte(y2);
   this->end_data_();
   this->command(ILI9XXX_RAMWR);  // Write to RAM
-  this->start_data_();
 }
 
 void ILI9XXXDisplay::invert_display_(bool invert) { this->command(invert ? ILI9XXX_INVON : ILI9XXX_INVOFF); }
