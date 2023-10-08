@@ -41,7 +41,7 @@ class DisplayBuffer : public Display {
    *
    * The length of each source buffer line will be x_offset + w + x_pad.
    */
-  virtual void draw_pixels_in_window(int x_start, int y_start, int w, int h, const uint8_t *ptr, ColorOrder order,
+  virtual void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, ColorOrder order,
                                      ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) {
     if (bitness == COLOR_BITNESS_UNKNOWN)
       return;

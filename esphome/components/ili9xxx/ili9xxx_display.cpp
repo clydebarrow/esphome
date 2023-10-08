@@ -150,7 +150,7 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
   }
 }
 
-void ILI9XXXDisplay::draw_pixels_in_window(int x_start, int y_start, int w, int h, const uint8_t *ptr,
+void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr,
                                            display::ColorOrder order, display::ColorBitness bitness, bool big_endian,
                                            int x_offset, int y_offset, int x_pad) {
   // optimal case is when everybody uses 16 bit big-endian colour format. Anything else we hand off.
