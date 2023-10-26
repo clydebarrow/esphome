@@ -29,6 +29,7 @@ LvglComponent = lvgl_ns.class_("LvglComponent", cg.Component)
 FontEngine = lvgl_ns.class_("FontEngine")
 ObjModifyAction = lvgl_ns.class_("ObjModifyAction")
 lv_obj_t = cg.global_ns.struct("lv_obj_t")
+lv_meter_indicator_t = cg.global_ns.struct("lv_meter_indicator_t")
 lv_style_t = cg.global_ns.struct("lv_style_t")
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
 lv_point_t = cg.global_ns.struct("lv_point_t")
@@ -333,6 +334,7 @@ INDICATOR_SCHEMA = cv.Any(
     {
         cv.Exclusive(CONF_LINE, CONF_INDICATORS): cv.Schema(
             {
+                cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
                 cv.Optional(CONF_WIDTH, default=4): lv_size,
                 cv.Optional(CONF_COLOR, default=0): lv_color,
                 cv.Optional(CONF_R_MOD, default=0): lv_size,
@@ -341,6 +343,7 @@ INDICATOR_SCHEMA = cv.Any(
         ),
         cv.Exclusive(CONF_IMG, CONF_INDICATORS): cv.Schema(
             {
+                cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
                 cv.Optional(CONF_PIVOT_X, default=0): lv_size,
                 cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
                 cv.Optional(CONF_VALUE): lv_value,
@@ -348,6 +351,7 @@ INDICATOR_SCHEMA = cv.Any(
         ),
         cv.Exclusive(CONF_ARC, CONF_INDICATORS): cv.Schema(
             {
+                cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
                 cv.Optional(CONF_WIDTH, default=4): lv_size,
                 cv.Optional(CONF_COLOR, default=0): lv_color,
                 cv.Optional(CONF_R_MOD, default=0): lv_size,
@@ -358,6 +362,7 @@ INDICATOR_SCHEMA = cv.Any(
         ),
         cv.Exclusive(CONF_TICKS, CONF_INDICATORS): cv.Schema(
             {
+                cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
                 cv.Optional(CONF_WIDTH, default=4): lv_size,
                 cv.Optional(CONF_COLOR_START, default=0): lv_color,
                 cv.Optional(CONF_COLOR_END): lv_color,
@@ -482,7 +487,7 @@ async def create_lambda(init):
 
 
 @automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
-async def cover_open_to_code(config, action_id, template_arg, args):
+async def modify_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     lamb = create_lambda(set_obj_properties(obj, config))
     var = cg.new_Pvariable(action_id, template_arg, obj, lamb)
@@ -607,7 +612,6 @@ async def meter_to_code(lv_component, var, meter):
     if "METER" not in lv_uses:
         lv_uses.add("METER")
         init.append("lv_meter_scale_t * scale")
-        init.append("lv_meter_indicator_t * indicator")
     if CONF_SCALES in meter:
         for scale in meter[CONF_SCALES]:
             rotation = 90 + (360 - scale[CONF_ANGLE_RANGE]) / 2
@@ -627,17 +631,18 @@ async def meter_to_code(lv_component, var, meter):
             )
             if CONF_INDICATORS in scale:
                 for indicator in scale[CONF_INDICATORS]:
+                    lv_component = cg.new_Pvariable(indicator[CONF_ID])
                     (t, v) = next(iter(indicator.items()))
                     (start_value, start_lamb) = await get_start_value(v)
                     (end_value, end_lamb) = await get_end_value(v)
                     if t == CONF_LINE:
                         init.append(
-                            f"indicator = lv_meter_add_needle_line({var}, scale, {v[CONF_WIDTH]},"
+                            f"{var} = lv_meter_add_needle_line({var}, scale, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_ARC:
                         init.append(
-                            f"indicator = lv_meter_add_arc({var}, scale, {v[CONF_WIDTH]},"
+                            f"{var} = lv_meter_add_arc({var}, scale, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_TICKS:
@@ -645,20 +650,20 @@ async def meter_to_code(lv_component, var, meter):
                         if CONF_COLOR_END in v:
                             color_end = v[CONF_COLOR_END]
                         init.append(
-                            f"indicator = lv_meter_add_scale_lines({var}, scale, {v[CONF_COLOR_START]},"
+                            f"{var} = lv_meter_add_scale_lines({var}, scale, {v[CONF_COLOR_START]},"
                             + f"{color_end}, {v[CONF_LOCAL]}, {v[CONF_R_MOD]})"
                         )
                     if start_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_start_value({var},indicator, {start_value})"
+                            f"lv_meter_set_indicator_start_value({var},{var}, {start_value})"
                         )
                     if end_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_end_value({var},indicator, {end_value})"
+                            f"lv_meter_set_indicator_end_value({var},{var}, {end_value})"
                         )
                     if start_lamb != "nullptr" or end_lamb != "nullptr":
                         init.append(
-                            f"{lv_component}->add_updater(new Indicator({var}, indicator, {start_lamb}, {end_lamb}))"
+                            f"{lv_component}->add_updater(new Indicator({var}, {var}, {start_lamb}, {end_lamb}))"
                         )
 
     return init
