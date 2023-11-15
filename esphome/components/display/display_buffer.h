@@ -82,9 +82,9 @@ class DisplayBuffer : public Display {
   }
 
   /// Convenience overload for base case where the pixels are packed into the buffer with no gaps (e.g. suits LVGL.)
-  void draw_pixels_in_window(int x_start, int y_start, int w, int h, const uint8_t *ptr, ColorOrder order,
+  void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, ColorOrder order,
                              ColorBitness bitness, bool big_endian) {
-    this->draw_pixels_in_window(x_start, y_start, w, h, ptr, order, bitness, big_endian, 0, 0, 0);
+    this->draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, 0, 0, 0);
   }
 
   virtual int get_height_internal() = 0;

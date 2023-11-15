@@ -156,7 +156,7 @@ void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, cons
   // optimal case is when everybody uses 16 bit big-endian colour format. Anything else we hand off.
   if (this->buffer_color_mode_ != BITS_16 || bitness != display::COLOR_BITNESS_565 ||
       order != display::COLOR_ORDER_RGB || !big_endian) {
-    DisplayBuffer::draw_pixels_in_window(x_start, y_start, w, h, ptr, order, bitness, big_endian);
+    DisplayBuffer::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian);
     return;
   }
 
