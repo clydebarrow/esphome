@@ -332,10 +332,10 @@ def cv_point_list(value):
     values = list(map(cv_int_list, value))
     for v in values:
         if (
-                not isinstance(v, list)
-                or not len(v) == 2
-                or not isinstance(v[0], int)
-                or not isinstance(v[1], int)
+            not isinstance(v, list)
+            or not len(v) == 2
+            or not isinstance(v[0], int)
+            or not isinstance(v[1], int)
         ):
             raise cv.Invalid("Points must be a list of x,y integer pairs")
     return {
@@ -505,7 +505,8 @@ CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(OBJ_SCHEMA).extend(
 MODIFY_SCHEMA = OBJ_SCHEMA.extend(
     {
         cv.Required(CONF_ID): cv.use_id(lv_obj_t),
-    }).extend(
+    }
+).extend(
     cv.Any(
         {
             cv.Exclusive(CONF_VALUE): lv_value,
