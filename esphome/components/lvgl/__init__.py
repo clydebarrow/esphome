@@ -1,4 +1,5 @@
 import esphome.codegen as cg
+import logging
 import esphome.core as core
 from esphome import automation
 from esphome.components.image import Image_
@@ -23,6 +24,7 @@ from esphome.const import (
 DOMAIN = "lvgl"
 DEPENDENCIES = ["display"]
 CODEOWNERS = ["@clydebarrow"]
+LOGGER = logging.getLogger(__name__)
 
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.Component)
@@ -91,7 +93,16 @@ CONF_START_VALUE = "start_value"
 CONF_END_VALUE = "end_value"
 CONF_DEFAULT = "default"
 CONF_BYTE_ORDER = "byte_order"
+CONF_LOG_LEVEL = "log_level"
 
+LOG_LEVELS = [
+    "TRACE",
+    "INFO",
+    "WARN",
+    "ERROR",
+    "USER",
+    "NONE",
+]
 STATES = [
     CONF_DEFAULT,
     "checked",
@@ -171,6 +182,17 @@ OBJ_FLAGS = [
 ]
 
 ARC_MODES = ["NORMAL", "REVERSE", "SYMMETRICAL"]
+
+# List of other components used
+lvgl_components_required = set()
+
+
+def requires_component(comp):
+    def validator(value):
+        lvgl_components_required.add(comp)
+        return cv.requires_component(comp)(value)
+
+    return validator
 
 
 def lv_color(value):
@@ -310,10 +332,10 @@ def cv_point_list(value):
     values = list(map(cv_int_list, value))
     for v in values:
         if (
-            not isinstance(v, list)
-            or not len(v) == 2
-            or not isinstance(v[0], int)
-            or not isinstance(v[1], int)
+                not isinstance(v, list)
+                or not len(v) == 2
+                or not isinstance(v[0], int)
+                or not isinstance(v[1], int)
         ):
             raise cv.Invalid("Points must be a list of x,y integer pairs")
     return {
@@ -341,13 +363,16 @@ INDICATOR_SCHEMA = cv.Any(
                 cv.Optional(CONF_VALUE): lv_value,
             }
         ),
-        cv.Exclusive(CONF_IMG, CONF_INDICATORS): cv.Schema(
-            {
-                cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
-                cv.Optional(CONF_PIVOT_X, default=0): lv_size,
-                cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
-                cv.Optional(CONF_VALUE): lv_value,
-            }
+        cv.Exclusive(CONF_IMG, CONF_INDICATORS): cv.All(
+            cv.Schema(
+                {
+                    cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
+                    cv.Optional(CONF_PIVOT_X, default=0): lv_size,
+                    cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
+                    cv.Optional(CONF_VALUE): lv_value,
+                }
+            ),
+            requires_component("image"),
         ),
         cv.Exclusive(CONF_ARC, CONF_INDICATORS): cv.Schema(
             {
@@ -450,8 +475,11 @@ WIDGET_SCHEMA = cv.Any(
                 cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA),
             }
         ),
-        cv.Exclusive(CONF_IMG, CONF_WIDGETS): OBJ_SCHEMA.extend(
-            {cv.Required(CONF_SRC): cv.use_id(Image_)},
+        cv.Exclusive(CONF_IMG, CONF_WIDGETS): cv.All(
+            OBJ_SCHEMA.extend(
+                {cv.Required(CONF_SRC): cv.use_id(Image_)},
+            ),
+            requires_component("image"),
         ),
     }
 )
@@ -461,6 +489,7 @@ CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(OBJ_SCHEMA).extend(
         cv.GenerateID(): cv.declare_id(LvglComponent),
         cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
         cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
+        cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(*LOG_LEVELS, upper=True),
         cv.Optional(CONF_BYTE_ORDER, default="big_endian"): cv.one_of(
             "big_endian", "little_endian"
         ),
@@ -476,7 +505,13 @@ CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(OBJ_SCHEMA).extend(
 MODIFY_SCHEMA = OBJ_SCHEMA.extend(
     {
         cv.Required(CONF_ID): cv.use_id(lv_obj_t),
-    }
+    }).extend(
+    cv.Any(
+        {
+            cv.Exclusive(CONF_VALUE): lv_value,
+            cv.Exclusive(CONF_TEXT): lv_value,
+        }
+    ),
 )
 
 
@@ -529,7 +564,6 @@ def set_obj_properties(var, config):
         lv_state = f"LV_STATE_{state.upper()}"
         for prop, value in props.items():
             if prop == CONF_STYLES:
-                print(value)
                 for style_id in value:
                     init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
             else:
@@ -555,14 +589,27 @@ async def obj_to_code(t, config, screen):
     return var, init
 
 
-async def label_to_code(lv_component, var, label):
+async def label_to_code(_, var, label):
     """For a text object, create and set text"""
     if CONF_TEXT in label:
         return [f'lv_label_set_text({var}, "{label[CONF_TEXT]}")']
     return []
 
 
-async def img_to_code(lv_component, var, image):
+# Dict of #defines to provide as build flags
+lvgl_defines = {}
+
+
+def add_define(macro, value="1"):
+    if macro in lvgl_defines and lvgl_defines[macro] != value:
+        LOGGER.error(
+            f"Redefinition of {macro} - was {lvgl_defines[macro]}, now {value}"
+        )
+    lvgl_defines[macro] = value
+    cg.add_build_flag(f"-D\\'{macro}\\'=\\'{value}\\'")
+
+
+async def img_to_code(_, var, image):
     return [f"lv_img_set_src({var}, lv_img_from({image[CONF_SRC]}))"]
 
 
@@ -630,19 +677,19 @@ async def meter_to_code(lv_component, var, meter):
                 ]
             )
             if CONF_INDICATORS in scale:
+                init.append("lv_meter_indicator_t * indicator")
                 for indicator in scale[CONF_INDICATORS]:
-                    lv_component = cg.new_Pvariable(indicator[CONF_ID])
                     (t, v) = next(iter(indicator.items()))
                     (start_value, start_lamb) = await get_start_value(v)
                     (end_value, end_lamb) = await get_end_value(v)
                     if t == CONF_LINE:
                         init.append(
-                            f"{var} = lv_meter_add_needle_line({var}, scale, {v[CONF_WIDTH]},"
+                            f"indicator = lv_meter_add_needle_line({var}, scale, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_ARC:
                         init.append(
-                            f"{var} = lv_meter_add_arc({var}, scale, {v[CONF_WIDTH]},"
+                            f"indicator = lv_meter_add_arc({var}, scale, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_TICKS:
@@ -650,20 +697,20 @@ async def meter_to_code(lv_component, var, meter):
                         if CONF_COLOR_END in v:
                             color_end = v[CONF_COLOR_END]
                         init.append(
-                            f"{var} = lv_meter_add_scale_lines({var}, scale, {v[CONF_COLOR_START]},"
+                            f"indicator = lv_meter_add_scale_lines({var}, scale, {v[CONF_COLOR_START]},"
                             + f"{color_end}, {v[CONF_LOCAL]}, {v[CONF_R_MOD]})"
                         )
                     if start_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_start_value({var},{var}, {start_value})"
+                            f"lv_meter_set_indicator_start_value({var},indicator, {start_value})"
                         )
                     if end_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_end_value({var},{var}, {end_value})"
+                            f"lv_meter_set_indicator_end_value({var},indicator, {end_value})"
                         )
                     if start_lamb != "nullptr" or end_lamb != "nullptr":
                         init.append(
-                            f"{lv_component}->add_updater(new Indicator({var}, {var}, {start_lamb}, {end_lamb}))"
+                            f"{lv_component}->add_updater(new Indicator({var}, indicator, {start_lamb}, {end_lamb}))"
                         )
 
     return init
@@ -700,31 +747,34 @@ async def widget_to_code(lv_component, widget, screen):
 
 async def to_code(config):
     cg.add_library("lvgl/lvgl", "8.3.9")
-    core.CORE.add_build_flag("-D\\'_STRINGIFY(x)=_STRINGIFY_(x)\\'")
-    core.CORE.add_build_flag("-D\\'_STRINGIFY_(x)=#x\\'")
-    core.CORE.add_build_flag("-DLV_CONF_SKIP=1")
-    core.CORE.add_build_flag("-DLV_USE_USER_DATA=1")
-    core.CORE.add_build_flag("-DLV_TICK_CUSTOM=1")
-    core.CORE.add_build_flag("-DLV_USE_LOG=1")
-    core.CORE.add_build_flag("-DLV_LOG_LEVEL=LV_LOG_LEVEL_INFO")
-    core.CORE.add_build_flag(
-        "-DLV_TICK_CUSTOM_INCLUDE=\\'_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)\\'"
+    for comp in lvgl_components_required:
+        add_define(f"LVGL_USES_{comp.upper()}")
+    add_define("_STRINGIFY(x)", "_STRINGIFY_(x)")
+    add_define("_STRINGIFY_(x)", "#x")
+    add_define("LV_CONF_SKIP", "1")
+    add_define("LV_USE_USER_DATA", "1")
+    add_define("LV_TICK_CUSTOM", "1")
+    add_define("LV_USE_LOG", "1")
+    add_define(
+        "LV_TICK_CUSTOM_INCLUDE", "_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)"
     )
-    core.CORE.add_build_flag("-DLV_TICK_CUSTOM_SYS_TIME_EXPR=\\'(lv_millis())\\'")
-    for font in lv_fonts_used:
-        core.CORE.add_build_flag(f"-DLV_FONT_{font.upper()}=1")
+    add_define("LV_TICK_CUSTOM_SYS_TIME_EXPR", "(lv_millis())")
+    add_define("LV_MEM_CUSTOM", "1")
+    add_define("LV_MEM_CUSTOM_ALLOC", "lv_custom_mem_alloc")
+    add_define("LV_MEM_CUSTOM_FREE", "lv_custom_mem_free")
+    add_define("LV_MEM_CUSTOM_REALLOC", "lv_custom_mem_realloc")
+    add_define(
+        "LV_MEM_CUSTOM_INCLUDE", "_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)"
+    )
 
-    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM=1")
-    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_ALLOC=lv_custom_mem_alloc")
-    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_FREE=lv_custom_mem_free")
-    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_REALLOC=lv_custom_mem_realloc")
-    # core.CORE.add_build_flag("-DLV_MEM_CUSTOM_INCLUDE=\\'_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)\\'")
-    core.CORE.add_build_flag(f"-DLV_COLOR_DEPTH={config[CONF_COLOR_DEPTH]}")
+    add_define("LV_LOG_LEVEL", f"LV_LOG_LEVEL_{config[CONF_LOG_LEVEL]}")
+    for font in lv_fonts_used:
+        add_define(f"LV_FONT_{font.upper()}")
+    add_define("LV_COLOR_DEPTH", config[CONF_COLOR_DEPTH])
     if config[CONF_COLOR_DEPTH] == 16:
-        if config[CONF_BYTE_ORDER] == "big_endian":
-            core.CORE.add_build_flag("-DLV_COLOR_16_SWAP=1")
-        else:
-            core.CORE.add_build_flag("-DLV_COLOR_16_SWAP=0")
+        add_define(
+            "LV_COLOR_16_SWAP", "1" if config[CONF_BYTE_ORDER] == "big_endian" else "0"
+        )
     core.CORE.add_build_flag("-Isrc")
 
     display = await cg.get_variable(config[CONF_DISPLAY_ID])

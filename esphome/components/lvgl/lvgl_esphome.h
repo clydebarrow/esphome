@@ -1,7 +1,9 @@
 #pragma once
 
 #include "esphome/components/display/display_buffer.h"
+#if LVGL_USES_IMAGE
 #include "esphome/components/image/image.h"
+#endif
 #include "esphome/components/font/font.h"
 #include "esphome/components/display/display_color_utils.h"
 #include "esphome/core/component.h"
@@ -173,6 +175,7 @@ class FontEngine {
 
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 
+#if LVGL_USES_IMAGE
 static lv_img_dsc_t *lv_img_from(image::Image *src) {
   auto img = new lv_img_dsc_t();  // NOLINT
   img->header.always_zero = 0;
@@ -214,6 +217,7 @@ static lv_img_dsc_t *lv_img_from(image::Image *src) {
   //           img->data_size);
   return img;
 }
+#endif
 
 class LvglComponent : public Component {
  public:
@@ -228,7 +232,7 @@ class LvglComponent : public Component {
   void setup() override {
     lv_log_register_print_cb(log_cb);
     size_t buf_size = this->display_->get_width() * this->display_->get_height() / 4;
-    auto buf = lv_custom_mem_alloc(buf_size);
+    auto buf = lv_custom_mem_alloc(buf_size * LV_COLOR_DEPTH / 8);
     if (buf == nullptr) {
       ESP_LOGE(TAG, "Malloc failed to allocate %d bytes", buf_size);
       this->mark_failed();
@@ -243,7 +247,7 @@ class LvglComponent : public Component {
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
     this->init_lambda_(this->disp_);
-    this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
+    this->display_->set_writer([](display::Display &d) {lv_timer_handler(); });
   }
 
   void loop() override {
@@ -260,7 +264,7 @@ class LvglComponent : public Component {
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
-    this->display_->draw_pixels_in_window(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
+    this->display_->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
                                           (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS,
                                           LV_COLOR_16_SWAP);
     lv_disp_flush_ready(disp_drv);

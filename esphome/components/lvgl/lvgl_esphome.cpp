@@ -4,30 +4,28 @@
 #include "lvgl_hal.h"
 
 static const char *TAG = "lvgl";
-unsigned long lv_millis(void) {
-  return esphome::millis();
-}
+unsigned long lv_millis(void) { return esphome::millis(); }
 
-esphome::ExternalRAMAllocator<unsigned char> allocator(esphome::ExternalRAMAllocator<unsigned char>::ALLOW_FAILURE);
-
-void * lv_custom_mem_alloc(size_t size) {
-  auto ptr =  allocator.allocate(size);
-  esphome::ESP_LOGD(TAG, "allocate %u - > %p", size, ptr);
+void *lv_custom_mem_alloc(unsigned int size) {
+  auto ptr = (heap_caps_malloc(size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+#ifdef ESPHOME_LOG_HAS_VERBOSE
+  esphome::esph_log_v(TAG, "allocate %u - > %p", size, ptr);
+#endif
   return ptr;
 }
 
-void lv_custom_mem_free(void * ptr) {
-  esphome::ESP_LOGD(TAG, "free %p", ptr);
+void lv_custom_mem_free(void *ptr) {
+#ifdef ESPHOME_LOG_HAS_VERBOSE
+  esphome::esph_log_v(TAG, "free %p", ptr);
+#endif
   if (ptr == nullptr)
     return;
-  //allocator.deallocate((uint8_t *)ptr, 0);
+  heap_caps_free(ptr);
 }
 
-void * lv_custom_mem_realloc(void * ptr, size_t size) {
-  esphome::ESP_LOGD(TAG, "realloc %p: %u", ptr, size);
-  if (ptr != nullptr)
-    lv_custom_mem_free(ptr);
-  return lv_custom_mem_alloc(size);
+void *lv_custom_mem_realloc(void *ptr, unsigned int size) {
+#ifdef ESPHOME_LOG_HAS_VERBOSE
+  esphome::esph_log_v(TAG, "realloc %p: %u", ptr, size);
+#endif
+  return heap_caps_realloc(ptr, size, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 }
-
-
