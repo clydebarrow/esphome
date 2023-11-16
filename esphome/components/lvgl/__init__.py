@@ -502,18 +502,19 @@ CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(OBJ_SCHEMA).extend(
     }
 )
 
-MODIFY_SCHEMA = OBJ_SCHEMA.extend(
-    {
-        cv.Required(CONF_ID): cv.use_id(lv_obj_t),
-    }
-).extend(
-    cv.Any(
-        {
-            cv.Exclusive(CONF_VALUE): lv_value,
-            cv.Exclusive(CONF_TEXT): lv_value,
-        }
-    ),
-)
+
+# MODIFY_SCHEMA = OBJ_SCHEMA.extend(
+#    {
+#        cv.Required(CONF_ID): cv.use_id(lv_obj_t),
+#    }
+# ).extend(
+#    cv.Any(
+#        {
+#            cv.Exclusive(CONF_VALUE): lv_value,
+#            cv.Exclusive(CONF_TEXT): lv_value,
+#        }
+#    ),
+# )
 
 
 async def create_lambda(init):
