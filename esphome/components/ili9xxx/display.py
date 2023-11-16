@@ -13,6 +13,8 @@ from esphome.const import (
     CONF_PAGES,
     CONF_RESET_PIN,
     CONF_DIMENSIONS,
+    CONF_WIDTH,
+    CONF_HEIGHT,
 )
 
 DEPENDENCIES = ["spi"]
@@ -46,8 +48,14 @@ MODELS = {
     "ILI9488": ili9XXX_ns.class_("ILI9XXXILI9488", ili9XXXSPI),
     "ILI9488_A": ili9XXX_ns.class_("ILI9XXXILI9488A", ili9XXXSPI),
     "ST7796": ili9XXX_ns.class_("ILI9XXXST7796", ili9XXXSPI),
+    "ST7789V": ili9XXX_ns.class_("ILI9XXXST7789V", ili9XXXSPI),
     "S3BOX": ili9XXX_ns.class_("ILI9XXXS3Box", ili9XXXSPI),
     "S3BOX_LITE": ili9XXX_ns.class_("ILI9XXXS3BoxLite", ili9XXXSPI),
+}
+
+COLOR_ORDERS = {
+    "RGB": 0,
+    "BGR": 8,
 }
 
 COLOR_PALETTE = cv.one_of("NONE", "GRAYSCALE", "IMAGE_ADAPTIVE")
@@ -55,9 +63,25 @@ COLOR_PALETTE = cv.one_of("NONE", "GRAYSCALE", "IMAGE_ADAPTIVE")
 CONF_LED_PIN = "led_pin"
 CONF_COLOR_PALETTE_IMAGES = "color_palette_images"
 CONF_INVERT_DISPLAY = "invert_display"
+CONF_MIRROR_X = "mirror_x"
+CONF_MIRROR_Y = "mirror_y"
+CONF_SWAP_XY = "swap_xy"
+CONF_PANEL_SETUP = "panel_setup"
+CONF_COLOR_ORDER = "color_order"
+CONF_OFFSET_HEIGHT = "offset_height"
+CONF_OFFSET_WIDTH = "offset_width"
 
 
 def _validate(config):
+    if CONF_DIMENSIONS in config:
+        dimensions = config[CONF_DIMENSIONS]
+        if isinstance(dimensions, dict):
+            config.update(dimensions)
+        else:
+            (config[CONF_WIDTH], config[CONF_HEIGHT]) = dimensions
+            config[CONF_OFFSET_WIDTH] = 0
+            config[CONF_OFFSET_HEIGHT] = 0
+
     if config.get(CONF_COLOR_PALETTE) == "IMAGE_ADAPTIVE" and not config.get(
         CONF_COLOR_PALETTE_IMAGES
     ):
@@ -77,6 +101,7 @@ def _validate(config):
         "TFT_2.4R",
         "ILI9341",
         "ILI9342",
+        "ST7789V",
     ]:
         raise cv.Invalid(
             "Provided model can't run on ESP8266. Use an ESP32 with PSRAM onboard"
@@ -84,13 +109,33 @@ def _validate(config):
     return config
 
 
+PANEL_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_SWAP_XY, default=False): cv.boolean,
+        cv.Optional(CONF_MIRROR_X, default=False): cv.boolean,
+        cv.Optional(CONF_MIRROR_Y, default=False): cv.boolean,
+        cv.Optional(CONF_COLOR_ORDER, default="BGR"): cv.one_of(
+            *COLOR_ORDERS.keys(), upper=True
+        ),
+    }
+)
 CONFIG_SCHEMA = cv.All(
     font.validate_pillow_installed,
     display.FULL_DISPLAY_SCHEMA.extend(
         {
             cv.GenerateID(): cv.declare_id(ili9XXXSPI),
             cv.Required(CONF_MODEL): cv.enum(MODELS, upper=True, space="_"),
-            cv.Optional(CONF_DIMENSIONS): cv.dimensions,
+            cv.Optional(CONF_DIMENSIONS): cv.Any(
+                cv.dimensions,
+                cv.Schema(
+                    {
+                        cv.Required(CONF_WIDTH): cv.int_,
+                        cv.Required(CONF_HEIGHT): cv.int_,
+                        cv.Optional(CONF_OFFSET_HEIGHT, default=0): cv.int_,
+                        cv.Optional(CONF_OFFSET_WIDTH, default=0): cv.int_,
+                    }
+                ),
+            ),
             cv.Required(CONF_DC_PIN): pins.gpio_output_pin_schema,
             cv.Optional(CONF_RESET_PIN): pins.gpio_output_pin_schema,
             cv.Optional(CONF_LED_PIN): cv.invalid(
@@ -101,6 +146,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_COLOR_PALETTE_IMAGES, default=[]): cv.ensure_list(
                 cv.file_
             ),
+            cv.Optional(CONF_PANEL_SETUP): PANEL_SCHEMA,
             cv.Optional(CONF_INVERT_DISPLAY): cv.boolean,
         }
     )
@@ -120,7 +166,16 @@ async def to_code(config):
     await spi.register_spi_device(var, config)
     dc = await cg.gpio_pin_expression(config[CONF_DC_PIN])
     cg.add(var.set_dc_pin(dc))
-
+    if CONF_PANEL_SETUP in config:
+        panel = config[CONF_PANEL_SETUP]
+        mad = COLOR_ORDERS[panel[CONF_COLOR_ORDER]] | 0x8000
+        if panel[CONF_MIRROR_Y]:
+            mad |= 0x80
+        if panel[CONF_MIRROR_X]:
+            mad |= 0x40
+        if panel[CONF_SWAP_XY]:
+            mad |= 0x20
+        cg.add(var.set_mad(mad))
     if CONF_LAMBDA in config:
         lambda_ = await cg.process_lambda(
             config[CONF_LAMBDA], [(display.DisplayRef, "it")], return_type=cg.void
@@ -132,9 +187,8 @@ async def to_code(config):
         cg.add(var.set_reset_pin(reset))
 
     if CONF_DIMENSIONS in config:
-        cg.add(
-            var.set_dimentions(config[CONF_DIMENSIONS][0], config[CONF_DIMENSIONS][1])
-        )
+        cg.add(var.set_dimensions(config[CONF_WIDTH], config[CONF_HEIGHT]))
+        cg.add(var.set_offsets(config[CONF_OFFSET_WIDTH], config[CONF_OFFSET_HEIGHT]))
 
     rhs = None
     if config[CONF_COLOR_PALETTE] == "GRAYSCALE":
