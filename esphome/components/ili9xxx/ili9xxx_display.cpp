@@ -18,16 +18,21 @@ static inline void put16_be(uint8_t *buf, uint16_t value) {
 }
 
 void ILI9XXXDisplay::setup() {
-  ESP_LOGCONFIG(TAG, "ILI9xxx setup starts");
+  ESP_LOGD(TAG, "Setting up ILI9xxx");
 
   this->setup_pins_();
-  this->initialize();
+  this->init_lcd_();
+
   this->command(this->pre_invertdisplay_ ? ILI9XXX_INVON : ILI9XXX_INVOFF);
   // custom x/y transform and color order
-  if (this->mad_ != 0) {
-    uint8_t mad = this->mad_ & 0xFF;
-    this->send_command(ILI9XXX_MADCTL, &mad, 1);
-  }
+  uint8_t mad = this->color_order_ == display::COLOR_ORDER_BGR ? MADCTL_BGR : MADCTL_RGB;
+  if (this->swap_xy_)
+    mad |= MADCTL_MV;
+  if (this->mirror_x_)
+    mad |= MADCTL_MX;
+  if (this->mirror_y_)
+    mad |= MADCTL_MY;
+  this->send_command(ILI9XXX_MADCTL, &mad, 1);
 
   this->x_low_ = this->width_;
   this->y_low_ = this->height_;
@@ -76,9 +81,9 @@ void ILI9XXXDisplay::dump_config() {
   LOG_PIN("  CS Pin: ", this->cs_);
   LOG_PIN("  DC Pin: ", this->dc_pin_);
   LOG_PIN("  Busy Pin: ", this->busy_pin_);
-#ifdef USE_POWER_SUPPLY
-  ESP_LOGCONFIG(TAG, "  Power Supply Configured: yes");
-#endif
+  ESP_LOGCONFIG(TAG, "  Swap_xy: %s", YESNO(this->swap_xy_));
+  ESP_LOGCONFIG(TAG, "  Mirror_x: %s", YESNO(this->mirror_x_));
+  ESP_LOGCONFIG(TAG, "  Mirror_y: %s", YESNO(this->mirror_y_));
 
   if (this->is_failed()) {
     ESP_LOGCONFIG(TAG, "  => Failed to init Memory: YES!");
@@ -232,6 +237,7 @@ void ILI9XXXDisplay::display_() {
            this->is_18bitdisplay_, sw_time, mw_time);
   this->enable();
   auto now = millis();
+  this->enable();
   if (this->buffer_color_mode_ == BITS_16 && !this->is_18bitdisplay_ && sw_time < mw_time) {
     // 16 bit mode maps directly to display format
     ESP_LOGV(TAG, "Doing single write of %d bytes", this->width_ * h * 2);
@@ -350,11 +356,11 @@ void ILI9XXXDisplay::reset_() {
   }
 }
 
-void ILI9XXXDisplay::init_lcd_(const uint8_t *init_cmd) {
+void ILI9XXXDisplay::init_lcd_() {
   uint8_t cmd, x, num_args;
-  const uint8_t *addr = init_cmd;
-  while ((cmd = progmem_read_byte(addr++)) > 0) {
-    x = progmem_read_byte(addr++);
+  const uint8_t *addr = this->init_sequence_;
+  while ((cmd = *addr++) > 0) {
+    x = *addr++;
     num_args = x & 0x7F;
     send_command(cmd, addr, num_args);
     addr += num_args;
@@ -363,7 +369,8 @@ void ILI9XXXDisplay::init_lcd_(const uint8_t *init_cmd) {
   }
 }
 
-// when called, the SPI should have already been enabled.
+// Tell the display controller where we want to draw pixels.
+// when called, the SPI should have already been enabled, only the D/C pin will be toggled here.
 void ILI9XXXDisplay::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2) {
   uint8_t buf[4];
   this->dc_pin_->digital_write(false);
@@ -392,140 +399,6 @@ void ILI9XXXDisplay::invert_display(bool invert) {
 
 int ILI9XXXDisplay::get_width_internal() { return this->width_; }
 int ILI9XXXDisplay::get_height_internal() { return this->height_; }
-
-//   M5Stack display
-void ILI9XXXM5Stack::initialize() {
-  this->init_lcd_(INITCMD_M5STACK);
-  if (this->width_ == 0)
-    this->width_ = 320;
-  if (this->height_ == 0)
-    this->height_ = 240;
-  this->pre_invertdisplay_ = true;
-}
-
-//   M5CORE display // Based on the configuration settings of M5stact's M5GFX code.
-void ILI9XXXM5CORE::initialize() {
-  this->init_lcd_(INITCMD_M5CORE);
-  if (this->width_ == 0)
-    this->width_ = 320;
-  if (this->height_ == 0)
-    this->height_ = 240;
-  this->pre_invertdisplay_ = true;
-}
-
-void ILI9XXXST7789V::initialize() {
-  this->init_lcd_(INITCMD_ST7789V);
-  if (this->width_ == 0)
-    this->width_ = 240;
-  if (this->height_ == 0)
-    this->height_ = 320;
-}
-//   24_TFT display
-void ILI9XXXILI9341::initialize() {
-  this->init_lcd_(INITCMD_ILI9341);
-  if (this->width_ == 0)
-    this->width_ = 240;
-  if (this->height_ == 0)
-    this->height_ = 320;
-}
-//   24_TFT rotated display
-void ILI9XXXILI9342::initialize() {
-  this->init_lcd_(INITCMD_ILI9341);
-  if (this->width_ == 0) {
-    this->width_ = 320;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 240;
-  }
-}
-
-//   35_TFT display
-void ILI9XXXILI9481::initialize() {
-  this->init_lcd_(INITCMD_ILI9481);
-  if (this->width_ == 0) {
-    this->width_ = 480;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 320;
-  }
-}
-
-void ILI9XXXILI948118::initialize() {
-  this->init_lcd_(INITCMD_ILI9481_18);
-  if (this->width_ == 0) {
-    this->width_ = 320;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 480;
-  }
-  this->is_18bitdisplay_ = true;
-}
-
-//   35_TFT display
-void ILI9XXXILI9486::initialize() {
-  this->init_lcd_(INITCMD_ILI9486);
-  if (this->width_ == 0) {
-    this->width_ = 480;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 320;
-  }
-}
-//    40_TFT display
-void ILI9XXXILI9488::initialize() {
-  this->init_lcd_(INITCMD_ILI9488);
-  if (this->width_ == 0) {
-    this->width_ = 480;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 320;
-  }
-  this->is_18bitdisplay_ = true;
-}
-//    40_TFT display
-void ILI9XXXILI9488A::initialize() {
-  this->init_lcd_(INITCMD_ILI9488_A);
-  if (this->width_ == 0) {
-    this->width_ = 480;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 320;
-  }
-  this->is_18bitdisplay_ = true;
-}
-//    40_TFT display
-void ILI9XXXST7796::initialize() {
-  this->init_lcd_(INITCMD_ST7796);
-  if (this->width_ == 0) {
-    this->width_ = 320;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 480;
-  }
-}
-
-//   24_TFT rotated display
-void ILI9XXXS3Box::initialize() {
-  this->init_lcd_(INITCMD_S3BOX);
-  if (this->width_ == 0) {
-    this->width_ = 320;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 240;
-  }
-}
-
-//   24_TFT rotated display
-void ILI9XXXS3BoxLite::initialize() {
-  this->init_lcd_(INITCMD_S3BOXLITE);
-  if (this->width_ == 0) {
-    this->width_ = 320;
-  }
-  if (this->height_ == 0) {
-    this->height_ = 240;
-  }
-  this->pre_invertdisplay_ = true;
-}
 
 }  // namespace ili9xxx
 }  // namespace esphome
