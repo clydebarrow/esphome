@@ -523,12 +523,12 @@ async def create_lambda(init):
     )
 
 
-@automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
-async def modify_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
-    lamb = create_lambda(set_obj_properties(obj, config))
-    var = cg.new_Pvariable(action_id, template_arg, obj, lamb)
-
+#@automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
+#async def modify_to_code(config, action_id, template_arg, args):
+#    obj = await cg.get_variable(config[CONF_ID])
+#    lamb = create_lambda(set_obj_properties(obj, config))
+#    var = cg.new_Pvariable(action_id, template_arg, obj, lamb)
+#
 
 async def styles_to_code(styles):
     """Convert styles to C__ code."""
