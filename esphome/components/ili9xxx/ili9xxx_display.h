@@ -64,6 +64,20 @@ class ILI9XXXDisplay : public PollingComponent,
   void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
                              display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset,
                              int x_pad) override;
+  void allocate_buffer_() {
+    if (this->buffer_ != nullptr)
+      return;
+    if (this->buffer_color_mode_ == BITS_16) {
+      this->init_internal_(this->get_buffer_length_() * 2);
+    } else {
+      this->init_internal_(this->get_buffer_length_());
+    }
+    if (this->buffer_ == nullptr) {
+      this->mark_failed();
+    } else {
+      esph_log_config("ili9xxx", "Allocated buffer");
+    }
+  }
   void setup_pins_();
   virtual void initialize() = 0;
 

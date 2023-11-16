@@ -73,20 +73,21 @@ class Indicator : public Updater {
     float new_value;
     if (this->end_value_ != nullptr) {
       new_value = this->end_value_();
-      if (new_value != this->last_end_state_) {
+      if (!std::isnan(new_value) && new_value != this->last_end_state_) {
         lv_meter_set_indicator_end_value(this->meter_, this->indicator_, new_value);
         this->last_end_state_ = new_value;
       }
       if (this->start_value_ != nullptr) {
         new_value = this->start_value_();
-        if (new_value != this->last_start_state_) {
+        if (!std::isnan(new_value) && new_value != this->last_start_state_) {
           lv_meter_set_indicator_start_value(this->meter_, this->indicator_, this->start_value_());
           this->last_start_state_ = new_value;
         }
       }
     } else if (this->start_value_ != nullptr) {
       new_value = this->start_value_();
-      if (new_value != this->last_start_state_) {
+      if (!std::isnan(new_value) && new_value != this->last_start_state_) {
+        esph_log_d(TAG, "new value %f", new_value);
         lv_meter_set_indicator_value(this->meter_, this->indicator_, this->start_value_());
         this->last_start_state_ = new_value;
       }
@@ -225,16 +226,18 @@ class LvglComponent : public Component {
     reinterpret_cast<LvglComponent *>(disp_drv->user_data)->flush_cb_(disp_drv, area, color_p);
   }
 
+  float get_setup_priority() const override { return setup_priority::PROCESSOR; }
   static void log_cb(const char *buf) { esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%s", buf); }
 
   void add_updater(Updater *updater) { this->updaters_.push_back(updater); }
 
   void setup() override {
+    esph_log_config(TAG, "LVGL Setup starts");
     lv_log_register_print_cb(log_cb);
     size_t buf_size = this->display_->get_width() * this->display_->get_height() / 4;
     auto buf = lv_custom_mem_alloc(buf_size * LV_COLOR_DEPTH / 8);
     if (buf == nullptr) {
-      ESP_LOGE(TAG, "Malloc failed to allocate %d bytes", buf_size);
+      esph_log_e(TAG, "Malloc failed to allocate %d bytes", buf_size);
       this->mark_failed();
       return;
     }
@@ -247,7 +250,8 @@ class LvglComponent : public Component {
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
     this->init_lambda_(this->disp_);
-    this->display_->set_writer([](display::Display &d) {lv_timer_handler(); });
+    this->display_->set_writer([](display::Display &d) {      lv_timer_handler(); });
+    esph_log_config(TAG, "LVGL Setup complete");
   }
 
   void loop() override {
@@ -265,8 +269,7 @@ class LvglComponent : public Component {
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
     this->display_->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
-                                          (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS,
-                                          LV_COLOR_16_SWAP);
+                                   (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
     lv_disp_flush_ready(disp_drv);
     ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
              lv_area_get_height(area), (int) (millis() - now));

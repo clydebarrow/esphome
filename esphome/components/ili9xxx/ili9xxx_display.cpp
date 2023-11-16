@@ -18,11 +18,7 @@ static inline void put16_be(uint8_t *buf, uint16_t value) {
 }
 
 void ILI9XXXDisplay::setup() {
-  ESP_LOGD(TAG, "Setting up ILI9xxx");
-#ifdef USE_POWER_SUPPLY
-  this->power_.request();
-  // the PowerSupply component takes care of post turn-on delay
-#endif
+  ESP_LOGCONFIG(TAG, "ILI9xxx setup starts");
 
   this->setup_pins_();
   this->initialize();
@@ -38,17 +34,9 @@ void ILI9XXXDisplay::setup() {
   this->x_high_ = 0;
   this->y_high_ = 0;
 
-  if (this->buffer_color_mode_ == BITS_16) {
-    this->init_internal_(this->get_buffer_length_() * 2);
-    if (this->buffer_ != nullptr) {
-      return;
-    }
-    this->buffer_color_mode_ = BITS_8;
-  }
-  this->init_internal_(this->get_buffer_length_());
-  if (this->buffer_ == nullptr) {
-    this->mark_failed();
-  }
+
+  ESP_LOGCONFIG(TAG, "ILI9xxx setup complete");
+  return;
 }
 
 void ILI9XXXDisplay::setup_pins_() {
@@ -101,6 +89,7 @@ void ILI9XXXDisplay::dump_config() {
 float ILI9XXXDisplay::get_setup_priority() const { return setup_priority::HARDWARE; }
 
 void ILI9XXXDisplay::fill(Color color) {
+  this->allocate_buffer_();
   uint16_t new_color = 0;
   this->x_low_ = 0;
   this->y_low_ = 0;
@@ -135,9 +124,11 @@ void ILI9XXXDisplay::fill(Color color) {
 }
 
 void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color) {
-  if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() || y < 0) {
+  if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() ||
+      y < 0) {
     return;
   }
+  this->allocate_buffer_();
   uint32_t pos = (y * width_) + x;
   uint16_t new_color;
   bool updated = false;
@@ -178,86 +169,29 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
 }
 
 void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr,
-                                           display::ColorOrder order, display::ColorBitness bitness, bool big_endian,
-                                           int x_offset, int y_offset, int x_pad) {
+                                    display::ColorOrder order, display::ColorBitness bitness, bool big_endian,
+                                    int x_offset, int y_offset, int x_pad) {
+  // draw directly to the display
+  ESP_LOGD(TAG, "drawing into %d/%d, %d/%d", x_start, y_start, w, h);
+  if (w <= 0 || h <= 0)
+    return;
   // optimal case is when everybody uses 16 bit big-endian colour format. Anything else we hand off.
   if (this->buffer_color_mode_ != BITS_16 || bitness != display::COLOR_BITNESS_565 ||
       order != display::COLOR_ORDER_RGB || !big_endian) {
-    DisplayBuffer::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian);
+    DisplayBuffer::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset, x_pad);
     return;
   }
 
-  ESP_LOGD(TAG, "drawing into %d/%d, %d/%d", x_start, y_start, w, h);
-  size_t line_stride = x_start + w + x_pad;
-  auto clip_rect = this->get_clipping();
-  if (clip_rect.is_set()) {
-    if (x_start < clip_rect.x) {
-      x_offset += clip_rect.x - x_start;
-      w -= clip_rect.x - x_start;
-      x_start = clip_rect.x;
-    }
-    if (y_start < clip_rect.y) {
-      y_offset += clip_rect.y - y_start;
-      h -= clip_rect.y - y_start;
-      y_start = clip_rect.y;
-    }
-    if (x_start + w > clip_rect.x + clip_rect.w) {
-      w = clip_rect.x + clip_rect.w - x_start;
-    }
-    if (y_start + h > clip_rect.y + clip_rect.h) {
-      h = clip_rect.y + clip_rect.h - y_start;
-    }
-    ESP_LOGD(TAG, "clipped to %d/%d, %d/%d", x_start, y_start, w, h);
+  size_t line_stride = w + x_pad;
+  this->enable();
+  this->set_addr_window_(x_start, y_start, x_start + w - 1, y_start + h - 1);
+  uint16_t *src_ptr = ((uint16_t *) ptr) + y_offset * line_stride + x_offset;
+  // no software rotation done here.
+  for (int y = 0; y != h; y++) {
+    this->write_array((const uint8_t *) src_ptr, w * 2);
+    src_ptr += line_stride;
   }
-  if (w <= 0 || h <= 0)
-    return;
-  ESP_LOGV(TAG, "copy with rotation %d degrees", (int) this->rotation_);
-  uint16_t *src_ptr;
-  uint16_t *dst_ptr;
-  switch (this->rotation_) {
-    case display::DISPLAY_ROTATION_0_DEGREES: {
-      src_ptr = ((uint16_t *) ptr) + y_offset * line_stride + x_offset;
-      dst_ptr = ((uint16_t *) this->buffer_) + y_start * this->width_ + x_start;
-      for (int y = 0; y != h; y++) {
-        memcpy(dst_ptr, src_ptr, w * 2);
-        src_ptr += line_stride;
-        dst_ptr += this->width_;
-      }
-      return;
-    }
-    case display::DISPLAY_ROTATION_180_DEGREES: {
-      for (int py = 0; py != h; py++) {
-        src_ptr = ((uint16_t *) ptr) + (y_offset + py) * line_stride + x_offset;
-        dst_ptr = ((uint16_t *) this->buffer_) + (this->height_ - y_start - py) * this->width_ - x_start;
-        for (int px = 0; px != w; px++) {
-          *--dst_ptr = *src_ptr++;
-        }
-      }
-      break;
-    }
-    case display::DISPLAY_ROTATION_90_DEGREES: {
-      for (int py = 0; py != h; py++) {
-        src_ptr = ((uint16_t *) ptr) + (y_offset + py) * line_stride + x_offset;
-        dst_ptr = ((uint16_t *) this->buffer_) + x_start * this->width_ + this->width_ - y_start - py - 1;
-        for (int px = 0; px != w; px++) {
-          *dst_ptr = *src_ptr++;
-          dst_ptr += this->width_;
-        }
-      }
-      break;
-    }
-    case display::DISPLAY_ROTATION_270_DEGREES: {
-      for (int py = 0; py != h; py++) {
-        src_ptr = ((uint16_t *) ptr) + (y_offset + py) * line_stride + x_offset;
-        dst_ptr = ((uint16_t *) this->buffer_) + (this->height_ - x_start) * this->width_ + y_start + py;
-        for (int px = 0; px != w; px++) {
-          dst_ptr -= this->width_;
-          *dst_ptr = *src_ptr++;
-        }
-      }
-      break;
-    }
-  }
+  this->disable();
 }
 
 void ILI9XXXDisplay::update() {
@@ -277,7 +211,7 @@ void ILI9XXXDisplay::update() {
 void ILI9XXXDisplay::display_() {
   uint8_t transfer_buffer[ILI9XXX_TRANSFER_BUFFER_SIZE];
   // check if something was displayed
-  if ((this->x_high_ < this->x_low_) || (this->y_high_ < this->y_low_)) {
+  if (this->buffer_ == nullptr || this->x_high_ < this->x_low_ || this->y_high_ < this->y_low_) {
     ESP_LOGV(TAG, "Nothing to display");
     return;
   }
@@ -291,11 +225,12 @@ void ILI9XXXDisplay::display_() {
   size_t sw_time = this->width_ * h * 16 / mhz + this->width_ * h * 2 / SPI_MAX_BLOCK_SIZE * SPI_SETUP_US * 2;
   // estimate time for multiple writes
   size_t mw_time = (w * h * 16) / mhz + w * h * 2 / ILI9XXX_TRANSFER_BUFFER_SIZE * SPI_SETUP_US;
-  ESP_LOGV(TAG,
+  ESP_LOGD(TAG,
            "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, "
            "height:%d, mode=%d, 18bit=%d, sw_time=%dus, mw_time=%dus)",
            this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, this->buffer_color_mode_,
            this->is_18bitdisplay_, sw_time, mw_time);
+  this->enable();
   auto now = millis();
   if (this->buffer_color_mode_ == BITS_16 && !this->is_18bitdisplay_ && sw_time < mw_time) {
     // 16 bit mode maps directly to display format
@@ -348,8 +283,8 @@ void ILI9XXXDisplay::display_() {
       this->write_array(transfer_buffer, idx);
     }
   }
+  this->disable();
   ESP_LOGV(TAG, "Data write took %dms", (unsigned) (millis() - now));
-  this->end_data_();
   // invalidate watermarks
   this->x_low_ = this->width_;
   this->y_low_ = this->height_;
@@ -428,22 +363,24 @@ void ILI9XXXDisplay::init_lcd_(const uint8_t *init_cmd) {
   }
 }
 
+// when called, the SPI should have already been enabled.
 void ILI9XXXDisplay::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2) {
   uint8_t buf[4];
-  this->command(ILI9XXX_CASET);  // Column address set
+  this->dc_pin_->digital_write(false);
+  this->write_byte(ILI9XXX_CASET);  // Column address set
   put16_be(buf, x1 + this->offset_x_);
   put16_be(buf + 2, x2 + this->offset_x_);
-  this->start_data_();
+  this->dc_pin_->digital_write(true);
   this->write_array(buf, sizeof buf);
-  this->end_data_();
-  this->command(ILI9XXX_PASET);  // Row address set
+  this->dc_pin_->digital_write(false);
+  this->write_byte(ILI9XXX_PASET);  // Row address set
   put16_be(buf, y1 + this->offset_y_);
   put16_be(buf + 2, y2 + this->offset_y_);
-  this->start_data_();
+  this->dc_pin_->digital_write(true);
   this->write_array(buf, sizeof buf);
-  this->end_data_();
-  this->command(ILI9XXX_RAMWR);  // Write to RAM
-  this->start_data_();
+  this->dc_pin_->digital_write(false);
+  this->write_byte(ILI9XXX_RAMWR);  // Write to RAM
+  this->dc_pin_->digital_write(true);
 }
 
 void ILI9XXXDisplay::invert_display(bool invert) {
