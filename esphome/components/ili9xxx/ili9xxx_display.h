@@ -4,10 +4,13 @@
 #include "ili9xxx_defines.h"
 #include "ili9xxx_init.h"
 
+#ifdef USE_POWER_SUPPLY
+#include "esphome/components/power_supply/power_supply.h"
+#endif
 namespace esphome {
 namespace ili9xxx {
 
-const uint32_t ILI9XXX_TRANSFER_BUFFER_SIZE = 64;
+const size_t ILI9XXX_TRANSFER_BUFFER_SIZE = 126;  // ensure this is divisible by 6
 
 enum ILI9XXXColorMode {
   BITS_8 = 0x08,
@@ -27,17 +30,25 @@ class ILI9XXXDisplay : public PollingComponent,
   void set_dc_pin(GPIOPin *dc_pin) { dc_pin_ = dc_pin; }
   float get_setup_priority() const override;
   void set_reset_pin(GPIOPin *reset) { this->reset_pin_ = reset; }
+#ifdef USE_POWER_SUPPLY
+  void set_power_supply(power_supply::PowerSupply *power_supply) { this->power_.set_parent(power_supply); }
+#endif
   void set_palette(const uint8_t *palette) { this->palette_ = palette; }
   void set_buffer_color_mode(ILI9XXXColorMode color_mode) { this->buffer_color_mode_ = color_mode; }
-  void set_dimentions(int16_t width, int16_t height) {
+  void set_dimensions(int16_t width, int16_t height) {
     this->height_ = height;
     this->width_ = width;
+  }
+  void set_offsets(int16_t offset_x, int16_t offset_y) {
+    this->offset_x_ = offset_x;
+    this->offset_y_ = offset_y;
   }
   void invert_display(bool invert);
   void command(uint8_t value);
   void data(uint8_t value);
   void send_command(uint8_t command_byte, const uint8_t *data_bytes, uint8_t num_data_bytes);
   uint8_t read_command(uint8_t command_byte, uint8_t index);
+  void set_mad(uint16_t mad) { this->mad_ = mad; }
 
   void update() override;
 
@@ -58,12 +69,14 @@ class ILI9XXXDisplay : public PollingComponent,
 
   void display_();
   void init_lcd_(const uint8_t *init_cmd);
-  void set_addr_window_(uint16_t x, uint16_t y, uint16_t w, uint16_t h);
-
+  void set_addr_window_(uint16_t x, uint16_t y, uint16_t x2, uint16_t y2);
+  void invert_display_(bool invert);
   void reset_();
 
   int16_t width_{0};   ///< Display width as modified by current rotation
   int16_t height_{0};  ///< Display height as modified by current rotation
+  int16_t offset_x_{0};
+  int16_t offset_y_{0};
   uint16_t x_low_{0};
   uint16_t y_low_{0};
   uint16_t x_high_{0};
@@ -81,18 +94,18 @@ class ILI9XXXDisplay : public PollingComponent,
   void start_data_();
   void end_data_();
 
-  uint16_t transfer_buffer_[ILI9XXX_TRANSFER_BUFFER_SIZE];
-
-  uint32_t buffer_to_transfer_(uint32_t pos, uint32_t sz);
-
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *dc_pin_{nullptr};
   GPIOPin *busy_pin_{nullptr};
+#ifdef USE_POWER_SUPPLY
+  power_supply::PowerSupplyRequester power_;
+#endif
 
   bool prossing_update_ = false;
   bool need_update_ = false;
   bool is_18bitdisplay_ = false;
   bool pre_invertdisplay_ = false;
+  uint16_t mad_{0};
 };
 
 //-----------   M5Stack display --------------
@@ -109,6 +122,12 @@ class ILI9XXXM5CORE : public ILI9XXXDisplay {
 
 //-----------   ILI9XXX_24_TFT display --------------
 class ILI9XXXILI9341 : public ILI9XXXDisplay {
+ protected:
+  void initialize() override;
+};
+
+//-----------   ST7789V display --------------
+class ILI9XXXST7789V : public ILI9XXXDisplay {
  protected:
   void initialize() override;
 };
