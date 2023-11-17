@@ -45,6 +45,7 @@ for name in CONFS:
 CONF_ADJUSTABLE = "adjustable"
 CONF_ARC = "arc"
 CONF_BACKGROUND_STYLE = "background_style"
+CONF_BTN = "btn"
 CONF_CLEAR_FLAGS = "clear_flags"
 CONF_SET_FLAGS = "set_flags"
 CONF_INDICATORS = "indicators"
@@ -270,7 +271,9 @@ def lv_any_of(choices, prefix):
         if value == SCHEMA_EXTRACT:
             return choices
         return "|".join(
-            map(lambda v: lv_prefix(value, choices, prefix), cv.ensure_list(value))
+            map(
+                lambda v: "(int)" + lv_prefix(v, choices, prefix), cv.ensure_list(value)
+            )
         )
 
     return validator
@@ -308,20 +311,39 @@ def lv_size(value):
     return f"lv_pct({int(cv.percentage(value) * 100)})"
 
 
-def opacity(value):
-    return int(cv.percentage(value) * 255)
+def lv_opacity(value):
+    return cv.Any(
+        int(cv.percentage(value) * 255), lv_one_of(["TRANSP", "COVER"], "LV_OPA_")
+    )
+
+
+def lv_stop_value(value):
+    return cv.int_range(0, 255)
 
 
 STYLE_PROPS = {
     "align": lv_one_of(ALIGNMENTS, "LV_ALIGN_"),
-    "arc_opa": opacity,
+    "arc_opa": lv_opacity,
     "arc_color": lv_color,
     "arc_rounded": lv_bool,
     "arc_width": cv.positive_int,
     "bg_color": lv_color,
     "bg_grad_color": lv_color,
-    "bg_opa": opacity,
+    "bg_dither_mode": lv_one_of(["NONE", "ORDERED", "ERR_DIFF"], "LV_DITHER_"),
     "bg_grad_dir": lv_one_of(["NONE", "HOR", "VER"], "LV_GRAD_DIR_"),
+    "bg_grad_stop": lv_stop_value,
+    "bg_img_opa": lv_opacity,
+    "bg_img_recolor": lv_color,
+    "bg_img_recolor_opa": lv_opacity,
+    "bg_main_stop": lv_stop_value,
+    "bg_opa": lv_opacity,
+    "border_color": lv_color,
+    "border_opa": lv_opacity,
+    "border_post": cv.boolean,
+    "border_side": lv_any_of(
+        ["NONE", "TOP", "BOTTOM", "LEFT", "RIGHT", "INTERNAL"], "LV_BORDER_SIDE_"
+    ),
+    "border_width": cv.positive_int,
     "clip_corner": lv_bool,
     "height": lv_size,
     "line_width": cv.positive_int,
@@ -329,19 +351,38 @@ STYLE_PROPS = {
     "line_dash_gap": cv.positive_int,
     "line_rounded": lv_bool,
     "line_color": lv_color,
-    "opa": opacity,
-    "opa_layered": opacity,
+    "opa": lv_opacity,
+    "opa_layered": lv_opacity,
+    "outline_color": lv_color,
+    "outline_opa": lv_opacity,
+    "outline_pad": cv.positive_int,
+    "outline_width": cv.positive_int,
+    "pad_bottom": cv.positive_int,
+    "pad_column": cv.positive_int,
+    "pad_left": cv.positive_int,
+    "pad_right": cv.positive_int,
+    "pad_row": cv.positive_int,
+    "pad_top": cv.positive_int,
+    "shadow_color": lv_color,
+    "shadow_ofs_x": cv.int_,
+    "shadow_ofs_y": cv.int_,
+    "shadow_opa": lv_opacity,
+    "shadow_spread": cv.int_,
+    "shadow_width": cv.positive_int,
     "text_align": lv_one_of(["LEFT", "CENTER", "RIGHT", "AUTO"], "LV_TEXT_ALIGN_"),
     "text_color": lv_color,
     "text_decor": lv_any_of(["NONE", "UNDERLINE", "STRIKETHROUGH"], "LV_TEXT_DECOR_"),
     "text_font": lv_font,
     "text_letter_space": cv.positive_int,
     "text_line_space": cv.positive_int,
-    "text_opa": opacity,
+    "text_opa": lv_opacity,
     "transform_angle": lv_angle,
-    "transform_width": pixels_or_percent,
     "transform_height": pixels_or_percent,
+    "transform_pivot_x": pixels_or_percent,
+    "transform_pivot_y": pixels_or_percent,
     "transform_zoom": lv_zoom,
+    "translate_x": pixels_or_percent,
+    "translate_y": pixels_or_percent,
     "max_height": pixels_or_percent,
     "max_width": pixels_or_percent,
     "min_height": pixels_or_percent,
@@ -505,22 +546,39 @@ OBJ_SCHEMA = PART_SCHEMA.extend(FLAG_SCHEMA).extend(
     )
 )
 
+
+def container_schema(extras=None):
+    schema = OBJ_SCHEMA.extend(extras) if extras is not None else OBJ_SCHEMA
+    """Delayed evaluation for recursion"""
+
+    def validator(value):
+        widgets = cv.Schema(
+            {
+                cv.Optional(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
+            }
+        )
+        return schema.extend(widgets)(value)
+
+    return validator
+
+
 WIDGET_SCHEMA = cv.Any(
     {
-        cv.Exclusive(CONF_LABEL, CONF_WIDGETS): OBJ_SCHEMA.extend(
+        cv.Exclusive(CONF_BTN, CONF_WIDGETS): container_schema(),
+        cv.Exclusive(CONF_LABEL, CONF_WIDGETS): container_schema(
             {cv.Optional(CONF_TEXT): cv.string}
         ),
-        cv.Exclusive(CONF_LINE, CONF_WIDGETS): OBJ_SCHEMA.extend(
+        cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(
             {cv.Required(CONF_POINTS): cv_point_list}
         ),
-        cv.Exclusive(CONF_ARC, CONF_WIDGETS): OBJ_SCHEMA.extend(ARC_SCHEMA),
-        cv.Exclusive(CONF_METER, CONF_WIDGETS): OBJ_SCHEMA.extend(
+        cv.Exclusive(CONF_ARC, CONF_WIDGETS): container_schema(ARC_SCHEMA),
+        cv.Exclusive(CONF_METER, CONF_WIDGETS): container_schema(
             {
                 cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA),
             }
         ),
         cv.Exclusive(CONF_IMG, CONF_WIDGETS): cv.All(
-            OBJ_SCHEMA.extend(
+            container_schema(
                 {cv.Required(CONF_SRC): cv.use_id(Image_)},
             ),
             requires_component("image"),
@@ -535,7 +593,9 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(): cv.declare_id(LvglComponent),
             cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
-            cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(Touchscreen),
+            cv.Optional(CONF_TOUCHSCREEN_ID): cv.All(
+                cv.use_id(Touchscreen), requires_component("touchscreen")
+            ),
             cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
                 *LOG_LEVELS, upper=True
@@ -545,7 +605,7 @@ CONFIG_SCHEMA = (
             ),
             cv.Optional(CONF_STYLE_DEFINITIONS): cv.ensure_list(
                 cv.Schema({cv.Required(CONF_ID): cv.declare_id(lv_style_t)}).extend(
-                    PROP_SCHEMA
+                    STATE_SCHEMA
                 )
             ),
             cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
@@ -574,6 +634,10 @@ async def create_lambda(init):
     )
 
 
+def cgen(*args):
+    cg.add(cg.RawExpression("\n".join(args)))
+
+
 # @automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
 # async def modify_to_code(config, action_id, template_arg, args):
 #    obj = await cg.get_variable(config[CONF_ID])
@@ -582,28 +646,28 @@ async def create_lambda(init):
 #
 
 
-async def styles_to_code(styles):
+def styles_to_code(styles):
     """Convert styles to C__ code."""
-    init = []
     for style in styles:
         svar = cg.new_Pvariable(style[CONF_ID])
-        cg.add(cg.RawExpression(f"lv_style_init({svar})"))
+        cgen(f"lv_style_init({svar})")
         for prop in STYLE_PROPS:
             if prop in style:
-                cg.add(cg.RawExpression(f"lv_style_set_{prop}({svar}, {style[prop]})"))
-    return init
+                cgen(f"lv_style_set_{prop}({svar}, {style[prop]})")
 
 
-lv_uses = set()
+lv_uses = {
+    "USER_DATA",
+    "LOG",
+}
+lv_temp_vars = set()
 
 
-def add_uses_var(use, var_type):
-    if use in lv_uses:
+def add_temp_var(var_type, var_name):
+    if var_name in lv_temp_vars:
         return []
-    lv_uses.add(use)
-    if var_type is not None:
-        return [f"{var_type} * {var_type}_var"]
-    return []
+    lv_temp_vars.add(var_name)
+    return [f"{var_type} * {var_name}"]
 
 
 def collect_props(config):
@@ -622,16 +686,21 @@ def collect_states(config):
     return states
 
 
-def set_obj_properties(var, config):
-    """Return a list of C++ statements to apply properties to an lv_obj_t"""
-    init = []
+def collect_parts(config):
     parts = {CONF_MAIN: collect_states(config)}
     for part in PARTS:
         if part in config:
             parts[part] = collect_states(config[part])
+    return parts
+
+
+def set_obj_properties(var, config):
+    """Return a list of C++ statements to apply properties to an lv_obj_t"""
+    init = []
+    parts = collect_parts(config)
     for part, states in parts.items():
         for state, props in states.items():
-            lv_state = f"LV_STATE_{state.upper()}|LV_PART_{part.upper()}"
+            lv_state = f"(int)LV_STATE_{state.upper()}|(int)LV_PART_{part.upper()}"
             for prop, value in props.items():
                 if prop == CONF_STYLES:
                     for style_id in value:
@@ -649,13 +718,16 @@ def set_obj_properties(var, config):
     return init
 
 
-async def obj_to_code(t, config, screen):
+async def obj_to_code(t, lv_component, config, screen):
     """Write object creation code for an object extending lv_obj_t"""
-    # print(config)
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr)
     init.append(f"{var} = lv_{t}_create({screen})")
     init.extend(set_obj_properties(var, config))
+    if CONF_WIDGETS in config:
+        for widg in config[CONF_WIDGETS]:
+            (obj, ext_init) = await widget_to_code(lv_component, widg, var)
+            init.extend(ext_init)
     return var, init
 
 
@@ -666,17 +738,18 @@ async def label_to_code(_, var, label):
     return []
 
 
+async def btn_to_code(_, var, btn):
+    return []
+
+
 # Dict of #defines to provide as build flags
-lvgl_defines = {}
+lv_defines = {}
 
 
 def add_define(macro, value="1"):
-    if macro in lvgl_defines and lvgl_defines[macro] != value:
-        LOGGER.error(
-            f"Redefinition of {macro} - was {lvgl_defines[macro]}, now {value}"
-        )
-    lvgl_defines[macro] = value
-    cg.add_build_flag(f"-D\\'{macro}\\'=\\'{value}\\'")
+    if macro in lv_defines and lv_defines[macro] != value:
+        LOGGER.error(f"Redefinition of {macro} - was {lv_defines[macro]}, now {value}")
+    lv_defines[macro] = value
 
 
 async def img_to_code(_, var, image):
@@ -726,8 +799,8 @@ async def meter_to_code(lv_component, var, meter):
     """For a meter object, create and set parameters"""
 
     init = []
-    init.extend(add_uses_var("METER", "lv_meter_scale_t"))
-    s = "lv_meter_scale_t_var"
+    s = "meter_var"
+    init.extend(add_temp_var("lv_meter_scale_t", s))
     if CONF_SCALES in meter:
         for scale in meter[CONF_SCALES]:
             rotation = 90 + (360 - scale[CONF_ANGLE_RANGE]) / 2
@@ -735,7 +808,7 @@ async def meter_to_code(lv_component, var, meter):
                 rotation = scale[CONF_ROTATION]
             init.extend(
                 [
-                    f"lv_meter_scale_t_var = lv_meter_add_scale({var})",
+                    f"{s} = lv_meter_add_scale({var})",
                     f"lv_meter_set_scale_ticks({var}, {s}, {scale[CONF_TICK_COUNT]},"
                     + f"{scale[CONF_TICK_WIDTH]}, {scale[CONF_TICK_LENGTH]}, {scale[CONF_TICK_COLOR]})",
                     f"lv_meter_set_scale_major_ticks({var}, {s}, {scale[CONF_MAJOR_STRIDE]},"
@@ -746,19 +819,19 @@ async def meter_to_code(lv_component, var, meter):
                 ]
             )
             if CONF_INDICATORS in scale:
-                init.extend(add_uses_var("INDICATOR", "lv_meter_indicator_t"))
+                init.extend(add_temp_var("lv_meter_indicator_t", "indicator_var"))
                 for indicator in scale[CONF_INDICATORS]:
                     (t, v) = next(iter(indicator.items()))
                     (start_value, start_lamb) = await get_start_value(v)
                     (end_value, end_lamb) = await get_end_value(v)
                     if t == CONF_LINE:
                         init.append(
-                            f"lv_meter_indicator_t_var = lv_meter_add_needle_line({var}, {s}, {v[CONF_WIDTH]},"
+                            f"indicator_var = lv_meter_add_needle_line({var}, {s}, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_ARC:
                         init.append(
-                            f"lv_meter_indicator_t_var = lv_meter_add_arc({var}, {s}, {v[CONF_WIDTH]},"
+                            f"indicator_var = lv_meter_add_arc({var}, {s}, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_TICKS:
@@ -766,20 +839,20 @@ async def meter_to_code(lv_component, var, meter):
                         if CONF_COLOR_END in v:
                             color_end = v[CONF_COLOR_END]
                         init.append(
-                            f"lv_meter_indicator_t_var = lv_meter_add_scale_lines({var}, {s}, {v[CONF_COLOR_START]},"
+                            f"indicator_var = lv_meter_add_scale_lines({var}, {s}, {v[CONF_COLOR_START]},"
                             + f"{color_end}, {v[CONF_LOCAL]}, {v[CONF_R_MOD]})"
                         )
                     if start_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_start_value({var},lv_meter_indicator_t_var, {start_value})"
+                            f"lv_meter_set_indicator_start_value({var},indicator_var, {start_value})"
                         )
                     if end_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_end_value({var},lv_meter_indicator_t_var, {end_value})"
+                            f"lv_meter_set_indicator_end_value({var},indicator_var, {end_value})"
                         )
                     if start_lamb != "nullptr" or end_lamb != "nullptr":
                         init.append(
-                            f"{lv_component}->add_updater(new Indicator({var}, lv_meter_indicator_t_var, {start_lamb}, {end_lamb}))"
+                            f"{lv_component}->add_updater(new Indicator({var}, indicator_var, {start_lamb}, {end_lamb}))"
                         )
 
     return init
@@ -804,7 +877,8 @@ async def arc_to_code(lv_component, var, arc):
 
 async def widget_to_code(lv_component, widget, screen):
     (t, v) = next(iter(widget.items()))
-    (var, init) = await obj_to_code(t, v, screen)
+    lv_uses.add(t)
+    (var, init) = await obj_to_code(t, lv_component, v, screen)
     fun = f"{t}_to_code"
     if fun in globals():
         fun = globals()[fun]
@@ -819,16 +893,40 @@ async def touchscreen_to_code(lv_component, config):
     if CONF_TOUCHSCREEN_ID not in config:
         return init
     touchscreen = await cg.get_variable(config[CONF_TOUCHSCREEN_ID])
-    init.extend(add_uses_var("INPUT_DEVICE", "lv_indev_drv_t"))
+    cgen(
+        "class LVTouchListener: public TouchListener {",
+        "public:",
+        "  void touch(touchscreen::TouchPoint point) override {",
+        "    this->touch_point_ = point; this->touch_pressed_ = true;",
+        "  }",
+        "  void release() override { touch_pressed_ = false; }",
+        "  void touch_cb(lv_indev_data_t *data) {",
+        "    if (this->touch_pressed_) {",
+        "      data->point.x = this->touch_point_.x;",
+        "      data->point.y = this->touch_point_.y;",
+        "      data->state = LV_INDEV_STATE_PRESSED;",
+        "    } else {",
+        "      data->state = LV_INDEV_STATE_RELEASED;",
+        "    }",
+        "  }",
+        "protected:",
+        "  TouchPoint touch_point_{};",
+        "  bool touch_pressed_{};",
+        "}",
+    )
+    cgen("static LVTouchListener touchscreen_listener{}")
+    cgen("static lv_indev_drv_t touchscreen_drv;")
+    cgen("lv_indev_drv_init(&touchscreen_drv)")
+    cgen("touchscreen_drv.type = LV_INDEV_TYPE_POINTER")
+    cgen(
+        "touchscreen_drv.read_cb =",
+        "[](lv_indev_drv_t *drv, lv_indev_data_t *data)",
+        "{ touchscreen_listener.touch_cb(data); }",
+    )
     init.extend(
         [
-            f"{touchscreen}->register_listener({lv_component})",
-            "lv_indev_drv_t_var = new lv_indev_drv_t()",
-            "lv_indev_drv_init(lv_indev_drv_t_var)",
-            "lv_indev_drv_t_var->type = LV_INDEV_TYPE_POINTER",
-            "lv_indev_drv_t_var->read_cb = [](lv_indev_drv_t *drv, lv_indev_data_t *data) "
-            f"{{ {lv_component}->cb_touch(drv, data); }}",
-            "lv_indev_drv_register(lv_indev_drv_t_var)",
+            "lv_indev_drv_register(&touchscreen_drv)",
+            f"{touchscreen}->register_listener(&touchscreen_listener)",
         ]
     )
     return init
@@ -841,9 +939,7 @@ async def to_code(config):
     add_define("_STRINGIFY(x)", "_STRINGIFY_(x)")
     add_define("_STRINGIFY_(x)", "#x")
     add_define("LV_CONF_SKIP", "1")
-    add_define("LV_USE_USER_DATA", "1")
     add_define("LV_TICK_CUSTOM", "1")
-    add_define("LV_USE_LOG", "1")
     add_define(
         "LV_TICK_CUSTOM_INCLUDE", "_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)"
     )
@@ -874,7 +970,7 @@ async def to_code(config):
     cg.add(cg.RawExpression("lv_init()"))
     init = []
     if CONF_STYLE_DEFINITIONS in config:
-        init.extend(await styles_to_code(config[CONF_STYLE_DEFINITIONS]))
+        styles_to_code(config[CONF_STYLE_DEFINITIONS])
     for widg in config[CONF_WIDGETS]:
         (obj, ext_init) = await widget_to_code(lv_component, widg, "lv_scr_act()")
         init.extend(ext_init)
@@ -884,4 +980,6 @@ async def to_code(config):
     lamb = await create_lambda(init)
     cg.add(lv_component.set_init_lambda(lamb))
     for use in lv_uses:
-        core.CORE.add_build_flag(f"-DLV_USE_{use}=1")
+        core.CORE.add_build_flag(f"-DLV_USE_{use.upper()}=1")
+    for macro, value in lv_defines.items():
+        cg.add_build_flag(f"-D\\'{macro}\\'=\\'{value}\\'")
