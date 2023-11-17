@@ -93,6 +93,7 @@ CONF_PIVOT_Y = "pivot_y"
 CONF_START_VALUE = "start_value"
 CONF_END_VALUE = "end_value"
 CONF_DEFAULT = "default"
+CONF_MAIN = "main"
 CONF_BYTE_ORDER = "byte_order"
 CONF_LOG_LEVEL = "log_level"
 
@@ -112,6 +113,17 @@ STATES = [
     "hovered",
     "pressed",
     "disabled",
+]
+
+PARTS = [
+    "main",
+    "scrollbar",
+    "indicator",
+    "knob",
+    "selected",
+    "items",
+    "ticks",
+    "cursor",
 ]
 
 ALIGNMENTS = [
@@ -230,6 +242,12 @@ def lv_bool(value):
     return "false"
 
 
+def lv_prefix(value, choices, prefix):
+    if value.startswith(prefix):
+        return cv.one_of(*list(map(lambda v: prefix + v, choices)), upper=True)(value)
+    return prefix + cv.one_of(*choices, upper=True)(value)
+
+
 def lv_one_of(choices, prefix):
     """Allow one of a list of choices, mapped to upper case, and prepend the choice with the prefix.
     It's also permitted to include the prefix in the value"""
@@ -238,11 +256,22 @@ def lv_one_of(choices, prefix):
     def validator(value):
         if value == SCHEMA_EXTRACT:
             return choices
-        if value.startswith(prefix):
-            return cv.one_of(*list(map(lambda v: prefix + v, choices)), upper=True)(
-                value
-            )
-        return prefix + cv.one_of(*choices, upper=True)(value)
+        return lv_prefix(value, choices, prefix)
+
+    return validator
+
+
+def lv_any_of(choices, prefix):
+    """Allow any of a list of choices, mapped to upper case, and prepend the choice with the prefix.
+    It's also permitted to include the prefix in the value"""
+
+    @schema_extractor("lv_any_of")
+    def validator(value):
+        if value == SCHEMA_EXTRACT:
+            return choices
+        return "|".join(
+            map(lambda v: lv_prefix(value, choices, prefix), cv.ensure_list(value))
+        )
 
     return validator
 
@@ -285,18 +314,30 @@ def opacity(value):
 
 STYLE_PROPS = {
     "align": lv_one_of(ALIGNMENTS, "LV_ALIGN_"),
+    "arc_opa": opacity,
+    "arc_color": lv_color,
+    "arc_rounded": lv_bool,
+    "arc_width": cv.positive_int,
     "bg_color": lv_color,
     "bg_grad_color": lv_color,
     "bg_opa": opacity,
     "bg_grad_dir": lv_one_of(["NONE", "HOR", "VER"], "LV_GRAD_DIR_"),
+    "clip_corner": lv_bool,
     "height": lv_size,
     "line_width": cv.positive_int,
     "line_dash_width": cv.positive_int,
     "line_dash_gap": cv.positive_int,
     "line_rounded": lv_bool,
     "line_color": lv_color,
+    "opa": opacity,
+    "opa_layered": opacity,
+    "text_align": lv_one_of(["LEFT", "CENTER", "RIGHT", "AUTO"], "LV_TEXT_ALIGN_"),
     "text_color": lv_color,
+    "text_decor": lv_any_of(["NONE", "UNDERLINE", "STRIKETHROUGH"], "LV_TEXT_DECOR_"),
     "text_font": lv_font,
+    "text_letter_space": cv.positive_int,
+    "text_line_space": cv.positive_int,
+    "text_opa": opacity,
     "transform_angle": lv_angle,
     "transform_width": pixels_or_percent,
     "transform_height": pixels_or_percent,
@@ -305,6 +346,7 @@ STYLE_PROPS = {
     "max_width": pixels_or_percent,
     "min_height": pixels_or_percent,
     "min_width": pixels_or_percent,
+    "radius": cv.Any(cv.positive_int, lv_one_of(["CIRCLE"], "LV_RADIUS_")),
     "width": lv_size,
     "x": pixels_or_percent,
     "y": pixels_or_percent,
@@ -440,25 +482,26 @@ STYLE_SCHEMA = PROP_SCHEMA.extend(
         cv.Optional(CONF_STYLES): cv.ensure_list(cv.use_id(lv_style_t)),
     }
 )
-STATE_SCHEMA = cv.Schema({cv.Optional(state): STYLE_SCHEMA for state in STATES})
+STATE_SCHEMA = cv.Schema({cv.Optional(state): STYLE_SCHEMA for state in STATES}).extend(
+    STYLE_SCHEMA
+)
+PART_SCHEMA = cv.Schema({cv.Optional(part): STATE_SCHEMA for part in PARTS}).extend(
+    STATE_SCHEMA
+)
 FLAG_SCHEMA = cv.Schema({cv.Optional(flag): cv.boolean for flag in OBJ_FLAGS})
 FLAG_LIST = cv.ensure_list(lv_one_of(OBJ_FLAGS, "LV_OBJ_FLAG_"))
 
-OBJ_SCHEMA = (
-    STYLE_SCHEMA.extend(STATE_SCHEMA)
-    .extend(FLAG_SCHEMA)
-    .extend(
-        cv.Schema(
-            {
-                cv.GenerateID(): cv.declare_id(lv_obj_t),
-                cv.Optional(CONF_LAYOUT): lv_one_of(["FLEX", "GRID"], "LV_LAYOUT_"),
-                cv.Optional(CONF_FLEX_FLOW, default="ROW_WRAP"): lv_one_of(
-                    FLEX_FLOWS, prefix="LV_FLEX_FLOW_"
-                ),
-                cv.Optional(CONF_SET_FLAGS): FLAG_LIST,
-                cv.Optional(CONF_CLEAR_FLAGS): FLAG_LIST,
-            }
-        )
+OBJ_SCHEMA = PART_SCHEMA.extend(FLAG_SCHEMA).extend(
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(lv_obj_t),
+            cv.Optional(CONF_LAYOUT): lv_one_of(["FLEX", "GRID"], "LV_LAYOUT_"),
+            cv.Optional(CONF_FLEX_FLOW, default="ROW_WRAP"): lv_one_of(
+                FLEX_FLOWS, prefix="LV_FLEX_FLOW_"
+            ),
+            cv.Optional(CONF_SET_FLAGS): FLAG_LIST,
+            cv.Optional(CONF_CLEAR_FLAGS): FLAG_LIST,
+        }
     )
 )
 
@@ -571,23 +614,30 @@ def collect_props(config):
     return props
 
 
+def collect_states(config):
+    states = {CONF_DEFAULT: collect_props(config)}
+    for state in STATES:
+        if state in config:
+            states[state] = collect_props(config[state])
+    return states
+
+
 def set_obj_properties(var, config):
     """Return a list of C++ statements to apply properties to an lv_obj_t"""
     init = []
-    # Collect top level properties, merge with default props, gather other state props.
-    state_props = {
-        state: collect_props(config[state]) if state in config else {}
-        for state in STATES
-    }
-    state_props[CONF_DEFAULT].update(collect_props(config))
-    for state, props in state_props.items():
-        lv_state = f"LV_STATE_{state.upper()}"
-        for prop, value in props.items():
-            if prop == CONF_STYLES:
-                for style_id in value:
-                    init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
-            else:
-                init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
+    parts = {CONF_MAIN: collect_states(config)}
+    for part in PARTS:
+        if part in config:
+            parts[part] = collect_states(config[part])
+    for part, states in parts.items():
+        for state, props in states.items():
+            lv_state = f"LV_STATE_{state.upper()}|LV_PART_{part.upper()}"
+            for prop, value in props.items():
+                if prop == CONF_STYLES:
+                    for style_id in value:
+                        init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
+                else:
+                    init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
     if CONF_LAYOUT in config:
         layout = config[CONF_LAYOUT].upper()
         init.append(f"lv_obj_set_layout({var}, {layout})")
