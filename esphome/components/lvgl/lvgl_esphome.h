@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/components/display/display_buffer.h"
+#include "esphome/components/touchscreen/touchscreen.h"
 #if LVGL_USES_IMAGE
 #include "esphome/components/image/image.h"
 #endif
@@ -220,7 +221,7 @@ static lv_img_dsc_t *lv_img_from(image::Image *src) {
 }
 #endif
 
-class LvglComponent : public Component {
+class LvglComponent : public PollingComponent, public touchscreen::TouchListener {
  public:
   static void static_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     reinterpret_cast<LvglComponent *>(disp_drv->user_data)->flush_cb_(disp_drv, area, color_p);
@@ -230,6 +231,13 @@ class LvglComponent : public Component {
   static void log_cb(const char *buf) { esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%s", buf); }
 
   void add_updater(Updater *updater) { this->updaters_.push_back(updater); }
+
+  void touch(touchscreen::TouchPoint point) override {
+    this->touch_point_ = point;
+    this->touch_pressed_ = true;
+  }
+
+  void release() override { this->touch_pressed_ = false; }
 
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
@@ -250,14 +258,26 @@ class LvglComponent : public Component {
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
     this->init_lambda_(this->disp_);
-    this->display_->set_writer([](display::Display &d) {      lv_timer_handler(); });
+    // this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
     esph_log_config(TAG, "LVGL Setup complete");
   }
 
-  void loop() override {
+  void update() override {
     // update indicators
     for (auto updater : this->updaters_) {
       updater->update();
+    }
+  }
+
+  void loop() override { lv_timer_handler_run_in_period(5); }
+
+  void cb_touch(lv_indev_drv_t *drv, lv_indev_data_t *data) {
+    if (this->touch_pressed_) {
+      data->point.x = this->touch_point_.x;
+      data->point.y = this->touch_point_.y;
+      data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+      data->state = LV_INDEV_STATE_RELEASED;
     }
   }
 
@@ -271,16 +291,19 @@ class LvglComponent : public Component {
     this->display_->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
                                    (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
     lv_disp_flush_ready(disp_drv);
-    ESP_LOGD(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
-             lv_area_get_height(area), (int) (millis() - now));
+    esph_log_d(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
+               lv_area_get_height(area), (int) (millis() - now));
   }
 
   display::DisplayBuffer *display_{};
   lv_disp_draw_buf_t draw_buf_{};
   lv_disp_drv_t disp_drv_{};
   lv_disp_t *disp_{};
+
   std::function<void(lv_disp_t *)> init_lambda_;
   std::vector<Updater *> updaters_;
+  touchscreen::TouchPoint touch_point_{};
+  bool touch_pressed_{};
 };
 
 }  // namespace lvgl

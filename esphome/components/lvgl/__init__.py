@@ -4,6 +4,7 @@ import esphome.core as core
 from esphome import automation
 from esphome.components.image import Image_
 from esphome.components.sensor import Sensor
+from esphome.components.touchscreen import CONF_TOUCHSCREEN_ID, Touchscreen
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import DisplayBuffer
 from esphome.components import color
@@ -27,7 +28,7 @@ CODEOWNERS = ["@clydebarrow"]
 LOGGER = logging.getLogger(__name__)
 
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
-LvglComponent = lvgl_ns.class_("LvglComponent", cg.Component)
+LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 FontEngine = lvgl_ns.class_("FontEngine")
 ObjModifyAction = lvgl_ns.class_("ObjModifyAction")
 lv_obj_t = cg.global_ns.struct("lv_obj_t")
@@ -484,22 +485,29 @@ WIDGET_SCHEMA = cv.Any(
     }
 )
 
-CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(OBJ_SCHEMA).extend(
-    {
-        cv.GenerateID(): cv.declare_id(LvglComponent),
-        cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
-        cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
-        cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(*LOG_LEVELS, upper=True),
-        cv.Optional(CONF_BYTE_ORDER, default="big_endian"): cv.one_of(
-            "big_endian", "little_endian"
-        ),
-        cv.Optional(CONF_STYLE_DEFINITIONS): cv.ensure_list(
-            cv.Schema({cv.Required(CONF_ID): cv.declare_id(lv_style_t)})
-            .extend(PROP_SCHEMA)
-            .extend(STATE_SCHEMA)
-        ),
-        cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
-    }
+CONFIG_SCHEMA = (
+    cv.polling_component_schema("1s")
+    .extend(OBJ_SCHEMA)
+    .extend(
+        {
+            cv.GenerateID(): cv.declare_id(LvglComponent),
+            cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
+            cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(Touchscreen),
+            cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
+            cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
+                *LOG_LEVELS, upper=True
+            ),
+            cv.Optional(CONF_BYTE_ORDER, default="big_endian"): cv.one_of(
+                "big_endian", "little_endian"
+            ),
+            cv.Optional(CONF_STYLE_DEFINITIONS): cv.ensure_list(
+                cv.Schema({cv.Required(CONF_ID): cv.declare_id(lv_style_t)}).extend(
+                    PROP_SCHEMA
+                )
+            ),
+            cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
+        }
+    )
 )
 
 
@@ -523,12 +531,13 @@ async def create_lambda(init):
     )
 
 
-#@automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
-#async def modify_to_code(config, action_id, template_arg, args):
+# @automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
+# async def modify_to_code(config, action_id, template_arg, args):
 #    obj = await cg.get_variable(config[CONF_ID])
 #    lamb = create_lambda(set_obj_properties(obj, config))
 #    var = cg.new_Pvariable(action_id, template_arg, obj, lamb)
 #
+
 
 async def styles_to_code(styles):
     """Convert styles to C__ code."""
@@ -543,6 +552,15 @@ async def styles_to_code(styles):
 
 
 lv_uses = set()
+
+
+def add_uses_var(use, var_type):
+    if use in lv_uses:
+        return []
+    lv_uses.add(use)
+    if var_type is not None:
+        return [f"{var_type} * {var_type}_var"]
+    return []
 
 
 def collect_props(config):
@@ -658,9 +676,8 @@ async def meter_to_code(lv_component, var, meter):
     """For a meter object, create and set parameters"""
 
     init = []
-    if "METER" not in lv_uses:
-        lv_uses.add("METER")
-        init.append("lv_meter_scale_t * scale")
+    init.extend(add_uses_var("METER", "lv_meter_scale_t"))
+    s = "lv_meter_scale_t_var"
     if CONF_SCALES in meter:
         for scale in meter[CONF_SCALES]:
             rotation = 90 + (360 - scale[CONF_ANGLE_RANGE]) / 2
@@ -668,30 +685,30 @@ async def meter_to_code(lv_component, var, meter):
                 rotation = scale[CONF_ROTATION]
             init.extend(
                 [
-                    f"scale = lv_meter_add_scale({var})",
-                    f"lv_meter_set_scale_ticks({var}, scale, {scale[CONF_TICK_COUNT]},"
+                    f"lv_meter_scale_t_var = lv_meter_add_scale({var})",
+                    f"lv_meter_set_scale_ticks({var}, {s}, {scale[CONF_TICK_COUNT]},"
                     + f"{scale[CONF_TICK_WIDTH]}, {scale[CONF_TICK_LENGTH]}, {scale[CONF_TICK_COLOR]})",
-                    f"lv_meter_set_scale_major_ticks({var}, scale, {scale[CONF_MAJOR_STRIDE]},"
+                    f"lv_meter_set_scale_major_ticks({var}, {s}, {scale[CONF_MAJOR_STRIDE]},"
                     + f"{scale[CONF_MAJOR_WIDTH]}, {scale[CONF_MAJOR_LENGTH]}, {scale[CONF_MAJOR_COLOR]},"
                     + f"{scale[CONF_LABEL_GAP]})",
-                    f"lv_meter_set_scale_range({var}, scale, {scale[CONF_RANGE_FROM]},"
+                    f"lv_meter_set_scale_range({var}, {s}, {scale[CONF_RANGE_FROM]},"
                     + f"{scale[CONF_RANGE_TO]}, {scale[CONF_ANGLE_RANGE]}, {rotation})",
                 ]
             )
             if CONF_INDICATORS in scale:
-                init.append("lv_meter_indicator_t * indicator")
+                init.extend(add_uses_var("INDICATOR", "lv_meter_indicator_t"))
                 for indicator in scale[CONF_INDICATORS]:
                     (t, v) = next(iter(indicator.items()))
                     (start_value, start_lamb) = await get_start_value(v)
                     (end_value, end_lamb) = await get_end_value(v)
                     if t == CONF_LINE:
                         init.append(
-                            f"indicator = lv_meter_add_needle_line({var}, scale, {v[CONF_WIDTH]},"
+                            f"lv_meter_indicator_t_var = lv_meter_add_needle_line({var}, {s}, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_ARC:
                         init.append(
-                            f"indicator = lv_meter_add_arc({var}, scale, {v[CONF_WIDTH]},"
+                            f"lv_meter_indicator_t_var = lv_meter_add_arc({var}, {s}, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_TICKS:
@@ -699,20 +716,20 @@ async def meter_to_code(lv_component, var, meter):
                         if CONF_COLOR_END in v:
                             color_end = v[CONF_COLOR_END]
                         init.append(
-                            f"indicator = lv_meter_add_scale_lines({var}, scale, {v[CONF_COLOR_START]},"
+                            f"lv_meter_indicator_t_var = lv_meter_add_scale_lines({var}, {s}, {v[CONF_COLOR_START]},"
                             + f"{color_end}, {v[CONF_LOCAL]}, {v[CONF_R_MOD]})"
                         )
                     if start_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_start_value({var},indicator, {start_value})"
+                            f"lv_meter_set_indicator_start_value({var},lv_meter_indicator_t_var, {start_value})"
                         )
                     if end_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_end_value({var},indicator, {end_value})"
+                            f"lv_meter_set_indicator_end_value({var},lv_meter_indicator_t_var, {end_value})"
                         )
                     if start_lamb != "nullptr" or end_lamb != "nullptr":
                         init.append(
-                            f"{lv_component}->add_updater(new Indicator({var}, indicator, {start_lamb}, {end_lamb}))"
+                            f"{lv_component}->add_updater(new Indicator({var}, lv_meter_indicator_t_var, {start_lamb}, {end_lamb}))"
                         )
 
     return init
@@ -745,6 +762,26 @@ async def widget_to_code(lv_component, widget, screen):
     else:
         raise cv.Invalid(f"No handler for widget `{t}'")
     return var, init
+
+
+async def touchscreen_to_code(lv_component, config):
+    init = []
+    if CONF_TOUCHSCREEN_ID not in config:
+        return init
+    touchscreen = await cg.get_variable(config[CONF_TOUCHSCREEN_ID])
+    init.extend(add_uses_var("INPUT_DEVICE", "lv_indev_drv_t"))
+    init.extend(
+        [
+            f"{touchscreen}->register_listener({lv_component})",
+            "lv_indev_drv_t_var = new lv_indev_drv_t()",
+            "lv_indev_drv_init(lv_indev_drv_t_var)",
+            "lv_indev_drv_t_var->type = LV_INDEV_TYPE_POINTER",
+            "lv_indev_drv_t_var->read_cb = [](lv_indev_drv_t *drv, lv_indev_data_t *data) "
+            f"{{ {lv_component}->cb_touch(drv, data); }}",
+            "lv_indev_drv_register(lv_indev_drv_t_var)",
+        ]
+    )
+    return init
 
 
 async def to_code(config):
@@ -791,6 +828,7 @@ async def to_code(config):
     for widg in config[CONF_WIDGETS]:
         (obj, ext_init) = await widget_to_code(lv_component, widg, "lv_scr_act()")
         init.extend(ext_init)
+    init.extend(await touchscreen_to_code(lv_component, config))
     init.extend(set_obj_properties("lv_scr_act()", config))
 
     lamb = await create_lambda(init)
