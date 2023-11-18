@@ -19,7 +19,7 @@ TouchPoint = touchscreen_ns.struct("TouchPoint")
 TouchListener = touchscreen_ns.class_("TouchListener")
 
 CONF_DISPLAY = "display"
-CONF_TOUCHSCREEN_ID = "touchscreen_id"
+CONF_TOUCHSCREEN = "touchscreen"
 
 
 TOUCHSCREEN_SCHEMA = cv.Schema(

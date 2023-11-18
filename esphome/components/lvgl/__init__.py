@@ -4,12 +4,14 @@ import esphome.core as core
 from esphome import automation
 from esphome.components.image import Image_
 from esphome.components.sensor import Sensor
-from esphome.components.touchscreen import CONF_TOUCHSCREEN_ID, Touchscreen
+from esphome.components.touchscreen import Touchscreen
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import DisplayBuffer
 from esphome.components import color
 import esphome.config_validation as cv
 from esphome.components.font import Font
+from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
+from esphome.components.binary_sensor import BinarySensor
 from esphome.const import (
     CONF_ID,
     CONF_VALUE,
@@ -20,6 +22,9 @@ from esphome.const import (
     CONF_MAX_VALUE,
     CONF_MODE,
     CONF_WIDTH,
+    CONF_SENSOR,
+    CONF_BINARY_SENSOR,
+    CONF_GROUP,
 )
 
 DOMAIN = "lvgl"
@@ -36,11 +41,6 @@ lv_meter_indicator_t = cg.global_ns.struct("lv_meter_indicator_t")
 lv_style_t = cg.global_ns.struct("lv_style_t")
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
 lv_point_t = cg.global_ns.struct("lv_point_t")
-
-CONFS = []
-
-for name in CONFS:
-    globals()[name] = f"CONF_{name.upper()}"
 
 CONF_ADJUSTABLE = "adjustable"
 CONF_ARC = "arc"
@@ -74,11 +74,13 @@ CONF_MAJOR_WIDTH = "major_width"
 CONF_POINTS = "points"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_LABEL_GAP = "label_gap"
+CONF_ROTARY_ENCODERS = "rotary_encoders"
 CONF_SCALE_LINES = "scale_lines"
 CONF_TICK_COLOR = "tick_color"
 CONF_TICK_COUNT = "tick_count"
 CONF_TICK_LENGTH = "tick_length"
 CONF_TICK_WIDTH = "tick_width"
+CONF_TOUCHSCREENS = "touchscreens"
 CONF_SRC = "src"
 CONF_START_ANGLE = "start_angle"
 CONF_END_ANGLE = "end_angle"
@@ -542,6 +544,7 @@ OBJ_SCHEMA = PART_SCHEMA.extend(FLAG_SCHEMA).extend(
             ),
             cv.Optional(CONF_SET_FLAGS): FLAG_LIST,
             cv.Optional(CONF_CLEAR_FLAGS): FLAG_LIST,
+            cv.Optional(CONF_GROUP): cv.validate_id_name,
         }
     )
 )
@@ -593,8 +596,21 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(): cv.declare_id(LvglComponent),
             cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
-            cv.Optional(CONF_TOUCHSCREEN_ID): cv.All(
-                cv.use_id(Touchscreen), requires_component("touchscreen")
+            cv.Optional(CONF_TOUCHSCREENS): cv.All(
+                cv.ensure_list(cv.use_id(Touchscreen)),
+                requires_component("touchscreen"),
+            ),
+            cv.Optional(CONF_ROTARY_ENCODERS): cv.All(
+                cv.ensure_list(
+                    cv.Schema(
+                        {
+                            cv.Required(CONF_SENSOR): cv.use_id(RotaryEncoderSensor),
+                            cv.Optional(CONF_BINARY_SENSOR): cv.use_id(BinarySensor),
+                            cv.Optional(CONF_GROUP): cv.validate_id_name,
+                        }
+                    )
+                ),
+                requires_component("rotary_encoder"),
             ),
             cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
@@ -660,7 +676,9 @@ lv_uses = {
     "USER_DATA",
     "LOG",
 }
-lv_temp_vars = set()
+lv_temp_vars = set()  # Temporary variables
+lv_groups = set()  # Widget group names
+lv_defines = {}  # Dict of #defines to provide as build flags
 
 
 def add_temp_var(var_type, var_name):
@@ -668,6 +686,20 @@ def add_temp_var(var_type, var_name):
         return []
     lv_temp_vars.add(var_name)
     return [f"{var_type} * {var_name}"]
+
+
+def add_group(name):
+    fullname = f"lv_esp_group_{name}"
+    if name not in lv_groups:
+        cgen(f"static lv_group_t * {fullname} = lv_group_create()")
+        lv_groups.add(name)
+    return fullname
+
+
+def add_define(macro, value="1"):
+    if macro in lv_defines and lv_defines[macro] != value:
+        LOGGER.error(f"Redefinition of {macro} - was {lv_defines[macro]}, now {value}")
+    lv_defines[macro] = value
 
 
 def collect_props(config):
@@ -723,6 +755,8 @@ async def obj_to_code(t, lv_component, config, screen):
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr)
     init.append(f"{var} = lv_{t}_create({screen})")
+    if CONF_GROUP in config:
+        init.append(f"lv_group_add_obj({add_group(config[CONF_GROUP])}, {var})")
     init.extend(set_obj_properties(var, config))
     if CONF_WIDGETS in config:
         for widg in config[CONF_WIDGETS]:
@@ -740,16 +774,6 @@ async def label_to_code(_, var, label):
 
 async def btn_to_code(_, var, btn):
     return []
-
-
-# Dict of #defines to provide as build flags
-lv_defines = {}
-
-
-def add_define(macro, value="1"):
-    if macro in lv_defines and lv_defines[macro] != value:
-        LOGGER.error(f"Redefinition of {macro} - was {lv_defines[macro]}, now {value}")
-    lv_defines[macro] = value
 
 
 async def img_to_code(_, var, image):
@@ -888,11 +912,48 @@ async def widget_to_code(lv_component, widget, screen):
     return var, init
 
 
-async def touchscreen_to_code(lv_component, config):
+async def rotary_encoders_to_code(_, config):
     init = []
-    if CONF_TOUCHSCREEN_ID not in config:
+    if CONF_ROTARY_ENCODERS not in config:
         return init
-    touchscreen = await cg.get_variable(config[CONF_TOUCHSCREEN_ID])
+    for index, encoder in enumerate(config[CONF_ROTARY_ENCODERS]):
+        sensor = await cg.get_variable(encoder[CONF_SENSOR])
+        cgen(f"static bool encoder_pressed_{index}{{}}")
+        cgen(f"static uint32_t encoder_count_{index}, encoder_last_{index}")
+        cgen(f"static lv_indev_drv_t encoder_drv_{index};")
+        cgen(f"lv_indev_drv_init(&encoder_drv_{index})")
+        cgen(f"encoder_drv_{index}.type = LV_INDEV_TYPE_ENCODER")
+        cgen(
+            f"encoder_drv_{index}.read_cb =",
+            "[](lv_indev_drv_t *drv, lv_indev_data_t *data) {",
+            f"  data->state = encoder_pressed_{index} ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;",
+            f"  data->enc_diff = encoder_count_{index} - encoder_last_{index};",
+            f"  encoder_last_{index} = encoder_count_{index}; }}",
+        )
+        init.extend(add_temp_var("lv_indev_t", "lv_indev_temp_"))
+        init.extend(
+            [
+                f"lv_indev_temp_ = lv_indev_drv_register(&encoder_drv_{index})",
+                f"{sensor}->register_listener([](uint32_t count) {{ encoder_count_{index} = count;}})",
+            ]
+        )
+        if CONF_GROUP in encoder:
+            group = add_group(encoder[CONF_GROUP])
+            init.append(f"lv_indev_set_group(lv_indev_temp_, {group})")
+        if CONF_BINARY_SENSOR in encoder:
+            binary_sensor = await cg.get_variable(encoder[CONF_BINARY_SENSOR])
+            init.extend(
+                [
+                    f"{binary_sensor}->add_on_state_callback([](bool state) {{ encoder_pressed_{index} = state ; }})"
+                ]
+            )
+        return init
+
+
+async def touchscreens_to_code(_, config):
+    init = []
+    if CONF_TOUCHSCREENS not in config:
+        return init
     cgen(
         "class LVTouchListener: public TouchListener {",
         "public:",
@@ -914,21 +975,23 @@ async def touchscreen_to_code(lv_component, config):
         "  bool touch_pressed_{};",
         "}",
     )
-    cgen("static LVTouchListener touchscreen_listener{}")
-    cgen("static lv_indev_drv_t touchscreen_drv;")
-    cgen("lv_indev_drv_init(&touchscreen_drv)")
-    cgen("touchscreen_drv.type = LV_INDEV_TYPE_POINTER")
-    cgen(
-        "touchscreen_drv.read_cb =",
-        "[](lv_indev_drv_t *drv, lv_indev_data_t *data)",
-        "{ touchscreen_listener.touch_cb(data); }",
-    )
-    init.extend(
-        [
-            "lv_indev_drv_register(&touchscreen_drv)",
-            f"{touchscreen}->register_listener(&touchscreen_listener)",
-        ]
-    )
+    for index, touchscreen in enumerate(config[CONF_TOUCHSCREENS]):
+        touchscreen = await cg.get_variable(touchscreen[CONF_ID])
+        cgen(f"static LVTouchListener touchscreen_listener_{index}{{}}")
+        cgen(f"static lv_indev_drv_t touchscreen_drv_{index}{{}}")
+        cgen(f"lv_indev_drv_init(&touchscreen_drv_{index})")
+        cgen(f"touchscreen_drv_{index}.type = LV_INDEV_TYPE_POINTER")
+        cgen(
+            f"touchscreen_drv_{index}.read_cb =",
+            "[](lv_indev_drv_t *drv, lv_indev_data_t *data)",
+            f"{{ touchscreen_listener_{index}.touch_cb(data); }}",
+        )
+        init.extend(
+            [
+                f"lv_indev_drv_register(&touchscreen_drv_{index})",
+                f"{touchscreen}->register_listener(&touchscreen_listener_{index})",
+            ]
+        )
     return init
 
 
@@ -968,13 +1031,17 @@ async def to_code(config):
     await cg.register_component(lv_component, config)
     cg.add(lv_component.set_display(display))
     cg.add(cg.RawExpression("lv_init()"))
+    if CONF_ROTARY_ENCODERS in config:  # or CONF_KEYBOARDS in config
+        cgen("lv_group_set_default(lv_group_create())")
     init = []
     if CONF_STYLE_DEFINITIONS in config:
         styles_to_code(config[CONF_STYLE_DEFINITIONS])
     for widg in config[CONF_WIDGETS]:
         (obj, ext_init) = await widget_to_code(lv_component, widg, "lv_scr_act()")
         init.extend(ext_init)
-    init.extend(await touchscreen_to_code(lv_component, config))
+
+    init.extend(await touchscreens_to_code(lv_component, config))
+    init.extend(await rotary_encoders_to_code(lv_component, config))
     init.extend(set_obj_properties("lv_scr_act()", config))
 
     lamb = await create_lambda(init)
