@@ -25,6 +25,8 @@ from esphome.const import (
     CONF_SENSOR,
     CONF_BINARY_SENSOR,
     CONF_GROUP,
+    CONF_LENGTH,
+    CONF_COUNT,
 )
 
 DOMAIN = "lvgl"
@@ -35,7 +37,7 @@ LOGGER = logging.getLogger(__name__)
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 FontEngine = lvgl_ns.class_("FontEngine")
-ObjModifyAction = lvgl_ns.class_("ObjModifyAction")
+ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
 lv_obj_t = cg.global_ns.struct("lv_obj_t")
 lv_meter_indicator_t = cg.global_ns.struct("lv_meter_indicator_t")
 lv_style_t = cg.global_ns.struct("lv_style_t")
@@ -45,6 +47,7 @@ lv_point_t = cg.global_ns.struct("lv_point_t")
 CONF_ADJUSTABLE = "adjustable"
 CONF_ARC = "arc"
 CONF_BACKGROUND_STYLE = "background_style"
+CONF_BAR = "bar"
 CONF_BTN = "btn"
 CONF_CLEAR_FLAGS = "clear_flags"
 CONF_SET_FLAGS = "set_flags"
@@ -64,22 +67,16 @@ CONF_CRITICAL_VALUE = "critical_value"
 CONF_DISPLAY_ID = "display_id"
 CONF_FLEX_FLOW = "flex_flow"
 CONF_LOCAL = "local"
-CONF_METER = "meter"
 CONF_LABEL = "label"
 CONF_LAYOUT = "layout"
-CONF_MAJOR_COLOR = "major_color"
-CONF_MAJOR_STRIDE = "major_stride"
-CONF_MAJOR_LENGTH = "major_length"
-CONF_MAJOR_WIDTH = "major_width"
+CONF_MAJOR = "major"
+CONF_STRIDE = "stride"
+CONF_METER = "meter"
 CONF_POINTS = "points"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_LABEL_GAP = "label_gap"
 CONF_ROTARY_ENCODERS = "rotary_encoders"
 CONF_SCALE_LINES = "scale_lines"
-CONF_TICK_COLOR = "tick_color"
-CONF_TICK_COUNT = "tick_count"
-CONF_TICK_LENGTH = "tick_length"
-CONF_TICK_WIDTH = "tick_width"
 CONF_TOUCHSCREENS = "touchscreens"
 CONF_SRC = "src"
 CONF_START_ANGLE = "start_angle"
@@ -198,6 +195,7 @@ OBJ_FLAGS = [
 ]
 
 ARC_MODES = ["NORMAL", "REVERSE", "SYMMETRICAL"]
+BAR_MODES = ["NORMAL", "SYMMETRICAL", "RANGE"]
 
 # List of other components used
 lvgl_components_required = set()
@@ -220,7 +218,14 @@ def lv_color(value):
 
 
 # List the LVGL built-in fonts that are available
-LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2)))
+LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
+    "montserrat_12_subpx",
+    "montserrat_28_compressed",
+    "dejavu_16_persian_hebrew",
+    "simsun_16_cjk16",
+    "unscii_8",
+    "unscii_16",
+]
 
 # Record those we actually use
 lv_fonts_used = set()
@@ -314,9 +319,10 @@ def lv_size(value):
 
 
 def lv_opacity(value):
-    return cv.Any(
-        int(cv.percentage(value) * 255), lv_one_of(["TRANSP", "COVER"], "LV_OPA_")
-    )
+    value = cv.Any(cv.percentage, lv_one_of(["TRANSP", "COVER"], "LV_OPA_"))(value)
+    if isinstance(value, str):
+        return value
+    return (int)(value * 255)
 
 
 def lv_stop_value(value):
@@ -489,15 +495,23 @@ INDICATOR_SCHEMA = cv.Any(
 
 SCALE_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_TICK_COUNT, default=12): cv.positive_int,
-        cv.Optional(CONF_TICK_WIDTH, default=2): lv_size,
-        cv.Optional(CONF_TICK_LENGTH, default=10): lv_size,
-        cv.Optional(CONF_TICK_COLOR, default=0x808080): lv_color,
-        cv.Optional(CONF_MAJOR_STRIDE, default=3): cv.positive_int,
-        cv.Optional(CONF_MAJOR_WIDTH, default=5): lv_size,
-        cv.Optional(CONF_MAJOR_LENGTH, default="15%"): lv_size,
-        cv.Optional(CONF_MAJOR_COLOR, default=0): lv_color,
-        cv.Optional(CONF_LABEL_GAP, default=4): lv_size,
+        cv.Optional(CONF_TICKS): cv.Schema(
+            {
+                cv.Optional(CONF_COUNT, default=12): cv.positive_int,
+                cv.Optional(CONF_WIDTH, default=2): lv_size,
+                cv.Optional(CONF_LENGTH, default=10): lv_size,
+                cv.Optional(CONF_COLOR, default=0x808080): lv_color,
+                cv.Optional(CONF_MAJOR): cv.Schema(
+                    {
+                        cv.Optional(CONF_STRIDE, default=3): cv.positive_int,
+                        cv.Optional(CONF_WIDTH, default=5): lv_size,
+                        cv.Optional(CONF_LENGTH, default="15%"): lv_size,
+                        cv.Optional(CONF_COLOR, default=0): lv_color,
+                        cv.Optional(CONF_LABEL_GAP, default=4): lv_size,
+                    }
+                ),
+            }
+        ),
         cv.Optional(CONF_RANGE_FROM, default=0.0): cv.float_,
         cv.Optional(CONF_RANGE_TO, default=100.0): cv.float_,
         cv.Optional(CONF_ANGLE_RANGE, default=270): cv.int_range(0, 360),
@@ -629,11 +643,13 @@ CONFIG_SCHEMA = (
     )
 )
 
+MODIFY_SCHEMA = PART_SCHEMA.extend(
+    {
+        cv.Required(CONF_ID): cv.use_id(lv_obj_t),
+    }
+)
 
-# MODIFY_SCHEMA = OBJ_SCHEMA.extend(
-#    {
-#        cv.Required(CONF_ID): cv.use_id(lv_obj_t),
-#    }
+
 # ).extend(
 #    cv.Any(
 #        {
@@ -654,12 +670,16 @@ def cgen(*args):
     cg.add(cg.RawExpression("\n".join(args)))
 
 
-# @automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
-# async def modify_to_code(config, action_id, template_arg, args):
-#    obj = await cg.get_variable(config[CONF_ID])
-#    lamb = create_lambda(set_obj_properties(obj, config))
-#    var = cg.new_Pvariable(action_id, template_arg, obj, lamb)
-#
+@automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
+async def modify_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    # lamb = create_lambda(set_obj_properties(obj, config))
+    # var = cg.new_Pvariable(action_id, template_arg, obj, lamb)
+
+
+@automation.register_action("lvgl.label.set", ObjModifyAction, MODIFY_SCHEMA)
+async def set_text_to_code(config, action_id, template_arg, args):
+    print(action_id, template_arg, args)
 
 
 def styles_to_code(styles):
@@ -830,18 +850,24 @@ async def meter_to_code(lv_component, var, meter):
             rotation = 90 + (360 - scale[CONF_ANGLE_RANGE]) / 2
             if CONF_ROTATION in scale:
                 rotation = scale[CONF_ROTATION]
-            init.extend(
-                [
-                    f"{s} = lv_meter_add_scale({var})",
-                    f"lv_meter_set_scale_ticks({var}, {s}, {scale[CONF_TICK_COUNT]},"
-                    + f"{scale[CONF_TICK_WIDTH]}, {scale[CONF_TICK_LENGTH]}, {scale[CONF_TICK_COLOR]})",
-                    f"lv_meter_set_scale_major_ticks({var}, {s}, {scale[CONF_MAJOR_STRIDE]},"
-                    + f"{scale[CONF_MAJOR_WIDTH]}, {scale[CONF_MAJOR_LENGTH]}, {scale[CONF_MAJOR_COLOR]},"
-                    + f"{scale[CONF_LABEL_GAP]})",
-                    f"lv_meter_set_scale_range({var}, {s}, {scale[CONF_RANGE_FROM]},"
-                    + f"{scale[CONF_RANGE_TO]}, {scale[CONF_ANGLE_RANGE]}, {rotation})",
-                ]
+            init.append(f"{s} = lv_meter_add_scale({var})")
+            init.append(
+                f"lv_meter_set_scale_range({var}, {s}, {scale[CONF_RANGE_FROM]},"
+                + f"{scale[CONF_RANGE_TO]}, {scale[CONF_ANGLE_RANGE]}, {rotation})",
             )
+            if CONF_TICKS in scale:
+                ticks = scale[CONF_TICKS]
+                init.append(
+                    f"lv_meter_set_scale_ticks({var}, {s}, {ticks[CONF_COUNT]},"
+                    + f"{ticks[CONF_WIDTH]}, {ticks[CONF_LENGTH]}, {ticks[CONF_COLOR]})"
+                )
+                if CONF_MAJOR in ticks:
+                    major = ticks[CONF_MAJOR]
+                    init.append(
+                        f"lv_meter_set_scale_major_ticks({var}, {s}, {major[CONF_STRIDE]},"
+                        + f"{major[CONF_WIDTH]}, {major[CONF_LENGTH]}, {major[CONF_COLOR]},"
+                        + f"{major[CONF_LABEL_GAP]})"
+                    )
             if CONF_INDICATORS in scale:
                 init.extend(add_temp_var("lv_meter_indicator_t", "indicator_var"))
                 for indicator in scale[CONF_INDICATORS]:

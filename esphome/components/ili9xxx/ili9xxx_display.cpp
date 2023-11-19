@@ -177,7 +177,7 @@ void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, cons
                                     display::ColorOrder order, display::ColorBitness bitness, bool big_endian,
                                     int x_offset, int y_offset, int x_pad) {
   // draw directly to the display
-  ESP_LOGD(TAG, "drawing into %d/%d, %d/%d", x_start, y_start, w, h);
+  ESP_LOGV(TAG, "drawing into %d/%d, %d/%d", x_start, y_start, w, h);
   if (w <= 0 || h <= 0)
     return;
   // optimal case is when everybody uses 16 bit big-endian colour format. Anything else we hand off.
