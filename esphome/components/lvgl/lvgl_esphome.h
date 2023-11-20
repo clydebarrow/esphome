@@ -67,11 +67,25 @@ class Label : public Updater {
  public:
   Label(lv_obj_t *label, text_lambda_t value) : label_(label), value_(value) {}
 
-  void update() override { lv_label_set_text(this->label_, this->value_()); }
+  void update() override {
+    const char * t = this->value_();
+    if (this->data_ != nullptr && strcmp(t, this->data_) == 0)
+      return;
+    // this jiggery-pokery seems necessary - in theory using set_text() should make the label copy the data
+    // internally, but in practice this does not seem to work right.
+    if (this->data_len_ <= strlen(t)) {
+      this->data_len_ = strlen(t) + 10;
+      this->data_ = (char *)realloc(this->data_, this->data_len_);
+    }
+    strcpy(this->data_, t);
+    lv_label_set_text_static(this->label_, this->data_);
+  }
 
  protected:
   lv_obj_t *label_{};
   text_lambda_t value_{};
+  char * data_{};
+  size_t data_len_{};
 };
 #if LV_USE_METER
 class Indicator : public Updater {

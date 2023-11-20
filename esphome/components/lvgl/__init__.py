@@ -76,6 +76,7 @@ CONF_METER = "meter"
 CONF_POINTS = "points"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_LABEL_GAP = "label_gap"
+CONF_OBJ = "obj"
 CONF_ROTARY_ENCODERS = "rotary_encoders"
 CONF_SCALE_LINES = "scale_lines"
 CONF_TOUCHSCREENS = "touchscreens"
@@ -366,6 +367,7 @@ STYLE_PROPS = {
     "outline_opa": lv_opacity,
     "outline_pad": cv.positive_int,
     "outline_width": cv.positive_int,
+    "pad_all": cv.positive_int,
     "pad_bottom": cv.positive_int,
     "pad_column": cv.positive_int,
     "pad_left": cv.positive_int,
@@ -445,12 +447,6 @@ def lv_value(value):
     return cv.templatable(cv.use_id(Sensor))(value)
 
 
-def lv_text_value(value):
-    if isinstance(value, cv.Lambda):
-        return cv.templatable(cv.use_id(TextSensor))(value)
-    return cv.string(value)
-
-
 INDICATOR_SCHEMA = cv.Any(
     {
         cv.Exclusive(CONF_LINE, CONF_INDICATORS): cv.Schema(
@@ -466,8 +462,8 @@ INDICATOR_SCHEMA = cv.Any(
             cv.Schema(
                 {
                     cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
-                    cv.Optional(CONF_PIVOT_X, default=0): lv_size,
                     cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
+                    cv.Optional(CONF_PIVOT_Y, default="50%"): lv_size,
                     cv.Optional(CONF_VALUE): lv_value,
                 }
             ),
@@ -589,8 +585,13 @@ def container_schema(extras=None):
 WIDGET_SCHEMA = cv.Any(
     {
         cv.Exclusive(CONF_BTN, CONF_WIDGETS): container_schema(),
+        cv.Exclusive(CONF_OBJ, CONF_WIDGETS): container_schema(),
         cv.Exclusive(CONF_LABEL, CONF_WIDGETS): container_schema(
-            {cv.Optional(CONF_TEXT): lv_text_value}
+            {
+                cv.Optional(CONF_TEXT): cv.Any(
+                    cv.use_id(TextSensor), cv.templatable(cv.string)
+                )
+            }
         ),
         cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(
             {cv.Required(CONF_POINTS): cv_point_list}
@@ -617,9 +618,8 @@ CONFIG_SCHEMA = (
         {
             cv.GenerateID(): cv.declare_id(LvglComponent),
             cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
-            cv.Optional(CONF_TOUCHSCREENS): cv.All(
-                cv.ensure_list(cv.use_id(Touchscreen)),
-                requires_component("touchscreen"),
+            cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
+                cv.All(cv.use_id(Touchscreen)), cv.requires_component("touchscreen")
             ),
             cv.Optional(CONF_ROTARY_ENCODERS): cv.All(
                 cv.ensure_list(
@@ -777,7 +777,7 @@ def set_obj_properties(var, config):
     return init
 
 
-async def obj_to_code(t, lv_component, config, screen):
+async def create_lv_obj(t, lv_component, config, screen):
     """Write object creation code for an object extending lv_obj_t"""
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr)
@@ -800,6 +800,10 @@ async def label_to_code(lv_component, var, label):
             return [f'lv_label_set_text({var}, "{value}")']
         if lamb is not None:
             return [f"{lv_component}->add_updater(new Label({var}, {lamb}))"]
+    return []
+
+
+async def obj_to_code(lv_component, var, obj):
     return []
 
 
@@ -828,7 +832,7 @@ async def get_text_lambda(value):
         lamb = await cg.process_lambda(value, [], return_type=cg.const_char_ptr)
         value = None
     elif isinstance(value, core.ID):
-        lamb = "[] {" f"return {value}->get_state();" "}"
+        lamb = "[] {" f"return {value}->get_state().c_str();" "}"
         value = None
     return value, lamb
 
@@ -950,7 +954,7 @@ async def arc_to_code(lv_component, var, arc):
 async def widget_to_code(lv_component, widget, screen):
     (t, v) = next(iter(widget.items()))
     lv_uses.add(t)
-    (var, init) = await obj_to_code(t, lv_component, v, screen)
+    (var, init) = await create_lv_obj(t, lv_component, v, screen)
     fun = f"{t}_to_code"
     if fun in globals():
         fun = globals()[fun]
@@ -1024,7 +1028,7 @@ async def touchscreens_to_code(_, config):
         "}",
     )
     for index, touchscreen in enumerate(config[CONF_TOUCHSCREENS]):
-        touchscreen = await cg.get_variable(touchscreen[CONF_ID])
+        touchscreen = await cg.get_variable(touchscreen)
         cgen(f"static LVTouchListener touchscreen_listener_{index}{{}}")
         cgen(f"static lv_indev_drv_t touchscreen_drv_{index}{{}}")
         cgen(f"lv_indev_drv_init(&touchscreen_drv_{index})")
