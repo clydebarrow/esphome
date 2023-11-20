@@ -27,6 +27,7 @@ static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 
 typedef lv_obj_t LvglObj;
 typedef std::function<float(void)> value_lambda_t;
+typedef std::function<const char *(void)> text_lambda_t;
 
 class Updater {
  public:
@@ -62,6 +63,17 @@ class Arc : public Updater {
   float last_value_{NAN};
 };
 
+class Label : public Updater {
+ public:
+  Label(lv_obj_t *label, text_lambda_t value) : label_(label), value_(value) {}
+
+  void update() override { lv_label_set_text(this->label_, this->value_()); }
+
+ protected:
+  lv_obj_t *label_{};
+  text_lambda_t value_{};
+};
+#if LV_USE_METER
 class Indicator : public Updater {
  public:
   Indicator(lv_obj_t *meter, lv_meter_indicator_t *indicator, value_lambda_t start_value, value_lambda_t end_value)
@@ -101,6 +113,8 @@ class Indicator : public Updater {
   value_lambda_t start_value_{};
   value_lambda_t end_value_{};
 };
+
+#endif  // LV_USE_METER
 
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 
@@ -148,8 +162,7 @@ static lv_img_dsc_t *lv_img_from(image::Image *src) {
 }
 #endif
 
-class LvglComponent : public PollingComponent
-{
+class LvglComponent : public PollingComponent {
  public:
   static void static_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     reinterpret_cast<LvglComponent *>(disp_drv->user_data)->flush_cb_(disp_drv, area, color_p);
@@ -191,7 +204,6 @@ class LvglComponent : public PollingComponent
   }
 
   void loop() override { lv_timer_handler_run_in_period(5); }
-
 
   void set_display(display::DisplayBuffer *display) { display_ = display; }
   void set_init_lambda(std::function<void(lv_disp_t *)> lamb) { init_lambda_ = lamb; }

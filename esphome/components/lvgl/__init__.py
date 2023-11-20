@@ -4,6 +4,7 @@ import esphome.core as core
 from esphome import automation
 from esphome.components.image import Image_
 from esphome.components.sensor import Sensor
+from esphome.components.text_sensor import TextSensor
 from esphome.components.touchscreen import Touchscreen
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import DisplayBuffer
@@ -322,7 +323,7 @@ def lv_opacity(value):
     value = cv.Any(cv.percentage, lv_one_of(["TRANSP", "COVER"], "LV_OPA_"))(value)
     if isinstance(value, str):
         return value
-    return (int)(value * 255)
+    return int(value * 255)
 
 
 def lv_stop_value(value):
@@ -442,6 +443,12 @@ def lv_value(value):
     if isinstance(value, float):
         return cv.float_(value)
     return cv.templatable(cv.use_id(Sensor))(value)
+
+
+def lv_text_value(value):
+    if isinstance(value, cv.Lambda):
+        return cv.templatable(cv.use_id(TextSensor))(value)
+    return cv.string(value)
 
 
 INDICATOR_SCHEMA = cv.Any(
@@ -583,7 +590,7 @@ WIDGET_SCHEMA = cv.Any(
     {
         cv.Exclusive(CONF_BTN, CONF_WIDGETS): container_schema(),
         cv.Exclusive(CONF_LABEL, CONF_WIDGETS): container_schema(
-            {cv.Optional(CONF_TEXT): cv.string}
+            {cv.Optional(CONF_TEXT): lv_text_value}
         ),
         cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(
             {cv.Required(CONF_POINTS): cv_point_list}
@@ -785,10 +792,14 @@ async def obj_to_code(t, lv_component, config, screen):
     return var, init
 
 
-async def label_to_code(_, var, label):
+async def label_to_code(lv_component, var, label):
     """For a text object, create and set text"""
     if CONF_TEXT in label:
-        return [f'lv_label_set_text({var}, "{label[CONF_TEXT]}")']
+        (value, lamb) = await get_text_lambda(label[CONF_TEXT])
+        if value is not None:
+            return [f'lv_label_set_text({var}, "{value}")']
+        if lamb is not None:
+            return [f"{lv_component}->add_updater(new Label({var}, {lamb}))"]
     return []
 
 
@@ -809,6 +820,17 @@ async def line_to_code(lv_component, var, line):
     )
     points = cg.static_const_array(data[CONF_ID], initialiser)
     return [f"lv_line_set_points({var}, {points}, {len(point_list)})"]
+
+
+async def get_text_lambda(value):
+    lamb = "nullptr"
+    if isinstance(value, core.Lambda):
+        lamb = await cg.process_lambda(value, [], return_type=cg.const_char_ptr)
+        value = None
+    elif isinstance(value, core.ID):
+        lamb = "[] {" f"return {value}->get_state();" "}"
+        value = None
+    return value, lamb
 
 
 async def get_value_lambda(value):
