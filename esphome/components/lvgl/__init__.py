@@ -39,11 +39,11 @@ lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 FontEngine = lvgl_ns.class_("FontEngine")
 ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
-lv_obj_t = cg.global_ns.struct("lv_obj_t")
+lv_obj_t = cg.global_ns.struct("LvglObj")
 lv_meter_indicator_t = cg.global_ns.struct("lv_meter_indicator_t")
-lv_style_t = cg.global_ns.struct("lv_style_t")
+lv_style_t = cg.global_ns.struct("LvglStyle")
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
-lv_point_t = cg.global_ns.struct("lv_point_t")
+lv_point_t = cg.global_ns.struct("LvglPoint")
 
 CONF_ADJUSTABLE = "adjustable"
 CONF_ARC = "arc"

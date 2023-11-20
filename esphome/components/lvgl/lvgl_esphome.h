@@ -26,6 +26,8 @@ static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 #endif
 
 typedef lv_obj_t LvglObj;
+typedef lv_style_t LvglStyle;
+typedef lv_point_t LvglPoint;
 typedef std::function<float(void)> value_lambda_t;
 typedef std::function<const char *(void)> text_lambda_t;
 
