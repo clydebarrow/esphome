@@ -56,6 +56,8 @@ CONF_INDICATORS = "indicators"
 CONF_IMG = "img"
 CONF_LINE = "line"
 CONF_LINE_WIDTH = "line_width"
+CONF_LVGL_COMPONENT = "lvgl_component"
+CONF_OBJ_ID = "obj_id"
 CONF_TICKS = "ticks"
 CONF_SCALES = "scales"
 CONF_R_MOD = "r_mod"
@@ -231,6 +233,7 @@ LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
 
 # Record those we actually use
 lv_fonts_used = set()
+lv_component = None
 
 
 def lv_font(value):
@@ -616,7 +619,9 @@ CONFIG_SCHEMA = (
     .extend(OBJ_SCHEMA)
     .extend(
         {
-            cv.GenerateID(): cv.declare_id(LvglComponent),
+            cv.Optional(CONF_ID, default=CONF_LVGL_COMPONENT): cv.declare_id(
+                LvglComponent
+            ),
             cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
             cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
                 cv.All(cv.use_id(Touchscreen)), cv.requires_component("touchscreen")
@@ -667,10 +672,11 @@ MODIFY_SCHEMA = PART_SCHEMA.extend(
 # )
 
 
-async def create_lambda(init):
-    return await cg.process_lambda(
+async def add_init_lambda(init):
+    lamb = await cg.process_lambda(
         core.Lambda(";\n".join([*init, ""])), [(lv_disp_t_ptr, "lv_disp")]
     )
+    cg.add(lv_component.add_init_lambda(lamb))
 
 
 def cgen(*args):
@@ -1048,6 +1054,7 @@ async def touchscreens_to_code(_, config):
 
 
 async def to_code(config):
+    global lv_component
     cg.add_library("lvgl/lvgl", "8.3.9")
     for comp in lvgl_components_required:
         add_define(f"LVGL_USES_{comp.upper()}")
@@ -1096,8 +1103,7 @@ async def to_code(config):
     init.extend(await rotary_encoders_to_code(lv_component, config))
     init.extend(set_obj_properties("lv_scr_act()", config))
 
-    lamb = await create_lambda(init)
-    cg.add(lv_component.set_init_lambda(lamb))
+    await add_init_lambda(init)
     for use in lv_uses:
         core.CORE.add_build_flag(f"-DLV_USE_{use.upper()}=1")
     for macro, value in lv_defines.items():

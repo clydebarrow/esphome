@@ -39,7 +39,6 @@ void ILI9XXXDisplay::setup() {
   this->x_high_ = 0;
   this->y_high_ = 0;
 
-
   ESP_LOGCONFIG(TAG, "ILI9xxx setup complete");
   return;
 }
@@ -129,8 +128,7 @@ void ILI9XXXDisplay::fill(Color color) {
 }
 
 void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color) {
-  if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() ||
-      y < 0) {
+  if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() || y < 0) {
     return;
   }
   this->allocate_buffer_();
@@ -191,10 +189,13 @@ void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, cons
   this->enable();
   this->set_addr_window_(x_start, y_start, x_start + w - 1, y_start + h - 1);
   uint16_t *src_ptr = ((uint16_t *) ptr) + y_offset * line_stride + x_offset;
-  // no software rotation done here.
-  for (int y = 0; y != h; y++) {
-    this->write_array((const uint8_t *) src_ptr, w * 2);
-    src_ptr += line_stride;
+  if (x_offset == 0 && x_pad == 0) {
+    this->write_array((const uint8_t *) src_ptr, h * w * 2);
+  } else {
+    for (int y = 0; y != h; y++) {
+      this->write_array((const uint8_t *) src_ptr, w * 2);
+      src_ptr += line_stride;
+    }
   }
   this->disable();
 }

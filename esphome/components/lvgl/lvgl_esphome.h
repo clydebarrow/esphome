@@ -70,14 +70,14 @@ class Label : public Updater {
   Label(lv_obj_t *label, text_lambda_t value) : label_(label), value_(value) {}
 
   void update() override {
-    const char * t = this->value_();
+    const char *t = this->value_();
     if (this->data_ != nullptr && strcmp(t, this->data_) == 0)
       return;
     // this jiggery-pokery seems necessary - in theory using set_text() should make the label copy the data
     // internally, but in practice this does not seem to work right.
     if (this->data_len_ <= strlen(t)) {
       this->data_len_ = strlen(t) + 10;
-      this->data_ = (char *)realloc(this->data_, this->data_len_);
+      this->data_ = (char *) realloc(this->data_, this->data_len_);
     }
     strcpy(this->data_, t);
     lv_label_set_text_static(this->label_, this->data_);
@@ -86,7 +86,7 @@ class Label : public Updater {
  protected:
   lv_obj_t *label_{};
   text_lambda_t value_{};
-  char * data_{};
+  char *data_{};
   size_t data_len_{};
 };
 #if LV_USE_METER
@@ -207,7 +207,8 @@ class LvglComponent : public PollingComponent {
     this->disp_drv_.user_data = this;
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
-    this->init_lambda_(this->disp_);
+    for (auto v : this->init_lambdas_)
+      v(this->disp_);
     // this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
     esph_log_config(TAG, "LVGL Setup complete");
   }
@@ -221,8 +222,8 @@ class LvglComponent : public PollingComponent {
 
   void loop() override { lv_timer_handler_run_in_period(5); }
 
-  void set_display(display::DisplayBuffer *display) { display_ = display; }
-  void set_init_lambda(std::function<void(lv_disp_t *)> lamb) { init_lambda_ = lamb; }
+  void set_display(display::DisplayBuffer *display) { this->display_ = display; }
+  void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
 
  protected:
@@ -231,7 +232,7 @@ class LvglComponent : public PollingComponent {
     this->display_->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
                                    (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
     lv_disp_flush_ready(disp_drv);
-    esph_log_v(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
+    esph_log_d(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
                lv_area_get_height(area), (int) (millis() - now));
   }
 
@@ -240,7 +241,7 @@ class LvglComponent : public PollingComponent {
   lv_disp_drv_t disp_drv_{};
   lv_disp_t *disp_{};
 
-  std::function<void(lv_disp_t *)> init_lambda_;
+  std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
   std::vector<Updater *> updaters_;
 };
 
