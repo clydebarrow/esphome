@@ -42,70 +42,74 @@ ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
 lv_obj_t = cg.global_ns.struct("LvglObj")
 lv_label_t = cg.global_ns.struct("LvglObj")
 lv_meter_t = cg.global_ns.struct("LvglObj")
+lv_slider_t = cg.global_ns.struct("LvglObj")
 lv_btn_t = cg.global_ns.struct("LvglObj")
 lv_line_t = cg.global_ns.struct("LvglObj")
 lv_img_t = cg.global_ns.struct("LvglObj")
 lv_arc_t = cg.global_ns.struct("LvglObj")
+lv_bar_t = cg.global_ns.struct("LvglObj")
 lv_meter_indicator_t = cg.global_ns.struct("lv_meter_indicator_t")
 lv_style_t = cg.global_ns.struct("LvglStyle")
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
 lv_point_t = cg.global_ns.struct("LvglPoint")
 
 CONF_ADJUSTABLE = "adjustable"
+CONF_ANGLE_RANGE = "angle_range"
+CONF_ANIMATED = "animated"
 CONF_ARC = "arc"
 CONF_BACKGROUND_STYLE = "background_style"
 CONF_BAR = "bar"
 CONF_BTN = "btn"
+CONF_BYTE_ORDER = "byte_order"
+CONF_CHANGE_RATE = "change_rate"
 CONF_CLEAR_FLAGS = "clear_flags"
-CONF_SET_FLAGS = "set_flags"
-CONF_INDICATORS = "indicators"
+CONF_COLOR_DEPTH = "color_depth"
+CONF_COLOR_END = "color_end"
+CONF_COLOR_START = "color_start"
+CONF_CRITICAL_VALUE = "critical_value"
+CONF_DEFAULT = "default"
+CONF_DISPLAY_ID = "display_id"
+CONF_END_ANGLE = "end_angle"
+CONF_END_VALUE = "end_value"
+CONF_FLEX_FLOW = "flex_flow"
 CONF_IMG = "img"
+CONF_INDICATORS = "indicators"
+CONF_LABEL = "label"
+CONF_LABEL_GAP = "label_gap"
+CONF_LAYOUT = "layout"
 CONF_LINE = "line"
 CONF_LINE_WIDTH = "line_width"
-CONF_LVGL_COMPONENT = "lvgl_component"
-CONF_OBJ_ID = "obj_id"
-CONF_TICKS = "ticks"
-CONF_SCALES = "scales"
-CONF_R_MOD = "r_mod"
-CONF_ROTATION = "rotation"
-CONF_CHANGE_RATE = "change_rate"
-CONF_COLOR_DEPTH = "color_depth"
-CONF_COLOR_START = "color_start"
-CONF_COLOR_END = "color_end"
-CONF_CRITICAL_VALUE = "critical_value"
-CONF_DISPLAY_ID = "display_id"
-CONF_FLEX_FLOW = "flex_flow"
 CONF_LOCAL = "local"
-CONF_LABEL = "label"
-CONF_LAYOUT = "layout"
+CONF_LOG_LEVEL = "log_level"
+CONF_LVGL_COMPONENT = "lvgl_component"
+CONF_MAIN = "main"
 CONF_MAJOR = "major"
-CONF_STRIDE = "stride"
 CONF_METER = "meter"
-CONF_POINTS = "points"
-CONF_ANGLE_RANGE = "angle_range"
-CONF_LABEL_GAP = "label_gap"
 CONF_OBJ = "obj"
+CONF_OBJ_ID = "obj_id"
+CONF_PIVOT_X = "pivot_x"
+CONF_PIVOT_Y = "pivot_y"
+CONF_POINTS = "points"
 CONF_ROTARY_ENCODERS = "rotary_encoders"
+CONF_ROTATION = "rotation"
+CONF_R_MOD = "r_mod"
+CONF_SCALES = "scales"
 CONF_SCALE_LINES = "scale_lines"
-CONF_TOUCHSCREENS = "touchscreens"
+CONF_SET_FLAGS = "set_flags"
+CONF_SLIDER = "slider"
 CONF_SRC = "src"
 CONF_START_ANGLE = "start_angle"
-CONF_END_ANGLE = "end_angle"
+CONF_START_VALUE = "start_value"
 CONF_STATES = "states"
+CONF_STRIDE = "stride"
 CONF_STYLE = "style"
 CONF_STYLES = "styles"
 CONF_STYLE_DEFINITIONS = "style_definitions"
 CONF_STYLE_ID = "style_id"
 CONF_TEXT = "text"
+CONF_TICKS = "ticks"
+CONF_TOUCHSCREENS = "touchscreens"
 CONF_WIDGETS = "widgets"
-CONF_PIVOT_X = "pivot_x"
-CONF_PIVOT_Y = "pivot_y"
-CONF_START_VALUE = "start_value"
-CONF_END_VALUE = "end_value"
-CONF_DEFAULT = "default"
-CONF_MAIN = "main"
-CONF_BYTE_ORDER = "byte_order"
-CONF_LOG_LEVEL = "log_level"
 
 LOG_LEVELS = [
     "TRACE",
@@ -546,6 +550,16 @@ ARC_SCHEMA = cv.Schema(
     }
 )
 
+BAR_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_VALUE): lv_value,
+        cv.Optional(CONF_MIN_VALUE, default=0.0): cv.float_,
+        cv.Optional(CONF_MAX_VALUE, default=100.0): cv.float_,
+        cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(BAR_MODES, "LV_BAR_MODE_"),
+        cv.Optional(CONF_ANIMATED, default=True): lv_bool,
+    }
+)
+
 STYLE_SCHEMA = PROP_SCHEMA.extend(
     {
         cv.Optional(CONF_STYLES): cv.ensure_list(cv.use_id(lv_style_t)),
@@ -609,6 +623,10 @@ WIDGET_SCHEMA = cv.Any(
             lv_line_t, {cv.Required(CONF_POINTS): cv_point_list}
         ),
         cv.Exclusive(CONF_ARC, CONF_WIDGETS): container_schema(lv_arc_t, ARC_SCHEMA),
+        cv.Exclusive(CONF_BAR, CONF_WIDGETS): container_schema(lv_bar_t, BAR_SCHEMA),
+        cv.Exclusive(CONF_SLIDER, CONF_WIDGETS): container_schema(
+            lv_slider_t, BAR_SCHEMA
+        ),
         cv.Exclusive(CONF_METER, CONF_WIDGETS): container_schema(
             lv_meter_t,
             {
@@ -958,13 +976,42 @@ async def arc_to_code(lv_component, var, arc):
         f"lv_arc_set_rotation({var}, {arc[CONF_ROTATION]})",
         f"lv_arc_set_mode({var}, {arc[CONF_MODE]})",
         f"lv_arc_set_change_rate({var}, {arc[CONF_CHANGE_RATE]})",
-        f"lv_arc_set_change_rate({var}, {arc[CONF_CHANGE_RATE]})",
     ]
     (value, lamb) = await get_start_value(arc)
     if value is not None:
         init.append(f"lv_arc_set_value({var}, {value})")
     if lamb != "nullptr":
         init.append(f"{lv_component}->add_updater(new Arc({var}, {lamb})")
+    return init
+
+
+async def slider_to_code(lv_component, var, slider):
+    init = [
+        f"lv_slider_set_range({var}, {slider[CONF_MIN_VALUE]}, {slider[CONF_MAX_VALUE]})",
+        f"lv_slider_set_mode({var}, {slider[CONF_MODE]})",
+    ]
+    (value, lamb) = await get_start_value(slider)
+    if value is not None:
+        init.append(f"lv_slider_set_value({var}, {value}, LV_ANIM_OFF)")
+    if lamb != "nullptr":
+        init.append(
+            f"{lv_component}->add_updater(new Slider({var}, {lamb}, {slider[CONF_ANIMATED]}))"
+        )
+    return init
+
+
+async def bar_to_code(lv_component, var, bar):
+    init = [
+        f"lv_bar_set_range({var}, {bar[CONF_MIN_VALUE]}, {bar[CONF_MAX_VALUE]})",
+        f"lv_bar_set_mode({var}, {bar[CONF_MODE]})",
+    ]
+    (value, lamb) = await get_start_value(bar)
+    if value is not None:
+        init.append(f"lv_bar_set_value({var}, {value}, LV_ANIM_OFF)")
+    if lamb != "nullptr":
+        init.append(
+            f"{lv_component}->add_updater(new Bar({var}, {lamb}, {bar[CONF_ANIMATED]}))"
+        )
     return init
 
 

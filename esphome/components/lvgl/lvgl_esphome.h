@@ -65,6 +65,44 @@ class Arc : public Updater {
   float last_value_{NAN};
 };
 
+class Slider : public Updater {
+ public:
+  Slider(lv_obj_t *slider, value_lambda_t lamb, bool anim) : slider_(slider), value_(lamb), anim_{anim} {}
+
+  void update() override {
+    float new_value = this->value_();
+    if (new_value != this->last_value_) {
+      this->last_value_ = new_value;
+      lv_slider_set_value(this->slider_, new_value, this->anim_ ? LV_ANIM_ON : LV_ANIM_OFF);
+    }
+  }
+
+ protected:
+  lv_obj_t *slider_{};
+  value_lambda_t value_{};
+  float last_value_{NAN};
+  bool anim_{};
+};
+
+class Bar : public Updater {
+ public:
+  Bar(lv_obj_t *bar, value_lambda_t lamb, bool anim) : bar_(bar), value_(lamb), anim_{anim} {}
+
+  void update() override {
+    float new_value = this->value_();
+    if (new_value != this->last_value_) {
+      this->last_value_ = new_value;
+      lv_bar_set_value(this->bar_, new_value, this->anim_ ? LV_ANIM_ON : LV_ANIM_OFF);
+    }
+  }
+
+ protected:
+  lv_obj_t *bar_{};
+  value_lambda_t value_{};
+  float last_value_{NAN};
+  bool anim_{};
+};
+
 class Label : public Updater {
  public:
   Label(lv_obj_t *label, text_lambda_t value) : label_(label), value_(value) {}
