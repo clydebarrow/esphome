@@ -40,6 +40,12 @@ LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 FontEngine = lvgl_ns.class_("FontEngine")
 ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
 lv_obj_t = cg.global_ns.struct("LvglObj")
+lv_label_t = cg.global_ns.struct("LvglObj")
+lv_meter_t = cg.global_ns.struct("LvglObj")
+lv_btn_t = cg.global_ns.struct("LvglObj")
+lv_line_t = cg.global_ns.struct("LvglObj")
+lv_img_t = cg.global_ns.struct("LvglObj")
+lv_arc_t = cg.global_ns.struct("LvglObj")
 lv_meter_indicator_t = cg.global_ns.struct("lv_meter_indicator_t")
 lv_style_t = cg.global_ns.struct("LvglStyle")
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
@@ -557,7 +563,6 @@ FLAG_LIST = cv.ensure_list(lv_one_of(OBJ_FLAGS, "LV_OBJ_FLAG_"))
 OBJ_SCHEMA = PART_SCHEMA.extend(FLAG_SCHEMA).extend(
     cv.Schema(
         {
-            cv.GenerateID(): cv.declare_id(lv_obj_t),
             cv.Optional(CONF_LAYOUT): lv_one_of(["FLEX", "GRID"], "LV_LAYOUT_"),
             cv.Optional(CONF_FLEX_FLOW, default="ROW_WRAP"): lv_one_of(
                 FLEX_FLOWS, prefix="LV_FLEX_FLOW_"
@@ -570,8 +575,11 @@ OBJ_SCHEMA = PART_SCHEMA.extend(FLAG_SCHEMA).extend(
 )
 
 
-def container_schema(extras=None):
-    schema = OBJ_SCHEMA.extend(extras) if extras is not None else OBJ_SCHEMA
+def container_schema(type, extras=None):
+    schema = OBJ_SCHEMA
+    if extras is not None:
+        schema = schema.extend(extras)
+    schema = schema.extend({cv.GenerateID(): cv.declare_id(type)})
     """Delayed evaluation for recursion"""
 
     def validator(value):
@@ -587,9 +595,10 @@ def container_schema(extras=None):
 
 WIDGET_SCHEMA = cv.Any(
     {
-        cv.Exclusive(CONF_BTN, CONF_WIDGETS): container_schema(),
-        cv.Exclusive(CONF_OBJ, CONF_WIDGETS): container_schema(),
+        cv.Exclusive(CONF_BTN, CONF_WIDGETS): container_schema(lv_btn_t),
+        cv.Exclusive(CONF_OBJ, CONF_WIDGETS): container_schema(lv_obj_t),
         cv.Exclusive(CONF_LABEL, CONF_WIDGETS): container_schema(
+            lv_label_t,
             {
                 cv.Optional(CONF_TEXT): cv.Any(
                     cv.use_id(TextSensor), cv.templatable(cv.string)
@@ -597,16 +606,19 @@ WIDGET_SCHEMA = cv.Any(
             }
         ),
         cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(
+            lv_line_t,
             {cv.Required(CONF_POINTS): cv_point_list}
         ),
-        cv.Exclusive(CONF_ARC, CONF_WIDGETS): container_schema(ARC_SCHEMA),
+        cv.Exclusive(CONF_ARC, CONF_WIDGETS): container_schema(lv_arc_t, ARC_SCHEMA),
         cv.Exclusive(CONF_METER, CONF_WIDGETS): container_schema(
+            lv_meter_t,
             {
                 cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA),
             }
         ),
         cv.Exclusive(CONF_IMG, CONF_WIDGETS): cv.All(
             container_schema(
+                lv_img_t,
                 {cv.Required(CONF_SRC): cv.use_id(Image_)},
             ),
             requires_component("image"),
@@ -783,11 +795,11 @@ def set_obj_properties(var, config):
     return init
 
 
-async def create_lv_obj(t, lv_component, config, screen):
+async def create_lv_obj(t, lv_component, config, parent):
     """Write object creation code for an object extending lv_obj_t"""
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr)
-    init.append(f"{var} = lv_{t}_create({screen})")
+    init.append(f"{var} = lv_{t}_create({parent})")
     if CONF_GROUP in config:
         init.append(f"lv_group_add_obj({add_group(config[CONF_GROUP])}, {var})")
     init.extend(set_obj_properties(var, config))
@@ -957,10 +969,10 @@ async def arc_to_code(lv_component, var, arc):
     return init
 
 
-async def widget_to_code(lv_component, widget, screen):
+async def widget_to_code(lv_component, widget, parent):
     (t, v) = next(iter(widget.items()))
     lv_uses.add(t)
-    (var, init) = await create_lv_obj(t, lv_component, v, screen)
+    (var, init) = await create_lv_obj(t, lv_component, v, parent)
     fun = f"{t}_to_code"
     if fun in globals():
         fun = globals()[fun]
@@ -1018,7 +1030,9 @@ async def touchscreens_to_code(_, config):
         "  void touch(touchscreen::TouchPoint point) override {",
         "    this->touch_point_ = point; this->touch_pressed_ = true;",
         "  }",
-        "  void release() override { touch_pressed_ = false; }",
+        "  void release() override { "
+        "   touch_pressed_ = false;",
+        "}",
         "  void touch_cb(lv_indev_data_t *data) {",
         "    if (this->touch_pressed_) {",
         "      data->point.x = this->touch_point_.x;",
