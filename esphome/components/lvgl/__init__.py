@@ -1100,7 +1100,7 @@ async def to_code(config):
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
     cg.add(lv_component.set_display(display))
-    cg.add(cg.RawExpression("lv_init()"))
+    cgen("lv_init()")
     if CONF_ROTARY_ENCODERS in config:  # or CONF_KEYBOARDS in config
         cgen("lv_group_set_default(lv_group_create())")
     init = []
