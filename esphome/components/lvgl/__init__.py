@@ -603,18 +603,17 @@ WIDGET_SCHEMA = cv.Any(
                 cv.Optional(CONF_TEXT): cv.Any(
                     cv.use_id(TextSensor), cv.templatable(cv.string)
                 )
-            }
+            },
         ),
         cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(
-            lv_line_t,
-            {cv.Required(CONF_POINTS): cv_point_list}
+            lv_line_t, {cv.Required(CONF_POINTS): cv_point_list}
         ),
         cv.Exclusive(CONF_ARC, CONF_WIDGETS): container_schema(lv_arc_t, ARC_SCHEMA),
         cv.Exclusive(CONF_METER, CONF_WIDGETS): container_schema(
             lv_meter_t,
             {
                 cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA),
-            }
+            },
         ),
         cv.Exclusive(CONF_IMG, CONF_WIDGETS): cv.All(
             container_schema(
@@ -1030,8 +1029,8 @@ async def touchscreens_to_code(_, config):
         "  void touch(touchscreen::TouchPoint point) override {",
         "    this->touch_point_ = point; this->touch_pressed_ = true;",
         "  }",
-        "  void release() override { "
-        "   touch_pressed_ = false;",
+        "  void release() override { " "   touch_pressed_ = false;",
+        '   esph_log_d("lv_touch", "RELEASED");',
         "}",
         "  void touch_cb(lv_indev_data_t *data) {",
         "    if (this->touch_pressed_) {",
