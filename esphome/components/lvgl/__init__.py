@@ -1,5 +1,6 @@
 import logging
 import esphome.core as core
+import esphome.automation as automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components.image import Image_
@@ -1147,3 +1148,72 @@ async def to_code(config):
         core.CORE.add_build_flag(f"-DLV_USE_{use.upper()}=1")
     for macro, value in lv_defines.items():
         cg.add_build_flag(f"-D\\'{macro}\\'=\\'{value}\\'")
+
+
+ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
+
+
+def modify_schema(lv_type, extras=None):
+    schema = PART_SCHEMA.extend(
+        {
+            cv.Required(CONF_ID): cv.use_id(lv_type),
+        }
+    )
+    if extras is None:
+        return schema
+    return schema.extend(extras)
+
+
+async def action_to_code(config, action_id, obj, init, template_arg):
+    init.extend(set_obj_properties(obj, config))
+    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
+    var = cg.new_Pvariable(action_id, template_arg, lamb)
+    return var
+
+
+@automation.register_action("lvgl.obj.update", ObjModifyAction, modify_schema(lv_obj_t))
+async def obj_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    return await action_to_code(config, action_id, obj, [], template_arg)
+
+
+@automation.register_action(
+    "lvgl.label.update", ObjModifyAction, modify_schema(lv_label_t, LABEL_SCHEMA)
+)
+async def label_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = []
+    if CONF_TEXT in config:
+        (value, lamb) = await get_text_lambda(config[CONF_TEXT])
+        if value is not None:
+            init.append(f'lv_label_set_text({obj}, "{value}")')
+        if lamb is not None:
+            init.append(f"lv_label_set_text({obj}, {lamb}())")
+    return await action_to_code(config, action_id, obj, init, template_arg)
+
+
+@automation.register_action(
+    "lvgl.slider.update", ObjModifyAction, modify_schema(lv_slider_t, BAR_SCHEMA)
+)
+async def slider_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = []
+    animated = config[CONF_ANIMATED]
+    if CONF_VALUE in config:
+        (value, lamb) = await get_value_lambda(config[CONF_VALUE])
+        if value is not None:
+            init.append(f'lv_slider_set_value({obj}, "{value}, {animated}")')
+        if lamb is not None:
+            init.append(f"lv_slider_set_value({obj}, {lamb}(), {animated})")
+    return await action_to_code(config, action_id, obj, init, template_arg)
+
+
+@automation.register_action(
+    "lvgl.img.update", ObjModifyAction, modify_schema(lv_img_t, IMG_SCHEMA)
+)
+async def img_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = []
+    if CONF_SRC in config:
+        init.append(f"lv_img_set_src({obj}, lv_img_from({config[CONF_SRC]}))")
+    return await action_to_code(config, action_id, obj, init, template_arg)
