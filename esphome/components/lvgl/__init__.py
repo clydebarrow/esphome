@@ -4,7 +4,6 @@ import esphome.core as core
 from esphome import automation
 from esphome.components.image import Image_
 from esphome.components.sensor import Sensor
-from esphome.components.text_sensor import TextSensor
 from esphome.components.touchscreen import Touchscreen
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import DisplayBuffer
@@ -39,15 +38,17 @@ lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 FontEngine = lvgl_ns.class_("FontEngine")
 ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
+# Can't use the native type name here, since ESPHome munges variable names and they conflict
 lv_obj_t = cg.global_ns.struct("LvglObj")
-lv_label_t = cg.global_ns.struct("LvglObj")
-lv_meter_t = cg.global_ns.struct("LvglObj")
-lv_slider_t = cg.global_ns.struct("LvglObj")
-lv_btn_t = cg.global_ns.struct("LvglObj")
-lv_line_t = cg.global_ns.struct("LvglObj")
-lv_img_t = cg.global_ns.struct("LvglObj")
-lv_arc_t = cg.global_ns.struct("LvglObj")
-lv_bar_t = cg.global_ns.struct("LvglObj")
+lv_label_t = cg.MockObjClass("lv_label_t", parents=[lv_obj_t])
+lv_meter_t = cg.MockObjClass("lv_meter_t", parents=[lv_obj_t])
+lv_slider_t = cg.MockObjClass("lv_slider_t", parents=[lv_obj_t])
+lv_btn_t = cg.MockObjClass("lv_btn_t", parents=[lv_obj_t])
+lv_line_t = cg.MockObjClass("lv_line_t", parents=[lv_obj_t])
+lv_img_t = cg.MockObjClass("lv_img_t", parents=[lv_obj_t])
+lv_arc_t = cg.MockObjClass("lv_arc_t", parents=[lv_obj_t])
+lv_bar_t = cg.MockObjClass("lv_bar_t", parents=[lv_obj_t])
+
 lv_meter_indicator_t = cg.global_ns.struct("lv_meter_indicator_t")
 lv_style_t = cg.global_ns.struct("LvglStyle")
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
@@ -82,6 +83,7 @@ CONF_LINE_WIDTH = "line_width"
 CONF_LOCAL = "local"
 CONF_LOG_LEVEL = "log_level"
 CONF_LVGL_COMPONENT = "lvgl_component"
+CONF_LVGL_ID = "lvgl_id"
 CONF_MAIN = "main"
 CONF_MAJOR = "major"
 CONF_METER = "meter"
@@ -243,7 +245,6 @@ LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
 
 # Record those we actually use
 lv_fonts_used = set()
-lv_component = None
 
 
 def lv_font(value):
@@ -269,6 +270,12 @@ def lv_prefix(value, choices, prefix):
     if value.startswith(prefix):
         return cv.one_of(*list(map(lambda v: prefix + v, choices)), upper=True)(value)
     return prefix + cv.one_of(*choices, upper=True)(value)
+
+
+def lv_animated(value):
+    if isinstance(value, bool):
+        value = "ON" if value else "OFF"
+    return lv_one_of(["OFF", "ON"], "LV_ANIM_")(value)
 
 
 def lv_one_of(choices, prefix):
@@ -452,12 +459,38 @@ def cv_point_list(value):
     }
 
 
+def container_schema(lv_type, extras=None):
+    schema = OBJ_SCHEMA
+    if extras is not None:
+        schema = schema.extend(extras)
+    schema = schema.extend({cv.GenerateID(): cv.declare_id(lv_type)})
+    """Delayed evaluation for recursion"""
+
+    def validator(value):
+        widgets = cv.Schema(
+            {
+                cv.Optional(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
+            }
+        )
+        return schema.extend(widgets)(value)
+
+    return validator
+
+
 def lv_value(value):
     if isinstance(value, int):
         return cv.float_(float(cv.int_(value)))
     if isinstance(value, float):
         return cv.float_(value)
     return cv.templatable(cv.use_id(Sensor))(value)
+
+
+def lv_text_value(value):
+    if isinstance(value, cv.Lambda):
+        return cv.returning_lambda(value)
+    if isinstance(value, core.ID):
+        return cv.use_id(Sensor)(value)
+    return cv.string(value)
 
 
 INDICATOR_SCHEMA = cv.Any(
@@ -556,7 +589,7 @@ BAR_SCHEMA = cv.Schema(
         cv.Optional(CONF_MIN_VALUE, default=0.0): cv.float_,
         cv.Optional(CONF_MAX_VALUE, default=100.0): cv.float_,
         cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(BAR_MODES, "LV_BAR_MODE_"),
-        cv.Optional(CONF_ANIMATED, default=True): lv_bool,
+        cv.Optional(CONF_ANIMATED, default=True): lv_animated,
     }
 )
 
@@ -588,56 +621,28 @@ OBJ_SCHEMA = PART_SCHEMA.extend(FLAG_SCHEMA).extend(
     )
 )
 
-
-def container_schema(type, extras=None):
-    schema = OBJ_SCHEMA
-    if extras is not None:
-        schema = schema.extend(extras)
-    schema = schema.extend({cv.GenerateID(): cv.declare_id(type)})
-    """Delayed evaluation for recursion"""
-
-    def validator(value):
-        widgets = cv.Schema(
-            {
-                cv.Optional(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
-            }
-        )
-        return schema.extend(widgets)(value)
-
-    return validator
-
-
+LABEL_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
+LINE_SCHEMA = {cv.Optional(CONF_POINTS): cv_point_list}
+METER_SCHEMA = {cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA)}
+IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(Image_)}
 WIDGET_SCHEMA = cv.Any(
     {
         cv.Exclusive(CONF_BTN, CONF_WIDGETS): container_schema(lv_btn_t),
         cv.Exclusive(CONF_OBJ, CONF_WIDGETS): container_schema(lv_obj_t),
         cv.Exclusive(CONF_LABEL, CONF_WIDGETS): container_schema(
-            lv_label_t,
-            {
-                cv.Optional(CONF_TEXT): cv.Any(
-                    cv.use_id(TextSensor), cv.templatable(cv.string)
-                )
-            },
+            lv_label_t, LABEL_SCHEMA
         ),
-        cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(
-            lv_line_t, {cv.Required(CONF_POINTS): cv_point_list}
-        ),
+        cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(lv_line_t, LINE_SCHEMA),
         cv.Exclusive(CONF_ARC, CONF_WIDGETS): container_schema(lv_arc_t, ARC_SCHEMA),
         cv.Exclusive(CONF_BAR, CONF_WIDGETS): container_schema(lv_bar_t, BAR_SCHEMA),
         cv.Exclusive(CONF_SLIDER, CONF_WIDGETS): container_schema(
             lv_slider_t, BAR_SCHEMA
         ),
         cv.Exclusive(CONF_METER, CONF_WIDGETS): container_schema(
-            lv_meter_t,
-            {
-                cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA),
-            },
+            lv_meter_t, METER_SCHEMA
         ),
         cv.Exclusive(CONF_IMG, CONF_WIDGETS): cv.All(
-            container_schema(
-                lv_img_t,
-                {cv.Required(CONF_SRC): cv.use_id(Image_)},
-            ),
+            container_schema(lv_img_t, IMG_SCHEMA),
             requires_component("image"),
         ),
     }
@@ -684,24 +689,26 @@ CONFIG_SCHEMA = (
     )
 )
 
-MODIFY_SCHEMA = PART_SCHEMA.extend(
+# For use by platform components
+LVGL_SCHEMA = cv.Schema(
     {
-        cv.Required(CONF_ID): cv.use_id(lv_obj_t),
+        cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
     }
 )
 
 
-# ).extend(
-#    cv.Any(
-#        {
-#            cv.Exclusive(CONF_VALUE): lv_value,
-#            cv.Exclusive(CONF_TEXT): lv_value,
-#        }
-#    ),
-# )
+def modify_schema(lv_type, extras=None):
+    schema = PART_SCHEMA.extend(
+        {
+            cv.Required(CONF_ID): cv.use_id(lv_type),
+        }
+    )
+    if extras is None:
+        return schema
+    return schema.extend(extras)
 
 
-async def add_init_lambda(init):
+async def add_init_lambda(lv_component, init):
     lamb = await cg.process_lambda(
         core.Lambda(";\n".join([*init, ""])), [(lv_disp_t_ptr, "lv_disp")]
     )
@@ -712,16 +719,48 @@ def cgen(*args):
     cg.add(cg.RawExpression("\n".join(args)))
 
 
-@automation.register_action("lvgl.obj.modify", ObjModifyAction, MODIFY_SCHEMA)
-async def modify_to_code(config, action_id, template_arg, args):
+@automation.register_action("lvgl.obj.update", ObjModifyAction, modify_schema(lv_obj_t))
+async def obj_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
-    # lamb = create_lambda(set_obj_properties(obj, config))
-    # var = cg.new_Pvariable(action_id, template_arg, obj, lamb)
+    init = set_obj_properties(obj, config)
+    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
+    var = cg.new_Pvariable(action_id, template_arg, lamb)
+    return var
 
 
-@automation.register_action("lvgl.label.set", ObjModifyAction, MODIFY_SCHEMA)
-async def set_text_to_code(config, action_id, template_arg, args):
-    print(action_id, template_arg, args)
+@automation.register_action(
+    "lvgl.label.update", ObjModifyAction, modify_schema(lv_label_t, LABEL_SCHEMA)
+)
+async def label_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = set_obj_properties(obj, config)
+    if CONF_TEXT in config:
+        (value, lamb) = await get_text_lambda(config[CONF_TEXT])
+        if value is not None:
+            init.append(f'lv_label_set_text({obj}, "{value}")')
+        if lamb is not None:
+            init.append(f"lv_label_set_text({obj}, {lamb}())")
+    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
+    var = cg.new_Pvariable(action_id, template_arg, lamb)
+    return var
+
+
+@automation.register_action(
+    "lvgl.slider.update", ObjModifyAction, modify_schema(lv_slider_t, BAR_SCHEMA)
+)
+async def slider_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = set_obj_properties(obj, config)
+    animated = config[CONF_ANIMATED]
+    if CONF_VALUE in config:
+        (value, lamb) = await get_value_lambda(config[CONF_VALUE])
+        if value is not None:
+            init.append(f'lv_slider_set_value({obj}, "{value}, {animated}")')
+        if lamb is not None:
+            init.append(f"lv_slider_set_value({obj}, {lamb}(), {animated})")
+    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
+    var = cg.new_Pvariable(action_id, template_arg, lamb)
+    return var
 
 
 def styles_to_code(styles):
@@ -815,7 +854,7 @@ def set_obj_properties(var, config):
 async def create_lv_obj(t, lv_component, config, parent):
     """Write object creation code for an object extending lv_obj_t"""
     init = []
-    var = cg.Pvariable(config[CONF_ID], cg.nullptr)
+    var = cg.Pvariable(config[CONF_ID], cg.nullptr, type_=lv_obj_t)
     init.append(f"{var} = lv_{t}_create({parent})")
     if CONF_GROUP in config:
         init.append(f"lv_group_add_obj({add_group(config[CONF_GROUP])}, {var})")
@@ -838,7 +877,7 @@ async def label_to_code(lv_component, var, label):
     return []
 
 
-async def obj_to_code(lv_component, var, obj):
+async def obj_to_code(_, var, obj):
     return []
 
 
@@ -862,7 +901,7 @@ async def line_to_code(lv_component, var, line):
 
 
 async def get_text_lambda(value):
-    lamb = "nullptr"
+    lamb = None
     if isinstance(value, core.Lambda):
         lamb = await cg.process_lambda(value, [], return_type=cg.const_char_ptr)
         value = None
@@ -1112,7 +1151,6 @@ async def touchscreens_to_code(_, config):
 
 
 async def to_code(config):
-    global lv_component
     cg.add_library("lvgl/lvgl", "8.3.9")
     for comp in lvgl_components_required:
         add_define(f"LVGL_USES_{comp.upper()}")
@@ -1161,7 +1199,7 @@ async def to_code(config):
     init.extend(await rotary_encoders_to_code(lv_component, config))
     init.extend(set_obj_properties("lv_scr_act()", config))
 
-    await add_init_lambda(init)
+    await add_init_lambda(lv_component, init)
     for use in lv_uses:
         core.CORE.add_build_flag(f"-DLV_USE_{use.upper()}=1")
     for macro, value in lv_defines.items():

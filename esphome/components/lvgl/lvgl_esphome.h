@@ -38,13 +38,15 @@ class Updater {
 
 template<typename... Ts> class ObjModifyAction : public Action<Ts...> {
  public:
-  explicit ObjModifyAction(lv_obj_t *obj) : obj_(obj) {}
+  explicit ObjModifyAction(std::function<void()> lamb) : lamb_(lamb) {}
 
-  void play(Ts... x) override { this->lamb_(this->obj_); }
+  void play(Ts... x) override {
+    esph_log_d(TAG, "Running action");
+    this->lamb_();
+  }
 
  protected:
-  lv_obj_t *obj_;
-  std::function<void(lv_obj_t *)> lamb_;
+  std::function<void()> lamb_;
 };
 
 class Arc : public Updater {
