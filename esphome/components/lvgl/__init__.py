@@ -1,14 +1,13 @@
-import esphome.codegen as cg
 import logging
 import esphome.core as core
-from esphome import automation
+import esphome.codegen as cg
+import esphome.config_validation as cv
 from esphome.components.image import Image_
 from esphome.components.sensor import Sensor
 from esphome.components.touchscreen import Touchscreen
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import DisplayBuffer
 from esphome.components import color
-import esphome.config_validation as cv
 from esphome.components.font import Font
 from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
 from esphome.components.binary_sensor import BinarySensor
@@ -37,7 +36,6 @@ LOGGER = logging.getLogger(__name__)
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 FontEngine = lvgl_ns.class_("FontEngine")
-ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
 # Can't use the native type name here, since ESPHome munges variable names and they conflict
 lv_obj_t = cg.global_ns.struct("LvglObj")
 lv_label_t = cg.MockObjClass("lv_label_t", parents=[lv_obj_t])
@@ -697,17 +695,6 @@ LVGL_SCHEMA = cv.Schema(
 )
 
 
-def modify_schema(lv_type, extras=None):
-    schema = PART_SCHEMA.extend(
-        {
-            cv.Required(CONF_ID): cv.use_id(lv_type),
-        }
-    )
-    if extras is None:
-        return schema
-    return schema.extend(extras)
-
-
 async def add_init_lambda(lv_component, init):
     lamb = await cg.process_lambda(
         core.Lambda(";\n".join([*init, ""])), [(lv_disp_t_ptr, "lv_disp")]
@@ -717,50 +704,6 @@ async def add_init_lambda(lv_component, init):
 
 def cgen(*args):
     cg.add(cg.RawExpression("\n".join(args)))
-
-
-@automation.register_action("lvgl.obj.update", ObjModifyAction, modify_schema(lv_obj_t))
-async def obj_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
-    init = set_obj_properties(obj, config)
-    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
-    var = cg.new_Pvariable(action_id, template_arg, lamb)
-    return var
-
-
-@automation.register_action(
-    "lvgl.label.update", ObjModifyAction, modify_schema(lv_label_t, LABEL_SCHEMA)
-)
-async def label_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
-    init = set_obj_properties(obj, config)
-    if CONF_TEXT in config:
-        (value, lamb) = await get_text_lambda(config[CONF_TEXT])
-        if value is not None:
-            init.append(f'lv_label_set_text({obj}, "{value}")')
-        if lamb is not None:
-            init.append(f"lv_label_set_text({obj}, {lamb}())")
-    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
-    var = cg.new_Pvariable(action_id, template_arg, lamb)
-    return var
-
-
-@automation.register_action(
-    "lvgl.slider.update", ObjModifyAction, modify_schema(lv_slider_t, BAR_SCHEMA)
-)
-async def slider_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
-    init = set_obj_properties(obj, config)
-    animated = config[CONF_ANIMATED]
-    if CONF_VALUE in config:
-        (value, lamb) = await get_value_lambda(config[CONF_VALUE])
-        if value is not None:
-            init.append(f'lv_slider_set_value({obj}, "{value}, {animated}")')
-        if lamb is not None:
-            init.append(f"lv_slider_set_value({obj}, {lamb}(), {animated})")
-    lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
-    var = cg.new_Pvariable(action_id, template_arg, lamb)
-    return var
 
 
 def styles_to_code(styles):
