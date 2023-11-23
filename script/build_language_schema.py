@@ -313,6 +313,7 @@ def fix_font():
 
 
 def fix_menu():
+    return
     if "display_menu_base" not in output:
         return
     # # Menu has a recursive schema which is not kept properly
@@ -869,7 +870,7 @@ def convert(schema, config_var, path):
                     config_var["use_id_type"] = str(data.base)
                     config_var[S_TYPE] = "use_id"
         else:
-            raise Exception("Unknown extracted schema type")
+            raise Exception(f"Unknown extracted schema type {schema_type}")
     elif config_var.get("key") == "GeneratedID":
         if path.startswith("i2c/CONFIG_SCHEMA/") and path.endswith("/id"):
             config_var["id_type"] = {

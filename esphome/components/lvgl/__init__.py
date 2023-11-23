@@ -281,7 +281,7 @@ def lv_one_of(choices, prefix):
     """Allow one of a list of choices, mapped to upper case, and prepend the choice with the prefix.
     It's also permitted to include the prefix in the value"""
 
-    @schema_extractor("lv_one_of")
+    @schema_extractor("one_of")
     def validator(value):
         if value == SCHEMA_EXTRACT:
             return choices
@@ -294,7 +294,7 @@ def lv_any_of(choices, prefix):
     """Allow any of a list of choices, mapped to upper case, and prepend the choice with the prefix.
     It's also permitted to include the prefix in the value"""
 
-    @schema_extractor("lv_any_of")
+    @schema_extractor("one_of")
     def validator(value):
         if value == SCHEMA_EXTRACT:
             return choices
@@ -324,11 +324,11 @@ def lv_angle(value):
     return cv.float_range(0.0, 360.0)(cv.angle(value))
 
 
-@schema_extractor("lv_size")
+@schema_extractor("one_of")
 def lv_size(value):
     """A size in one axis - one of "size_content", a number (pixels) or a percentage"""
     if value == SCHEMA_EXTRACT:
-        return ["size_content", "..%"]
+        return ["size_content", "pixels", "..%"]
     if isinstance(value, str) and not value.endswith("%"):
         if value.upper() == "SIZE_CONTENT":
             return "LV_SIZE_CONTENT"
