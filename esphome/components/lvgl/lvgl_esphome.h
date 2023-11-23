@@ -25,9 +25,22 @@ static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_A888;
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 #endif
 
-typedef lv_obj_t LvglObj;
-typedef lv_style_t LvglStyle;
-typedef lv_point_t LvglPoint;
+// The ESPHome name munging does not work well with the lv_ types, and will produce variable names
+// that are the same as the type.
+// to work-around this these typedefs are used.
+typedef lv_obj_t LvObjType;
+typedef lv_style_t LvStyleType;
+typedef lv_point_t LvPointType;
+typedef lv_label_t LvLabelType;
+typedef lv_meter_t LvMeterType;
+typedef lv_meter_indicator_t LvMeterIndicatorType;
+typedef lv_slider_t LvSliderType;
+typedef lv_btn_t LvBtnType;
+typedef lv_line_t LvLineType;
+typedef lv_img_t LvImgType;
+typedef lv_arc_t LvArcType;
+typedef lv_bar_t LvBarType;
+
 typedef std::function<float(void)> value_lambda_t;
 typedef std::function<void(float)> set_value_lambda_t;
 typedef void ( event_callback_t)(_lv_event_t*);
