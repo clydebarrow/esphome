@@ -461,7 +461,7 @@ def cv_point_list(value):
 def container_schema(lv_type, extras=None):
     schema = OBJ_SCHEMA
     if extras is not None:
-        schema = schema.extend(extras)
+        schema = schema.extend(extras).add_extra(validate_max_min)
     schema = schema.extend({cv.GenerateID(): cv.declare_id(lv_type)})
     """Delayed evaluation for recursion"""
 
@@ -474,6 +474,13 @@ def container_schema(lv_type, extras=None):
         return schema.extend(widgets)(value)
 
     return validator
+
+
+def validate_max_min(config):
+    if CONF_MAX_VALUE in config and CONF_MIN_VALUE in config:
+        if config[CONF_MAX_VALUE] <= config[CONF_MIN_VALUE]:
+            raise cv.Invalid("max_value must be greater than min_value")
+    return config
 
 
 def lv_value(value):
@@ -571,8 +578,8 @@ SCALE_SCHEMA = cv.Schema(
 ARC_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_VALUE): lv_value,
-        cv.Optional(CONF_MIN_VALUE, default=0.0): cv.float_,
-        cv.Optional(CONF_MAX_VALUE, default=100.0): cv.float_,
+        cv.Optional(CONF_MIN_VALUE, default=0): cv.int_,
+        cv.Optional(CONF_MAX_VALUE, default=100): cv.int_,
         cv.Optional(CONF_START_ANGLE, default=135): lv_angle,
         cv.Optional(CONF_END_ANGLE, default=45): lv_angle,
         cv.Optional(CONF_ROTATION, default=0.0): lv_angle,
@@ -585,8 +592,8 @@ ARC_SCHEMA = cv.Schema(
 BAR_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_VALUE): lv_value,
-        cv.Optional(CONF_MIN_VALUE, default=0.0): cv.float_,
-        cv.Optional(CONF_MAX_VALUE, default=100.0): cv.float_,
+        cv.Optional(CONF_MIN_VALUE, default=0): cv.int_,
+        cv.Optional(CONF_MAX_VALUE, default=100): cv.int_,
         cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(BAR_MODES, "LV_BAR_MODE_"),
         cv.Optional(CONF_ANIMATED, default=True): lv_animated,
     }
@@ -701,6 +708,22 @@ async def add_init_lambda(lv_component, init):
         core.Lambda(";\n".join([*init, ""])), [(lv_disp_t_ptr, "lv_disp")]
     )
     cg.add(lv_component.add_init_lambda(lamb))
+    lv_temp_vars.clear()
+
+
+EVENT_LAMB = "event_lamb__"
+
+
+def set_event_cb(obj, code, *varargs):
+    init = add_temp_var("event_callback_t", EVENT_LAMB)
+    init.extend([f"{EVENT_LAMB} = [](lv_event_t *e) {{ {code} ;}} \n"])
+    for arg in varargs:
+        init.extend(
+            [
+                f"lv_obj_add_event_cb({obj}, {EVENT_LAMB}, {arg}, nullptr)",
+            ]
+        )
+    return init
 
 
 def cgen(*args):

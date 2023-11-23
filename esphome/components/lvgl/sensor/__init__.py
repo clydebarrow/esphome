@@ -1,8 +1,15 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components.sensor import sensor_schema, new_sensor, Sensor
-from . import add_init_lambda, lv_arc_t, LVGL_SCHEMA, CONF_LVGL_ID, lv_slider_t
-from ...const import CONF_VALUE
+from esphome.const import CONF_VALUE
+from .. import (
+    add_init_lambda,
+    lv_arc_t,
+    LVGL_SCHEMA,
+    CONF_LVGL_ID,
+    lv_slider_t,
+    set_event_cb,
+)
 
 CONF_ARC_ID = "arc_id"
 CONF_SLIDER_ID = "slider_id"
@@ -31,10 +38,10 @@ async def to_code(config):
         return
     await add_init_lambda(
         paren,
-        [
-            f"lv_obj_add_event_cb({obj}, [](lv_event_t *e)\n"
-            " {\n"
-            f"   {sensor}->publish_state(lv_{lv_type}_get_value({obj}));\n"
-            "}, LV_EVENT_VALUE_CHANGED, nullptr)",
-        ],
+        set_event_cb(
+            obj,
+            f"   {sensor}->publish_state(lv_{lv_type}_get_value({obj}));\n",
+            "LV_EVENT_VALUE_CHANGED",
+            f"{paren}->get_custom_change_event()",
+        ),
     )

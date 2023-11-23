@@ -29,6 +29,8 @@ typedef lv_obj_t LvglObj;
 typedef lv_style_t LvglStyle;
 typedef lv_point_t LvglPoint;
 typedef std::function<float(void)> value_lambda_t;
+typedef std::function<void(float)> set_value_lambda_t;
+typedef void ( event_callback_t)(_lv_event_t*);
 typedef std::function<const char *(void)> text_lambda_t;
 
 class Updater {
@@ -247,6 +249,7 @@ class LvglComponent : public PollingComponent {
     this->disp_drv_.user_data = this;
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
+    this->custom_change_event_ = (lv_event_code_t) lv_event_register_id();
     for (auto v : this->init_lambdas_)
       v(this->disp_);
     // this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
@@ -265,6 +268,7 @@ class LvglComponent : public PollingComponent {
   void set_display(display::DisplayBuffer *display) { this->display_ = display; }
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
+  lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
@@ -280,6 +284,7 @@ class LvglComponent : public PollingComponent {
   lv_disp_draw_buf_t draw_buf_{};
   lv_disp_drv_t disp_drv_{};
   lv_disp_t *disp_{};
+  lv_event_code_t custom_change_event_{};
 
   std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
   std::vector<Updater *> updaters_;

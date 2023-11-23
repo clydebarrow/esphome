@@ -5,7 +5,7 @@ from esphome.components.binary_sensor import (
     BinarySensor,
     new_binary_sensor,
 )
-from . import add_init_lambda, lv_btn_t, LVGL_SCHEMA, CONF_LVGL_ID
+from .. import add_init_lambda, lv_btn_t, LVGL_SCHEMA, CONF_LVGL_ID
 
 CONF_BTN_ID = "btn_id"
 CONFIG_SCHEMA = (
@@ -26,9 +26,13 @@ async def to_code(config):
     await add_init_lambda(
         paren,
         [
-            f"lv_obj_add_event_cb({obj}, [](lv_event_t *e)\n" " {\n",
-            f"   {sensor}->publish_state(true);\n" "}, LV_EVENT_PRESSED, nullptr)",
-            f"lv_obj_add_event_cb({obj}, [](lv_event_t *e)\n" " {\n",
-            f"   {sensor}->publish_state(false);\n" "}, LV_EVENT_RELEASED, nullptr)",
+            f"lv_obj_add_event_cb({obj}, [](lv_event_t *e)\n"
+            " {\n"
+            f"   {sensor}->publish_state(true);\n"
+            "}, LV_EVENT_PRESSED, nullptr)",
+            f"lv_obj_add_event_cb({obj}, [](lv_event_t *e)\n"
+            " {\n"
+            f"   {sensor}->publish_state(false);\n"
+            "}, LV_EVENT_RELEASED, nullptr)",
         ],
     )
