@@ -7,6 +7,8 @@ from esphome.const import (
 
 CODEOWNERS = ["@clydebarrow"]
 
+AUTO_LOAD = ["number", "sensor"]
+
 spanet_ns = cg.esphome_ns.namespace("spanet")
 Spanet = spanet_ns.class_("Spanet", cg.PollingComponent)
 
