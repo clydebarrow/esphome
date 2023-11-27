@@ -4,10 +4,20 @@
 #include "esphome/core/automation.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/components/sensor/sensor.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/number/number.h"
+#include "esphome/components/switch/switch.h"
 
 namespace esphome {
 namespace spanet {
+
+class SpaValue {
+ public:
+  SpaValue(char row, size_t col) : row{row}, col{col} {}
+  const char row;
+  const size_t col;
+  virtual void set_value(int value) {}
+};
 
 class Spanet : public PollingComponent, public uart::UARTDevice {
  protected:
@@ -37,26 +47,6 @@ class Spanet : public PollingComponent, public uart::UARTDevice {
     return value;
   }
 
-  void dump_config() override { this->check_uart_settings(38400, 1, uart::UART_CONFIG_PARITY_NONE, 8); }
-
-  void decode_r5(size_t fieldcnt, const char *fields[], size_t field_lengths[]) {
-    if (fieldcnt >= 16) {
-      float temperature = str_to_int(fields[16], field_lengths[16]) / 10.0f;
-      esph_log_d(TAG, "Read temperature %f", temperature);
-      if (this->temperature_sensor_ != nullptr)
-        this->temperature_sensor_->publish_state(temperature);
-    }
-  }
-
-  void decode_r6(size_t fieldcnt, const char *fields[], size_t field_lengths[]) {
-    if (fieldcnt >= 9) {
-      float temperature = str_to_int(fields[9], field_lengths[9]) / 10.0f;
-      esph_log_d(TAG, "Read target temperature %f", temperature);
-      if (this->target_temperature_number_ != nullptr)
-        this->target_temperature_number_->publish_state(temperature);
-    }
-  }
-
   void process_buffer_() {
     if (this->rxcnt_ == 3)  // ignore RF: line
       return;
@@ -81,17 +71,15 @@ class Spanet : public PollingComponent, public uart::UARTDevice {
       return;
     }
     esph_log_v(TAG, "Processing %.*s", this->rxcnt_, this->rxbuf_);
-    switch (fields[1][1]) {
-      case '5':
-        this->decode_r5(fieldcnt, fields, field_lengths);
-        break;
-      case '6':
-        this->decode_r6(fieldcnt, fields, field_lengths);
-        break;
+    auto row = fields[1][1];
+    for (auto val : values_) {
+      if (val->row == row && fieldcnt > val->col) {
+        val->set_value(str_to_int(fields[val->col], field_lengths[val->col]));
+      }
     }
   }
 
-  void receive_data() {
+  void receive_data_() {
     uint8_t data;
 
     while (this->available() > 0) {
@@ -99,7 +87,7 @@ class Spanet : public PollingComponent, public uart::UARTDevice {
         if (data == '\r') {
           this->process_buffer_();
           this->rxcnt_ = 0;
-        } else if (data >= ' ' && data <= '~' && this->rxcnt_ != BUF_LEN - 1) {
+        } else if (data >= ' ' && data <= '~' && this->rxcnt_ != BUF_LEN) {
           this->rxbuf_[this->rxcnt_++] = (char) data;
         } else {
           this->rxcnt_ = 0;
@@ -111,34 +99,65 @@ class Spanet : public PollingComponent, public uart::UARTDevice {
   char rxbuf_[BUF_LEN];  // uart line buffer
   size_t rxcnt_{};
 
-  // sensors
-  sensor::Sensor *temperature_sensor_{};
-  number::Number *target_temperature_number_{};
+  std::vector<SpaValue *> values_{};
 
  public:
+  void dump_config() override { this->check_uart_settings(38400, 1, uart::UART_CONFIG_PARITY_NONE, 8); }
   float get_setup_priority() const override { return setup_priority::DATA; };
   void update() override { this->write_array(REQUEST, sizeof REQUEST); }
   void setup() override {}
-  void loop() override { this->receive_data(); }
+  void loop() override { this->receive_data_(); }
 
-  void set_temperature_sensor(sensor::Sensor *sens) { this->temperature_sensor_ = sens; }
-  void set_target_temperature(number::Number *target) { this->target_temperature_number_ = target; }
+  void add_value(SpaValue  *value) { this->values_.push_back(value); }
 };
 
-class SpanetNumber : public number::Number, public Parented<spanet::Spanet> {
+class SpanetNumber : public SpaValue, public number::Number, public Parented<spanet::Spanet> {
  public:
-  void set_command(const char *command) { this->command_ = command; }
-  void set_scale(float scale) { this->scale_ = scale; }
+  SpanetNumber(char row, size_t col, const char * cmd, float scale): SpaValue(row, col), cmd_{cmd}, scale_{scale} {}
+  void set_value(int value) override {
+    this->publish_state(value * this->scale_);
+  }
 
  protected:
   void control(float value) override {
     char buf[40];
-    auto len = snprintf(buf, sizeof buf, "%s:%d\n", this->command_, (int) (value / this->scale_));
+    auto len = snprintf(buf, sizeof buf, "%s:%d\n", this->cmd_, (int) (value / this->scale_));
     this->parent_->write_array((uint8_t *) buf, len);
+    this->publish_state(value);
+    this->parent_->update();
   }
 
-  const char *command_{};
-  float scale_{1.0f};
+  const char * const cmd_;
+  const float scale_;
+};
+
+class SpanetSwitch : public SpaValue, public switch_::Switch, public Parented<spanet::Spanet> {
+ public:
+  SpanetSwitch(char row, size_t col, const char * cmd): SpaValue(row, col), cmd_{cmd} {}
+  void set_value(int value) override {
+    this->publish_state(value != 0);
+  }
+
+ protected:
+  void write_state(bool state) override {
+    char buf[40];
+    auto len = snprintf(buf, sizeof buf, "%s:%d\n", this->cmd_, state ? 1 : 0);
+    if (len < sizeof buf) {
+      this->parent_->write_array((uint8_t *) buf, len);
+      this->publish_state(state);
+      this->parent_->update();
+    }
+  }
+
+  const char *cmd_{};
+};
+
+class SpanetBinarySensor : public SpaValue, public binary_sensor::BinarySensor, public Parented<spanet::Spanet> {
+ public:
+  SpanetBinarySensor(char row, size_t col): SpaValue(row, col) {}
+  void set_value(int value) override {
+    this->publish_state(value != 0);
+  }
 };
 
 }  // namespace spanet
