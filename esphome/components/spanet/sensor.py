@@ -1,7 +1,6 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import sensor
-from . import Spanet
 from esphome.const import (
     CONF_ID,
     CONF_TEMPERATURE,
@@ -9,6 +8,7 @@ from esphome.const import (
     STATE_CLASS_MEASUREMENT,
     UNIT_CELSIUS,
 )
+from . import Spanet
 
 CONFIG_SCHEMA = cv.Schema(
     {

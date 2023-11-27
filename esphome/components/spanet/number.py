@@ -1,11 +1,11 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components import number
-from . import Spanet, spanet_ns
 from esphome.const import (
     CONF_ID,
     CONF_TARGET_TEMPERATURE,
 )
+from . import Spanet, spanet_ns
 
 SpanetNumber = spanet_ns.class_("SpanetNumber", number.Number)
 
