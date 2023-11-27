@@ -254,6 +254,7 @@ def lv_font(value):
         font = cv.one_of(*LV_FONTS, lower=True)(value)
         lv_fonts_used.add(font)
         return "&lv_font_" + font
+    lv_uses.add("FONT")
     font = cv.use_id(Font)(value)
     return f"(new lvgl::FontEngine({font}))->get_lv_font()"
 

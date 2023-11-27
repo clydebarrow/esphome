@@ -4,6 +4,9 @@
 #if LVGL_USES_IMAGE
 #include "esphome/components/image/image.h"
 #endif
+#if LV_USE_FONT
+#include "esphome/components/font/font.h"
+#endif
 #include "esphome/components/display/display_color_utils.h"
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
@@ -17,6 +20,7 @@ namespace esphome {
 namespace lvgl {
 
 static const char *const TAG = "lvgl";
+static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
 #elif LV_COLOR_DEPTH == 32
@@ -184,10 +188,81 @@ class Indicator : public Updater {
   value_lambda_t start_value_{};
   value_lambda_t end_value_{};
 };
-
 #endif  // LV_USE_METER
 
-static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
+#if LV_USE_FONT
+class FontEngine {
+ public:
+  FontEngine(font::Font *esp_font) : font_(esp_font) {
+    this->lv_font_.base_line = esp_font->get_baseline();
+    this->lv_font_.line_height = esp_font->get_height();
+    this->lv_font_.get_glyph_dsc = get_glyph_dsc_cb;
+    this->lv_font_.get_glyph_bitmap = get_glyph_bitmap;
+    this->lv_font_.dsc = this;
+    this->lv_font_.subpx = LV_FONT_SUBPX_NONE;
+    this->lv_font_.underline_position = -1;
+    this->lv_font_.underline_thickness = 1;
+  }
+
+  const lv_font_t *get_lv_font() { return &this->lv_font_; }
+
+  static bool get_glyph_dsc_cb(const lv_font_t *font, lv_font_glyph_dsc_t *dsc, uint32_t unicode_letter,
+                               uint32_t next) {
+    FontEngine *fe = (FontEngine *) font->dsc;
+    const font::GlyphData *gd = fe->get_glyph_data(unicode_letter);
+    if (gd == nullptr)
+      return false;
+    dsc->adv_w = gd->offset_x + gd->width;
+    dsc->ofs_x = gd->offset_x;
+    dsc->ofs_y = gd->offset_y;
+    dsc->box_w = gd->width;
+    dsc->box_h = gd->height;
+    dsc->is_placeholder = 0;
+    dsc->bpp = 1;
+    // esph_log_d(TAG, "Returning dsc x/y %d/%d w/h %d/%d", dsc->ofs_x, dsc->ofs_y, dsc->box_w, dsc->box_h);
+    return true;
+  }
+
+  static const uint8_t *get_glyph_bitmap(const lv_font_t *font, uint32_t unicode_letter) {
+    FontEngine *fe = (FontEngine *) font->dsc;
+    const font::GlyphData *gd = fe->get_glyph_data(unicode_letter);
+    if (gd == nullptr)
+      return nullptr;
+    // esph_log_d(TAG, "Returning bitmap @  %X", (uint32_t)gd->data);
+
+    return gd->data;
+  }
+
+ protected:
+  font::Font *font_{};
+  uint32_t last_letter_{};
+  const font::GlyphData *last_data_{};
+  lv_font_t lv_font_{};
+
+  const font::GlyphData *get_glyph_data(uint32_t unicode_letter) {
+    if (unicode_letter == last_letter_)
+      return this->last_data_;
+    char unicode[4];
+    if (unicode_letter > 0x7FF) {
+      unicode[0] = 0xE0 + ((unicode_letter >> 12) & 0xF);
+      unicode[1] = 0x80 + ((unicode_letter >> 6) & 0x3F);
+      unicode[2] = 0x80 + (unicode_letter & 0x3F);
+    } else if (unicode_letter > 0x7F) {
+      unicode[0] = 0xC0 + ((unicode_letter >> 6) & 0x1F);
+      unicode[1] = 0x80 + (unicode_letter & 0x3F);
+    } else
+      unicode[0] = unicode_letter & 0x7F;
+    int match_length;
+    int glyph_n = this->font_->match_next_glyph(unicode, &match_length);
+    if (glyph_n < 0)
+      return nullptr;
+    this->last_data_ = this->font_->get_glyphs()[glyph_n].get_glyph_data();
+    this->last_letter_ = unicode_letter;
+    return this->last_data_;
+  }
+};
+#endif  //LV_USE_FONT
+
 
 #if LVGL_USES_IMAGE
 static lv_img_dsc_t *lv_img_from(image::Image *src) {
