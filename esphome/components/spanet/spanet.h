@@ -19,10 +19,11 @@ class SpaValue {
   virtual void set_value(int value) {}
 };
 
+constexpr static const char *const TAG = "spanet";
+constexpr static const uint8_t REQUEST[3] = {'R', 'F', '\n'};
+
 class Spanet : public PollingComponent, public uart::UARTDevice {
  protected:
-  constexpr static const char *const TAG = "spanet";
-  constexpr static const uint8_t REQUEST[3] = {'R', 'F', '\n'};
   static const size_t BUF_LEN = 512;    // length of rx buffer
   static const size_t MAX_FIELDS = 40;  // maximum fields to decode
 
@@ -143,6 +144,7 @@ class SpanetSwitch : public SpaValue, public switch_::Switch, public Parented<sp
     char buf[40];
     auto len = snprintf(buf, sizeof buf, "%s:%d\n", this->cmd_, state ? 1 : 0);
     if (len < sizeof buf) {
+      esph_log_d(TAG, "cmd is %s, len is %d, Send command %s", this->cmd_, len, buf);
       this->parent_->write_array((uint8_t *) buf, len);
       this->publish_state(state);
       this->parent_->update();
