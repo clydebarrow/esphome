@@ -4,25 +4,23 @@ from esphome.components import switch
 from esphome.const import (
     CONF_ID,
 )
-from . import Spanet, spanet_ns
+from . import Spanet, spanet_ns, CONF_ROW, CONF_COL, CONF_CMD
 
 SpanetSwitch = spanet_ns.class_("SpanetSwitch", switch.Switch)
-
-CONF_ROW = "row"
-CONF_COL = "col"
-CONF_CMD = "cmd"
 
 
 def sw_desc(row, col, cmd):
     return {
-        CONF_ROW: row,
+        CONF_ROW: ord(row[0]),
         CONF_COL: col,
         CONF_CMD: cmd,
     }
 
 
 SWITCHES = (
-    dict(map(lambda n: (f"pump{n}", sw_desc(5, n + 18, f"S{21 + n}")), [1, 2, 3, 4, 5]))
+    dict(
+        map(lambda n: (f"pump{n}", sw_desc("5", n + 18, f"S{21 + n}")), [1, 2, 3, 4, 5])
+    )
     | {}
 )
 
@@ -47,7 +45,7 @@ async def to_code(config):
         if s in config:
             sw_data = SWITCHES[s]
             target = await switch.new_switch(
-                s, [CONF_ROW], sw_data[CONF_COL], sw_data[CONF_CMD]
+                config[s], sw_data[CONF_ROW], sw_data[CONF_COL], sw_data[CONF_CMD]
             )
             await cg.register_parented(target, var)
-            cg.add(var.add_switch(target))
+            cg.add(var.add_value(target))

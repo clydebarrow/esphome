@@ -160,5 +160,15 @@ class SpanetBinarySensor : public SpaValue, public binary_sensor::BinarySensor, 
   }
 };
 
+class SpanetSensor : public SpaValue, public sensor::Sensor, public Parented<spanet::Spanet> {
+ public:
+  SpanetSensor(char row, size_t col, float scale): SpaValue(row, col), scale_{scale} {}
+  void set_value(int value) override {
+    this->publish_state(value * this->scale_);
+  }
+ protected:
+  const float scale_;
+};
+
 }  // namespace spanet
 }  // namespace esphome
