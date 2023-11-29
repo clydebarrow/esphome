@@ -23,7 +23,7 @@ void ILI9XXXDisplay::setup() {
   this->setup_pins_();
   this->init_lcd_();
 
-  this->command(this->pre_invertdisplay_ ? ILI9XXX_INVON : ILI9XXX_INVOFF);
+  this->command(this->pre_invertcolors_ ? ILI9XXX_INVON : ILI9XXX_INVOFF);
   // custom x/y transform and color order
   uint8_t mad = this->color_order_ == display::COLOR_ORDER_BGR ? MADCTL_BGR : MADCTL_RGB;
   if (this->swap_xy_)
@@ -39,8 +39,17 @@ void ILI9XXXDisplay::setup() {
   this->x_high_ = 0;
   this->y_high_ = 0;
 
-  ESP_LOGCONFIG(TAG, "ILI9xxx setup complete");
-  return;
+  if (this->buffer_color_mode_ == BITS_16) {
+    this->init_internal_(this->get_buffer_length_() * 2);
+    if (this->buffer_ != nullptr) {
+      return;
+    }
+    this->buffer_color_mode_ = BITS_8;
+  }
+  this->init_internal_(this->get_buffer_length_());
+  if (this->buffer_ == nullptr) {
+    this->mark_failed();
+  }
 }
 
 void ILI9XXXDisplay::setup_pins_() {
@@ -93,7 +102,6 @@ void ILI9XXXDisplay::dump_config() {
 float ILI9XXXDisplay::get_setup_priority() const { return setup_priority::HARDWARE; }
 
 void ILI9XXXDisplay::fill(Color color) {
-  this->allocate_buffer_();
   uint16_t new_color = 0;
   this->x_low_ = 0;
   this->y_low_ = 0;
@@ -131,7 +139,6 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
   if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() || y < 0) {
     return;
   }
-  this->allocate_buffer_();
   uint32_t pos = (y * width_) + x;
   uint16_t new_color;
   bool updated = false;
@@ -171,35 +178,6 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
   }
 }
 
-void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr,
-                                    display::ColorOrder order, display::ColorBitness bitness, bool big_endian,
-                                    int x_offset, int y_offset, int x_pad) {
-  // draw directly to the display
-  ESP_LOGV(TAG, "drawing into %d/%d, %d/%d", x_start, y_start, w, h);
-  if (w <= 0 || h <= 0)
-    return;
-  // optimal case is when everybody uses 16 bit big-endian colour format. Anything else we hand off.
-  if (this->buffer_color_mode_ != BITS_16 || bitness != display::COLOR_BITNESS_565 ||
-      order != display::COLOR_ORDER_RGB || !big_endian) {
-    DisplayBuffer::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset, x_pad);
-    return;
-  }
-
-  size_t line_stride = w + x_pad;
-  this->enable();
-  this->set_addr_window_(x_start, y_start, x_start + w - 1, y_start + h - 1);
-  uint16_t *src_ptr = ((uint16_t *) ptr) + y_offset * line_stride + x_offset;
-  if (x_offset == 0 && x_pad == 0) {
-    this->write_array((const uint8_t *) src_ptr, h * w * 2);
-  } else {
-    for (int y = 0; y != h; y++) {
-      this->write_array((const uint8_t *) src_ptr, w * 2);
-      src_ptr += line_stride;
-    }
-  }
-  this->disable();
-}
-
 void ILI9XXXDisplay::update() {
   if (this->prossing_update_) {
     this->need_update_ = true;
@@ -217,7 +195,7 @@ void ILI9XXXDisplay::update() {
 void ILI9XXXDisplay::display_() {
   uint8_t transfer_buffer[ILI9XXX_TRANSFER_BUFFER_SIZE];
   // check if something was displayed
-  if (this->buffer_ == nullptr || this->x_high_ < this->x_low_ || this->y_high_ < this->y_low_) {
+  if ((this->x_high_ < this->x_low_) || (this->y_high_ < this->y_low_)) {
     ESP_LOGV(TAG, "Nothing to display");
     return;
   }
@@ -231,12 +209,11 @@ void ILI9XXXDisplay::display_() {
   size_t sw_time = this->width_ * h * 16 / mhz + this->width_ * h * 2 / SPI_MAX_BLOCK_SIZE * SPI_SETUP_US * 2;
   // estimate time for multiple writes
   size_t mw_time = (w * h * 16) / mhz + w * h * 2 / ILI9XXX_TRANSFER_BUFFER_SIZE * SPI_SETUP_US;
-  ESP_LOGD(TAG,
+  ESP_LOGV(TAG,
            "Start display(xlow:%d, ylow:%d, xhigh:%d, yhigh:%d, width:%d, "
            "height:%d, mode=%d, 18bit=%d, sw_time=%dus, mw_time=%dus)",
            this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, this->buffer_color_mode_,
            this->is_18bitdisplay_, sw_time, mw_time);
-  this->enable();
   auto now = millis();
   this->enable();
   if (this->buffer_color_mode_ == BITS_16 && !this->is_18bitdisplay_ && sw_time < mw_time) {
@@ -391,8 +368,8 @@ void ILI9XXXDisplay::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, uin
   this->dc_pin_->digital_write(true);
 }
 
-void ILI9XXXDisplay::invert_display(bool invert) {
-  this->pre_invertdisplay_ = invert;
+void ILI9XXXDisplay::invert_colors(bool invert) {
+  this->pre_invertcolors_ = invert;
   if (is_ready()) {
     this->command(invert ? ILI9XXX_INVON : ILI9XXX_INVOFF);
   }
