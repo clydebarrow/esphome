@@ -1,18 +1,28 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import pins
-from esphome.components import spi, panel_driver
+from esphome.components import spi, display
 from esphome.const import (
     CONF_DC_PIN,
     CONF_RESET_PIN,
     CONF_OUTPUT,
     CONF_DATA_PINS,
-    CONF_COLOR_MODE,
+    CONF_ID,
+    CONF_DIMENSIONS,
+    CONF_WIDTH,
+    CONF_HEIGHT,
+    CONF_OFFSET_HEIGHT,
+    CONF_OFFSET_WIDTH,
+    CONF_LAMBDA,
 )
 
 from .init_sequences import ST7701S_INITS
-from ..panel_driver import CONF_TRANSFORM, CONF_SWAP_XY
 
+CONF_MIRROR_X = "mirror_x"
+CONF_MIRROR_Y = "mirror_y"
+CONF_SWAP_XY = "swap_xy"
+CONF_COLOR_ORDER = "color_order"
+CONF_TRANSFORM = "transform"
 CONF_INIT_SEQUENCE = "init_sequence"
 CONF_DE_PIN = "de_pin"
 CONF_PCLK_PIN = "pclk_pin"
@@ -30,14 +40,12 @@ CONF_INVERT_COLORS = "invert_colors"
 DEPENDENCIES = ["spi"]
 
 st7701s_ns = cg.esphome_ns.namespace("st7701s")
-ST7701S = st7701s_ns.class_(
-    "ST7701S", panel_driver.PanelDriver, cg.Component, spi.SPIDevice
-)
-ColorMode = panel_driver.panel_driver_ns.enum("ColorMode")
+ST7701S = st7701s_ns.class_("ST7701S", display.Display, cg.Component, spi.SPIDevice)
+ColorOrder = display.display_ns.enum("ColorMode")
 
-COLOR_MODES = {
-    "RGB": ColorMode.COLOR_MODE_RGB,
-    "BGR": ColorMode.COLOR_MODE_BGR,
+COLOR_ORDERS = {
+    "RGB": ColorOrder.COLOR_ORDER_RGB,
+    "BGR": ColorOrder.COLOR_ORDER_BGR,
 }
 DATA_PIN_SCHEMA = pins.gpio_pin_schema(
     {
@@ -69,26 +77,35 @@ def map_sequence(value):
     return value
 
 
-def check_no_swap_xy(config):
-    if CONF_TRANSFORM in config and config[CONF_TRANSFORM][CONF_SWAP_XY]:
-        raise (cv.Invalid("X/Y swap not supported on st7701s"))
-    return config
-
-
-FINAL_VALIDATE_SCHEMA = check_no_swap_xy
-
 CONFIG_SCHEMA = cv.All(
-    panel_driver.PANEL_DRIVER_SCHEMA.extend(
+    display.FULL_DISPLAY_SCHEMA.extend(
         cv.Schema(
             {
                 cv.GenerateID(): cv.declare_id(ST7701S),
+                cv.Required(CONF_DIMENSIONS): cv.Any(
+                    cv.dimensions,
+                    cv.Schema(
+                        {
+                            cv.Required(CONF_WIDTH): cv.int_,
+                            cv.Required(CONF_HEIGHT): cv.int_,
+                            cv.Optional(CONF_OFFSET_HEIGHT, default=0): cv.int_,
+                            cv.Optional(CONF_OFFSET_WIDTH, default=0): cv.int_,
+                        }
+                    ),
+                ),
+                cv.Optional(CONF_TRANSFORM): cv.Schema(
+                    {
+                        cv.Optional(CONF_MIRROR_X, default=False): cv.boolean,
+                        cv.Optional(CONF_MIRROR_Y, default=False): cv.boolean,
+                    }
+                ),
                 cv.Required(CONF_DATA_PINS): cv.All(
                     [DATA_PIN_SCHEMA],
                     cv.Length(min=16, max=16, msg="Exactly 16 data pins required"),
                 ),
                 cv.Optional(CONF_INIT_SEQUENCE, default=1): map_sequence,
-                cv.Optional(CONF_COLOR_MODE, default="BGR"): cv.one_of(
-                    *COLOR_MODES, upper=True
+                cv.Optional(CONF_COLOR_ORDER): cv.one_of(
+                    *COLOR_ORDERS.keys(), upper=True
                 ),
                 cv.Optional(CONF_INVERT_COLORS, default=False): cv.boolean,
                 cv.Required(CONF_DE_PIN): pins.internal_gpio_output_pin_schema,
@@ -104,19 +121,18 @@ CONFIG_SCHEMA = cv.All(
                 cv.Optional(CONF_VSYNC_BACK_PORCH, default=10): cv.int_,
                 cv.Optional(CONF_VSYNC_FRONT_PORCH, default=10): cv.int_,
             }
-        )
-        .extend(panel_driver.PANEL_DRIVER_SCHEMA)
-        .extend(spi.spi_device_schema(cs_pin_required=False, default_data_rate=1e6))
+        ).extend(spi.spi_device_schema(cs_pin_required=False, default_data_rate=1e6))
     ),
     cv.only_with_esp_idf,
 )
 
 
 async def to_code(config):
-    var = await panel_driver.register_panel_driver(config)
+    var = cg.new_Pvariable(config[CONF_ID])
+    await display.register_display(var, config)
     await spi.register_spi_device(var, config)
 
-    cg.add(var.set_color_mode(COLOR_MODES[config[CONF_COLOR_MODE]]))
+    cg.add(var.set_color_mode(COLOR_ORDERS[config[CONF_COLOR_ORDER]]))
     cg.add(var.set_invert_colors(config[CONF_INVERT_COLORS]))
     cg.add(var.set_init_sequence(config[CONF_INIT_SEQUENCE]))
     cg.add(var.set_hsync_pulse_width(config[CONF_HSYNC_PULSE_WIDTH]))
@@ -138,6 +154,29 @@ async def to_code(config):
     if reset_pin := config.get(CONF_RESET_PIN):
         reset = await cg.gpio_pin_expression(reset_pin)
         cg.add(var.set_reset_pin(reset))
+
+    if transform := config.get(CONF_TRANSFORM):
+        cg.add(var.set_mirror_x(transform[CONF_MIRROR_X]))
+        cg.add(var.set_mirror_y(transform[CONF_MIRROR_Y]))
+
+    if CONF_DIMENSIONS in config:
+        dimensions = config[CONF_DIMENSIONS]
+        if isinstance(dimensions, dict):
+            cg.add(var.set_dimensions(dimensions[CONF_WIDTH], dimensions[CONF_HEIGHT]))
+            cg.add(
+                var.set_offsets(
+                    dimensions[CONF_OFFSET_WIDTH], dimensions[CONF_OFFSET_HEIGHT]
+                )
+            )
+        else:
+            (width, height) = dimensions
+            cg.add(var.set_dimensions(width, height))
+
+    if lamb := config.get(CONF_LAMBDA):
+        lambda_ = await cg.process_lambda(
+            lamb, [(display.DisplayRef, "it")], return_type=cg.void
+        )
+        cg.add(var.set_writer(lambda_))
 
     pin = await cg.gpio_pin_expression(config[CONF_DE_PIN])
     cg.add(var.set_de_pin(pin))

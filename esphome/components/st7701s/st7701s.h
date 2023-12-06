@@ -5,7 +5,7 @@
 
 #include "esphome/core/component.h"
 #include "esphome/components/spi/spi.h"
-#include "esphome/components/panel_driver/panel_driver.h"
+#include "esphome/components/display/display.h"
 #include "esp_lcd_panel_ops.h"
 
 #include "esp_lcd_panel_rgb.h"
@@ -26,10 +26,12 @@ const uint8_t DISPLAY_ON = 0x29;
 const uint8_t CMD2_BKSEL = 0xFF;
 const uint8_t CMD2_BK0[5] = {0x77, 0x01, 0x00, 0x00, 0x10};
 
-class ST7701S : public panel_driver::PanelDriver,
+class ST7701S : public display::Display,
                 public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW, spi::CLOCK_PHASE_LEADING,
                                       spi::DATA_RATE_1MHZ> {
  public:
+  void update() override { this->do_update_(); }
+
   void setup() override {
     this->spi_setup();
     esp_lcd_rgb_panel_config_t config{};
@@ -66,14 +68,39 @@ class ST7701S : public panel_driver::PanelDriver,
     this->write_init_sequence_();
   }
 
-  void draw_pixels_at(size_t x, size_t y, size_t width, size_t height, const void *src_ptr) override {
-    auto err = esp_lcd_panel_draw_bitmap(this->handle_, x, y, x + width, y + height, src_ptr);
+  void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
+                      display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) override {
+    if (w <= 0 || h <= 0)
+      return;
+    // if color mapping or software rotation is required, pass the buck.
+    if (this->rotation_ != display::DISPLAY_ROTATION_0_DEGREES || bitness != display::COLOR_BITNESS_565 ||
+        !big_endian) {
+      return display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset,
+                                              y_offset, x_pad);
+    }
+    x_start += this->offset_x_;
+    y_start += this->offset_y_;
+    esp_err_t err;
+    // x_ and y_offset are offsets into the source buffer, unrelated to our own offsets into the display.
+    if (x_offset == 0 && x_pad == 0 && y_offset == 0) {
+      // we could deal here with a non-zero y_offset, but if x_offset is zero, y_offset probably will be so don't bother
+      err = esp_lcd_panel_draw_bitmap(this->handle_, x_start, y_start, x_start + w, y_start + h, ptr);
+    } else {
+      // draw line by line
+      auto stride = x_offset + w + x_pad;
+      for (size_t y = 0; y != h; y++) {
+        err = esp_lcd_panel_draw_bitmap(this->handle_, x_start, y + y_start, x_start + w, y + y_start + 1,
+                                        ptr + (y + y_offset) * stride + x_offset);
+        if (err != ESP_OK)
+          break;
+      }
+    }
     if (err != ESP_OK)
       esph_log_e(TAG, "lcd_lcd_panel_draw_bitmap failed: %s", esp_err_to_name(err));
   }
 
-  panel_driver::ColorMode get_color_mode() override { return this->color_mode_; }
-  void set_color_mode(panel_driver::ColorMode color_mode) { this->color_mode_ = color_mode; }
+  display::ColorOrder get_color_mode() { return this->color_mode_; }
+  void set_color_mode(display::ColorOrder color_mode) { this->color_mode_ = color_mode; }
   void set_invert_colors(bool invert_colors) { this->invert_colors_ = invert_colors; }
 
   void add_data_pin(InternalGPIOPin *data_pin, size_t index) { this->data_pins_[index] = data_pin; };
@@ -84,7 +111,12 @@ class ST7701S : public panel_driver::PanelDriver,
   void set_dc_pin(GPIOPin *dc_pin) { this->dc_pin_ = dc_pin; }
   void set_reset_pin(GPIOPin *reset_pin) { this->reset_pin_ = reset_pin; }
   void set_width(uint16_t width) { this->width_ = width; }
-  void set_height(uint16_t height) { this->height_ = height; }
+  void set_dimensions(uint16_t width, uint16_t height) {
+    this->width_ = width;
+    this->height_ = height;
+  }
+  int get_width() override { return this->width_; }
+  int get_height() override { return this->height_; }
   void set_hsync_back_porch(uint16_t hsync_back_porch) { this->hsync_back_porch_ = hsync_back_porch; }
   void set_hsync_front_porch(uint16_t hsync_front_porch) { this->hsync_front_porch_ = hsync_front_porch; }
   void set_hsync_pulse_width(uint16_t hsync_pulse_width) { this->hsync_pulse_width_ = hsync_pulse_width; }
@@ -92,7 +124,41 @@ class ST7701S : public panel_driver::PanelDriver,
   void set_vsync_back_porch(uint16_t vsync_back_porch) { this->vsync_back_porch_ = vsync_back_porch; }
   void set_vsync_front_porch(uint16_t vsync_front_porch) { this->vsync_front_porch_ = vsync_front_porch; }
   void set_init_sequence(const std::vector<uint8_t> &init_sequence) { this->init_sequence_ = init_sequence; }
+  void set_mirror_x(bool mirror_x) { this->mirror_x_ = mirror_x; }
+  void set_mirror_y(bool mirror_y) { this->mirror_y_ = mirror_y; }
+  void set_offsets(int16_t offset_x, int16_t offset_y) {
+    this->offset_x_ = offset_x;
+    this->offset_y_ = offset_y;
+  }
+  display::DisplayType get_display_type() override { return display::DisplayType::DISPLAY_TYPE_COLOR; }
   void dump_config() override;
+
+  // this will be horribly slow.
+  void draw_pixel_at(int x, int y, Color color) override {
+    if (!this->get_clipping().inside(x, y))
+      return;  // NOLINT
+
+    switch (this->rotation_) {
+      case display::DISPLAY_ROTATION_0_DEGREES:
+        break;
+      case display::DISPLAY_ROTATION_90_DEGREES:
+        std::swap(x, y);
+        x = this->width_ - x - 1;
+        break;
+      case display::DISPLAY_ROTATION_180_DEGREES:
+        x = this->width_ - x - 1;
+        y = this->height_ - y - 1;
+        break;
+      case display::DISPLAY_ROTATION_270_DEGREES:
+        std::swap(x, y);
+        y = this->height_ - y - 1;
+        break;
+    }
+    auto pixel = display::ColorUtil::color_to_565(color);
+    this->draw_pixels_at(x, y, 1, 1, (const uint8_t *) &pixel, display::COLOR_ORDER_RGB, display::COLOR_BITNESS_565,
+                         true, 0, 0, 0);
+    App.feed_wdt();
+  }
 
  protected:
   void write_command_(uint8_t value) {
@@ -142,7 +208,7 @@ class ST7701S : public panel_driver::PanelDriver,
     this->write_sequence_(CMD2_BKSEL, sizeof(CMD2_BK0), CMD2_BK0);
     this->write_command_(SDIR_CMD);  // this is in the BK0 command set
     this->write_data_(this->mirror_x_ ? 0x04 : 0x00);
-    uint8_t val = this->color_mode_ == panel_driver::COLOR_MODE_BGR ? 0x80 : 0x00;
+    uint8_t val = this->color_mode_ == display::COLOR_ORDER_BGR ? 0x80 : 0x00;
     if (this->mirror_y_)
       val |= 0x10;
     this->write_command_(MADCTL_CMD);
@@ -170,7 +236,13 @@ class ST7701S : public panel_driver::PanelDriver,
   std::vector<uint8_t> init_sequence_;
 
   bool invert_colors_{};
-  panel_driver::ColorMode color_mode_{panel_driver::COLOR_MODE_BGR};
+  display::ColorOrder color_mode_{display::COLOR_ORDER_BGR};
+  size_t width_{};
+  size_t height_{};
+  int16_t offset_x_{0};
+  int16_t offset_y_{0};
+  bool mirror_x_{};
+  bool mirror_y_{};
 
   esp_lcd_panel_handle_t handle_{};
 };
