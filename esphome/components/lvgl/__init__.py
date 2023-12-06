@@ -7,7 +7,7 @@ from esphome.components.image import Image_
 from esphome.components.sensor import Sensor
 from esphome.components.touchscreen import Touchscreen
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
-from esphome.components.display import DisplayBuffer
+from esphome.components.display import Display
 from esphome.components import color
 from esphome.components.font import Font
 from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
@@ -662,7 +662,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_ID, default=CONF_LVGL_COMPONENT): cv.declare_id(
                 LvglComponent
             ),
-            cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(DisplayBuffer),
+            cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(Display),
             cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
                 cv.All(cv.use_id(Touchscreen)), cv.requires_component("touchscreen")
             ),
