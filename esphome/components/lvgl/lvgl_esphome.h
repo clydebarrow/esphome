@@ -1,6 +1,6 @@
 #pragma once
 
-#include "esphome/components/display/display_buffer.h"
+#include "esphome/components/display/display.h"
 #if LVGL_USES_IMAGE
 #include "esphome/components/image/image.h"
 #endif
@@ -353,7 +353,7 @@ class LvglComponent : public PollingComponent {
 
   void loop() override { lv_timer_handler_run_in_period(5); }
 
-  void set_display(display::DisplayBuffer *display) { this->display_ = display; }
+  void set_display(display::Display *display) { this->display_ = display; }
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
@@ -368,7 +368,7 @@ class LvglComponent : public PollingComponent {
                lv_area_get_height(area), (int) (millis() - now));
   }
 
-  display::DisplayBuffer *display_{};
+  display::Display *display_{};
   lv_disp_draw_buf_t draw_buf_{};
   lv_disp_drv_t disp_drv_{};
   lv_disp_t *disp_{};
