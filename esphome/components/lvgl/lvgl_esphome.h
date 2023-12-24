@@ -15,6 +15,9 @@
 #include "lvgl_hal.h"
 #include <lvgl.h>
 #include <vector>
+#if USE_TOUCHSCREEN
+#include "esphome/components/touchscreen/touscreen.h"
+#endif
 
 namespace esphome {
 namespace lvgl {
@@ -28,6 +31,7 @@ static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_A888;
 #else
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 #endif
+
 
 // The ESPHome name munging does not work well with the lv_ types, and will produce variable names
 // that are the same as the type.
@@ -49,6 +53,30 @@ typedef std::function<float(void)> value_lambda_t;
 typedef std::function<void(float)> set_value_lambda_t;
 typedef void ( event_callback_t)(_lv_event_t*);
 typedef std::function<const char *(void)> text_lambda_t;
+
+#if USE_TOUCHSCREEN
+class LVTouchListener: public TouchListener {
+public:
+  void touch(touchscreen::TouchPoint point) override {
+    this->touch_point_ = point;
+    this->touch_pressed_ = true;
+  }
+  void release() override { touch_pressed_ = false; }
+
+  void touch_cb(lv_indev_data_t *data) {
+    if (this->touch_pressed_) {
+      data->point.x = this->touch_point_.x;
+      data->point.y = this->touch_point_.y;
+      data->state = LV_INDEV_STATE_PRESSED;
+    } else {
+      data->state = LV_INDEV_STATE_RELEASED;
+    }
+  }
+protected:
+  TouchPoint touch_point_{};
+  bool touch_pressed_{false};
+};
+#endif
 
 class Updater {
  public:
@@ -319,6 +347,40 @@ class LvglComponent : public PollingComponent {
 
   void add_updater(Updater *updater) { this->updaters_.push_back(updater); }
 
+#if USE_TOUCHSCREEN
+  void add_touchscreen(Touchscreen *touchscreen) {
+    LVTouchListener tsl;
+    lv_indev_drv_t drv;
+    lv_indev_drv_init(&drv);
+    drv.type = LV_INDEV_TYPE_POINTER;
+    drv.read_cb = [tsl](lv_indev_drv_t *drv, lv_indev_data_t *data) { tsl.touch_cb(data); };
+    lv_indev_drv_register(&drv);
+    touchscreen->register_listener(&tsl);
+  }
+#endif
+#if USE_ROTARY
+  void add_rotary(Sensor *sensor, Sensor *binary_sensor, std::string group) {
+    static bool pressed_{false};
+    static uint32_t count_{0}, last_{0};
+    lv_indev_drv_t drv;
+    lv_indev_drv_init(&drv);
+    drv.type = LV_INDEV_TYPE_ENCODER;
+    drv.read_cb = [pressed_, count_, &last_](lv_indev_drv_t *drv, lv_indev_data_t *data) {
+      data->state = pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+      data->enc_diff = count_ - last_;
+      last_ = count_;
+    };
+    lv_indev_drv_register(&drv);
+    sensor->register_listener([&count_](uint32_t count){ encoder_ = count;};
+
+    if CONF_GROUP in encoder:
+      group = add_group(encoder[CONF_GROUP]);
+      init.append(f "lv_indev_set_group(lv_indev_temp_, {group})");
+    if CONF_BINARY_SENSOR in encoder:
+        binary_sensor = await cg.get_variable(encoder[CONF_BINARY_SENSOR]) init.extend(
+        [f "{binary_sensor}->add_on_state_callback([](bool state) {{ encoder_pressed_{index} = state ; }})"])
+  }
+#endif
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
     lv_log_register_print_cb(log_cb);

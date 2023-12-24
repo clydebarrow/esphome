@@ -1034,87 +1034,18 @@ async def widget_to_code(lv_component, widget, parent):
     return var, init
 
 
-async def rotary_encoders_to_code(_, config):
+async def rotary_encoders_to_code(lv_component, config):
     init = []
     if CONF_ROTARY_ENCODERS not in config:
         return init
-    for index, encoder in enumerate(config[CONF_ROTARY_ENCODERS]):
+    cg.add_define("USE_ROTARY")
+    for encoder in config[CONF_ROTARY_ENCODERS]:
         sensor = await cg.get_variable(encoder[CONF_SENSOR])
-        cgen(f"static bool encoder_pressed_{index}{{}}")
-        cgen(f"static uint32_t encoder_count_{index}, encoder_last_{index}")
-        cgen(f"static lv_indev_drv_t encoder_drv_{index};")
-        cgen(f"lv_indev_drv_init(&encoder_drv_{index})")
-        cgen(f"encoder_drv_{index}.type = LV_INDEV_TYPE_ENCODER")
-        cgen(
-            f"encoder_drv_{index}.read_cb =",
-            "[](lv_indev_drv_t *drv, lv_indev_data_t *data) {",
-            f"  data->state = encoder_pressed_{index} ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;",
-            f"  data->enc_diff = encoder_count_{index} - encoder_last_{index};",
-            f"  encoder_last_{index} = encoder_count_{index}; }}",
-        )
-        init.extend(add_temp_var("lv_indev_t", "lv_indev_temp_"))
-        init.extend(
-            [
-                f"lv_indev_temp_ = lv_indev_drv_register(&encoder_drv_{index})",
-                f"{sensor}->register_listener([](uint32_t count) {{ encoder_count_{index} = count;}})",
-            ]
-        )
-        if CONF_GROUP in encoder:
-            group = add_group(encoder[CONF_GROUP])
-            init.append(f"lv_indev_set_group(lv_indev_temp_, {group})")
+        group = add_group(encoder.get(CONF_GROUP, ""))
+        binary_sensor = cg.nullptr
         if CONF_BINARY_SENSOR in encoder:
             binary_sensor = await cg.get_variable(encoder[CONF_BINARY_SENSOR])
-            init.extend(
-                [
-                    f"{binary_sensor}->add_on_state_callback([](bool state) {{ encoder_pressed_{index} = state ; }})"
-                ]
-            )
-        return init
-
-
-async def touchscreens_to_code(_, config):
-    init = []
-    if CONF_TOUCHSCREENS not in config:
-        return init
-    cgen(
-        "class LVTouchListener: public TouchListener {",
-        "public:",
-        "  void touch(touchscreen::TouchPoint point) override {",
-        "    this->touch_point_ = point; this->touch_pressed_ = true;",
-        "  }",
-        "  void release() override { touch_pressed_ = false; }",
-        "  void touch_cb(lv_indev_data_t *data) {",
-        "    if (this->touch_pressed_) {",
-        "      data->point.x = this->touch_point_.x;",
-        "      data->point.y = this->touch_point_.y;",
-        "      data->state = LV_INDEV_STATE_PRESSED;",
-        "    } else {",
-        "      data->state = LV_INDEV_STATE_RELEASED;",
-        "    }",
-        "  }",
-        "protected:",
-        "  TouchPoint touch_point_{};",
-        "  bool touch_pressed_{};",
-        "}",
-    )
-    for index, touchscreen in enumerate(config[CONF_TOUCHSCREENS]):
-        touchscreen = await cg.get_variable(touchscreen)
-        cgen(f"static LVTouchListener touchscreen_listener_{index}{{}}")
-        cgen(f"static lv_indev_drv_t touchscreen_drv_{index}{{}}")
-        cgen(f"lv_indev_drv_init(&touchscreen_drv_{index})")
-        cgen(f"touchscreen_drv_{index}.type = LV_INDEV_TYPE_POINTER")
-        cgen(
-            f"touchscreen_drv_{index}.read_cb =",
-            "[](lv_indev_drv_t *drv, lv_indev_data_t *data)",
-            f"{{ touchscreen_listener_{index}.touch_cb(data); }}",
-        )
-        init.extend(
-            [
-                f"lv_indev_drv_register(&touchscreen_drv_{index})",
-                f"{touchscreen}->register_listener(&touchscreen_listener_{index})",
-            ]
-        )
-    return init
+        cg.add(lv_component.add_rotary(sensor, binary_sensor, group))
 
 
 async def to_code(config):
@@ -1149,6 +1080,7 @@ async def to_code(config):
 
     display = await cg.get_variable(config[CONF_DISPLAY_ID])
     cg.add_global(lvgl_ns.using)
+
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
     cg.add(lv_component.set_display(display))
@@ -1162,8 +1094,14 @@ async def to_code(config):
         (obj, ext_init) = await widget_to_code(lv_component, widg, "lv_scr_act()")
         init.extend(ext_init)
 
-    init.extend(await touchscreens_to_code(lv_component, config))
-    init.extend(await rotary_encoders_to_code(lv_component, config))
+    if CONF_ROTARY_ENCODERS in config:
+        cg.add_define("USE_TOUCHSCREEN")
+        for touchscreen in config[CONF_TOUCHSCREENS]:
+            var = await cg.get_variable(touchscreen)
+            cg.add(lv_component.add_touchscreen(var))
+
+    await rotary_encoders_to_code(lv_component, config)
+
     init.extend(set_obj_properties("lv_scr_act()", config))
 
     await add_init_lambda(lv_component, init)
