@@ -4,7 +4,7 @@ import esphome.config_validation as cv
 from esphome.components import binary_sensor, display
 from esphome.const import CONF_PAGE_ID
 
-from .. import touchscreen_ns, CONF_TOUCHSCREEN, Touchscreen, TouchListener
+from .. import touchscreen_ns, CONF_TOUCHSCREEN_ID, Touchscreen, TouchListener
 
 DEPENDENCIES = ["touchscreen"]
 
@@ -37,7 +37,7 @@ CONFIG_SCHEMA = cv.All(
     binary_sensor.binary_sensor_schema(TouchscreenBinarySensor)
     .extend(
         {
-            cv.GenerateID(CONF_TOUCHSCREEN): cv.use_id(Touchscreen),
+            cv.GenerateID(CONF_TOUCHSCREEN_ID): cv.use_id(Touchscreen),
             cv.Required(CONF_X_MIN): cv.int_range(min=0, max=2000),
             cv.Required(CONF_X_MAX): cv.int_range(min=0, max=2000),
             cv.Required(CONF_Y_MIN): cv.int_range(min=0, max=2000),
@@ -53,7 +53,7 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     var = await binary_sensor.new_binary_sensor(config)
     await cg.register_component(var, config)
-    await cg.register_parented(var, config[CONF_TOUCHSCREEN])
+    await cg.register_parented(var, config[CONF_TOUCHSCREEN_ID])
 
     cg.add(
         var.set_area(
