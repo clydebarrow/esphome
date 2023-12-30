@@ -1077,10 +1077,11 @@ async def touchscreens_to_code(_, config):
     if CONF_TOUCHSCREENS not in config:
         return init
     cgen(
-        "class LVTouchListener: public TouchListener {",
+        "class LVTouchListener: public touchscreen::TouchListener {",
         "public:",
-        "  void touch(touchscreen::TouchPoint point) override {",
-        "    this->touch_point_ = point; this->touch_pressed_ = true;",
+        "  void update (const TouchPoints_t &tpoints) override {",
+        "    this->touch_pressed_ = !tpoints.empty();",
+        "    if (this->touch_pressed_) this->touch_point_ = tpoints[0];",
         "  }",
         "  void release() override { touch_pressed_ = false; }",
         "  void touch_cb(lv_indev_data_t *data) {",
