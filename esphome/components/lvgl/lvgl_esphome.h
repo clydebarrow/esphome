@@ -44,10 +44,11 @@ typedef lv_line_t LvLineType;
 typedef lv_img_t LvImgType;
 typedef lv_arc_t LvArcType;
 typedef lv_bar_t LvBarType;
+typedef lv_theme_t LvThemeType;
 
 typedef std::function<float(void)> value_lambda_t;
 typedef std::function<void(float)> set_value_lambda_t;
-typedef void ( event_callback_t)(_lv_event_t*);
+typedef void(event_callback_t)(_lv_event_t *);
 typedef std::function<const char *(void)> text_lambda_t;
 
 class Updater {
@@ -261,8 +262,7 @@ class FontEngine {
     return this->last_data_;
   }
 };
-#endif  //LV_USE_FONT
-
+#endif  // LV_USE_FONT
 
 #if LVGL_USES_IMAGE
 static lv_img_dsc_t *lv_img_from(image::Image *src) {
