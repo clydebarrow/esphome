@@ -45,6 +45,7 @@ typedef lv_img_t LvImgType;
 typedef lv_arc_t LvArcType;
 typedef lv_bar_t LvBarType;
 typedef lv_theme_t LvThemeType;
+typedef lv_checkbox_t LvCheckboxType;
 
 typedef std::function<float(void)> value_lambda_t;
 typedef std::function<void(float)> set_value_lambda_t;
@@ -125,6 +126,30 @@ class Bar : public Updater {
   bool anim_{};
 };
 
+class Checkbox : public Updater {
+ public:
+  Checkbox(lv_obj_t *checkbox, text_lambda_t value) : checkbox_(checkbox), value_(value) {}
+
+  void update() override {
+    const char *t = this->value_();
+    if (this->data_ != nullptr && strcmp(t, this->data_) == 0)
+      return;
+    // this jiggery-pokery seems necessary - in theory using set_text() should make the checkbox copy the data
+    // internally, but in practice this does not seem to work right.
+    if (this->data_len_ <= strlen(t)) {
+      this->data_len_ = strlen(t) + 10;
+      this->data_ = (char *) realloc(this->data_, this->data_len_);
+    }
+    strcpy(this->data_, t);
+    lv_checkbox_set_text_static(this->checkbox_, this->data_);
+  }
+
+ protected:
+  lv_obj_t *checkbox_{};
+  text_lambda_t value_{};
+  char *data_{};
+  size_t data_len_{};
+};
 class Label : public Updater {
  public:
   Label(lv_obj_t *label, text_lambda_t value) : label_(label), value_(value) {}
@@ -149,6 +174,7 @@ class Label : public Updater {
   char *data_{};
   size_t data_len_{};
 };
+
 #if LV_USE_METER
 class Indicator : public Updater {
  public:

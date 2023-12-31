@@ -27,6 +27,7 @@ from esphome.const import (
     CONF_GROUP,
     CONF_LENGTH,
     CONF_COUNT,
+    CONF_STATE,
 )
 
 DOMAIN = "lvgl"
@@ -49,6 +50,7 @@ lv_label_t = cg.MockObjClass("LvLabelType", parents=[lv_obj_t])
 lv_meter_t = cg.MockObjClass("LvMeterType", parents=[lv_obj_t])
 lv_slider_t = cg.MockObjClass("LvSliderType", parents=[lv_obj_t])
 lv_btn_t = cg.MockObjClass("LvBtnType", parents=[lv_obj_t])
+lv_checkbox_t = cg.MockObjClass("LvCheckboxType", parents=[lv_obj_t])
 lv_line_t = cg.MockObjClass("LvLineType", parents=[lv_obj_t])
 lv_img_t = cg.MockObjClass("LvImgType", parents=[lv_obj_t])
 lv_arc_t = cg.MockObjClass("LvArcType", parents=[lv_obj_t])
@@ -88,7 +90,6 @@ CONF_ANIMATED = "animated"
 CONF_BACKGROUND_STYLE = "background_style"
 CONF_BYTE_ORDER = "byte_order"
 CONF_CHANGE_RATE = "change_rate"
-CONF_CLEAR_FLAGS = "clear_flags"
 CONF_COLOR_DEPTH = "color_depth"
 CONF_COLOR_END = "color_end"
 CONF_COLOR_START = "color_start"
@@ -97,6 +98,7 @@ CONF_DEFAULT = "default"
 CONF_DISPLAY_ID = "display_id"
 CONF_END_ANGLE = "end_angle"
 CONF_END_VALUE = "end_value"
+CONF_FLAGS = "flags"
 CONF_FLEX_FLOW = "flex_flow"
 CONF_INDICATORS = "indicators"
 CONF_LABEL_GAP = "label_gap"
@@ -119,7 +121,6 @@ CONF_ROTATION = "rotation"
 CONF_R_MOD = "r_mod"
 CONF_SCALES = "scales"
 CONF_SCALE_LINES = "scale_lines"
-CONF_SET_FLAGS = "set_flags"
 CONF_SRC = "src"
 CONF_START_ANGLE = "start_angle"
 CONF_START_VALUE = "start_value"
@@ -134,23 +135,29 @@ CONF_THEME = "theme"
 CONF_TOUCHSCREENS = "touchscreens"
 CONF_WIDGETS = "widgets"
 
-LOG_LEVELS = [
+LOG_LEVELS = (
     "TRACE",
     "INFO",
     "WARN",
     "ERROR",
     "USER",
     "NONE",
-]
-STATES = [
+)
+STATES = (
     CONF_DEFAULT,
     "checked",
     "focused",
+    "focus_key",
     "edited",
     "hovered",
     "pressed",
+    "scrolled",
     "disabled",
-]
+    "user_1",
+    "user_2",
+    "user_3",
+    "user_4",
+)
 
 PARTS = [
     CONF_MAIN,
@@ -551,6 +558,14 @@ def lv_text_value(value):
     return cv.string(value)
 
 
+def lv_boolean_value(value):
+    if isinstance(value, cv.Lambda):
+        return cv.returning_lambda(value)
+    if isinstance(value, core.ID):
+        return cv.use_id(BinarySensor)(value)
+    return cv.boolean(value)
+
+
 INDICATOR_SCHEMA = cv.Any(
     {
         cv.Exclusive(CONF_LINE, CONF_INDICATORS): cv.Schema(
@@ -661,7 +676,7 @@ STYLE_SCHEMA = PROP_SCHEMA.extend(
 STATE_SCHEMA = cv.Schema({cv.Optional(state): STYLE_SCHEMA for state in STATES}).extend(
     STYLE_SCHEMA
 )
-
+SET_STATE_SCHEMA = cv.Schema({cv.Optional(state): cv.boolean for state in STATES})
 FLAG_SCHEMA = cv.Schema({cv.Optional(flag): cv.boolean for flag in OBJ_FLAGS})
 FLAG_LIST = cv.ensure_list(lv_one_of(OBJ_FLAGS, "LV_OBJ_FLAG_"))
 
@@ -685,8 +700,7 @@ def obj_schema(parts=(CONF_MAIN,)):
                     cv.Optional(CONF_FLEX_FLOW, default="ROW_WRAP"): lv_one_of(
                         FLEX_FLOWS, prefix="LV_FLEX_FLOW_"
                     ),
-                    cv.Optional(CONF_SET_FLAGS): FLAG_LIST,
-                    cv.Optional(CONF_CLEAR_FLAGS): FLAG_LIST,
+                    cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
                     cv.Optional(CONF_GROUP): cv.validate_id_name,
                 }
             )
@@ -695,6 +709,7 @@ def obj_schema(parts=(CONF_MAIN,)):
 
 
 LABEL_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
+CHECKBOX_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
 LINE_SCHEMA = {cv.Optional(CONF_POINTS): cv_point_list}
 METER_SCHEMA = {cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA)}
 IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(Image_)}
@@ -708,6 +723,7 @@ WIDGET_SCHEMA = cv.Any(
             requires_component("image"),
         ),
         cv.Exclusive(CONF_LABEL, CONF_WIDGETS): container_schema(CONF_LABEL),
+        cv.Exclusive(CONF_CHECKBOX, CONF_WIDGETS): container_schema(CONF_CHECKBOX),
         cv.Exclusive(CONF_LINE, CONF_WIDGETS): container_schema(CONF_LINE),
         cv.Exclusive(CONF_OBJ, CONF_WIDGETS): container_schema(CONF_OBJ),
         cv.Exclusive(CONF_METER, CONF_WIDGETS): container_schema(CONF_METER),
@@ -906,14 +922,28 @@ def set_obj_properties(var, config):
                         init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
                 else:
                     init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
-    if CONF_LAYOUT in config:
-        layout = config[CONF_LAYOUT].upper()
+    if layout := config.get(CONF_LAYOUT):
+        layout = layout.upper()
         init.append(f"lv_obj_set_layout({var}, {layout})")
         if layout == "LV_LAYOUT_FLEX":
             lv_uses.add("FLEX")
             init.append(f"lv_obj_set_flex_flow({var}, {config[CONF_FLEX_FLOW]})")
         if layout == "LV_LAYOUT_GRID":
             lv_uses.add("GRID")
+    if states := config.get(CONF_STATE):
+        adds = set()
+        clears = set()
+        for key, value in states.items():
+            if value:
+                adds.add(key)
+            else:
+                clears.add(key)
+        if adds:
+            adds = "|".join(map(lambda s: f"(int)LV_STATE_{s.upper()}", adds))
+            init.append(f"lv_obj_add_state({var}, {adds})")
+        if clears:
+            clears = "|".join(map(lambda s: f"(int)LV_STATE_{s.upper()}", clears))
+            init.append(f"lv_obj_clear_state({var}, {clears})")
     return init
 
 
@@ -930,6 +960,17 @@ async def create_lv_obj(t, lv_component, config, parent):
             (obj, ext_init) = await widget_to_code(lv_component, widg, var)
             init.extend(ext_init)
     return var, init
+
+
+async def checkbox_to_code(lv_component, var, checkbox):
+    """For a text object, create and set text"""
+    if CONF_TEXT in checkbox:
+        (value, lamb) = await get_text_lambda(checkbox[CONF_TEXT])
+        if value is not None:
+            return [f'lv_checkbox_set_text({var}, "{value}")']
+        if lamb is not None:
+            return [f"{lv_component}->add_updater(new Checkbox({var}, {lamb}))"]
+    return []
 
 
 async def label_to_code(lv_component, var, label):
@@ -964,6 +1005,17 @@ async def line_to_code(lv_component, var, line):
     )
     points = cg.static_const_array(data[CONF_ID], initialiser)
     return [f"lv_line_set_points({var}, {points}, {len(point_list)})"]
+
+
+async def get_boolean_lambda(value):
+    lamb = None
+    if isinstance(value, core.Lambda):
+        lamb = await cg.process_lambda(value, [], return_type=cg.bool_)
+        value = None
+    elif isinstance(value, core.ID):
+        lamb = "[] {" f"return {value}->get_state();" "}"
+        value = None
+    return value, lamb
 
 
 async def get_text_lambda(value):
@@ -1283,6 +1335,7 @@ def modify_schema(widget_type):
     schema = part_schema(widget_type).extend(
         {
             cv.Required(CONF_ID): cv.use_id(lv_type),
+            cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
         }
     )
     if extras := globals().get(f"{widget_type.upper()}_SCHEMA"):
