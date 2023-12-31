@@ -1308,7 +1308,7 @@ async def to_code(config):
     if CONF_ROTARY_ENCODERS in config:  # or CONF_KEYBOARDS in config
         cgen("lv_group_set_default(lv_group_create())")
     init = []
-    if style_defs := config[CONF_STYLE_DEFINITIONS]:
+    if style_defs := config.get(CONF_STYLE_DEFINITIONS,[]):
         styles_to_code(style_defs)
     if theme := config[CONF_THEME]:
         init.extend(await theme_to_code(theme))
