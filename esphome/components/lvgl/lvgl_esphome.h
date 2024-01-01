@@ -394,7 +394,11 @@ class LvglComponent : public PollingComponent {
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
-  void set_paused(bool paused) { this->paused_ = paused; }
+  void set_paused(bool paused) {
+    this->paused_ = paused;
+    if (!paused)
+      lv_disp_trig_activity(this->disp_);  // resets the inactivity time
+  }
   bool is_paused() { return this->paused_; }
   bool is_idle(uint32_t idle_ms) { return lv_disp_get_inactive_time(this->disp_) > idle_ms; }
 
@@ -424,7 +428,6 @@ class IdleTrigger : public Trigger<> {
  public:
   explicit IdleTrigger(LvglComponent *parent, uint32_t timeout) : timeout_(timeout) {
     parent->add_on_idle_callback([this](uint32_t idle_time) {
-      esph_log_d(TAG, "idle time %u, timeout %u", (unsigned)idle_time, (unsigned)this->timeout_);
       if (!this->is_idle_ && idle_time > this->timeout_) {
         this->is_idle_ = true;
         this->trigger();
