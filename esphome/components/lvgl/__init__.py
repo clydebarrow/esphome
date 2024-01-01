@@ -1,11 +1,11 @@
 import logging
 import esphome.core as core
-import esphome.automation as automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
+from esphome import automation
 from esphome.components.image import Image_
 from esphome.components.sensor import Sensor
-from esphome.components.touchscreen import Touchscreen
+from esphome.components.touchscreen import Touchscreen, CONF_TOUCHSCREEN_ID
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
 from esphome.components.display import Display
 from esphome.components import color
@@ -28,6 +28,8 @@ from esphome.const import (
     CONF_LENGTH,
     CONF_COUNT,
     CONF_STATE,
+    CONF_TRIGGER_ID,
+    CONF_TIMEOUT,
 )
 
 DOMAIN = "lvgl"
@@ -37,7 +39,13 @@ LOGGER = logging.getLogger(__name__)
 
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
+LVTouchListener = lvgl_ns.class_("LVTouchListener")
+IdleTrigger = lvgl_ns.class_("IdleTrigger", automation.Trigger.template())
 FontEngine = lvgl_ns.class_("FontEngine")
+ObjUpdateAction = lvgl_ns.class_("ObjUpdateAction", automation.Action)
+LvglCondition = lvgl_ns.class_("LvglCondition", automation.Condition)
+PauseAction = lvgl_ns.class_("PauseAction", automation.Action)
+
 # Can't use the native type names here, since ESPHome munges variable names and they conflict
 lv_point_t = cg.global_ns.struct("LvPointType")
 lv_obj_t = cg.global_ns.struct("LvObjType")
@@ -46,6 +54,8 @@ lv_style_t = cg.global_ns.struct("LvStyleType")
 lv_theme_t = cg.global_ns.struct("LvThemeType")
 lv_theme_t_ptr = lv_theme_t.operator("ptr")
 lv_meter_indicator_t = cg.global_ns.struct("LvMeterIndicatorType")
+lv_indicator_t = cg.global_ns.struct("LvMeterIndicatorType")
+lv_meter_indicator_t_ptr = lv_meter_indicator_t.operator("ptr")
 lv_label_t = cg.MockObjClass("LvLabelType", parents=[lv_obj_t])
 lv_meter_t = cg.MockObjClass("LvMeterType", parents=[lv_obj_t])
 lv_slider_t = cg.MockObjClass("LvSliderType", parents=[lv_obj_t])
@@ -56,6 +66,8 @@ lv_img_t = cg.MockObjClass("LvImgType", parents=[lv_obj_t])
 lv_arc_t = cg.MockObjClass("LvArcType", parents=[lv_obj_t])
 lv_bar_t = cg.MockObjClass("LvBarType", parents=[lv_obj_t])
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
+
+CONF_ON_IDLE = "on_idle"
 
 # Widgets
 CONF_ARC = "arc"
@@ -252,6 +264,7 @@ WIDGET_TYPES = {
     CONF_CHECKBOX: (CONF_MAIN, CONF_INDICATOR),
     CONF_DROPDOWN: (CONF_MAIN, CONF_INDICATOR),
     CONF_IMG: (CONF_MAIN,),
+    CONF_INDICATOR: (),
     CONF_LABEL: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
     CONF_LINE: (CONF_MAIN,),
     CONF_METER: (CONF_MAIN,),
@@ -566,50 +579,66 @@ def lv_boolean_value(value):
     return cv.boolean(value)
 
 
-INDICATOR_SCHEMA = cv.Any(
+INDICATOR_LINE_SCHEMA = cv.Schema(
     {
-        cv.Exclusive(CONF_LINE, CONF_INDICATORS): cv.Schema(
+        cv.Optional(CONF_WIDTH, default=4): lv_size,
+        cv.Optional(CONF_COLOR, default=0): lv_color,
+        cv.Optional(CONF_R_MOD, default=0): lv_size,
+        cv.Optional(CONF_VALUE): lv_value,
+    }
+)
+INDICATOR_IMG_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
+        cv.Optional(CONF_PIVOT_Y, default="50%"): lv_size,
+        cv.Optional(CONF_VALUE): lv_value,
+    }
+)
+INDICATOR_ARC_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_WIDTH, default=4): lv_size,
+        cv.Optional(CONF_COLOR, default=0): lv_color,
+        cv.Optional(CONF_R_MOD, default=0): lv_size,
+        cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_value,
+        cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_value,
+        cv.Optional(CONF_END_VALUE): lv_value,
+    }
+)
+INDICATOR_TICKS_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_WIDTH, default=4): lv_size,
+        cv.Optional(CONF_COLOR_START, default=0): lv_color,
+        cv.Optional(CONF_COLOR_END): lv_color,
+        cv.Optional(CONF_R_MOD, default=0): lv_size,
+        cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_value,
+        cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_value,
+        cv.Optional(CONF_END_VALUE): lv_value,
+        cv.Optional(CONF_LOCAL, default=False): lv_bool,
+    }
+)
+INDICATOR_SCHEMA = cv.Schema(
+    {
+        cv.Exclusive(CONF_LINE, CONF_INDICATORS): INDICATOR_LINE_SCHEMA.extend(
             {
                 cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
-                cv.Optional(CONF_WIDTH, default=4): lv_size,
-                cv.Optional(CONF_COLOR, default=0): lv_color,
-                cv.Optional(CONF_R_MOD, default=0): lv_size,
-                cv.Optional(CONF_VALUE): lv_value,
             }
         ),
         cv.Exclusive(CONF_IMG, CONF_INDICATORS): cv.All(
-            cv.Schema(
+            INDICATOR_IMG_SCHEMA.extend(
                 {
                     cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
-                    cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
-                    cv.Optional(CONF_PIVOT_Y, default="50%"): lv_size,
-                    cv.Optional(CONF_VALUE): lv_value,
                 }
             ),
             requires_component("image"),
         ),
-        cv.Exclusive(CONF_ARC, CONF_INDICATORS): cv.Schema(
+        cv.Exclusive(CONF_ARC, CONF_INDICATORS): INDICATOR_ARC_SCHEMA.extend(
             {
                 cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
-                cv.Optional(CONF_WIDTH, default=4): lv_size,
-                cv.Optional(CONF_COLOR, default=0): lv_color,
-                cv.Optional(CONF_R_MOD, default=0): lv_size,
-                cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_value,
-                cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_value,
-                cv.Optional(CONF_END_VALUE): lv_value,
             }
         ),
-        cv.Exclusive(CONF_TICKS, CONF_INDICATORS): cv.Schema(
+        cv.Exclusive(CONF_TICKS, CONF_INDICATORS): INDICATOR_TICKS_SCHEMA.extend(
             {
                 cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
-                cv.Optional(CONF_WIDTH, default=4): lv_size,
-                cv.Optional(CONF_COLOR_START, default=0): lv_color,
-                cv.Optional(CONF_COLOR_END): lv_color,
-                cv.Optional(CONF_R_MOD, default=0): lv_size,
-                cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_value,
-                cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_value,
-                cv.Optional(CONF_END_VALUE): lv_value,
-                cv.Optional(CONF_LOCAL, default=False): lv_bool,
             }
         ),
     }
@@ -741,7 +770,13 @@ CONFIG_SCHEMA = (
             ),
             cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(Display),
             cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
-                cv.All(cv.use_id(Touchscreen)), cv.requires_component("touchscreen")
+                cv.maybe_simple_value(
+                    {
+                        cv.Required(CONF_TOUCHSCREEN_ID): cv.use_id(Touchscreen),
+                        cv.GenerateID(CONF_ID): cv.declare_id(LVTouchListener),
+                    },
+                    key=CONF_TOUCHSCREEN_ID,
+                )
             ),
             cv.Optional(CONF_ROTARY_ENCODERS): cv.All(
                 cv.ensure_list(
@@ -766,6 +801,12 @@ CONFIG_SCHEMA = (
                 cv.Schema({cv.Required(CONF_ID): cv.declare_id(lv_style_t)}).extend(
                     STYLE_SCHEMA
                 )
+            ),
+            cv.Optional(CONF_ON_IDLE): automation.validate_automation(
+                {
+                    cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(IdleTrigger),
+                    cv.Required(CONF_TIMEOUT): cv.positive_time_period_seconds,
+                }
             ),
             cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
             cv.Optional(CONF_THEME): cv.Schema(
@@ -1030,36 +1071,34 @@ async def get_text_lambda(value):
 
 
 async def get_value_lambda(value):
-    lamb = "nullptr"
+    if value is None:
+        return None, "nullptr"
     if isinstance(value, core.Lambda):
-        lamb = await cg.process_lambda(value, [], return_type=float)
-        value = None
+        return None, await cg.process_lambda(value, [], return_type=float)
     elif isinstance(value, core.ID):
-        lamb = "[] {" f"return {value}->get_state();" "}"
-        value = None
-    return value, lamb
+        return None, "[] {" f"return {value}->get_state();" "}"
+    return value, "nullptr"
 
 
 async def get_end_value(config):
-    if CONF_END_VALUE in config:
-        value = config[CONF_END_VALUE]
-        return await get_value_lambda(value)
-    return None, "nullptr"
+    return await get_value_lambda(config.get(CONF_END_VALUE))
 
 
 async def get_start_value(config):
     if CONF_START_VALUE in config:
         value = config[CONF_START_VALUE]
-    elif CONF_VALUE in config:
-        value = config[CONF_VALUE]
     else:
-        return None, "nullptr"
+        value = config.get(CONF_VALUE)
     return await get_value_lambda(value)
+
+
+meter_indicators = {}
 
 
 async def meter_to_code(lv_component, var, meter):
     """For a meter object, create and set parameters"""
 
+    global meter_indicators
     init = []
     s = "meter_var"
     init.extend(add_temp_var("lv_meter_scale_t", s))
@@ -1087,19 +1126,21 @@ async def meter_to_code(lv_component, var, meter):
                         + f"{major[CONF_LABEL_GAP]})"
                     )
             if CONF_INDICATORS in scale:
-                init.extend(add_temp_var("lv_meter_indicator_t", "indicator_var"))
                 for indicator in scale[CONF_INDICATORS]:
                     (t, v) = next(iter(indicator.items()))
-                    (start_value, start_lamb) = await get_start_value(v)
-                    (end_value, end_lamb) = await get_end_value(v)
+                    ivar = cg.new_variable(
+                        v[CONF_ID], cg.nullptr, type_=lv_meter_indicator_t_ptr
+                    )
+                    # Enable getting the meter to which this belongs.
+                    meter_indicators[v[CONF_ID]] = var
                     if t == CONF_LINE:
                         init.append(
-                            f"indicator_var = lv_meter_add_needle_line({var}, {s}, {v[CONF_WIDTH]},"
+                            f"{ivar} = lv_meter_add_needle_line({var}, {s}, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_ARC:
                         init.append(
-                            f"indicator_var = lv_meter_add_arc({var}, {s}, {v[CONF_WIDTH]},"
+                            f"{ivar} = lv_meter_add_arc({var}, {s}, {v[CONF_WIDTH]},"
                             + f"{v[CONF_COLOR]}, {v[CONF_R_MOD]})"
                         )
                     if t == CONF_TICKS:
@@ -1107,20 +1148,22 @@ async def meter_to_code(lv_component, var, meter):
                         if CONF_COLOR_END in v:
                             color_end = v[CONF_COLOR_END]
                         init.append(
-                            f"indicator_var = lv_meter_add_scale_lines({var}, {s}, {v[CONF_COLOR_START]},"
+                            f"{ivar} = lv_meter_add_scale_lines({var}, {s}, {v[CONF_COLOR_START]},"
                             + f"{color_end}, {v[CONF_LOCAL]}, {v[CONF_R_MOD]})"
                         )
+                    (start_value, start_lamb) = await get_start_value(v)
+                    (end_value, end_lamb) = await get_end_value(v)
                     if start_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_start_value({var},indicator_var, {start_value})"
+                            f"lv_meter_set_indicator_start_value({var}, {ivar}, {start_value})"
                         )
                     if end_value is not None:
                         init.append(
-                            f"lv_meter_set_indicator_end_value({var},indicator_var, {end_value})"
+                            f"lv_meter_set_indicator_end_value({var}, {ivar}, {end_value})"
                         )
                     if start_lamb != "nullptr" or end_lamb != "nullptr":
                         init.append(
-                            f"{lv_component}->add_updater(new Indicator({var}, indicator_var, {start_lamb}, {end_lamb}))"
+                            f"{lv_component}->add_updater(new Indicator({var}, {ivar}, {start_lamb}, {end_lamb}))"
                         )
 
     return init
@@ -1185,7 +1228,7 @@ async def widget_to_code(lv_component, widget, parent):
     return var, init
 
 
-async def rotary_encoders_to_code(_, config):
+async def rotary_encoders_to_code(var, config):
     init = []
     if CONF_ROTARY_ENCODERS not in config:
         return init
@@ -1217,53 +1260,26 @@ async def rotary_encoders_to_code(_, config):
             binary_sensor = await cg.get_variable(encoder[CONF_BINARY_SENSOR])
             init.extend(
                 [
-                    f"{binary_sensor}->add_on_state_callback([](bool state) {{ encoder_pressed_{index} = state ; }})"
+                    f"{binary_sensor}->add_on_state_callback([](bool state) {{"
+                    + "encoder_pressed_{index} = state && {var}->is_paused();}})"
                 ]
             )
         return init
 
 
-async def touchscreens_to_code(_, config):
+async def touchscreens_to_code(var, config):
     init = []
     if CONF_TOUCHSCREENS not in config:
         return init
-    cgen(
-        "class LVTouchListener: public touchscreen::TouchListener {",
-        "public:",
-        "  void update (const TouchPoints_t &tpoints) override {",
-        "    this->touch_pressed_ = !tpoints.empty();",
-        "    if (this->touch_pressed_) this->touch_point_ = tpoints[0];",
-        "  }",
-        "  void release() override { touch_pressed_ = false; }",
-        "  void touch_cb(lv_indev_data_t *data) {",
-        "    if (this->touch_pressed_) {",
-        "      data->point.x = this->touch_point_.x;",
-        "      data->point.y = this->touch_point_.y;",
-        "      data->state = LV_INDEV_STATE_PRESSED;",
-        "    } else {",
-        "      data->state = LV_INDEV_STATE_RELEASED;",
-        "    }",
-        "  }",
-        "protected:",
-        "  TouchPoint touch_point_{};",
-        "  bool touch_pressed_{};",
-        "}",
-    )
-    for index, touchscreen in enumerate(config[CONF_TOUCHSCREENS]):
-        touchscreen = await cg.get_variable(touchscreen)
-        cgen(f"static LVTouchListener touchscreen_listener_{index}{{}}")
-        cgen(f"static lv_indev_drv_t touchscreen_drv_{index}{{}}")
-        cgen(f"lv_indev_drv_init(&touchscreen_drv_{index})")
-        cgen(f"touchscreen_drv_{index}.type = LV_INDEV_TYPE_POINTER")
-        cgen(
-            f"touchscreen_drv_{index}.read_cb =",
-            "[](lv_indev_drv_t *drv, lv_indev_data_t *data)",
-            f"{{ touchscreen_listener_{index}.touch_cb(data); }}",
-        )
+    lv_uses.add("TOUCHSCREEN")
+    for touchconf in config[CONF_TOUCHSCREENS]:
+        touchscreen = await cg.get_variable(touchconf[CONF_TOUCHSCREEN_ID])
+        listener = cg.new_Pvariable(touchconf[CONF_ID])
+        await cg.register_parented(listener, var)
         init.extend(
             [
-                f"lv_indev_drv_register(&touchscreen_drv_{index})",
-                f"{touchscreen}->register_listener(&touchscreen_listener_{index})",
+                f"lv_indev_drv_register(&{listener}->drv)",
+                f"{touchscreen}->register_listener({listener})",
             ]
         )
     return init
@@ -1319,15 +1335,20 @@ async def to_code(config):
     init.extend(await touchscreens_to_code(lv_component, config))
     init.extend(await rotary_encoders_to_code(lv_component, config))
     init.extend(set_obj_properties("lv_scr_act()", config))
+    if on_idle := config.get(CONF_ON_IDLE):
+        for conf in on_idle:
+            trigger = cg.new_Pvariable(
+                conf[CONF_TRIGGER_ID],
+                lv_component,
+                conf[CONF_TIMEOUT].total_milliseconds,
+            )
+            await automation.build_automation(trigger, [], conf)
 
     await add_init_lambda(lv_component, init)
     for use in lv_uses:
         core.CORE.add_build_flag(f"-DLV_USE_{use.upper()}=1")
     for macro, value in lv_defines.items():
         cg.add_build_flag(f"-D\\'{macro}\\'=\\'{value}\\'")
-
-
-ObjModifyAction = lvgl_ns.class_("ObjModifyAction", automation.Action)
 
 
 def modify_schema(widget_type):
@@ -1343,22 +1364,40 @@ def modify_schema(widget_type):
     return schema
 
 
-async def action_to_code(config, action_id, obj, init, template_arg):
-    init.extend(set_obj_properties(obj, config))
+async def update_to_code(config, action_id, obj, init, template_arg):
+    if config is not None:
+        init.extend(set_obj_properties(obj, config))
     lamb = await cg.process_lambda(core.Lambda(";\n".join([*init, ""])), [])
     var = cg.new_Pvariable(action_id, template_arg, lamb)
     return var
 
 
-@automation.register_action("lvgl.obj.update", ObjModifyAction, modify_schema(CONF_OBJ))
+@automation.register_action("lvgl.obj.update", ObjUpdateAction, modify_schema(CONF_OBJ))
 async def obj_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
-    return await action_to_code(config, action_id, obj, [], template_arg)
+    return await update_to_code(config, action_id, obj, [], template_arg)
+
+
+@automation.register_action(
+    "lvgl.checkbox.update",
+    ObjUpdateAction,
+    modify_schema(CONF_CHECKBOX),
+)
+async def checkbox_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = []
+    if CONF_TEXT in config:
+        (value, lamb) = await get_text_lambda(config[CONF_TEXT])
+        if value is not None:
+            init.append(f'lv_checkbox_set_text({obj}, "{value}")')
+        if lamb is not None:
+            init.append(f"lv_checkbox_set_text({obj}, {lamb}())")
+    return await update_to_code(config, action_id, obj, init, template_arg)
 
 
 @automation.register_action(
     "lvgl.label.update",
-    ObjModifyAction,
+    ObjUpdateAction,
     modify_schema(CONF_LABEL),
 )
 async def label_update_to_code(config, action_id, template_arg, args):
@@ -1370,30 +1409,78 @@ async def label_update_to_code(config, action_id, template_arg, args):
             init.append(f'lv_label_set_text({obj}, "{value}")')
         if lamb is not None:
             init.append(f"lv_label_set_text({obj}, {lamb}())")
-    return await action_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg)
+
+
+def indicator_update_schema(base):
+    return base.extend({cv.Required(CONF_ID): cv.use_id(lv_meter_indicator_t)})
+
+
+@automation.register_action(
+    "lvgl.indicator.line.update",
+    ObjUpdateAction,
+    indicator_update_schema(INDICATOR_LINE_SCHEMA),
+)
+async def indicator_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    meter = meter_indicators[config[CONF_ID]]
+    init = []
+    (start_value, start_lamb) = await get_start_value(config)
+    (end_value, end_lamb) = await get_end_value(config)
+    selector = "start_" if end_value is not None or end_lamb != "nullptr" else ""
+    if start_value is not None:
+        init.append(
+            f"lv_meter_set_indicator_{selector}value({meter},{obj}, {start_value})"
+        )
+    elif start_lamb != "nullptr":
+        init.append(
+            f"lv_meter_set_indicator_{selector}value({meter},{obj}, {start_lamb}())"
+        )
+    if end_value is not None:
+        init.append(f"lv_meter_set_indicator_end_value({meter},{obj}, {end_value})")
+    elif end_lamb != "nullptr":
+        init.append(f"lv_meter_set_indicator_end_value({meter},{obj}, {end_lamb}())")
+    return await update_to_code(None, action_id, obj, init, template_arg)
+
+
+@automation.register_action(
+    "lvgl.arc.update",
+    ObjUpdateAction,
+    modify_schema(CONF_ARC),
+)
+async def arc_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = []
+    animated = config[CONF_ANIMATED]
+    (value, lamb) = await get_value_lambda(config.get(CONF_VALUE))
+    print(value, lamb)
+    if value is not None:
+        init.append(f"lv_arc_set_value({obj}, {value}, {animated})")
+    elif lamb != "nullptr":
+        init.append(f"lv_arc_set_value({obj}, {lamb}(), {animated})")
+    return await update_to_code(config, action_id, obj, init, template_arg)
 
 
 @automation.register_action(
     "lvgl.slider.update",
-    ObjModifyAction,
+    ObjUpdateAction,
     modify_schema(CONF_SLIDER),
 )
 async def slider_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
     animated = config[CONF_ANIMATED]
-    if CONF_VALUE in config:
-        (value, lamb) = await get_value_lambda(config[CONF_VALUE])
-        if value is not None:
-            init.append(f'lv_slider_set_value({obj}, "{value}, {animated}")')
-        if lamb is not None:
-            init.append(f"lv_slider_set_value({obj}, {lamb}(), {animated})")
-    return await action_to_code(config, action_id, obj, init, template_arg)
+    (value, lamb) = await get_value_lambda(config.get(CONF_VALUE))
+    if value is not None:
+        init.append(f"lv_slider_set_value({obj}, {value}, {animated})")
+    elif lamb != "nullptr":
+        init.append(f"lv_slider_set_value({obj}, {lamb}(), {animated})")
+    return await update_to_code(config, action_id, obj, init, template_arg)
 
 
 @automation.register_action(
     "lvgl.img.update",
-    ObjModifyAction,
+    ObjUpdateAction,
     modify_schema(CONF_IMG),
 )
 async def img_update_to_code(config, action_id, template_arg, args):
@@ -1401,4 +1488,62 @@ async def img_update_to_code(config, action_id, template_arg, args):
     init = []
     if CONF_SRC in config:
         init.append(f"lv_img_set_src({obj}, lv_img_from({config[CONF_SRC]}))")
-    return await action_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg)
+
+
+@automation.register_action(
+    "lvgl.pause",
+    PauseAction,
+    cv.maybe_simple_value(
+        {
+            cv.GenerateID(): cv.use_id(LvglComponent),
+            cv.Required(CONF_STATE): cv.templatable(cv.boolean),
+        },
+        key=CONF_STATE,
+    ),
+)
+async def pause_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    template_ = await cg.templatable(config[CONF_STATE], args, cg.void)
+    cg.add(var.set_paused(template_))
+    return var
+
+
+@automation.register_condition(
+    "lvgl.is_idle",
+    LvglCondition,
+    LVGL_SCHEMA.extend(
+        {
+            cv.Required(CONF_TIMEOUT): cv.positive_time_period_seconds,
+        }
+    ),
+)
+async def lvgl_is_idle(config, condition_id, template_arg, args):
+    var = cg.new_Pvariable(condition_id, template_arg)
+    lvgl = config[CONF_LVGL_ID]
+    timeout = config[CONF_TIMEOUT].total_milliseconds
+    await cg.register_parented(var, lvgl)
+    cg.add(
+        var.set_condition_lambda(
+            cg.RawExpression(f"[] {{ return {lvgl}->is_idle({timeout}); }}")
+        )
+    )
+    return var
+
+
+@automation.register_condition(
+    "lvgl.is_paused",
+    LvglCondition,
+    LVGL_SCHEMA,
+)
+async def lvgl_is_paused(config, condition_id, template_arg, args):
+    var = cg.new_Pvariable(condition_id, template_arg)
+    lvgl = config[CONF_LVGL_ID]
+    await cg.register_parented(var, lvgl)
+    cg.add(
+        var.set_condition_lambda(
+            cg.RawExpression(f"[] {{ return {lvgl}->is_paused(); }}")
+        )
+    )
+    return var

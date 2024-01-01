@@ -7,6 +7,9 @@
 #if LV_USE_FONT
 #include "esphome/components/font/font.h"
 #endif
+#if LV_USE_TOUCHSCREEN
+#include "esphome/components/touchscreen/touchscreen.h"
+#endif
 #include "esphome/components/display/display_color_utils.h"
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
@@ -57,14 +60,11 @@ class Updater {
   virtual void update() = 0;
 };
 
-template<typename... Ts> class ObjModifyAction : public Action<Ts...> {
+template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
  public:
-  explicit ObjModifyAction(std::function<void()> lamb) : lamb_(lamb) {}
+  explicit ObjUpdateAction(std::function<void()> lamb) : lamb_(lamb) {}
 
-  void play(Ts... x) override {
-    esph_log_d(TAG, "Running action");
-    this->lamb_();
-  }
+  void play(Ts... x) override { this->lamb_(); }
 
  protected:
   std::function<void()> lamb_;
@@ -372,17 +372,31 @@ class LvglComponent : public PollingComponent {
 
   void update() override {
     // update indicators
+    if (this->paused_)
+      return;
     for (auto updater : this->updaters_) {
       updater->update();
     }
+    this->idle_callbacks_.call(lv_disp_get_inactive_time(this->disp_));
   }
 
-  void loop() override { lv_timer_handler_run_in_period(5); }
+  void loop() override {
+    if (this->paused_)
+      return;
+    lv_timer_handler_run_in_period(5);
+  }
+
+  void add_on_idle_callback(std::function<void(uint32_t)> &&callback) {
+    this->idle_callbacks_.add(std::move(callback));
+  }
 
   void set_display(display::Display *display) { this->display_ = display; }
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
+  void set_paused(bool paused) { this->paused_ = paused; }
+  bool is_paused() { return this->paused_; }
+  bool is_idle(uint32_t idle_ms) { return lv_disp_get_inactive_time(this->disp_) > idle_ms; }
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
@@ -390,7 +404,7 @@ class LvglComponent : public PollingComponent {
     this->display_->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
                                    (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
     lv_disp_flush_ready(disp_drv);
-    esph_log_d(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
+    esph_log_v(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
                lv_area_get_height(area), (int) (millis() - now));
   }
 
@@ -400,9 +414,80 @@ class LvglComponent : public PollingComponent {
   lv_disp_t *disp_{};
   lv_event_code_t custom_change_event_{};
 
+  CallbackManager<void(uint32_t)> idle_callbacks_{};
   std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
   std::vector<Updater *> updaters_;
+  bool paused_{};
 };
 
+class IdleTrigger : public Trigger<> {
+ public:
+  explicit IdleTrigger(LvglComponent *parent, uint32_t timeout) : timeout_(timeout) {
+    parent->add_on_idle_callback([this](uint32_t idle_time) {
+      if (!this->is_idle_ && idle_time > this->timeout_) {
+        this->is_idle_ = true;
+        this->trigger();
+      } else if (this->is_idle_ && idle_time < this->timeout_) {
+        this->is_idle_ = false;
+      }
+    });
+  }
+
+ protected:
+  uint32_t timeout_;
+  bool is_idle_{};
+};
+
+template<typename... Ts> class PauseAction : public Action<Ts...>, public Parented<LvglComponent> {
+ public:
+  TEMPLATABLE_VALUE(bool, paused)
+
+  void play(Ts... x) override { this->parent_->set_paused(this->paused_.value(x...)); }
+};
+
+#if 1
+class LVTouchListener;
+class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglComponent> {
+ public:
+  LVTouchListener() {
+    lv_indev_drv_init(&this->drv);
+    this->drv.type = LV_INDEV_TYPE_POINTER;
+    this->drv.user_data = this;
+    this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {
+      LVTouchListener *l = (LVTouchListener *) d->user_data;
+      if (l->touch_pressed_) {
+        data->point.x = l->touch_point_.x;
+        data->point.y = l->touch_point_.y;
+        data->state = LV_INDEV_STATE_PRESSED;
+      } else {
+        data->state = LV_INDEV_STATE_RELEASED;
+      }
+    };
+  }
+  void update(const touchscreen::TouchPoints_t &tpoints) override {
+    this->touch_pressed_ = !this->parent_->is_paused() && !tpoints.empty();
+    if (this->touch_pressed_)
+      this->touch_point_ = tpoints[0];
+  }
+  void release() override { touch_pressed_ = false; }
+  void touch_cb(lv_indev_data_t *data) {}
+
+  lv_indev_drv_t drv{};
+
+ protected:
+  touchscreen::TouchPoint touch_point_{};
+  bool touch_pressed_{};
+};
+
+template<typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<LvglComponent> {
+ public:
+  bool check(Ts... x) override { return this->condition_lambda_(); }
+  void set_condition_lambda(std::function<bool(void)> condition_lambda) { this->condition_lambda_ = condition_lambda; }
+
+ protected:
+  std::function<bool(void)> condition_lambda_{};
+};
+
+#endif
 }  // namespace lvgl
 }  // namespace esphome
