@@ -424,6 +424,7 @@ class IdleTrigger : public Trigger<> {
  public:
   explicit IdleTrigger(LvglComponent *parent, uint32_t timeout) : timeout_(timeout) {
     parent->add_on_idle_callback([this](uint32_t idle_time) {
+      esph_log_d(TAG, "idle time %u, timeout %u", (unsigned)idle_time, (unsigned)this->timeout_);
       if (!this->is_idle_ && idle_time > this->timeout_) {
         this->is_idle_ = true;
         this->trigger();

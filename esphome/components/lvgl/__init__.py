@@ -1494,19 +1494,28 @@ async def img_update_to_code(config, action_id, template_arg, args):
 @automation.register_action(
     "lvgl.pause",
     PauseAction,
-    cv.maybe_simple_value(
-        {
-            cv.GenerateID(): cv.use_id(LvglComponent),
-            cv.Required(CONF_STATE): cv.templatable(cv.boolean),
-        },
-        key=CONF_STATE,
-    ),
+    {
+        cv.GenerateID(): cv.use_id(LvglComponent),
+    },
 )
 async def pause_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
-    template_ = await cg.templatable(config[CONF_STATE], args, cg.void)
-    cg.add(var.set_paused(template_))
+    cg.add(var.set_paused(True))
+    return var
+
+
+@automation.register_action(
+    "lvgl.resume",
+    PauseAction,
+    {
+        cv.GenerateID(): cv.use_id(LvglComponent),
+    },
+)
+async def resume_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    cg.add(var.set_paused(False))
     return var
 
 
