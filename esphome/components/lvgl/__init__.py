@@ -4,6 +4,44 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 from esphome.components.image import Image_
+from .defines import (
+    # widgets
+    CONF_ARC,
+    CONF_BAR,
+    CONF_BTN,
+    CONF_BTNMATRIX,
+    CONF_CANVAS,
+    CONF_CHECKBOX,
+    CONF_DROPDOWN,
+    CONF_IMG,
+    CONF_LABEL,
+    CONF_LINE,
+    CONF_METER,
+    CONF_ROLLER,
+    CONF_SLIDER,
+    CONF_SWITCH,
+    CONF_TABLE,
+    CONF_TEXTAREA,
+    # Parts
+    CONF_MAIN,
+    CONF_SCROLLBAR,
+    CONF_INDICATOR,
+    CONF_KNOB,
+    CONF_SELECTED,
+    CONF_ITEMS,
+    CONF_TICKS,
+    CONF_CURSOR,
+    CONF_TEXTAREA_PLACEHOLDER,
+    ALIGNMENTS,
+    ARC_MODES,
+    BAR_MODES,
+    LOG_LEVELS,
+    STATES,
+    PARTS,
+    FLEX_FLOWS,
+    OBJ_FLAGS,
+)
+
 from esphome.components.sensor import Sensor
 from esphome.components.touchscreen import Touchscreen, CONF_TOUCHSCREEN_ID
 from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
@@ -67,35 +105,6 @@ lv_arc_t = cg.MockObjClass("LvArcType", parents=[lv_obj_t])
 lv_bar_t = cg.MockObjClass("LvBarType", parents=[lv_obj_t])
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
 
-CONF_ON_IDLE = "on_idle"
-
-# Widgets
-CONF_ARC = "arc"
-CONF_BAR = "bar"
-CONF_BTN = "btn"
-CONF_BTNMATRIX = "btnmatrix"
-CONF_CANVAS = "canvas"
-CONF_CHECKBOX = "checkbox"
-CONF_DROPDOWN = "dropdown"
-CONF_IMG = "img"
-CONF_LABEL = "label"
-CONF_LINE = "line"
-CONF_METER = "meter"
-CONF_ROLLER = "roller"
-CONF_SLIDER = "slider"
-CONF_SWITCH = "switch"
-CONF_TABLE = "table"
-CONF_TEXTAREA = "textarea"
-
-# Parts
-CONF_MAIN = "main"
-CONF_SCROLLBAR = "scrollbar"
-CONF_INDICATOR = "indicator"
-CONF_KNOB = "knob"
-CONF_SELECTED = "selected"
-CONF_ITEMS = "items"
-CONF_TEXTAREA_PLACEHOLDER = "textarea_placeholder"
-
 CONF_ADJUSTABLE = "adjustable"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
@@ -120,11 +129,10 @@ CONF_LOCAL = "local"
 CONF_LOG_LEVEL = "log_level"
 CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
-CONF_TICKS = "ticks"
-CONF_CURSOR = "cursor"
 CONF_MAJOR = "major"
 CONF_OBJ = "obj"
 CONF_OBJ_ID = "obj_id"
+CONF_ON_IDLE = "on_idle"
 CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
@@ -147,120 +155,13 @@ CONF_THEME = "theme"
 CONF_TOUCHSCREENS = "touchscreens"
 CONF_WIDGETS = "widgets"
 
-LOG_LEVELS = (
-    "TRACE",
-    "INFO",
-    "WARN",
-    "ERROR",
-    "USER",
-    "NONE",
-)
-STATES = (
-    CONF_DEFAULT,
-    "checked",
-    "focused",
-    "focus_key",
-    "edited",
-    "hovered",
-    "pressed",
-    "scrolled",
-    "disabled",
-    "user_1",
-    "user_2",
-    "user_3",
-    "user_4",
-)
-
-PARTS = [
-    CONF_MAIN,
-    CONF_SCROLLBAR,
-    CONF_INDICATOR,
-    CONF_KNOB,
-    CONF_SELECTED,
-    CONF_ITEMS,
-    CONF_TICKS,
-    CONF_CURSOR,
-    CONF_TEXTAREA_PLACEHOLDER,
-]
-
-ALIGNMENTS = [
-    "TOP_LEFT",
-    "TOP_MID",
-    "TOP_RIGHT",
-    "LEFT_MID",
-    "CENTER",
-    "RIGHT_MID",
-    "BOTTOM_LEFT",
-    "BOTTOM_MID",
-    "BOTTOM_RIGHT",
-    "OUT_LEFT_TOP",
-    "OUT_TOP_LEFT",
-    "OUT_TOP_MID",
-    "OUT_TOP_RIGHT",
-    "OUT_RIGHT_TOP",
-    "OUT_LEFT_MID",
-    "OUT_CENTER",
-    "OUT_RIGHT_MID",
-    "OUT_LEFT_BOTTOM",
-    "OUT_BOTTOM_LEFT",
-    "OUT_BOTTOM_MID",
-    "OUT_BOTTOM_RIGHT",
-    "OUT_RIGHT_BOTTOM",
-]
-
-FLEX_FLOWS = [
-    "ROW",
-    "COLUMN",
-    "ROW_WRAP",
-    "COLUMN_WRAP",
-    "ROW_REVERSE",
-    "COLUMN_REVERSE",
-    "ROW_WRAP_REVERSE",
-    "COLUMN_WRAP_REVERSE",
-]
-
-OBJ_FLAGS = [
-    "hidden",
-    "clickable",
-    "click_focusable",
-    "checkable",
-    "scrollable",
-    "scroll_elastic",
-    "scroll_momentum",
-    "scroll_one",
-    "scroll_chain_hor",
-    "scroll_chain_ver",
-    "scroll_chain",
-    "scroll_on_focus",
-    "scroll_with_arrow",
-    "snappable",
-    "press_lock",
-    "event_bubble",
-    "gesture_bubble",
-    "adv_hittest",
-    "ignore_layout",
-    "floating",
-    "overflow_visible",
-    "layout_1",
-    "layout_2",
-    "widget_1",
-    "widget_2",
-    "user_1",
-    "user_2",
-    "user_3",
-    "user_4",
-]
-
-ARC_MODES = ["NORMAL", "REVERSE", "SYMMETRICAL"]
-BAR_MODES = ["NORMAL", "SYMMETRICAL", "RANGE"]
-
 # list of widgets and the parts allowed
 WIDGET_TYPES = {
     CONF_ARC: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
-    CONF_BTN: (CONF_MAIN),
+    CONF_BTN: (CONF_MAIN,),
     CONF_BAR: (CONF_MAIN, CONF_INDICATOR),
     CONF_BTNMATRIX: (CONF_MAIN, CONF_ITEMS),
-    CONF_CANVAS: (CONF_MAIN),
+    CONF_CANVAS: (CONF_MAIN,),
     CONF_CHECKBOX: (CONF_MAIN, CONF_INDICATOR),
     CONF_DROPDOWN: (CONF_MAIN, CONF_INDICATOR),
     CONF_IMG: (CONF_MAIN,),
@@ -268,7 +169,7 @@ WIDGET_TYPES = {
     CONF_LABEL: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
     CONF_LINE: (CONF_MAIN,),
     CONF_METER: (CONF_MAIN,),
-    CONF_OBJ: (CONF_MAIN),
+    CONF_OBJ: (CONF_MAIN,),
     CONF_ROLLER: (CONF_MAIN, CONF_SELECTED),
     CONF_SLIDER: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
     CONF_SWITCH: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
@@ -281,7 +182,6 @@ WIDGET_TYPES = {
         CONF_TEXTAREA_PLACEHOLDER,
     ),
 }
-
 # List of other components used
 lvgl_components_required = set()
 
