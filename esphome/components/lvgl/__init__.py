@@ -14,6 +14,29 @@ from esphome.components.font import Font
 from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
 from esphome.components.binary_sensor import BinarySensor
 
+from esphome.const import (
+    CONF_ID,
+    CONF_VALUE,
+    CONF_RANGE_FROM,
+    CONF_RANGE_TO,
+    CONF_COLOR,
+    CONF_MIN_VALUE,
+    CONF_MAX_VALUE,
+    CONF_MODE,
+    CONF_WIDTH,
+    CONF_SENSOR,
+    CONF_BINARY_SENSOR,
+    CONF_GROUP,
+    CONF_LENGTH,
+    CONF_COUNT,
+    CONF_STATE,
+    CONF_TRIGGER_ID,
+    CONF_TIMEOUT,
+    CONF_LOCAL,
+    CONF_ROTATION,
+    CONF_MESSAGE,
+)
+
 from .defines import (
     # widgets
     CONF_ARC,
@@ -52,27 +75,6 @@ from .defines import (
     OBJ_FLAGS,
 )
 
-from esphome.const import (
-    CONF_ID,
-    CONF_VALUE,
-    CONF_RANGE_FROM,
-    CONF_RANGE_TO,
-    CONF_COLOR,
-    CONF_MIN_VALUE,
-    CONF_MAX_VALUE,
-    CONF_MODE,
-    CONF_WIDTH,
-    CONF_SENSOR,
-    CONF_BINARY_SENSOR,
-    CONF_GROUP,
-    CONF_LENGTH,
-    CONF_COUNT,
-    CONF_STATE,
-    CONF_TRIGGER_ID,
-    CONF_TIMEOUT,
-    CONF_LOCAL,
-    CONF_ROTATION,
-)
 
 DOMAIN = "lvgl"
 DEPENDENCIES = ["display"]
@@ -160,7 +162,6 @@ CONF_WIDGETS = "widgets"
 # for notification msgbox
 CONF_TITLE = "title"
 CONF_CLOSE_BUTTON = "close_button"
-CONF_MESSAGE = "message"
 CONF_BUTTONS = "buttons"
 CONF_ON_RETURN = "on_return"
 
