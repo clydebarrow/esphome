@@ -816,6 +816,19 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    */
   void set_auto_wake_on_touch(bool auto_wake);
   /**
+   * Sets if Nextion should exit the active reparse mode before the "connect" command is sent
+   * @param exit_reparse True or false. When exit_reparse is true, the exit reparse command
+   * will be sent before requesting the connection from Nextion.
+   *
+   * Example:
+   * ```cpp
+   * it.set_exit_reparse_on_start(true);
+   * ```
+   *
+   * The display will be requested to leave active reparse mode before setup.
+   */
+  void set_exit_reparse_on_start(bool exit_reparse);
+  /**
    * Sets Nextion mode between sleep and awake
    * @param True or false. Sleep=true to enter sleep mode or sleep=false to exit sleep mode.
    */
@@ -943,6 +956,24 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
   void set_wake_up_page_internal(uint8_t wake_up_page) { this->wake_up_page_ = wake_up_page; }
   void set_start_up_page_internal(uint8_t start_up_page) { this->start_up_page_ = start_up_page; }
   void set_auto_wake_on_touch_internal(bool auto_wake_on_touch) { this->auto_wake_on_touch_ = auto_wake_on_touch; }
+  void set_exit_reparse_on_start_internal(bool exit_reparse_on_start) {
+    this->exit_reparse_on_start_ = exit_reparse_on_start;
+  }
+
+  /**
+   * @brief Retrieves the number of commands pending in the Nextion command queue.
+   *
+   * This function returns the current count of commands that have been queued but not yet processed
+   * for the Nextion display. The Nextion command queue is used to store commands that are sent to
+   * the Nextion display for various operations like updating the display, changing interface elements,
+   * or other interactive features. A larger queue size might indicate a higher processing time or potential
+   * delays in command execution. This function is useful for monitoring the command flow and managing
+   * the execution efficiency of the Nextion display interface.
+   *
+   * @return size_t The number of commands currently in the Nextion queue. This count includes all commands
+   *                that have been added to the queue and are awaiting processing.
+   */
+  size_t queue_size() { return this->nextion_queue_.size(); }
 
  protected:
   std::deque<NextionQueue *> nextion_queue_;
@@ -966,6 +997,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
   int wake_up_page_ = -1;
   int start_up_page_ = -1;
   bool auto_wake_on_touch_ = true;
+  bool exit_reparse_on_start_ = false;
 
   /**
    * Manually send a raw command to the display and don't wait for an acknowledgement packet.

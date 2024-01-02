@@ -10,7 +10,6 @@ namespace lvgl {
 
 class LVGLNumber : public number::Number {
  public:
-
   void set_control_lambda(std::function<void(float)> control_lambda) { this->control_lambda_ = control_lambda; }
 
  protected:
