@@ -1,0 +1,144 @@
+esphome:
+  name: lvgl-tests
+
+esp32:
+  board: lolin_s2_mini
+  framework:
+    type: esp-idf
+
+wifi:
+  use_address: ${use_address}
+  fast_connect: true
+  networks:
+    - ssid: zxxx
+      password: disabled_by_default
+
+api:
+
+psram:
+
+external_components:
+  - source: github://pr#6034
+    refresh: 600s
+    components: [display, ili9xxx]
+  - source: github://pr#6036
+    refresh: 600s
+    components: [image]
+
+# Example minimal configuration entry
+
+spi:
+  clk_pin: 7
+  mosi_pin: 11
+  miso_pin: 9
+
+display:
+  - platform: ili9xxx
+    id: my_display
+    model: ili9341
+    cs_pin: 5
+    dc_pin: 12
+    reset_pin: 35
+    auto_clear_enabled: false
+    data_rate: 40MHz
+    dimensions: 320x240
+    transform:
+      mirror_y: false
+      mirror_x: false
+      swap_xy: true
+
+touchscreen:
+  - platform: xpt2046
+    display: my_display
+    id: my_toucher
+    update_interval: 50ms
+    cs_pin: 18
+    #interrupt_pin: 16
+    setup_priority: -100
+    threshold: 300
+    calibration:
+      x_min: 210
+      x_max: 3890
+      y_min: 170
+      y_max: 3730
+    transform:
+      mirror_x: false
+      mirror_y: true
+      swap_xy: true
+
+image:
+  - file: "pnglogp.png"
+    id: my_image0
+    resize: 90x90
+    type: RGB565
+    use_transparency: true
+
+lvgl:
+  log_level: WARN
+  color_depth: 16
+  bg_color: 0x000000
+  text_font: unscii_8
+  touchscreens: my_toucher
+  theme:
+    btn:
+      pad_all: 2
+      pressed:
+        bg_color: 0x0000FF
+      checked:
+        bg_color: 0xFFFF00
+    img:
+      x: 2
+      y: 2
+  style_definitions: []
+  width: 100%
+  widgets:
+    - label:
+        align: top_mid
+        text_color: 0xDDDDDD
+
+        text: "Home Light Monitor"
+        text_font: montserrat_20
+        id: wifi_label
+        height: 24
+    - btn:
+        id: lv_button0
+        x: 5
+        y: 30
+        width: 98
+        height: 98
+        widgets:
+          - img:
+              src: my_image0
+              width: 90
+              height: 90
+
+binary_sensor:
+  - platform: lvgl
+    name: light_totom
+    btn: lv_button0
+    publish_initial_state: true
+  - platform: homeassistant
+    id: "light_totom"
+    entity_id: light.woonkamer_kleuren_totom_light_1
+    on_press:
+      then:
+        - lvgl.obj.update:
+            id: lv_button0
+            state:
+              checked: true
+    on_release:
+      then:
+        - lvgl.obj.update:
+            id: lv_button0
+            state:
+              checked: false
+
+  - platform: gpio
+    pin: GPIO0
+    name: "Notificatiom Button"
+    on_press:
+      then:
+        - lvgl.notification:
+            title: "Hello World"
+            message: "Please, brush your teeth every day."
+            buttons: ["Done", "Not Today"]
