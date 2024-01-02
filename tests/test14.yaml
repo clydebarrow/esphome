@@ -24,7 +24,9 @@ external_components:
   - source: github://pr#6036
     refresh: 600s
     components: [image]
-
+  - source: github://pr#5997
+    refresh: 1s
+    components: [touchscreen, xpt2046]
 # Example minimal configuration entry
 
 spi:
