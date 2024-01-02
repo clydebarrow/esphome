@@ -20,4 +20,3 @@ EXTERNC void *lv_custom_mem_realloc(void *ptr, unsigned int size);
 
 }  // namespace lvgl
 }  // namespace esphome
-/
