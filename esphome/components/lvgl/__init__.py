@@ -39,7 +39,8 @@ from .defines import (
     STATES,
     PARTS,
     FLEX_FLOWS,
-    OBJ_FLAGS, BTNMATRIX_CTRLS,
+    OBJ_FLAGS,
+    BTNMATRIX_CTRLS,
 )
 
 from esphome.components.sensor import Sensor
@@ -195,9 +196,7 @@ WIDGET_TYPES = {
     ),
 }
 
-REQUIRED_COMPONENTS = {
-    CONF_IMG: image.DOMAIN
-}
+REQUIRED_COMPONENTS = {CONF_IMG: image.DOMAIN}
 # List of other components used
 lvgl_components_required = set()
 
@@ -430,10 +429,10 @@ def cv_point_list(value):
     values = list(map(cv_int_list, value))
     for v in values:
         if (
-                not isinstance(v, list)
-                or not len(v) == 2
-                or not isinstance(v[0], int)
-                or not isinstance(v[1], int)
+            not isinstance(v, list)
+            or not len(v) == 2
+            or not isinstance(v[0], int)
+            or not isinstance(v[1], int)
         ):
             raise cv.Invalid("Points must be a list of x,y integer pairs")
     return {
@@ -656,10 +655,9 @@ BTNMATRIX_SCHEMA = cv.Schema(
                 cv.Optional(CONF_WIDTH): cv.positive_int,
                 cv.Optional(CONF_CONTROL): cv.ensure_list(
                     cv.Schema({cv.Optional(k): cv.boolean for k in BTNMATRIX_CTRLS})
-                )
+                ),
             }
-        )
-
+        ),
     }
 )
 
@@ -681,9 +679,7 @@ LINE_SCHEMA = {cv.Optional(CONF_POINTS): cv_point_list}
 METER_SCHEMA = {cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA)}
 IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(image.Image_)}
 
-WIDGET_SCHEMA = cv.Any(
-    dict(map(widget_schema, WIDGET_TYPES))
-)
+WIDGET_SCHEMA = cv.Any(dict(map(widget_schema, WIDGET_TYPES)))
 
 CONFIG_SCHEMA = (
     cv.polling_component_schema("1s")
@@ -735,7 +731,15 @@ CONFIG_SCHEMA = (
             ),
             cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
             cv.Optional(CONF_THEME): cv.Schema(
-                dict(map(lambda w: (cv.Optional(w), obj_schema(w),), WIDGET_TYPES, ))
+                dict(
+                    map(
+                        lambda w: (
+                            cv.Optional(w),
+                            obj_schema(w),
+                        ),
+                        WIDGET_TYPES,
+                    )
+                )
             ).extend({cv.GenerateID(CONF_ID): cv.declare_id(lv_theme_t)}),
         }
     )
@@ -950,16 +954,13 @@ async def btn_to_code(_, var, btn):
     return []
 
 
-
 async def btnmatrix_to_code(_, btnm, conf):
     text_list = []
     for btn in conf[CONF_BUTTONS]:
         text_list.append(cg.safe_exp(btn[CONF_TEXT]))
     sca_id = cv.declare_id(cg.std_string)
     sca = cg.static_const_array(sca_id, cg.ArrayInitializer(text_list))
-    init = [
-        f"lv_btnmatrix_set_map({btnm}, {sca})"
-    ]
+    init = [f"lv_btnmatrix_set_map({btnm}, {sca})"]
     return []
 
 
