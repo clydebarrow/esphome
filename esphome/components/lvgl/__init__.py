@@ -72,6 +72,7 @@ from esphome.const import (
     CONF_TIMEOUT,
     CONF_LOCAL,
     CONF_ROTATION,
+    CONF_MESSAGE,
 )
 
 DOMAIN = "lvgl"
@@ -160,7 +161,6 @@ CONF_WIDGETS = "widgets"
 # for notification msgbox
 CONF_TITLE = "title"
 CONF_CLOSE_BUTTON = "close_button"
-CONF_MESSAGE = "message"
 CONF_BUTTONS = "buttons"
 CONF_ON_RETURN = "on_return"
 
