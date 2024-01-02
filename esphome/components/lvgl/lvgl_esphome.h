@@ -49,6 +49,16 @@ typedef lv_arc_t LvArcType;
 typedef lv_bar_t LvBarType;
 typedef lv_theme_t LvThemeType;
 typedef lv_checkbox_t LvCheckboxType;
+typedef lv_btnmatrix_t LvBtnmatrixType;
+typedef lv_canvas_t LvCanvasType;
+typedef lv_dropdown_t LvDropdownType;
+typedef lv_roller_t LvRollerType;
+typedef lv_switch_t LvSwitchType;
+typedef lv_table_t LvTableType;
+typedef lv_textarea_t LvTextareaType;
+typedef struct {
+  size_t index;
+} LvBtnmatrixBtnIndexType;
 
 typedef std::function<float(void)> value_lambda_t;
 typedef std::function<void(float)> set_value_lambda_t;
