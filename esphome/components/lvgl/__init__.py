@@ -28,6 +28,7 @@ from esphome.const import (
     CONF_LENGTH,
     CONF_COUNT,
     CONF_STATE,
+    CONF_TRIGGER_ID,
 )
 
 DOMAIN = "lvgl"
@@ -134,6 +135,13 @@ CONF_TEXT = "text"
 CONF_THEME = "theme"
 CONF_TOUCHSCREENS = "touchscreens"
 CONF_WIDGETS = "widgets"
+
+CONF_LVGL_ID = "lvgl_id"
+CONF_TITLE = "title"
+CONF_CLOSE_BUTTON = "close_button"
+CONF_MESSAGE = "message"
+CONF_BUTTONS = "buttons"
+CONF_ON_RETURN = "on_return"
 
 LOG_LEVELS = (
     "TRACE",
@@ -1402,3 +1410,45 @@ async def img_update_to_code(config, action_id, template_arg, args):
     if CONF_SRC in config:
         init.append(f"lv_img_set_src({obj}, lv_img_from({config[CONF_SRC]}))")
     return await action_to_code(config, action_id, obj, init, template_arg)
+
+
+ReturnNotifyTrigger = lvgl_ns.class_(
+    "ReturnNotifyTrigger", automation.Trigger.template()
+)
+
+
+@automation.register_action(
+    "lvgl.notification",
+    lvgl_ns.class_("NotifyAction", automation.Action),
+    cv.Schema(
+        {
+            cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
+            cv.Optional(CONF_TITLE, default=""): cv.templatable(cv.string),
+            cv.Required(CONF_MESSAGE): cv.templatable(cv.string),
+            cv.Optional(CONF_CLOSE_BUTTON, default=False): cv.boolean,
+            cv.Optional(CONF_BUTTONS): cv.All([cv.string]),
+            cv.Optional(CONF_ON_RETURN): automation.validate_automation(
+                {
+                    cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(ReturnNotifyTrigger),
+                }
+            ),
+        },
+    ),
+)
+async def lvgl_notify_action_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_LVGL_ID])
+    if CONF_BUTTONS not in config:
+        config[CONF_BUTTONS] = []
+    cg.add(
+        var.set_notification(
+            config[CONF_TITLE],
+            config[CONF_MESSAGE],
+            config[CONF_CLOSE_BUTTON],
+            config[CONF_BUTTONS],
+        )
+    )
+    for conf in config.get(CONF_ON_RETURN, []):
+        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        await automation.build_automation(trigger, [], conf)
+    return var

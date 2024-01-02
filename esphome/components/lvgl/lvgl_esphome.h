@@ -57,19 +57,6 @@ class Updater {
   virtual void update() = 0;
 };
 
-template<typename... Ts> class ObjModifyAction : public Action<Ts...> {
- public:
-  explicit ObjModifyAction(std::function<void()> lamb) : lamb_(lamb) {}
-
-  void play(Ts... x) override {
-    esph_log_d(TAG, "Running action");
-    this->lamb_();
-  }
-
- protected:
-  std::function<void()> lamb_;
-};
-
 class Arc : public Updater {
  public:
   Arc(lv_obj_t *arc, value_lambda_t lamb) : arc_(arc), value_(lamb) {}
@@ -402,6 +389,57 @@ class LvglComponent : public PollingComponent {
 
   std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
   std::vector<Updater *> updaters_;
+};
+
+template<typename... Ts> class NotifyAction : public Action<Ts...> {
+ public:
+  explicit NotifyAction() {}
+  void add_on_return_callback(std::function<void()> &&callback) { this->return_callback_.add(std::move(callback)); }
+  void set_notification(std::string title, std::string message, boolean close_button,
+                        std::vector<std::string> &buttons) {
+    this->title_ = title;
+    this->message_ = message;
+    this->close_button_ = close_button;
+    this->buttons_ = buttons;
+  }
+
+  static void event_cb(lv_event_t *e) {
+    lv_obj_t *obj = lv_event_get_current_target(e);
+    std::string button = lv_msgbox_get_active_btn_text(obj);
+    ESP_LOGI("Button %s clicked", button);
+    this->return_callback_->call(button);
+  }
+
+  void play(Ts... x) override {
+    esph_log_d(TAG, "Open Notification Box action");
+
+    static const char *btns[this->buttons_.size() + 1] = {};
+    int x = 0;
+    for (auto btn : this->buttons_) {
+      btns[x] = btn.c_str();
+      x++;
+    }
+
+    btns[x] = "";
+
+    lv_obj_t *mbox1 = lv_msgbox_create(NULL, this->title_, this->message_, btns, this->close_button_);
+    lv_obj_add_event_cb(mbox1, event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_center(mbox1);
+  }
+
+ protected:
+  CallbackManager<void(std::string)> return_callback_{};
+  std::string title_{""};
+  std::string message_{""};
+  boolean close_button_{true};
+  std::vector<std::string> buttons_{};
+};
+
+class ReturnNotifyTrigger : public Trigger<> {
+ public:
+  explicit ReturnNotifyTrigger(NotifyAction *notify_action) {
+    notify_action->add_on_return_callback([this]() { this->trigger(); });
+  }
 };
 
 }  // namespace lvgl
