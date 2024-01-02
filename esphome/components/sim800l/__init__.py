@@ -3,6 +3,7 @@ import esphome.config_validation as cv
 from esphome import automation
 from esphome.const import (
     CONF_ID,
+    CONF_MESSAGE,
     CONF_TRIGGER_ID,
 )
 from esphome.components import uart
@@ -51,8 +52,6 @@ CONF_ON_USSD_RECEIVED = "on_ussd_received"
 CONF_ON_INCOMING_CALL = "on_incoming_call"
 CONF_ON_CALL_CONNECTED = "on_call_connected"
 CONF_ON_CALL_DISCONNECTED = "on_call_disconnected"
-CONF_RECIPIENT = "recipient"
-CONF_MESSAGE = "message"
 CONF_USSD = "ussd"
 
 CONFIG_SCHEMA = cv.All(
