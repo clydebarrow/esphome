@@ -4,6 +4,16 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 from esphome.components.image import Image_
+
+from esphome.components.sensor import Sensor
+from esphome.components.touchscreen import Touchscreen, CONF_TOUCHSCREEN_ID
+from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
+from esphome.components.display import Display
+from esphome.components import color
+from esphome.components.font import Font
+from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
+from esphome.components.binary_sensor import BinarySensor
+
 from .defines import (
     # widgets
     CONF_ARC,
@@ -42,14 +52,6 @@ from .defines import (
     OBJ_FLAGS,
 )
 
-from esphome.components.sensor import Sensor
-from esphome.components.touchscreen import Touchscreen, CONF_TOUCHSCREEN_ID
-from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
-from esphome.components.display import Display
-from esphome.components import color
-from esphome.components.font import Font
-from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
-from esphome.components.binary_sensor import BinarySensor
 from esphome.const import (
     CONF_ID,
     CONF_VALUE,
@@ -68,6 +70,8 @@ from esphome.const import (
     CONF_STATE,
     CONF_TRIGGER_ID,
     CONF_TIMEOUT,
+    CONF_LOCAL,
+    CONF_ROTATION,
 )
 
 DOMAIN = "lvgl"
@@ -125,7 +129,6 @@ CONF_INDICATORS = "indicators"
 CONF_LABEL_GAP = "label_gap"
 CONF_LAYOUT = "layout"
 CONF_LINE_WIDTH = "line_width"
-CONF_LOCAL = "local"
 CONF_LOG_LEVEL = "log_level"
 CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
@@ -137,7 +140,6 @@ CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
 CONF_ROTARY_ENCODERS = "rotary_encoders"
-CONF_ROTATION = "rotation"
 CONF_R_MOD = "r_mod"
 CONF_SCALES = "scales"
 CONF_SCALE_LINES = "scale_lines"
@@ -221,12 +223,13 @@ LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
 ]
 
 # Record those we actually use
+
 lv_fonts_used = set()
 
 
 def lv_font(value):
     """Accept either the name of a built-in LVGL font, or the ID of an ESPHome font"""
-    global lv_fonts_used
+    # global lv_fonts_used
     if value == SCHEMA_EXTRACT:
         return LV_FONTS
     if isinstance(value, str) and value.lower() in LV_FONTS:

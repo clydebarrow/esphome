@@ -382,7 +382,7 @@ class LvglComponent : public PollingComponent {
 
   void set_display(display::Display *display) { this->display_ = display; }
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
-  void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
+  void dump_config() override { esph_log_config(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
   void set_paused(bool paused) {
     this->paused_ = paused;
@@ -509,7 +509,7 @@ template<typename... Ts> class NotifyAction : public Action<Ts...> {
   static void event_cb(lv_event_t *e) {
     lv_obj_t *obj = lv_event_get_current_target(e);
     std::string button = lv_msgbox_get_active_btn_text(obj);
-    ESP_LOGI("Button %s clicked", button);
+    esph_log_i("Button %s clicked", button);
     this->return_callback_->call(button);
   }
 
