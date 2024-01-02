@@ -155,6 +155,14 @@ CONF_THEME = "theme"
 CONF_TOUCHSCREENS = "touchscreens"
 CONF_WIDGETS = "widgets"
 
+# for notification msgbox
+CONF_TITLE = "title"
+CONF_CLOSE_BUTTON = "close_button"
+CONF_MESSAGE = "message"
+CONF_BUTTONS = "buttons"
+CONF_ON_RETURN = "on_return"
+
+
 # list of widgets and the parts allowed
 WIDGET_TYPES = {
     CONF_ARC: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
@@ -1468,7 +1476,6 @@ ReturnNotifyTrigger = lvgl_ns.class_(
     lvgl_ns.class_("NotifyAction", automation.Action),
     cv.Schema(
         {
-            cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
             cv.Optional(CONF_TITLE, default=""): cv.templatable(cv.string),
             cv.Required(CONF_MESSAGE): cv.templatable(cv.string),
             cv.Optional(CONF_CLOSE_BUTTON, default=False): cv.boolean,
@@ -1483,7 +1490,6 @@ ReturnNotifyTrigger = lvgl_ns.class_(
 )
 async def lvgl_notify_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
-    await cg.register_parented(var, config[CONF_LVGL_ID])
     if CONF_BUTTONS not in config:
         config[CONF_BUTTONS] = []
     cg.add(
