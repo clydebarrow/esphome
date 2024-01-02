@@ -69,7 +69,7 @@ touchscreen:
       swap_xy: true
 
 image:
-  - file: "pnglogp.png"
+  - file: "pnglogo.png"
     id: my_image0
     resize: 90x90
     type: RGB565
