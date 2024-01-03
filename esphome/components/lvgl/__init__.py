@@ -1271,7 +1271,16 @@ async def to_code(config):
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
     cg.add(lv_component.set_display(display))
-    cg.add(lv_component.set_buffer_frac(config[CONF_BUFFER_SIZE] * 32))
+    frac = config[CONF_BUFFER_SIZE]
+    if frac >= 0.75:
+        frac = 1
+    elif frac >= 0.375:
+        frac = 2
+    elif frac > 0.19:
+        frac = 4
+    else:
+        frac = 8
+    cg.add(lv_component.set_buffer_frac(int(frac)))
     cgen("lv_init()")
     if CONF_ROTARY_ENCODERS in config:  # or CONF_KEYBOARDS in config
         cgen("lv_group_set_default(lv_group_create())")
