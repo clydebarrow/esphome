@@ -213,7 +213,6 @@ class Indicator : public Updater {
     } else if (this->start_value_ != nullptr) {
       new_value = this->start_value_();
       if (!std::isnan(new_value) && new_value != this->last_start_state_) {
-        esph_log_v(TAG, "new value %f", new_value);
         lv_meter_set_indicator_value(this->meter_, this->indicator_, this->start_value_());
         this->last_start_state_ = new_value;
       }
@@ -341,8 +340,6 @@ static lv_img_dsc_t *lv_img_from(image::Image *src) {
 #endif
       break;
   }
-  // esph_log_d(TAG, "Image type %d, width %d, height %d, length %d", img->header.cf, img->header.w, img->header.h,
-  //           img->data_size);
   return img;
 }
 #endif
@@ -405,7 +402,7 @@ class LvglComponent : public PollingComponent {
 
   void set_display(display::Display *display) { this->display_ = display; }
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
-  void dump_config() override { ESP_LOGCONFIG(TAG, "LVGL:"); }
+  void dump_config() override { esph_log_config(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
   void set_paused(bool paused) {
     this->paused_ = paused;
@@ -515,6 +512,7 @@ class LVRotaryEncoderListener : public Parented<LvglComponent> {
     this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {
       LVRotaryEncoderListener *l = (LVRotaryEncoderListener *) d->user_data;
       data->state = l->pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+      data->continue_reading = false;
       data->enc_diff = l->count_ - l->last_count_;
       l->last_count_ = l->count_;
     };
@@ -524,7 +522,7 @@ class LVRotaryEncoderListener : public Parented<LvglComponent> {
 
   }
   void set_count(int32_t count) { this->count_ = count; }
-  void set_pressed(bool pressed) { this->pressed_ = pressed && this->parent_->is_paused(); }
+  void set_pressed(bool pressed) { this->pressed_ = pressed && !this->parent_->is_paused(); }
   lv_indev_drv_t drv{};
 
  protected:

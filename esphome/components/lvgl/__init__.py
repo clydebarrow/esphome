@@ -277,6 +277,10 @@ def lv_one_of(choices, prefix):
     return validator
 
 
+def join_enums(enums, prefix=""):
+    return "|".join(map(lambda e: f"(int){prefix}{e.upper()}", enums))
+
+
 def lv_any_of(choices, prefix):
     """Allow any of a list of choices, mapped to upper case, and prepend the choice with the prefix.
     It's also permitted to include the prefix in the value"""
@@ -853,7 +857,7 @@ def add_define(macro, value="1"):
 
 def collect_props(config):
     props = {}
-    for prop in [*STYLE_PROPS, CONF_STYLES]:
+    for prop in [*STYLE_PROPS, *OBJ_FLAGS, CONF_STYLES]:
         if prop in config:
             props[prop] = config[prop]
     return props
@@ -882,12 +886,29 @@ def set_obj_properties(var, config):
     for part, states in parts.items():
         for state, props in states.items():
             lv_state = f"(int)LV_STATE_{state.upper()}|(int)LV_PART_{part.upper()}"
-            for prop, value in props.items():
-                if prop == CONF_STYLES:
-                    for style_id in value:
-                        init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
+            for prop, value in {
+                k: v for k, v in props.items() if k in STYLE_PROPS
+            }.items():
+                init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
+            if styles := props.get(CONF_STYLES):
+                for style_id in styles:
+                    init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
+            flag_clr = set()
+            flag_set = set()
+            for prop, value in {
+                k: v for k, v in props.items() if k in OBJ_FLAGS
+            }.items():
+                if value:
+                    flag_set.add(prop)
                 else:
-                    init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
+                    flag_clr.add(prop)
+            if flag_set:
+                adds = join_enums(flag_set, "LV_OBJ_FLAG_")
+                init.append(f"lv_obj_add_flag({var}, {adds})")
+            if flag_clr:
+                clrs = join_enums(flag_set, "LV_OBJ_FLAG_")
+                init.append(f"lv_obj_clear_flag({var}, {clrs})")
+
     if layout := config.get(CONF_LAYOUT):
         layout = layout.upper()
         init.append(f"lv_obj_set_layout({var}, {layout})")
@@ -905,10 +926,10 @@ def set_obj_properties(var, config):
             else:
                 clears.add(key)
         if adds:
-            adds = "|".join(map(lambda s: f"(int)LV_STATE_{s.upper()}", adds))
+            adds = join_enums(adds, "LV_STATE_")
             init.append(f"lv_obj_add_state({var}, {adds})")
         if clears:
-            clears = "|".join(map(lambda s: f"(int)LV_STATE_{s.upper()}", clears))
+            clears = join_enums(clears, "LV_STATE_")
             init.append(f"lv_obj_clear_state({var}, {clears})")
     return init
 
