@@ -518,9 +518,6 @@ class LVRotaryEncoderListener : public Parented<LvglComponent> {
     };
   }
 
-  void setup() {
-
-  }
   void set_count(int32_t count) { this->count_ = count; }
   void set_pressed(bool pressed) { this->pressed_ = pressed && !this->parent_->is_paused(); }
   lv_indev_drv_t drv{};
