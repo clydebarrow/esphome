@@ -1,6 +1,12 @@
 #!/usr/bin/env python3
 
-from helpers import print_error_for_file, get_output, git_ls_files, filter_changed
+from helpers import (
+    print_error_for_file,
+    get_output,
+    git_ls_files,
+    filter_changed,
+    get_binary,
+)
 import argparse
 import click
 import colorama
@@ -14,42 +20,11 @@ import threading
 
 
 
-def get_binary(name, version):
-    clang_binary = f"{name}-{version}"
-    try:
-        result = subprocess.check_output([clang_binary, '-version'])
-        if result.returncode == 0:
-            return clang_binary
-    except Exception:
-        pass
-    clang_binary = name
-    try:
-        result = subprocess.run([clang_binary, '-version'], text=True, capture_output=True)
-        if result.returncode == 0 and (f"version {version}") in result.stdout:
-            return clang_binary
-    except Exception as ex:
-        pass
-
-    print(
-        f"""
-        Oops. It looks like {name} is not installed.
-
-        Please check you can run "{name} -version" or "{name}-{version} -version"
-        in your terminal and install
-        {name} (v{version}) if necessary.
-
-        Note you can also upload your code as a pull request on GitHub and see the CI check
-        output to apply {name}
-        """
-    )
-    sys.exit()
- 
-
-def run_format(args, queue, lock, failed_files):
+def run_format(executable, args, queue, lock, failed_files):
     """Takes filenames out of queue and runs clang-format on them."""
     while True:
         path = queue.get()
-        invocation = [get_binary("clang-format", 13)]
+        invocation = [executable]
         if args.inplace:
             invocation.append("-i")
         else:
@@ -106,11 +81,12 @@ def main():
 
     failed_files = []
     try:
+        executable = get_binary("clang-format", 13)
         task_queue = queue.Queue(args.jobs)
         lock = threading.Lock()
         for _ in range(args.jobs):
             t = threading.Thread(
-                target=run_format, args=(args, task_queue, lock, failed_files)
+                target=run_format, args=(executable, args, task_queue, lock, failed_files)
             )
             t.daemon = True
             t.start()
@@ -125,13 +101,18 @@ def main():
         # Wait for all threads to be done.
         task_queue.join()
 
+    except FileNotFoundError as ex:
+        return 1
     except KeyboardInterrupt:
         print()
         print("Ctrl-C detected, goodbye.")
+        # Kill subprocesses (and ourselves!)
+        # No simple, clean alternative appears to be available.
         os.kill(0, 9)
+        return 2    # Will not execute.
 
-    sys.exit(len(failed_files))
+    return len(failed_files)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
