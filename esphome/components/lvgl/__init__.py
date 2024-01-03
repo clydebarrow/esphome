@@ -796,18 +796,26 @@ def styles_to_code(styles):
                 cgen(f"lv_style_set_{prop}({svar}, {style[prop]})")
 
 
+theme_group_dict = {}
+
+
 async def theme_to_code(theme):
     tvar = cg.new_Pvariable(theme[CONF_ID])
     lamb = []
+    # obj styles apply to everything
+    if style := theme.get(CONF_OBJ):
+        lamb.extend(set_obj_properties("obj", style))
+        if group := add_group(style.get(CONF_GROUP)):
+            theme_group_dict["obj"] = group
     for widget, style in theme.items():
         if not isinstance(style, dict) or widget == CONF_OBJ:
             continue
+        if group := add_group(style.get(CONF_GROUP)):
+            theme_group_dict[widget] = group
         lamb.append(f"  if (lv_obj_check_type(obj, &lv_{widget}_class)) {{")
         lamb.extend(set_obj_properties("obj", style))
         lamb.append("  return")
         lamb.append("  }")
-    if style := theme.get(CONF_OBJ):
-        lamb.extend(set_obj_properties("obj", style))
     lamb = await cg.process_lambda(
         Lambda(";\n".join([*lamb, ""])),
         [(lv_theme_t_ptr, "th"), (lv_obj_t_ptr, "obj")],
@@ -857,7 +865,7 @@ def add_define(macro, value="1"):
 
 def collect_props(config):
     props = {}
-    for prop in [*STYLE_PROPS, *OBJ_FLAGS, CONF_STYLES]:
+    for prop in [*STYLE_PROPS, *OBJ_FLAGS, CONF_STYLES, CONF_GROUP]:
         if prop in config:
             props[prop] = config[prop]
     return props
@@ -890,24 +898,25 @@ def set_obj_properties(var, config):
                 k: v for k, v in props.items() if k in STYLE_PROPS
             }.items():
                 init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
-            if styles := props.get(CONF_STYLES):
-                for style_id in styles:
-                    init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
-            flag_clr = set()
-            flag_set = set()
-            for prop, value in {
-                k: v for k, v in props.items() if k in OBJ_FLAGS
-            }.items():
-                if value:
-                    flag_set.add(prop)
-                else:
-                    flag_clr.add(prop)
-            if flag_set:
-                adds = join_enums(flag_set, "LV_OBJ_FLAG_")
-                init.append(f"lv_obj_add_flag({var}, {adds})")
-            if flag_clr:
-                clrs = join_enums(flag_set, "LV_OBJ_FLAG_")
-                init.append(f"lv_obj_clear_flag({var}, {clrs})")
+    props = parts[CONF_MAIN][CONF_DEFAULT]
+    if styles := props.get(CONF_STYLES):
+        for style_id in styles:
+            init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
+    if group := add_group(config.get(CONF_GROUP)):
+        init.append(f"lv_group_add_obj({group}, {var})")
+    flag_clr = set()
+    flag_set = set()
+    for prop, value in {k: v for k, v in props.items() if k in OBJ_FLAGS}.items():
+        if value:
+            flag_set.add(prop)
+        else:
+            flag_clr.add(prop)
+    if flag_set:
+        adds = join_enums(flag_set, "LV_OBJ_FLAG_")
+        init.append(f"lv_obj_add_flag({var}, {adds})")
+    if flag_clr:
+        clrs = join_enums(flag_set, "LV_OBJ_FLAG_")
+        init.append(f"lv_obj_clear_flag({var}, {clrs})")
 
     if layout := config.get(CONF_LAYOUT):
         layout = layout.upper()
@@ -939,9 +948,10 @@ async def create_lv_obj(t, lv_component, config, parent):
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr, type_=lv_obj_t)
     init.append(f"{var} = lv_{t}_create({parent})")
-    if group := add_group(config.get(CONF_GROUP)):
-        init.append(f"lv_group_add_obj({group}, {var})")
     init.extend(set_obj_properties(var, config))
+    # Workaround because theme does not correctly set group
+    if group := theme_group_dict.get(t) or theme_group_dict.get("obj"):
+        init.append(f"lv_group_add_obj({group}, {var})")
     if CONF_WIDGETS in config:
         for widg in config[CONF_WIDGETS]:
             (obj, ext_init) = await widget_to_code(lv_component, widg, var)
@@ -1265,6 +1275,7 @@ async def to_code(config):
     init = []
     if style_defs := config.get(CONF_STYLE_DEFINITIONS, []):
         styles_to_code(style_defs)
+    # must do this before generating widgets
     if theme := config[CONF_THEME]:
         init.extend(await theme_to_code(theme))
     for widg in config[CONF_WIDGETS]:
