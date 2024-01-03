@@ -10,6 +10,9 @@
 #if LV_USE_TOUCHSCREEN
 #include "esphome/components/touchscreen/touchscreen.h"
 #endif
+#if LV_USE_ROTARY_ENCODER
+#include "esphome/components/rotary_encoder/rotary_encoder.h"
+#endif
 #include "esphome/components/display/display_color_utils.h"
 #include "esphome/core/component.h"
 #include "esphome/core/log.h"
@@ -459,8 +462,16 @@ template<typename... Ts> class PauseAction : public Action<Ts...>, public Parent
   void play(Ts... x) override { this->parent_->set_paused(this->paused_.value(x...)); }
 };
 
-#if 1
-class LVTouchListener;
+template<typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<LvglComponent> {
+ public:
+  bool check(Ts... x) override { return this->condition_lambda_(); }
+  void set_condition_lambda(std::function<bool(void)> condition_lambda) { this->condition_lambda_ = condition_lambda; }
+
+ protected:
+  std::function<bool(void)> condition_lambda_{};
+};
+
+#if LV_USE_TOUCHSCREEN
 class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglComponent> {
  public:
   LVTouchListener() {
@@ -492,16 +503,38 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
   touchscreen::TouchPoint touch_point_{};
   bool touch_pressed_{};
 };
+#endif
 
-template<typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<LvglComponent> {
+#if LV_USE_ROTARY_ENCODER
+class LVRotaryEncoderListener : public Parented<LvglComponent> {
  public:
-  bool check(Ts... x) override { return this->condition_lambda_(); }
-  void set_condition_lambda(std::function<bool(void)> condition_lambda) { this->condition_lambda_ = condition_lambda; }
+  LVRotaryEncoderListener() {
+    lv_indev_drv_init(&this->drv);
+    this->drv.type = LV_INDEV_TYPE_ENCODER;
+    this->drv.user_data = this;
+    this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {
+      LVRotaryEncoderListener *l = (LVRotaryEncoderListener *) d->user_data;
+      data->state = l->pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+      data->enc_diff = l->count_ - l->last_count_;
+      l->last_count_ = l->count_;
+    };
+  }
+
+  void setup() {
+
+  }
+  void set_count(int32_t count) { this->count_ = count; }
+  void set_pressed(bool pressed) { this->pressed_ = pressed && this->parent_->is_paused(); }
+  lv_indev_drv_t drv{};
 
  protected:
-  std::function<bool(void)> condition_lambda_{};
+  bool pressed_{};
+  int32_t count_{};
+  int32_t last_count_{};
+  binary_sensor::BinarySensor *binary_sensor_{};
+  sensor::Sensor *sensor_{};
 };
-
 #endif
+
 }  // namespace lvgl
 }  // namespace esphome

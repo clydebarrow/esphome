@@ -80,6 +80,7 @@ LOGGER = logging.getLogger(__name__)
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 LVTouchListener = lvgl_ns.class_("LVTouchListener")
+LVRotaryEncoderListener = lvgl_ns.class_("LVRotaryEncoderListener")
 IdleTrigger = lvgl_ns.class_("IdleTrigger", automation.Trigger.template())
 FontEngine = lvgl_ns.class_("FontEngine")
 ObjUpdateAction = lvgl_ns.class_("ObjUpdateAction", automation.Action)
@@ -706,6 +707,7 @@ CONFIG_SCHEMA = (
                             cv.Required(CONF_SENSOR): cv.use_id(RotaryEncoderSensor),
                             cv.Optional(CONF_BINARY_SENSOR): cv.use_id(BinarySensor),
                             cv.Optional(CONF_GROUP): cv.validate_id_name,
+                            cv.GenerateID(): cv.declare_id(LVRotaryEncoderListener),
                         }
                     )
                 ),
@@ -834,6 +836,8 @@ def add_temp_var(var_type, var_name):
 
 
 def add_group(name):
+    if name is None:
+        return None
     fullname = f"lv_esp_group_{name}"
     if name not in lv_groups:
         cgen(f"static lv_group_t * {fullname} = lv_group_create()")
@@ -914,8 +918,8 @@ async def create_lv_obj(t, lv_component, config, parent):
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr, type_=lv_obj_t)
     init.append(f"{var} = lv_{t}_create({parent})")
-    if CONF_GROUP in config:
-        init.append(f"lv_group_add_obj({add_group(config[CONF_GROUP])}, {var})")
+    if group := add_group(config.get(CONF_GROUP)):
+        init.append(f"lv_group_add_obj({group}, {var})")
     init.extend(set_obj_properties(var, config))
     if CONF_WIDGETS in config:
         for widg in config[CONF_WIDGETS]:
@@ -961,7 +965,7 @@ async def btnmatrix_to_code(_, btnm, conf):
     sca_id = cv.declare_id(cg.std_string)
     sca = cg.static_const_array(sca_id, cg.ArrayInitializer(text_list))
     init = [f"lv_btnmatrix_set_map({btnm}, {sca})"]
-    return []
+    return init
 
 
 async def img_to_code(_, var, image):
@@ -1159,37 +1163,24 @@ async def rotary_encoders_to_code(var, config):
     init = []
     if CONF_ROTARY_ENCODERS not in config:
         return init
-    for index, encoder in enumerate(config[CONF_ROTARY_ENCODERS]):
-        sensor = await cg.get_variable(encoder[CONF_SENSOR])
-        cgen(f"static bool encoder_pressed_{index}{{}}")
-        cgen(f"static uint32_t encoder_count_{index}, encoder_last_{index}")
-        cgen(f"static lv_indev_drv_t encoder_drv_{index};")
-        cgen(f"lv_indev_drv_init(&encoder_drv_{index})")
-        cgen(f"encoder_drv_{index}.type = LV_INDEV_TYPE_ENCODER")
-        cgen(
-            f"encoder_drv_{index}.read_cb =",
-            "[](lv_indev_drv_t *drv, lv_indev_data_t *data) {",
-            f"  data->state = encoder_pressed_{index} ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;",
-            f"  data->enc_diff = encoder_count_{index} - encoder_last_{index};",
-            f"  encoder_last_{index} = encoder_count_{index}; }}",
+    lv_uses.add("ROTARY_ENCODER")
+    for enc_conf in config[CONF_ROTARY_ENCODERS]:
+        sensor = await cg.get_variable(enc_conf[CONF_SENSOR])
+        listener = cg.new_Pvariable(enc_conf[CONF_ID])
+        await cg.register_parented(listener, var)
+        if group := add_group(enc_conf.get(CONF_GROUP)):
+            init.append(
+                f"lv_indev_set_group(lv_indev_drv_register(&{listener}->drv), {group})"
+            )
+        else:
+            init.append(f"lv_indev_drv_register(&{listener}->drv)")
+        init.append(
+            f"{sensor}->register_listener([](uint32_t count) {{ {listener}->set_count(count); }})",
         )
-        init.extend(add_temp_var("lv_indev_t", "lv_indev_temp_"))
-        init.extend(
-            [
-                f"lv_indev_temp_ = lv_indev_drv_register(&encoder_drv_{index})",
-                f"{sensor}->register_listener([](uint32_t count) {{ encoder_count_{index} = count;}})",
-            ]
-        )
-        if CONF_GROUP in encoder:
-            group = add_group(encoder[CONF_GROUP])
-            init.append(f"lv_indev_set_group(lv_indev_temp_, {group})")
-        if CONF_BINARY_SENSOR in encoder:
-            binary_sensor = await cg.get_variable(encoder[CONF_BINARY_SENSOR])
-            init.extend(
-                [
-                    f"{binary_sensor}->add_on_state_callback([](bool state) {{"
-                    + "encoder_pressed_{index} = state && {var}->is_paused();}})"
-                ]
+        if b_sensor := enc_conf.get(CONF_BINARY_SENSOR):
+            b_sensor = await cg.get_variable(b_sensor)
+            init.append(
+                f"{b_sensor}->add_on_state_callback([](bool state) {{ {listener}->set_pressed(state); }})"
             )
         return init
 
