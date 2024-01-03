@@ -26,6 +26,7 @@ namespace esphome {
 namespace lvgl {
 
 static const char *const TAG = "lvgl";
+static const size_t BUFFER_FRAC_BASE = 32;
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
@@ -358,14 +359,16 @@ class LvglComponent : public PollingComponent {
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
     lv_log_register_print_cb(log_cb);
-    size_t buf_size = this->display_->get_width() * this->display_->get_height() / 4;
-    auto buf = lv_custom_mem_alloc(buf_size * LV_COLOR_DEPTH / 8);
+    size_t bytes_per_pixel = LV_COLOR_DEPTH / 8;
+    size_t buffer_pixels =
+        this->display_->get_width() * this->display_->get_height() * BUFFER_FRAC_BASE / this->buffer_frac_;
+    auto buf = lv_custom_mem_alloc(buffer_pixels * bytes_per_pixel);
     if (buf == nullptr) {
-      esph_log_e(TAG, "Malloc failed to allocate %d bytes", buf_size);
+      esph_log_e(TAG, "Malloc failed to allocate %d bytes", buffer_pixels * bytes_per_pixel);
       this->mark_failed();
       return;
     }
-    lv_disp_draw_buf_init(&this->draw_buf_, buf, nullptr, buf_size);
+    lv_disp_draw_buf_init(&this->draw_buf_, buf, nullptr, buffer_pixels);
     lv_disp_drv_init(&this->disp_drv_);
     this->disp_drv_.hor_res = this->display_->get_width();
     this->disp_drv_.ver_res = this->display_->get_height();
@@ -411,6 +414,7 @@ class LvglComponent : public PollingComponent {
   }
   bool is_paused() { return this->paused_; }
   bool is_idle(uint32_t idle_ms) { return lv_disp_get_inactive_time(this->disp_) > idle_ms; }
+  void set_buffer_frac(size_t frac) { this->buffer_frac_ = frac; }
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
@@ -431,6 +435,7 @@ class LvglComponent : public PollingComponent {
   CallbackManager<void(uint32_t)> idle_callbacks_{};
   std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
   std::vector<Updater *> updaters_;
+  size_t buffer_frac_{BUFFER_FRAC_BASE};
   bool paused_{};
 };
 

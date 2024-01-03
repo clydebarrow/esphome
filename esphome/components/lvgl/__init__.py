@@ -120,6 +120,7 @@ CONF_ADJUSTABLE = "adjustable"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_BACKGROUND_STYLE = "background_style"
+CONF_BUFFER_SIZE = "buffer_size"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
 CONF_CHANGE_RATE = "change_rate"
@@ -718,6 +719,7 @@ CONFIG_SCHEMA = (
                 requires_component("rotary_encoder"),
             ),
             cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
+            cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
                 *LOG_LEVELS, upper=True
             ),
@@ -1269,6 +1271,7 @@ async def to_code(config):
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
     cg.add(lv_component.set_display(display))
+    cg.add(lv_component.set_buffer_frac(config[CONF_BUFFER_SIZE] * 32))
     cgen("lv_init()")
     if CONF_ROTARY_ENCODERS in config:  # or CONF_KEYBOARDS in config
         cgen("lv_group_set_default(lv_group_create())")
