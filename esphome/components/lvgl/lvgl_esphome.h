@@ -30,7 +30,7 @@ static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, c
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
 #elif LV_COLOR_DEPTH == 32
-static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_A888;
+static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_888;
 #else
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 #endif
