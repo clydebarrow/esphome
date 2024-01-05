@@ -70,7 +70,7 @@ static inline void buf_clr(circ_buf_t &buf) {
   buf.inp = 0;
   buf.outp = 0;
 }
-static inline uint8_t buf_size(const circ_buf_t &buf) { return (uint8_t) (buf.outp - buf.inp); }
+static inline uint8_t buf_size(const circ_buf_t &buf) { return (uint8_t) (buf.inp - buf.outp); }
 
 static inline uint8_t buf_peek(const circ_buf_t &buf) { return buf.data[buf.outp]; }
 
@@ -412,6 +412,7 @@ class VNCDisplay : public display::Display {
     } else {
       this->mark_dirty_(x_start, x_start, w, h);
     }
+    return;
     if (x_offset == 0 && x_pad == 0 && w == this->width_) {
       size_t offset = y_start * w * PIXEL_BYTES;
       memcpy(this->display_buffer_ + offset, ptr, w * h * PIXEL_BYTES);
@@ -433,6 +434,7 @@ class VNCDisplay : public display::Display {
  protected:
   void send_framebuffer(VNCClient &client, size_t x_start, size_t y_start, size_t w, size_t h) {
     esph_log_d(TAG, "Send framebuffer %d/%d %d/%d", x_start, y_start, w, h);
+    return;
     if (w == this->width_) {
       client.write_pixels(x_start, y_start, w, h, this->display_buffer_ + y_start * w * PIXEL_BYTES);
     } else {
@@ -525,8 +527,10 @@ class VNCDisplay : public display::Display {
           bool true_color = buffer[7] != 0;
           esph_log_d(TAG, "pixel format: bits %d, depth %d, %s endian, true_color: %s", bits_per_pixel, depth,
                      big_endian ? "Big" : "Little", true_color ? "Yes" : "No");
-          if (buffer[4] != 32 || buffer[5] != 24 || buffer[6] != 0 || buffer[7] == 0)
+          if (buffer[4] != 32 || buffer[5] != 24 || buffer[6] != 0 || buffer[7] == 0) {
             esph_log_w(TAG, "Requested color format is not compatible.");
+            return false;
+          }
           return true;
         }
         break;
