@@ -106,6 +106,8 @@ static inline bool buf_add(circ_buf_t &buf, const uint8_t *src, uint8_t len) {
   return true;
 }
 
+class VNCTrigger: Trigger<> {};
+
 class VNCDisplay;
 
 class VNCTouchscreen : public touchscreen::Touchscreen {
@@ -347,6 +349,8 @@ class VNCDisplay : public display::Display {
       auto *conn = new VNCClient(std::move(sock), this);
       clients_.emplace_back(conn);
       conn->start();
+      if (this->on_connect_ != nullptr)
+        this->on_connect_();
     }
 
     // Partition clients into remove and active
@@ -355,6 +359,8 @@ class VNCDisplay : public display::Display {
     // print disconnection messages
     for (auto it = new_end; it != this->clients_.end(); ++it) {
       (*it)->close();
+      if (this->on_disconnect_ != nullptr)
+        this->on_disconnect_();
     }
     // resize vector
     this->clients_.erase(new_end, this->clients_.end());
@@ -434,7 +440,6 @@ class VNCDisplay : public display::Display {
  protected:
   void send_framebuffer(VNCClient &client, size_t x_start, size_t y_start, size_t w, size_t h) {
     esph_log_d(TAG, "Send framebuffer %d/%d %d/%d", x_start, y_start, w, h);
-    return;
     if (w == this->width_) {
       client.write_pixels(x_start, y_start, w, h, this->display_buffer_ + y_start * w * PIXEL_BYTES);
     } else {
@@ -675,6 +680,8 @@ class VNCDisplay : public display::Display {
   bool listening_{};
   CallbackManager<void(bool, uint16_t, uint16_t)> touchscreens_;
   HighFrequencyLoopRequester high_freq_;
+  std::function<void()> on_connect_{};
+  std::function<void()> on_disconnect_{};
 };
 
 }  // namespace vnc
