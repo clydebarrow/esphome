@@ -70,6 +70,7 @@ from esphome.const import (
     CONF_TRIGGER_ID,
     CONF_TIMEOUT,
 )
+from esphome.cpp_generator import LambdaExpression
 
 # import auto
 DOMAIN = "lvgl"
@@ -501,7 +502,7 @@ def validate_max_min(config):
     return config
 
 
-def lv_value(value):
+def lv_value(value, validators=None):
     if isinstance(value, int):
         return cv.float_(float(cv.int_(value)))
     if isinstance(value, float):
@@ -735,7 +736,9 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_ON_IDLE): automation.validate_automation(
                 {
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(IdleTrigger),
-                    cv.Required(CONF_TIMEOUT): cv.positive_time_period_seconds,
+                    cv.Required(CONF_TIMEOUT): cv.templatable(
+                        cv.positive_time_period_milliseconds
+                    ),
                 }
             ),
             cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
@@ -1300,11 +1303,8 @@ async def to_code(config):
     init.extend(set_obj_properties("lv_scr_act()", config))
     if on_idle := config.get(CONF_ON_IDLE):
         for conf in on_idle:
-            trigger = cg.new_Pvariable(
-                conf[CONF_TRIGGER_ID],
-                lv_component,
-                conf[CONF_TIMEOUT].total_milliseconds,
-            )
+            templ = await cg.templatable(conf[CONF_TIMEOUT], [], cg.uint32)
+            trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], lv_component, templ)
             await automation.build_automation(trigger, [], conf)
 
     await add_init_lambda(lv_component, init)
@@ -1516,14 +1516,18 @@ async def resume_action_to_code(config, action_id, template_arg, args):
     LvglCondition,
     LVGL_SCHEMA.extend(
         {
-            cv.Required(CONF_TIMEOUT): cv.positive_time_period_seconds,
+            cv.Required(CONF_TIMEOUT): cv.templatable(
+                cv.positive_time_period_milliseconds
+            )
         }
     ),
 )
 async def lvgl_is_idle(config, condition_id, template_arg, args):
     var = cg.new_Pvariable(condition_id, template_arg)
     lvgl = config[CONF_LVGL_ID]
-    timeout = config[CONF_TIMEOUT].total_milliseconds
+    timeout = await cg.templatable(config[CONF_TIMEOUT], [], cg.uint32)
+    if isinstance(timeout, LambdaExpression):
+        timeout = f"({timeout}())"
     await cg.register_parented(var, lvgl)
     lamb = await cg.process_lambda(
         Lambda(f"return lvgl_comp->is_idle({timeout});"),

@@ -1,6 +1,9 @@
 #pragma once
 
 #include "esphome/components/display/display.h"
+#include "esphome/core/automation.h"
+#include "esphome/core/component.h"
+
 #if LVGL_USES_IMAGE
 #include "esphome/components/image/image.h"
 #endif
@@ -439,19 +442,19 @@ class LvglComponent : public PollingComponent {
 
 class IdleTrigger : public Trigger<> {
  public:
-  explicit IdleTrigger(LvglComponent *parent, uint32_t timeout) : timeout_(timeout) {
+  explicit IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(timeout) {
     parent->add_on_idle_callback([this](uint32_t idle_time) {
-      if (!this->is_idle_ && idle_time > this->timeout_) {
+      if (!this->is_idle_ && idle_time > this->timeout_.value()) {
         this->is_idle_ = true;
         this->trigger();
-      } else if (this->is_idle_ && idle_time < this->timeout_) {
+      } else if (this->is_idle_ && idle_time < this->timeout_.value()) {
         this->is_idle_ = false;
       }
     });
   }
 
  protected:
-  uint32_t timeout_;
+  TemplatableValue<uint32_t> timeout_;
   bool is_idle_{};
 };
 
@@ -460,14 +463,17 @@ template<typename... Ts> class LvglAction : public Action<Ts...>, public Parente
   void play(Ts... x) override { this->action_(this->parent_); }
 
   void set_action(std::function<void(LvglComponent *)> action) { this->action_ = action; }
+
  protected:
-  std::function<void(LvglComponent*)> action_{};
+  std::function<void(LvglComponent *)> action_{};
 };
 
 template<typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<LvglComponent> {
  public:
   bool check(Ts... x) override { return this->condition_lambda_(this->parent_); }
-  void set_condition_lambda(std::function<bool(LvglComponent *)> condition_lambda) { this->condition_lambda_ = condition_lambda; }
+  void set_condition_lambda(std::function<bool(LvglComponent *)> condition_lambda) {
+    this->condition_lambda_ = condition_lambda;
+  }
 
  protected:
   std::function<bool(LvglComponent *)> condition_lambda_{};
