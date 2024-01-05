@@ -455,20 +455,22 @@ class IdleTrigger : public Trigger<> {
   bool is_idle_{};
 };
 
-template<typename... Ts> class PauseAction : public Action<Ts...>, public Parented<LvglComponent> {
+template<typename... Ts> class LvglAction : public Action<Ts...>, public Parented<LvglComponent> {
  public:
-  TEMPLATABLE_VALUE(bool, paused)
+  void play(Ts... x) override { this->action_(this->parent_); }
 
-  void play(Ts... x) override { this->parent_->set_paused(this->paused_.value(x...)); }
+  void set_action(std::function<void(LvglComponent *)> action) { this->action_ = action; }
+ protected:
+  std::function<void(LvglComponent*)> action_{};
 };
 
 template<typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<LvglComponent> {
  public:
-  bool check(Ts... x) override { return this->condition_lambda_(); }
-  void set_condition_lambda(std::function<bool(void)> condition_lambda) { this->condition_lambda_ = condition_lambda; }
+  bool check(Ts... x) override { return this->condition_lambda_(this->parent_); }
+  void set_condition_lambda(std::function<bool(LvglComponent *)> condition_lambda) { this->condition_lambda_ = condition_lambda; }
 
  protected:
-  std::function<bool(void)> condition_lambda_{};
+  std::function<bool(LvglComponent *)> condition_lambda_{};
 };
 
 #if LV_USE_TOUCHSCREEN

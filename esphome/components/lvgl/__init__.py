@@ -79,13 +79,14 @@ LOGGER = logging.getLogger(__name__)
 
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
+LvglComponentPtr = LvglComponent.operator("ptr")
 LVTouchListener = lvgl_ns.class_("LVTouchListener")
 LVRotaryEncoderListener = lvgl_ns.class_("LVRotaryEncoderListener")
 IdleTrigger = lvgl_ns.class_("IdleTrigger", automation.Trigger.template())
 FontEngine = lvgl_ns.class_("FontEngine")
 ObjUpdateAction = lvgl_ns.class_("ObjUpdateAction", automation.Action)
 LvglCondition = lvgl_ns.class_("LvglCondition", automation.Condition)
-PauseAction = lvgl_ns.class_("PauseAction", automation.Action)
+LvglAction = lvgl_ns.class_("LvglAction", automation.Action)
 
 # Can't use the native type names here, since ESPHome munges variable names and they conflict
 lv_point_t = cg.global_ns.struct("LvPointType")
@@ -1454,8 +1455,31 @@ async def img_update_to_code(config, action_id, template_arg, args):
 
 
 @automation.register_action(
+    "lvgl.obj.invalidate",
+    LvglAction,
+    cv.Schema(
+        {
+            cv.GenerateID(): cv.use_id(LvglComponent),
+            cv.Optional(CONF_OBJ_ID): cv.use_id(lv_obj_t),
+        }
+    ),
+)
+async def obj_invalidate_to_code(config, action_id, template_arg, args):
+    var = cg.new_Pvariable(action_id, template_arg)
+    await cg.register_parented(var, config[CONF_ID])
+    obj = "lv_scr_act()"
+    if obj_id := config.get(CONF_OBJ_ID):
+        obj = cg.get_variable(obj_id)
+    lamb = await cg.process_lambda(
+        Lambda(f"lv_obj_invalidate({obj});"), [(LvglComponentPtr, "lvgl_comp")]
+    )
+    cg.add(var.set_action(lamb))
+    return var
+
+
+@automation.register_action(
     "lvgl.pause",
-    PauseAction,
+    LvglAction,
     {
         cv.GenerateID(): cv.use_id(LvglComponent),
     },
@@ -1463,13 +1487,16 @@ async def img_update_to_code(config, action_id, template_arg, args):
 async def pause_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
-    cg.add(var.set_paused(True))
+    lamb = await cg.process_lambda(
+        Lambda("lvgl_comp->set_paused(true);"), [(LvglComponentPtr, "lvgl_comp")]
+    )
+    cg.add(var.set_action(lamb))
     return var
 
 
 @automation.register_action(
     "lvgl.resume",
-    PauseAction,
+    LvglAction,
     {
         cv.GenerateID(): cv.use_id(LvglComponent),
     },
@@ -1477,7 +1504,10 @@ async def pause_action_to_code(config, action_id, template_arg, args):
 async def resume_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
-    cg.add(var.set_paused(False))
+    lamb = await cg.process_lambda(
+        Lambda("lvgl_comp->set_paused(false);"), [(LvglComponentPtr, "lvgl_comp")]
+    )
+    cg.add(var.set_action(lamb))
     return var
 
 
@@ -1495,11 +1525,11 @@ async def lvgl_is_idle(config, condition_id, template_arg, args):
     lvgl = config[CONF_LVGL_ID]
     timeout = config[CONF_TIMEOUT].total_milliseconds
     await cg.register_parented(var, lvgl)
-    cg.add(
-        var.set_condition_lambda(
-            cg.RawExpression(f"[] {{ return {lvgl}->is_idle({timeout}); }}")
-        )
+    lamb = await cg.process_lambda(
+        Lambda(f"return lvgl_comp->is_idle({timeout});"),
+        [(LvglComponentPtr, "lvgl_comp")],
     )
+    cg.add(var.set_condition_lambda(lamb))
     return var
 
 
@@ -1512,9 +1542,8 @@ async def lvgl_is_paused(config, condition_id, template_arg, args):
     var = cg.new_Pvariable(condition_id, template_arg)
     lvgl = config[CONF_LVGL_ID]
     await cg.register_parented(var, lvgl)
-    cg.add(
-        var.set_condition_lambda(
-            cg.RawExpression(f"[] {{ return {lvgl}->is_paused(); }}")
-        )
+    lamb = await cg.process_lambda(
+        Lambda("return lvgl_comp->is_paused();"), [(LvglComponentPtr, "lvgl_comp")]
     )
+    cg.add(var.set_condition_lambda(lamb))
     return var
