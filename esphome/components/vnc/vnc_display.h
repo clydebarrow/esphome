@@ -106,9 +106,8 @@ static inline bool buf_add(circ_buf_t &buf, const uint8_t *src, uint8_t len) {
   return true;
 }
 
-class VNCTrigger: Trigger<> {};
-
 class VNCDisplay;
+class VNCTrigger : public Trigger<>, public Parented<VNCDisplay> {};
 
 class VNCTouchscreen : public touchscreen::Touchscreen {
  public:
@@ -195,7 +194,7 @@ class VNCClient {
 
  protected:
   void disconnect_() {
-    this->socket_->close();
+    this->close();
     this->remove_ = true;
   }
 
@@ -205,9 +204,7 @@ class VNCClient {
       if (errno == EAGAIN)
         return 0;
       esph_log_e(TAG, "socket read failed: %d", errno);
-      if (errno == ENOTCONN) {
-        this->disconnect_();
-      }
+      this->disconnect_();
     } else {
       printhex("Read", buffer, res);
     }
@@ -227,6 +224,7 @@ class VNCClient {
           continue;
         }
         esph_log_e(TAG, "socket write failed: %d", errno);
+        this->disconnect_();
         return res;
       }
       total += res;
@@ -306,18 +304,8 @@ class VNCDisplay : public display::Display {
       return;
     }
   }
+
   void setup() override {
-    size_t buffer_length = this->height_ * this->width_ * PIXEL_BYTES;
-    ESP_LOGCONFIG(TAG, "Setting up VNC server...");
-    ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
-    this->display_buffer_ = allocator.allocate(buffer_length);
-    if (this->display_buffer_ == nullptr) {
-      ESP_LOGE(TAG, "Could not allocate buffer for display!");
-      this->mark_failed();
-      return;
-    }
-    // clear to grey
-    memset(this->display_buffer_, 0x80, buffer_length);
   }
 
   void dump_config() override {
@@ -349,8 +337,6 @@ class VNCDisplay : public display::Display {
       auto *conn = new VNCClient(std::move(sock), this);
       clients_.emplace_back(conn);
       conn->start();
-      if (this->on_connect_ != nullptr)
-        this->on_connect_();
     }
 
     // Partition clients into remove and active
@@ -385,10 +371,11 @@ class VNCDisplay : public display::Display {
   int get_width() override { return this->width_; }
 
   void draw_pixel_at(int x, int y, Color color) override {
-    if (this->display_buffer_ == nullptr)
-      return;
     if (x < 0 || y < 0 || x >= this->width_ || y >= this->width_)
       return;
+    if (this->display_buffer_ == nullptr) {
+      this->alloc_buffer_();
+    }
     size_t offs = (x + y * this->width_) * PIXEL_BYTES;
     this->display_buffer_[offs++] = color.b;
     this->display_buffer_[offs++] = color.g;
@@ -399,8 +386,6 @@ class VNCDisplay : public display::Display {
 
   void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
                       display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) override {
-    if (this->display_buffer_ == nullptr)
-      return;
     if (w <= 0 || h <= 0 || x_start < 0 || y_start < 0 || x_start + w > this->width_ || y_start + h > this->height_)
       return;
     // if color mapping or software rotation is required, hand this off to the parent implementation. This will
@@ -418,27 +403,32 @@ class VNCDisplay : public display::Display {
     } else {
       this->mark_dirty_(x_start, x_start, w, h);
     }
-    return;
-    if (x_offset == 0 && x_pad == 0 && w == this->width_) {
-      size_t offset = y_start * w * PIXEL_BYTES;
-      memcpy(this->display_buffer_ + offset, ptr, w * h * PIXEL_BYTES);
-    } else {
-      auto stride = (x_offset + w + x_pad);  // source buffer stride in pixels
-      for (size_t y = y_offset; y != y_offset + h; y++) {
-        size_t offset = (x_start + y * w);
-        auto np = ptr + (y * stride + x_offset) * PIXEL_BYTES;
-        memcpy(this->display_buffer_ + offset * PIXEL_BYTES, np, w * PIXEL_BYTES);
-      }
-    }
   }
 
   display::DisplayType get_display_type() override { return display::DISPLAY_TYPE_COLOR; }
   void set_port(uint16_t port) { this->port_ = port; }
+  void set_on_connect(std::function<void()> on_connect) { this->on_connect_ = on_connect; }
+  void set_on_disconnect(std::function<void()> on_disconnect) { this->on_disconnect_ = on_disconnect; }
 
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
  protected:
+  void alloc_buffer_() {
+    size_t buffer_length = this->height_ * this->width_ * PIXEL_BYTES;
+    ESP_LOGCONFIG(TAG, "Setting up VNC server...");
+    ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
+    this->display_buffer_ = allocator.allocate(buffer_length);
+    if (this->display_buffer_ == nullptr) {
+      ESP_LOGE(TAG, "Could not allocate buffer for display!");
+      this->mark_failed();
+      return;
+    }
+    // clear to grey
+    memset(this->display_buffer_, 0x80, buffer_length);
+  }
   void send_framebuffer(VNCClient &client, size_t x_start, size_t y_start, size_t w, size_t h) {
+    if (this->display_buffer_ == nullptr)
+      return;
     esph_log_d(TAG, "Send framebuffer %d/%d %d/%d", x_start, y_start, w, h);
     if (w == this->width_) {
       client.write_pixels(x_start, y_start, w, h, this->display_buffer_ + y_start * w * PIXEL_BYTES);
@@ -460,6 +450,13 @@ class VNCDisplay : public display::Display {
       this->y_max_ = y + h - 1;
   }
 
+  void reset_frame_() {
+    this->x_max_ = 0;
+    this->y_max_ = 0;
+    this->x_min_ = this->width_;
+    this->y_min_ = this->height_;
+  }
+
   void update_frame_() {
     ssize_t w = this->x_max_ - this->x_min_ + 1;
     ssize_t h = this->y_max_ - this->y_min_ + 1;
@@ -473,10 +470,6 @@ class VNCDisplay : public display::Display {
       }
       this->y_min_ += h;
       if (this->y_min_ > this->y_max_) {
-        this->x_max_ = 0;
-        this->y_max_ = 0;
-        this->x_min_ = this->width_;
-        this->y_min_ = this->height_;
         high_freq_.stop();
       }
     }
@@ -654,6 +647,8 @@ class VNCDisplay : public display::Display {
           break;
         client.state_ = STATE_READY;
         buf_clr(client.inq_);
+        if (this->on_connect_ != nullptr)
+          this->on_connect_();
         break;
 
       case STATE_READY:

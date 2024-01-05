@@ -60,16 +60,20 @@ async def to_code(config):
         cg.add(var.set_writer(lambda_))
 
     if conf := config.get(CONF_ON_CONNECT):
-        trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
+        conf = conf[0]
+        trigger = cg.new_Pvariable(
+            conf[CONF_TRIGGER_ID],
+        )
         await automation.build_automation(trigger, [], conf)
         lamb = await cg.process_lambda(
             Lambda(f"{trigger}->trigger();"),
-            [(display.DisplayRef, "it")],
+            [],
             return_type=cg.void,
         )
         cg.add(var.set_on_connect(lamb))
 
     if conf := config.get(CONF_ON_DISCONNECT):
+        conf = conf[0]
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], var)
         await automation.build_automation(trigger, [], conf)
         lamb = await cg.process_lambda(
