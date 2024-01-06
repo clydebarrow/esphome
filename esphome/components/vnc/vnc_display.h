@@ -42,6 +42,7 @@ static inline uint16_t get16_be(const uint8_t *buf) { return buf[1] + (buf[0] <<
 
 static inline uint16_t get32_be(const uint8_t *buf) { return buf[3] + (buf[2] << 8) + (buf[1] << 16) + (buf[0] << 24); }
 
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
 static void printhex(const char *hdr, uint8_t const *buffer, size_t cnt) {
   char strbuf[256];
   sprintf(strbuf, "%s %d bytes ", hdr, cnt);
@@ -53,6 +54,7 @@ static void printhex(const char *hdr, uint8_t const *buffer, size_t cnt) {
   }
   esph_log_d(TAG, "%s", strbuf);
 }
+#endif
 
 enum ClientState {
   STATE_INVALID,
@@ -223,12 +225,11 @@ class VNCDisplay : public display::Display {
 
   void tx_task() {
     rect_t rp;
-    esp_task_wdt_add(NULL);
+    // esp_task_wdt_add(NULL);
     for (;;) {  // NOLINT
-      if (xQueueReceive(this->queue_, &rp, 500) == pdPASS) {
+      if (xQueueReceive(this->queue_, &rp, 1000) == pdPASS) {
         this->send_framebuffer(rp.x_min, rp.y_min, rp.x_max - rp.x_min + 1, rp.y_max - rp.y_min + 1);
       }
-      arch_feed_wdt();
     }
   }
 
@@ -246,7 +247,7 @@ class VNCDisplay : public display::Display {
     memset(this->display_buffer_, 0x80, buffer_length);
     this->queue_ = xQueueCreate(50, sizeof(rect_t));
     TaskHandle_t handle;
-    xTaskCreatePinnedToCore([](void *arg) { ((VNCDisplay *) arg)->tx_task(); }, "VNCClient", 8192, this, 1, &handle, 0);
+    xTaskCreatePinnedToCore([](void *arg) { ((VNCDisplay *) arg)->tx_task(); }, "VNCClient", 8192, this, 2, &handle, 0);
   }
 
   void dump_config() override {
@@ -267,22 +268,23 @@ class VNCDisplay : public display::Display {
       return;
     }
     // Accept new clients
-      if (this->client_sock_ == nullptr) {
-        struct sockaddr_storage source_addr;
-        socklen_t addr_len = sizeof(source_addr);
-        this->client_sock_ = listen_sock_->accept((struct sockaddr *) &source_addr, &addr_len);
-        if (this->client_sock_) {
-          timeval tv;
-          tv.tv_sec = 0;
-          tv.tv_usec = 500;
-          this->client_sock_->setblocking(false);
-          ESP_LOGD(TAG, "Accepted %s", this->client_sock_->getpeername().c_str());
-          int err = this->write_(RFB_MAGIC, sizeof RFB_MAGIC);
-          if (err < 0)
-            this->disconnect_();
-          else
-            this->state_ = STATE_VERSION;
-        }
+    if (this->client_sock_ == nullptr) {
+      struct sockaddr_storage source_addr;
+      socklen_t addr_len = sizeof(source_addr);
+      this->client_sock_ = listen_sock_->accept((struct sockaddr *) &source_addr, &addr_len);
+      if (this->client_sock_) {
+        timeval tv;
+        tv.tv_sec = 0;
+        tv.tv_usec = 1000;
+        // this->client_sock_->setblocking(false);
+        this->client_sock_->setsockopt(SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+        ESP_LOGD(TAG, "Accepted %s", this->client_sock_->getpeername().c_str());
+        int err = this->write_(RFB_MAGIC, sizeof RFB_MAGIC);
+        if (err < 0)
+          this->disconnect_();
+        else
+          this->state_ = STATE_VERSION;
+      }
     }
     this->client_loop_();
   }
@@ -327,10 +329,9 @@ class VNCDisplay : public display::Display {
     // do color conversion pixel-by-pixel into the buffer and draw it later. If this is happening the user has not
     // configured the renderer well.
     if (this->rotation_ != display::DISPLAY_ROTATION_0_DEGREES || bitness != display::COLOR_BITNESS_888 || big_endian) {
-      return display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset,
-                                              y_offset, x_pad);
-    }
-    if (x_offset == 0 && x_pad == 0 && w == this->width_) {
+      display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset,
+                                       x_pad);
+    } else if (x_offset == 0 && x_pad == 0 && w == this->width_) {
       memcpy(this->display_buffer_ + y_start * w * PIXEL_BYTES, ptr + y_offset * w * PIXEL_BYTES, h * w * PIXEL_BYTES);
     } else {
       auto stride = w + x_offset + x_pad;
@@ -340,8 +341,14 @@ class VNCDisplay : public display::Display {
         memcpy(dest, src, w * PIXEL_BYTES);
       }
     }
-    this->mark_dirty_(x_start, y_start, w, h);
-    this->update_frame_();
+    if (this->state_ == STATE_READY) {
+      rect_t r;
+      r.x_min = x_start;
+      r.y_min = y_start;
+      r.x_max = x_start + w - 1;
+      r.y_max = y_start + h - 1;
+      xQueueSend(this->queue_, &r, 0);
+    }
   }
 
   display::DisplayType get_display_type() override { return display::DISPLAY_TYPE_COLOR; }
@@ -352,26 +359,41 @@ class VNCDisplay : public display::Display {
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
  protected:
+  // send part of the buffer to the remote client.
   void send_framebuffer(size_t x_start, size_t y_start, size_t w, size_t h) {
-    uint8_t hdr[4];
+    uint8_t buf[4096];
+    uint8_t hdr[16];
     if (this->display_buffer_ == nullptr || this->client_sock_ == nullptr)
       return;
-    esph_log_d(TAG, "Send framebuffer %d/%d %d/%d", x_start, y_start, w, h);
+    esph_log_v(TAG, "Send framebuffer %d/%d %d/%d", x_start, y_start, w, h);
     auto now = millis();
     hdr[0] = 0;
     hdr[1] = 0;
+    put16_be(hdr + 2, 1);
+
+    put16_be(hdr + 4, x_start);
+    put16_be(hdr + 6, y_start);
+    put16_be(hdr + 8, w);
+    put16_be(hdr + 10, h);
+    put32_be(hdr + 12, 0);  // raw encoding
+    this->write_(hdr, 16);
     if (w == this->width_) {
-      put16_be(hdr + 2, 1);
-      this->write_(hdr, sizeof hdr);
-      this->write_pixels(x_start, y_start, w, h, this->display_buffer_ + y_start * w * PIXEL_BYTES);
+      this->write_(this->display_buffer_ + y_start * w * PIXEL_BYTES, w * h * PIXEL_BYTES);
     } else {
-      put16_be(hdr + 2, h);
-      this->write_(hdr, sizeof hdr);
-      for (size_t y = y_start; y != y_start + h; y++) {
-        this->write_pixels(x_start, y, w, 1, this->display_buffer_ + (y * this->width_ + x_start) * PIXEL_BYTES);
+      while (h != 0) {
+        size_t tlen = (sizeof(buf)) / w / PIXEL_BYTES;
+        if (tlen > h)
+          tlen = h;
+        for (size_t y = 0; y != tlen; y++) {
+          memcpy(buf + y * w * PIXEL_BYTES,
+                 this->display_buffer_ + ((y + y_start) * this->width_ + x_start) * PIXEL_BYTES, w * PIXEL_BYTES);
+        }
+        this->write_(buf, w * tlen * PIXEL_BYTES);
+        h -= tlen;
+        y_start += tlen;
       }
     }
-    esph_log_d(TAG, "Send_framebuffer took %dms", (int)(millis() - now));
+    esph_log_v(TAG, "Send_framebuffer took %dms", (int) (millis() - now));
   }
 
   void mark_dirty_(ssize_t x, ssize_t y, ssize_t w, ssize_t h) {
@@ -444,7 +466,7 @@ class VNCDisplay : public display::Display {
           uint8_t depth = buffer[5];
           bool big_endian = buffer[6] != 0;
           bool true_color = buffer[7] != 0;
-          esph_log_d(TAG, "pixel format: bits %d, depth %d, %s endian, true_color: %s", bits_per_pixel, depth,
+          esph_log_v(TAG, "pixel format: bits %d, depth %d, %s endian, true_color: %s", bits_per_pixel, depth,
                      big_endian ? "Big" : "Little", true_color ? "Yes" : "No");
           if (buffer[4] != 32 || buffer[5] != 24 || buffer[6] != 0 || buffer[7] == 0) {
             esph_log_w(TAG, "Requested color format is not compatible.");
@@ -616,7 +638,7 @@ class VNCDisplay : public display::Display {
       esph_log_e(TAG, "socket read failed: %d", errno);
       this->disconnect_();
     } else {
-      printhex("Read", buffer, res);
+      // printhex("Read", buffer, res);
     }
     return res;
   }
@@ -628,8 +650,7 @@ class VNCDisplay : public display::Display {
       ssize_t res = this->client_sock_->write(ptr, len);
       if (res < 0) {
         if (errno == EAGAIN) {
-          delay(10);
-          arch_feed_wdt();
+          delay(1);
           continue;
         }
         esph_log_e(TAG, "socket write failed: %d", errno);
@@ -640,7 +661,9 @@ class VNCDisplay : public display::Display {
       len -= res;
       ptr += res;
     }
-    // printhex("Wrote", buffer, total);
+#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
+    printhex("Wrote", buffer, total);
+#endif
     return total;
   }
 

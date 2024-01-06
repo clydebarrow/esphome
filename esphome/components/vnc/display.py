@@ -17,6 +17,9 @@ from esphome.const import (
     CONF_ON_DISCONNECT,
 )
 
+DEPENDENCIES = ["network"]
+AUTO_LOAD = ["socket"]
+
 CONFIG_SCHEMA = cv.All(
     display.FULL_DISPLAY_SCHEMA.extend(
         {
@@ -44,6 +47,10 @@ CONFIG_SCHEMA = cv.All(
         }
     ).extend(cv.polling_component_schema("1s")),
     cv.has_at_most_one_key(CONF_PAGES, CONF_LAMBDA),
+    cv.Any(
+        cv.requires_component("wifi"),
+        cv.requires_component("ethernet"),
+    ),
 )
 
 

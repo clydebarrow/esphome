@@ -3,7 +3,6 @@ from esphome.components import display
 
 CODEOWNERS = ["@clydebarrow"]
 
-
 vnc_ns = cg.esphome_ns.namespace("vnc")
 VNCDisplay = vnc_ns.class_(
     "VNCDisplay",
