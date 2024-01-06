@@ -11,6 +11,7 @@
 #include "esphome/core/application.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/network/util.h"
+#include "esp_task_wdt.h"
 
 namespace esphome {
 namespace vnc {
@@ -53,7 +54,15 @@ static void printhex(const char *hdr, uint8_t const *buffer, size_t cnt) {
   esph_log_d(TAG, "%s", strbuf);
 }
 
-enum ClientState { STATE_INVALID, STATE_VERSION, STATE_AUTH, STATE_AUTH_RESPONSE, STATE_INIT, STATE_READY };
+enum ClientState {
+  STATE_INVALID,
+  STATE_VERSION,
+  STATE_AUTH,
+  STATE_AUTH_RESPONSE,
+  STATE_INIT,
+  STATE_READY,
+  STATE_CLOSING
+};
 
 enum AuthType {
   AUTH_FAILED = 0x00,
@@ -65,6 +74,13 @@ typedef struct circ_buf {
   uint8_t data[256];
   uint8_t inp, outp;
 } circ_buf_t;
+
+typedef struct {
+  ssize_t x_min;
+  ssize_t y_min;
+  ssize_t x_max;
+  ssize_t y_max;
+} rect_t;
 
 static inline void buf_clr(circ_buf_t &buf) {
   buf.inp = 0;
@@ -135,7 +151,7 @@ class VNCTouchscreen : public touchscreen::Touchscreen {
     }
     this->updated_ = false;
     if (this->touching_) {
-      esph_log_d(TAG, "Sending touch %d/%d", xpos, ypos);
+      esph_log_v(TAG, "Sending touch %d/%d", xpos, ypos);
       add_raw_touch_position_(0, xpos, ypos);
     }
   }
@@ -145,103 +161,6 @@ class VNCTouchscreen : public touchscreen::Touchscreen {
   uint16_t xpos{};
   uint16_t ypos{};
 };
-class VNCClient {
-  friend VNCDisplay;
-
- public:
-  VNCClient(std::unique_ptr<socket::Socket> socket, VNCDisplay *parent) : socket_(std::move(socket)), parent_(parent) {
-    int err = socket_->setblocking(false);
-    if (err != 0) {
-      this->remove_ = true;
-      esph_log_e(TAG, "Setting nonblocking failed with errno %d", errno);
-      return;
-    }
-    int enable = 1;
-    err = socket_->setsockopt(IPPROTO_TCP, TCP_NODELAY, &enable, sizeof(int));
-    if (err != 0) {
-      this->remove_ = true;
-      esph_log_e(TAG, "Setting nodelay failed with errno %d", errno);
-      return;
-    }
-  }
-
-  void close() {
-    this->socket_->close();
-    this->socket_.release();
-  }
-
-  void start() {
-    int err = this->write_(RFB_MAGIC, sizeof RFB_MAGIC);
-    if (err < 0)
-      return;
-    this->state_ = STATE_VERSION;
-  }
-
-  void write_pixels(size_t x, size_t y, size_t width, size_t height, const uint8_t *buffer) {
-    uint8_t header[16];
-    header[0] = 0;
-    header[1] = 0;
-    put16_be(header + 2, 1);
-    put16_be(header + 4, x);
-    put16_be(header + 6, y);
-    put16_be(header + 8, width);
-    put16_be(header + 10, height);
-    put32_be(header + 12, 0);  // raw encoding
-    this->write_(header, sizeof header);
-    this->write_(buffer, width * height * sizeof(int32_t));
-    esph_log_d(TAG, "Wrote buffer at %d/%d %d/%d", x, y, width, height);
-  }
-
- protected:
-  void disconnect_() {
-    this->close();
-    this->remove_ = true;
-  }
-
-  ssize_t read_(uint8_t *buffer, size_t len) {
-    ssize_t res = this->socket_->read(buffer, len);
-    if (res < 0) {
-      if (errno == EAGAIN)
-        return 0;
-      esph_log_e(TAG, "socket read failed: %d", errno);
-      this->disconnect_();
-    } else {
-      printhex("Read", buffer, res);
-    }
-    return res;
-  }
-
-  ssize_t write_(const uint8_t *buffer, size_t len) {
-    const uint8_t *ptr = buffer;
-    ssize_t res = 0;
-    size_t total = 0;
-    while (len != 0) {
-      res = this->socket_->write(ptr, len);
-      if (res < 0) {
-        if (errno == EAGAIN) {
-          delay(1);
-          App.feed_wdt();
-          continue;
-        }
-        esph_log_e(TAG, "socket write failed: %d", errno);
-        this->disconnect_();
-        return res;
-      }
-      total += res;
-      len -= res;
-      ptr += res;
-    }
-    // printhex("Wrote", buffer, total);
-    return total;
-  }
-
-  std::unique_ptr<socket::Socket> socket_{};
-  VNCDisplay *parent_{};
-  bool remove_{};
-  ClientState state_;
-  circ_buf_t inq_{};
-};
-
 class VNCDisplay : public display::Display {
  public:
   void add_touchscreen(VNCTouchscreen *tp) {
@@ -249,32 +168,29 @@ class VNCDisplay : public display::Display {
   }
 
   void end_socket_() {
-    if (this->socket_ != nullptr) {
-      for (auto &client : clients_)
-        client->close();
-      this->clients_.clear();
-      this->socket_->close();
-      this->socket_ = nullptr;
-    }
+    this->disconnect_();
+    this->listen_sock_->close();
+    this->listen_sock_.release();
+    this->listen_sock_ = nullptr;
   }
 
   void start_socket_() {
     if (!network::is_connected())
       return;
 
-    this->socket_ = socket::socket_ip(SOCK_STREAM, 0);
-    if (this->socket_ == nullptr) {
+    this->listen_sock_ = socket::socket_ip(SOCK_STREAM, 0);
+    if (this->listen_sock_ == nullptr) {
       ESP_LOGW(TAG, "Could not create socket.");
       this->mark_failed();
       return;
     }
     int enable = 1;
-    int err = socket_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
+    int err = this->listen_sock_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
     if (err != 0) {
       ESP_LOGW(TAG, "Socket unable to set reuseaddr: errno %d", err);
       // we can still continue
     }
-    err = socket_->setblocking(false);
+    err = this->listen_sock_->setblocking(false);
     if (err != 0) {
       ESP_LOGW(TAG, "Socket unable to set nonblocking mode: errno %d", err);
       this->mark_failed();
@@ -290,14 +206,14 @@ class VNCDisplay : public display::Display {
       return;
     }
 
-    err = this->socket_->bind((struct sockaddr *) &server, sl);
+    err = this->listen_sock_->bind((struct sockaddr *) &server, sl);
     if (err != 0) {
       ESP_LOGW(TAG, "Socket unable to bind: errno %d", errno);
       this->mark_failed();
       return;
     }
 
-    err = this->socket_->listen(4);
+    err = this->listen_sock_->listen(1);
     if (err != 0) {
       ESP_LOGW(TAG, "Socket unable to listen: errno %d", errno);
       this->mark_failed();
@@ -305,7 +221,32 @@ class VNCDisplay : public display::Display {
     }
   }
 
+  void tx_task() {
+    rect_t rp;
+    esp_task_wdt_add(NULL);
+    for (;;) {  // NOLINT
+      if (xQueueReceive(this->queue_, &rp, 500) == pdPASS) {
+        this->send_framebuffer(rp.x_min, rp.y_min, rp.x_max - rp.x_min + 1, rp.y_max - rp.y_min + 1);
+      }
+      arch_feed_wdt();
+    }
+  }
+
   void setup() override {
+    size_t buffer_length = this->height_ * this->width_ * PIXEL_BYTES;
+    ESP_LOGCONFIG(TAG, "Setting up VNC server...");
+    ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
+    this->display_buffer_ = allocator.allocate(buffer_length);
+    if (this->display_buffer_ == nullptr) {
+      ESP_LOGE(TAG, "Could not allocate buffer for display!");
+      this->mark_failed();
+      return;
+    }
+    // clear to grey
+    memset(this->display_buffer_, 0x80, buffer_length);
+    this->queue_ = xQueueCreate(50, sizeof(rect_t));
+    TaskHandle_t handle;
+    xTaskCreatePinnedToCore([](void *arg) { ((VNCDisplay *) arg)->tx_task(); }, "VNCClient", 8192, this, 1, &handle, 0);
   }
 
   void dump_config() override {
@@ -315,7 +256,7 @@ class VNCDisplay : public display::Display {
   }
 
   void loop() override {
-    if (this->socket_ == nullptr) {
+    if (this->listen_sock_ == nullptr) {
       if (network::is_connected())
         this->start_socket_();
       return;
@@ -326,35 +267,24 @@ class VNCDisplay : public display::Display {
       return;
     }
     // Accept new clients
-    while (true) {
-      struct sockaddr_storage source_addr;
-      socklen_t addr_len = sizeof(source_addr);
-      auto sock = socket_->accept((struct sockaddr *) &source_addr, &addr_len);
-      if (!sock)
-        break;
-      ESP_LOGD(TAG, "Accepted %s", sock->getpeername().c_str());
-
-      auto *conn = new VNCClient(std::move(sock), this);
-      clients_.emplace_back(conn);
-      conn->start();
+      if (this->client_sock_ == nullptr) {
+        struct sockaddr_storage source_addr;
+        socklen_t addr_len = sizeof(source_addr);
+        this->client_sock_ = listen_sock_->accept((struct sockaddr *) &source_addr, &addr_len);
+        if (this->client_sock_) {
+          timeval tv;
+          tv.tv_sec = 0;
+          tv.tv_usec = 500;
+          this->client_sock_->setblocking(false);
+          ESP_LOGD(TAG, "Accepted %s", this->client_sock_->getpeername().c_str());
+          int err = this->write_(RFB_MAGIC, sizeof RFB_MAGIC);
+          if (err < 0)
+            this->disconnect_();
+          else
+            this->state_ = STATE_VERSION;
+        }
     }
-
-    // Partition clients into remove and active
-    auto new_end = std::partition(this->clients_.begin(), this->clients_.end(),
-                                  [](const std::unique_ptr<VNCClient> &conn) { return !conn->remove_; });
-    // print disconnection messages
-    for (auto it = new_end; it != this->clients_.end(); ++it) {
-      (*it)->close();
-      if (this->on_disconnect_ != nullptr)
-        this->on_disconnect_();
-    }
-    // resize vector
-    this->clients_.erase(new_end, this->clients_.end());
-
-    for (auto &client : this->clients_) {
-      client_loop_(*client);
-    }
-    this->update_frame_();
+    this->client_loop_();
   }
 
   void update() override {
@@ -373,15 +303,20 @@ class VNCDisplay : public display::Display {
   void draw_pixel_at(int x, int y, Color color) override {
     if (x < 0 || y < 0 || x >= this->width_ || y >= this->width_)
       return;
-    if (this->display_buffer_ == nullptr) {
-      this->alloc_buffer_();
-    }
     size_t offs = (x + y * this->width_) * PIXEL_BYTES;
     this->display_buffer_[offs++] = color.b;
     this->display_buffer_[offs++] = color.g;
     this->display_buffer_[offs++] = color.r;
     this->display_buffer_[offs] = 0;
     this->mark_dirty_(x, y, 1, 1);
+  }
+
+  void update_frame_() {
+    if (is_dirty()) {
+      if (this->state_ == STATE_READY)
+        xQueueSend(this->queue_, &this->dirty_rect_, 0);
+      this->mark_clean_();
+    }
   }
 
   void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
@@ -395,14 +330,18 @@ class VNCDisplay : public display::Display {
       return display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset,
                                               y_offset, x_pad);
     }
-    esph_log_d(TAG, "direct write");
-    if (x_offset == 0 && x_pad == 0) {
-      for (auto &client : this->clients_) {
-        client->write_pixels(x_start, y_start, w, h, ptr);
-      }
+    if (x_offset == 0 && x_pad == 0 && w == this->width_) {
+      memcpy(this->display_buffer_ + y_start * w * PIXEL_BYTES, ptr + y_offset * w * PIXEL_BYTES, h * w * PIXEL_BYTES);
     } else {
-      this->mark_dirty_(x_start, x_start, w, h);
+      auto stride = w + x_offset + x_pad;
+      for (size_t y = 0; y != h; y++) {
+        auto dest = this->display_buffer_ + ((y + y_start) * this->width_ + x_start) * PIXEL_BYTES;
+        auto src = ptr + ((y + y_offset) * stride + x_offset) * PIXEL_BYTES;
+        memcpy(dest, src, w * PIXEL_BYTES);
+      }
     }
+    this->mark_dirty_(x_start, y_start, w, h);
+    this->update_frame_();
   }
 
   display::DisplayType get_display_type() override { return display::DISPLAY_TYPE_COLOR; }
@@ -413,66 +352,48 @@ class VNCDisplay : public display::Display {
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
  protected:
-  void alloc_buffer_() {
-    size_t buffer_length = this->height_ * this->width_ * PIXEL_BYTES;
-    ESP_LOGCONFIG(TAG, "Setting up VNC server...");
-    ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
-    this->display_buffer_ = allocator.allocate(buffer_length);
-    if (this->display_buffer_ == nullptr) {
-      ESP_LOGE(TAG, "Could not allocate buffer for display!");
-      this->mark_failed();
-      return;
-    }
-    // clear to grey
-    memset(this->display_buffer_, 0x80, buffer_length);
-  }
-  void send_framebuffer(VNCClient &client, size_t x_start, size_t y_start, size_t w, size_t h) {
-    if (this->display_buffer_ == nullptr)
+  void send_framebuffer(size_t x_start, size_t y_start, size_t w, size_t h) {
+    uint8_t hdr[4];
+    if (this->display_buffer_ == nullptr || this->client_sock_ == nullptr)
       return;
     esph_log_d(TAG, "Send framebuffer %d/%d %d/%d", x_start, y_start, w, h);
+    auto now = millis();
+    hdr[0] = 0;
+    hdr[1] = 0;
     if (w == this->width_) {
-      client.write_pixels(x_start, y_start, w, h, this->display_buffer_ + y_start * w * PIXEL_BYTES);
+      put16_be(hdr + 2, 1);
+      this->write_(hdr, sizeof hdr);
+      this->write_pixels(x_start, y_start, w, h, this->display_buffer_ + y_start * w * PIXEL_BYTES);
     } else {
+      put16_be(hdr + 2, h);
+      this->write_(hdr, sizeof hdr);
       for (size_t y = y_start; y != y_start + h; y++) {
-        client.write_pixels(x_start, y, w, 1, this->display_buffer_ + (y * this->width_ + x_start) * PIXEL_BYTES);
+        this->write_pixels(x_start, y, w, 1, this->display_buffer_ + (y * this->width_ + x_start) * PIXEL_BYTES);
       }
     }
+    esph_log_d(TAG, "Send_framebuffer took %dms", (int)(millis() - now));
   }
 
   void mark_dirty_(ssize_t x, ssize_t y, ssize_t w, ssize_t h) {
-    if (x < this->x_min_)
-      this->x_min_ = x;
-    if (y < this->y_min_)
-      this->y_min_ = y;
-    if (x + w - 1 > this->x_max_)
-      this->x_max_ = x + w - 1;
-    if (y + h - 1 > this->y_max_)
-      this->y_max_ = y + h - 1;
+    if (x < this->dirty_rect_.x_min)
+      this->dirty_rect_.x_min = x;
+    if (y < this->dirty_rect_.y_min)
+      this->dirty_rect_.y_min = y;
+    if (x + w - 1 > this->dirty_rect_.x_max)
+      this->dirty_rect_.x_max = x + w - 1;
+    if (y + h - 1 > this->dirty_rect_.y_max)
+      this->dirty_rect_.y_max = y + h - 1;
   }
 
-  void reset_frame_() {
-    this->x_max_ = 0;
-    this->y_max_ = 0;
-    this->x_min_ = this->width_;
-    this->y_min_ = this->height_;
+  void mark_clean_() {
+    this->dirty_rect_.x_max = 0;
+    this->dirty_rect_.y_max = 0;
+    this->dirty_rect_.x_min = this->width_;
+    this->dirty_rect_.y_min = this->height_;
   }
 
-  void update_frame_() {
-    ssize_t w = this->x_max_ - this->x_min_ + 1;
-    ssize_t h = this->y_max_ - this->y_min_ + 1;
-    if (w > 0 && h > 0) {
-      high_freq_.start();
-      size_t maxlines = MAX_WRITE / w / PIXEL_BYTES;
-      if (h > maxlines)
-        h = maxlines;
-      for (auto &client : this->clients_) {
-        this->send_framebuffer(*client, this->x_min_, this->y_min_, w, h);
-      }
-      this->y_min_ += h;
-      if (this->y_min_ > this->y_max_) {
-        high_freq_.stop();
-      }
-    }
+  inline bool is_dirty() {
+    return this->dirty_rect_.x_max >= this->dirty_rect_.x_min && this->dirty_rect_.y_max >= this->dirty_rect_.y_min;
   }
 
   size_t build_init(uint8_t *buffer) {
@@ -512,13 +433,13 @@ class VNCDisplay : public display::Display {
     return sp - buffer;
   }
 
-  bool process_(VNCClient &client) {
+  bool process_() {
     uint8_t buffer[256];
     size_t len;
-    switch (buf_peek(client.inq_)) {
+    switch (buf_peek(this->inq_)) {
       case 0:  // set pixel format
-        if (buf_size(client.inq_) >= 20) {
-          buf_copy(client.inq_, buffer, 20);
+        if (buf_size(this->inq_) >= 20) {
+          buf_copy(this->inq_, buffer, 20);
           uint8_t bits_per_pixel = buffer[4];
           uint8_t depth = buffer[5];
           bool big_endian = buffer[6] != 0;
@@ -527,6 +448,7 @@ class VNCDisplay : public display::Display {
                      big_endian ? "Big" : "Little", true_color ? "Yes" : "No");
           if (buffer[4] != 32 || buffer[5] != 24 || buffer[6] != 0 || buffer[7] == 0) {
             esph_log_w(TAG, "Requested color format is not compatible.");
+            buf_clr(this->inq_);
             return false;
           }
           return true;
@@ -534,11 +456,11 @@ class VNCDisplay : public display::Display {
         break;
 
       case 2:  // setencodings
-        if (buf_size(client.inq_) >= 4) {
-          buf_copy(client.inq_, buffer, 4);
+        if (buf_size(this->inq_) >= 4) {
+          buf_copy(this->inq_, buffer, 4);
           len = get16_be(buffer + 2);
-          if (buf_size(client.inq_) >= len * 4) {
-            buf_copy(client.inq_, buffer, len * 4);
+          if (buf_size(this->inq_) >= len * 4) {
+            buf_copy(this->inq_, buffer, len * 4);
             esph_log_d(TAG, "Read %d encoding types", len);
           } else {
             esph_log_w(TAG, "Command 2 data truncated.");
@@ -548,14 +470,14 @@ class VNCDisplay : public display::Display {
         break;
 
       case 3:  // framebuffer update request
-        if (buf_size(client.inq_) >= 10) {
-          buf_copy(client.inq_, buffer, 10);
+        if (buf_size(this->inq_) >= 10) {
+          buf_copy(this->inq_, buffer, 10);
           uint8_t incremental = buffer[1];
           uint16_t xpos = get16_be(buffer + 2);
           uint16_t ypos = get16_be(buffer + 4);
           uint16_t width = get16_be(buffer + 6);
           uint16_t height = get16_be(buffer + 8);
-          esph_log_d(TAG, "Framebuffer %s update request %d/%d %d/%d", incremental ? "Incremental" : "Immediate", xpos,
+          esph_log_v(TAG, "Framebuffer %s update request %d/%d %d/%d", incremental ? "Incremental" : "Immediate", xpos,
                      ypos, width, height);
           if (xpos > this->width_)
             xpos = this->width_ - 1;
@@ -567,61 +489,63 @@ class VNCDisplay : public display::Display {
             height = this->height_ - ypos;
           if (!incremental && width != 0 && height != 0) {
             this->mark_dirty_(xpos, ypos, width, height);
+            this->update_frame_();
           }
           return true;
         }
         break;
       case 4:  // key event
-        if (buf_size(client.inq_) >= 8) {
-          buf_copy(client.inq_, buffer, 8);
+        if (buf_size(this->inq_) >= 8) {
+          buf_copy(this->inq_, buffer, 8);
           uint8_t down_flag = buffer[1];
           uint32_t key = get32_be(buffer + 4);
-          esph_log_d(TAG, "Key event %X %s", (unsigned) key, down_flag ? "Down" : "Up");
+          esph_log_v(TAG, "Key event %X %s", (unsigned) key, down_flag ? "Down" : "Up");
           return true;
         }
         break;
       case 5:  // pointer event
-        if (buf_size(client.inq_) >= 6) {
-          buf_copy(client.inq_, buffer, 6);
+        if (buf_size(this->inq_) >= 6) {
+          buf_copy(this->inq_, buffer, 6);
           uint8_t mask = buffer[1];
           uint32_t xpos = get16_be(buffer + 2);
           uint32_t ypos = get16_be(buffer + 4);
           this->touchscreens_.call((mask & 1) != 0, xpos, ypos);
-          // esph_log_d(TAG, "Pointer event %X %d/%d", mask, (unsigned) xpos, (unsigned) ypos);
+          esph_log_v(TAG, "Pointer event %X %d/%d", mask, (unsigned) xpos, (unsigned) ypos);
           return true;
         }
         break;
 
       case 6:  // cut buffer message
-        if (buf_size(client.inq_) > 8) {
-          buf_copy(client.inq_, buffer, 8);
+        if (buf_size(this->inq_) > 8) {
+          buf_copy(this->inq_, buffer, 8);
           uint32_t textlen = get32_be(buffer + 4);
-          if (textlen < 256 && buf_size(client.inq_) >= textlen) {
-            buf_copy(client.inq_, buffer, textlen);
+          if (textlen < 256 && buf_size(this->inq_) >= textlen) {
+            buf_copy(this->inq_, buffer, textlen);
             esph_log_d(TAG, "Received cut buffer %.*s", (unsigned) textlen, buffer);
             return true;
           } else {
-            buf_clr(client.inq_);
+            buf_clr(this->inq_);
           }
         }
         break;
 
       default:
-        esph_log_w(TAG, "Unknown command %d", buf_peek(client.inq_));
-        buf_clr(client.inq_);
+        esph_log_w(TAG, "Unknown command %d", buf_peek(this->inq_));
+        buf_clr(this->inq_);
         break;
     }
     return false;
   }
-  void client_loop_(VNCClient &client) {
+
+  void client_loop_() {
     int err;
     size_t len;
     uint8_t buffer[128];
-    switch (client.state_) {
+    switch (state_) {
       default:
         break;
       case STATE_VERSION:
-        err = client.read_(buffer, VERSION_LEN);
+        err = this->read_(buffer, VERSION_LEN);
         if (err <= 0)
           break;
         esph_log_d(TAG, "Read %.*s as version", err, buffer);
@@ -630,53 +554,111 @@ class VNCDisplay : public display::Display {
         buffer[1] = 0;
         buffer[2] = 0;
         buffer[3] = AUTH_NONE;
-        err = client.write_(buffer, 4);
+        err = this->write_(buffer, 4);
         if (err < 0)
           break;
-        client.state_ = STATE_AUTH;
+        this->state_ = STATE_AUTH;
         break;
 
       case STATE_AUTH:
-        err = client.read_(buffer, 1);
+        err = this->read_(buffer, 1);
         if (err <= 0)
           break;
         esph_log_i(TAG, "Client requested authentication %d", buffer[0]);
         len = build_init(buffer);
-        err = client.write_(buffer, len);
+        err = this->write_(buffer, len);
         if (err < 0)
           break;
-        client.state_ = STATE_READY;
-        buf_clr(client.inq_);
-        if (this->on_connect_ != nullptr)
+        this->state_ = STATE_READY;
+        buf_clr(this->inq_);
+        if (this->on_connect_ != nullptr) {
+          this->defer([this]() { this->on_connect_(); });
           this->on_connect_();
+        }
         break;
 
       case STATE_READY:
-        err = client.read_(buffer, sizeof buffer);
+        err = this->read_(buffer, sizeof buffer);
         if (err > 0)
-          buf_add(client.inq_, buffer, err);
-        while (buf_size(client.inq_) != 0) {
-          if (!this->process_(client))
+          buf_add(this->inq_, buffer, err);
+        while (buf_size(this->inq_) != 0) {
+          if (!this->process_())
             break;
         }
         break;
     }
   };
+
+  void disconnect_() {
+    if (this->client_sock_ != nullptr) {
+      this->client_sock_->close();
+      this->client_sock_ = nullptr;
+      this->state_ = STATE_INVALID;
+    }
+  }
+
+  void write_pixels(size_t x, size_t y, size_t width, size_t height, const uint8_t *buffer) {
+    uint8_t header[12];
+    put16_be(header + 0, x);
+    put16_be(header + 2, y);
+    put16_be(header + 4, width);
+    put16_be(header + 6, height);
+    put32_be(header + 8, 0);  // raw encoding
+    this->write_(header, sizeof header);
+    this->write_(buffer, width * height * PIXEL_BYTES);
+  }
+
+  ssize_t read_(uint8_t *buffer, size_t len) {
+    ssize_t res = this->client_sock_->read(buffer, len);
+    if (res < 0) {
+      if (errno == EAGAIN)
+        return 0;
+      esph_log_e(TAG, "socket read failed: %d", errno);
+      this->disconnect_();
+    } else {
+      printhex("Read", buffer, res);
+    }
+    return res;
+  }
+
+  ssize_t write_(const uint8_t *buffer, size_t len) {
+    const uint8_t *ptr = buffer;
+    size_t total = 0;
+    while (len != 0) {
+      ssize_t res = this->client_sock_->write(ptr, len);
+      if (res < 0) {
+        if (errno == EAGAIN) {
+          delay(10);
+          arch_feed_wdt();
+          continue;
+        }
+        esph_log_e(TAG, "socket write failed: %d", errno);
+        this->disconnect_();
+        return res;
+      }
+      total += res;
+      len -= res;
+      ptr += res;
+    }
+    // printhex("Wrote", buffer, total);
+    return total;
+  }
+
   size_t width_{};
   size_t height_{};
-  ssize_t x_max_{0u};
-  ssize_t x_min_{1};
-  ssize_t y_max_{0u};
-  ssize_t y_min_{1};
-  std::unique_ptr<socket::Socket> socket_ = nullptr;
+  rect_t dirty_rect_{};
+  std::unique_ptr<socket::Socket> listen_sock_ = nullptr;
   uint16_t port_{5900};
-  std::vector<std::unique_ptr<VNCClient>> clients_;
   uint8_t *display_buffer_{};
   bool listening_{};
   CallbackManager<void(bool, uint16_t, uint16_t)> touchscreens_;
   HighFrequencyLoopRequester high_freq_;
   std::function<void()> on_connect_{};
   std::function<void()> on_disconnect_{};
+  QueueHandle_t queue_{};
+  std::unique_ptr<socket::Socket> client_sock_{};
+  ClientState state_;
+  circ_buf_t inq_{};
 };
 
 }  // namespace vnc
