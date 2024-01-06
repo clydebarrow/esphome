@@ -697,7 +697,14 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_ID, default=CONF_LVGL_COMPONENT): cv.declare_id(
                 LvglComponent
             ),
-            cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(Display),
+            cv.Required(CONF_DISPLAY_ID): cv.ensure_list(
+                cv.maybe_simple_value(
+                    {
+                        cv.Required(CONF_DISPLAY_ID): cv.use_id(Display),
+                    },
+                    key=CONF_DISPLAY_ID,
+                )
+            ),
             cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
                 cv.maybe_simple_value(
                     {
@@ -1270,11 +1277,13 @@ async def to_code(config):
         )
     CORE.add_build_flag("-Isrc")
 
-    display = await cg.get_variable(config[CONF_DISPLAY_ID])
     cg.add_global(lvgl_ns.using)
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
-    cg.add(lv_component.set_display(display))
+    for display in config.get(CONF_DISPLAY_ID, []):
+        cg.add(
+            lv_component.add_display(await cg.get_variable(display[CONF_DISPLAY_ID]))
+        )
     frac = config[CONF_BUFFER_SIZE]
     if frac >= 0.75:
         frac = 1

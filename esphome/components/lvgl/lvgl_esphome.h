@@ -362,7 +362,7 @@ class LvglComponent : public PollingComponent {
     esph_log_config(TAG, "LVGL Setup starts");
     lv_log_register_print_cb(log_cb);
     size_t bytes_per_pixel = LV_COLOR_DEPTH / 8;
-    size_t buffer_pixels = this->display_->get_width() * this->display_->get_height() / this->buffer_frac_;
+    size_t buffer_pixels = this->displays_[0]->get_width() * this->displays_[0]->get_height() / this->buffer_frac_;
     auto buf = lv_custom_mem_alloc(buffer_pixels * bytes_per_pixel);
     if (buf == nullptr) {
       esph_log_e(TAG, "Malloc failed to allocate %d bytes", buffer_pixels * bytes_per_pixel);
@@ -371,8 +371,8 @@ class LvglComponent : public PollingComponent {
     }
     lv_disp_draw_buf_init(&this->draw_buf_, buf, nullptr, buffer_pixels);
     lv_disp_drv_init(&this->disp_drv_);
-    this->disp_drv_.hor_res = this->display_->get_width();
-    this->disp_drv_.ver_res = this->display_->get_height();
+    this->disp_drv_.hor_res = this->displays_[0]->get_width();
+    this->disp_drv_.ver_res = this->displays_[0]->get_height();
     this->disp_drv_.draw_buf = &this->draw_buf_;
     this->disp_drv_.user_data = this;
     this->disp_drv_.flush_cb = static_flush_cb;
@@ -404,7 +404,7 @@ class LvglComponent : public PollingComponent {
     this->idle_callbacks_.add(std::move(callback));
   }
 
-  void set_display(display::Display *display) { this->display_ = display; }
+  void add_display(display::Display *display) { this->displays_.push_back(display); }
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { esph_log_config(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
@@ -420,14 +420,16 @@ class LvglComponent : public PollingComponent {
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
-    this->display_->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
-                                   (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
+    for (auto display : this->displays_) {
+      display->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
+                              (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
+    }
     lv_disp_flush_ready(disp_drv);
     esph_log_v(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
                lv_area_get_height(area), (int) (millis() - now));
   }
 
-  display::Display *display_{};
+  std::vector<display::Display *> displays_{};
   lv_disp_draw_buf_t draw_buf_{};
   lv_disp_drv_t disp_drv_{};
   lv_disp_t *disp_{};
