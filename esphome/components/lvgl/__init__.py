@@ -438,10 +438,10 @@ def cv_point_list(value):
     values = list(map(cv_int_list, value))
     for v in values:
         if (
-                not isinstance(v, list)
-                or not len(v) == 2
-                or not isinstance(v[0], int)
-                or not isinstance(v[1], int)
+            not isinstance(v, list)
+            or not len(v) == 2
+            or not isinstance(v[0], int)
+            or not isinstance(v[1], int)
         ):
             raise cv.Invalid("Points must be a list of x,y integer pairs")
     return {
@@ -677,7 +677,12 @@ BTNMATRIX_SCHEMA = cv.Schema(
                         cv.GenerateID(): cv.declare_id(lvgl_btnmatrix_btn_idx_t),
                         cv.Optional(CONF_WIDTH): cv.positive_int,
                         cv.Optional(CONF_CONTROL): cv.ensure_list(
-                            cv.Schema({cv.Optional(k.lower()): cv.boolean for k in BTNMATRIX_CTRLS})
+                            cv.Schema(
+                                {
+                                    cv.Optional(k.lower()): cv.boolean
+                                    for k in BTNMATRIX_CTRLS
+                                }
+                            )
                         ),
                     }
                 ),

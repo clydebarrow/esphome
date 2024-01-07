@@ -16,7 +16,9 @@ from . import (
     add_init_lambda,
     CONF_ANIMATED,
     lv_animated,
-    set_event_cb, CONF_SLIDER, CONF_ARC,
+    set_event_cb,
+    CONF_SLIDER,
+    CONF_ARC,
 )
 
 LVGLNumber = lvgl_ns.class_("LVGLNumber", number.Number)

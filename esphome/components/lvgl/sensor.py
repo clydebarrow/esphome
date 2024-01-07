@@ -8,7 +8,9 @@ from . import (
     LVGL_SCHEMA,
     CONF_LVGL_ID,
     lv_slider_t,
-    set_event_cb, CONF_SLIDER, CONF_ARC,
+    set_event_cb,
+    CONF_SLIDER,
+    CONF_ARC,
 )
 
 CONF_ARC_ID = "arc_id"
