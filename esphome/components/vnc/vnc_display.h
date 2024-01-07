@@ -294,7 +294,7 @@ class VNCDisplay : public display::Display {
   int get_width() override { return this->width_; }
 
   void draw_pixel_at(int x, int y, Color color) override {
-    if (x < 0 || y < 0 || x >= this->width_ || y >= this->width_)
+    if (x < 0 || y < 0 || x >= this->width_ || y >= this->height_)
       return;
     size_t offs = (x + y * this->width_) * PIXEL_BYTES;
     this->display_buffer_[offs++] = color.b;
