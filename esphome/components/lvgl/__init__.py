@@ -78,6 +78,7 @@ DEPENDENCIES = ["display"]
 CODEOWNERS = ["@clydebarrow"]
 LOGGER = logging.getLogger(__name__)
 
+char_ptr_const = cg.global_ns.namespace("char").operator("ptr")
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
 LvglComponentPtr = LvglComponent.operator("ptr")
@@ -122,7 +123,6 @@ CONF_ADJUSTABLE = "adjustable"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_BACKGROUND_STYLE = "background_style"
-CONF_BREAK = "break"
 CONF_BUFFER_SIZE = "buffer_size"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
@@ -156,6 +156,7 @@ CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
 CONF_ROTARY_ENCODERS = "rotary_encoders"
 CONF_ROTATION = "rotation"
+CONF_ROWS = "rows"
 CONF_R_MOD = "r_mod"
 CONF_SCALES = "scales"
 CONF_SCALE_LINES = "scale_lines"
@@ -661,31 +662,26 @@ def optional_boolean(value):
     return cv.boolean(value)
 
 
+# Schema for a single button in a btnmatrix
+BTNM_BTN_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_TEXT): lv_text_value,
+        cv.GenerateID(): cv.declare_id(lvgl_btnmatrix_btn_idx_t),
+        cv.Optional(CONF_WIDTH, default=1): cv.positive_int,
+        cv.Optional(CONF_CONTROL): cv.ensure_list(
+            cv.Schema({cv.Optional(k.lower()): cv.boolean for k in BTNMATRIX_CTRLS})
+        ),
+    }
+)
+
 BTNMATRIX_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_ONE_CHECKED, default=False): cv.boolean,
-        cv.Required(CONF_BUTTONS): cv.ensure_list(
-            cv.Any(
-                cv.Schema(
-                    {
-                        cv.Required(CONF_BREAK): optional_boolean,
-                    }
-                ),
-                cv.Schema(
-                    {
-                        cv.Required(CONF_TEXT): lv_text_value,
-                        cv.GenerateID(): cv.declare_id(lvgl_btnmatrix_btn_idx_t),
-                        cv.Optional(CONF_WIDTH): cv.positive_int,
-                        cv.Optional(CONF_CONTROL): cv.ensure_list(
-                            cv.Schema(
-                                {
-                                    cv.Optional(k.lower()): cv.boolean
-                                    for k in BTNMATRIX_CTRLS
-                                }
-                            )
-                        ),
-                    }
-                ),
+        cv.Required(CONF_ROWS): cv.ensure_list(
+            cv.Schema(
+                {
+                    cv.Required(CONF_BUTTONS): cv.ensure_list(BTNM_BTN_SCHEMA),
+                }
             )
         ),
     }
@@ -1027,21 +1023,33 @@ async def btn_to_code(_, var, btn):
 async def btnmatrix_to_code(_, btnm, conf):
     text_list = []
     ctrl_list = []
-    for btn in conf[CONF_BUTTONS]:
-        if brk := btn.get(CONF_BREAK):
-            text_list.append("\n")
-        else:
-            text_list.append(cg.safe_exp(btn[CONF_TEXT]))
-        if controls := btn.get(CONF_CONTROL):
-            print(controls)
-            ctrl = []
-            for item in controls:
-                ctrl.extend([k for k, v in item.items() if v])
-            print(ctrl)
-    return []
-    sca_id = cv.declare_id(cg.std_string)
-    sca = cg.static_const_array(sca_id, cg.ArrayInitializer(text_list))
-    init = [f"lv_btnmatrix_set_map({btnm}, {sca})"]
+    width_list = []
+    for row in conf[CONF_ROWS]:
+        for btn in row[CONF_BUTTONS]:
+            text_list.append(f"{cg.safe_exp(btn[CONF_TEXT])}")
+            width_list.append(btn[CONF_WIDTH])
+            ctrl = ["0"]
+            if controls := btn.get(CONF_CONTROL):
+                for item in controls:
+                    ctrl.extend(
+                        [
+                            f"(int)LV_BTNMATRIX_CTRL_{k.upper()}"
+                            for k, v in item.items()
+                            if v
+                        ]
+                    )
+            ctrl_list.append("|".join(ctrl))
+        text_list.append('"\\n"')
+    text_list = text_list[:-1]
+    text_list.append("NULL")
+    text_list = cg.RawExpression("{" + ",".join(text_list) + "}")
+    text_id = ID("xxxxxxxx", is_declaration=True, type=char_ptr_const)
+    text_id = cg.static_const_array(text_id, text_list)
+    init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
+    for index, ctrl in enumerate(ctrl_list):
+        init.append(f"lv_btnmatrix_set_btn_ctrl({btnm}, {index}, {ctrl})")
+    for index, width in enumerate(width_list):
+        init.append(f"lv_btnmatrix_set_btn_width({btnm}, {index}, {width})")
     return init
 
 
