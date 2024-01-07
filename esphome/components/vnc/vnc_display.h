@@ -223,16 +223,6 @@ class VNCDisplay : public display::Display {
     }
   }
 
-  void tx_task() {
-    rect_t rp;
-    // esp_task_wdt_add(NULL);
-    for (;;) {  // NOLINT
-      if (xQueueReceive(this->queue_, &rp, 1000) == pdPASS) {
-        this->send_framebuffer(rp.x_min, rp.y_min, rp.x_max - rp.x_min + 1, rp.y_max - rp.y_min + 1);
-      }
-    }
-  }
-
   void setup() override {
     size_t buffer_length = this->height_ * this->width_ * PIXEL_BYTES;
     ESP_LOGCONFIG(TAG, "Setting up VNC server...");
@@ -245,9 +235,10 @@ class VNCDisplay : public display::Display {
     }
     // clear to grey
     memset(this->display_buffer_, 0x80, buffer_length);
-    this->queue_ = xQueueCreate(50, sizeof(rect_t));
+    this->queue_ = xQueueCreate(200, sizeof(rect_t));
     TaskHandle_t handle;
-    xTaskCreatePinnedToCore([](void *arg) { ((VNCDisplay *) arg)->tx_task(); }, "VNCClient", 8192, this, 2, &handle, 0);
+    xTaskCreatePinnedToCore([](void *arg) { ((VNCDisplay *) arg)->tx_task_(); }, "VNCClient", 8192, this, 2, &handle,
+                            0);
   }
 
   void dump_config() override {
@@ -310,14 +301,15 @@ class VNCDisplay : public display::Display {
     this->display_buffer_[offs++] = color.g;
     this->display_buffer_[offs++] = color.r;
     this->display_buffer_[offs] = 0;
-    this->mark_dirty_(x, y, 1, 1);
+    if (!this->internal_update_)
+      this->mark_dirty_(x, y, 1, 1);
   }
 
   void update_frame_() {
     if (is_dirty()) {
       if (this->state_ == STATE_READY)
-        xQueueSend(this->queue_, &this->dirty_rect_, 0);
-      this->mark_clean_();
+        if (xQueueSend(this->queue_, &this->dirty_rect_, 0) == pdTRUE)
+          this->mark_clean_();
     }
   }
 
@@ -329,8 +321,10 @@ class VNCDisplay : public display::Display {
     // do color conversion pixel-by-pixel into the buffer and draw it later. If this is happening the user has not
     // configured the renderer well.
     if (this->rotation_ != display::DISPLAY_ROTATION_0_DEGREES || bitness != display::COLOR_BITNESS_888 || big_endian) {
+      this->internal_update_ = true;
       display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset,
                                        x_pad);
+      this->internal_update_ = false;
     } else if (x_offset == 0 && x_pad == 0 && w == this->width_) {
       memcpy(this->display_buffer_ + y_start * w * PIXEL_BYTES, ptr + y_offset * w * PIXEL_BYTES, h * w * PIXEL_BYTES);
     } else {
@@ -347,7 +341,8 @@ class VNCDisplay : public display::Display {
       r.y_min = y_start;
       r.x_max = x_start + w - 1;
       r.y_max = y_start + h - 1;
-      xQueueSend(this->queue_, &r, 0);
+      if (xQueueSend(this->queue_, &r, 0) != pdTRUE)
+        this->mark_dirty_(x_start, y_start, w, h);
     }
   }
 
@@ -359,41 +354,60 @@ class VNCDisplay : public display::Display {
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
  protected:
-  // send part of the buffer to the remote client.
-  void send_framebuffer(size_t x_start, size_t y_start, size_t w, size_t h) {
-    uint8_t buf[4096];
-    uint8_t hdr[16];
-    if (this->display_buffer_ == nullptr || this->client_sock_ == nullptr)
-      return;
-    esph_log_v(TAG, "Send framebuffer %d/%d %d/%d", x_start, y_start, w, h);
-    auto now = millis();
-    hdr[0] = 0;
-    hdr[1] = 0;
-    put16_be(hdr + 2, 1);
+  uint8_t tx_buf_[4096];
+  size_t tx_buflen_{};
 
-    put16_be(hdr + 4, x_start);
-    put16_be(hdr + 6, y_start);
-    put16_be(hdr + 8, w);
-    put16_be(hdr + 10, h);
-    put32_be(hdr + 12, 0);  // raw encoding
-    this->write_(hdr, 16);
-    if (w == this->width_) {
-      this->write_(this->display_buffer_ + y_start * w * PIXEL_BYTES, w * h * PIXEL_BYTES);
-    } else {
-      while (h != 0) {
-        size_t tlen = (sizeof(buf)) / w / PIXEL_BYTES;
-        if (tlen > h)
-          tlen = h;
-        for (size_t y = 0; y != tlen; y++) {
-          memcpy(buf + y * w * PIXEL_BYTES,
-                 this->display_buffer_ + ((y + y_start) * this->width_ + x_start) * PIXEL_BYTES, w * PIXEL_BYTES);
+  inline size_t tx_rem_() { return sizeof(this->tx_buf_) - this->tx_buflen_; }
+  inline void tx_16(uint16_t value) {
+    put16_be(this->tx_buf_ + this->tx_buflen_, value);
+    this->tx_buflen_ += 2;
+  }
+  inline void tx_8(uint8_t value) { this->tx_buf_[this->tx_buflen_++] = value; }
+  void tx_flush_() {
+    if (this->tx_buflen_ != 0) {
+      this->write_(this->tx_buf_, this->tx_buflen_);
+      this->tx_buflen_ = 0;
+    }
+  }
+
+  void tx_task_() {
+    rect_t rp;
+    // esp_task_wdt_add(NULL);
+    for (;;) {  // NOLINT
+      if (xQueuePeek(this->queue_, &rp, 1000) == pdPASS) {
+        auto count = uxQueueMessagesWaiting(this->queue_);
+        esph_log_v(TAG, "Send %d windows", count);
+        auto now = millis();
+        this->tx_8(0);
+        this->tx_8(0);
+        this->tx_16(count);
+        while (count-- != 0) {
+          xQueueReceive(this->queue_, &rp, 1000);
+          this->send_framebuffer(rp.x_min, rp.y_min, rp.x_max - rp.x_min + 1, rp.y_max - rp.y_min + 1);
         }
-        this->write_(buf, w * tlen * PIXEL_BYTES);
-        h -= tlen;
-        y_start += tlen;
+        this->tx_flush_();
+        esph_log_v(TAG, "Send_framebuffer took %dms", (int) (millis() - now));
       }
     }
-    esph_log_v(TAG, "Send_framebuffer took %dms", (int) (millis() - now));
+  }
+  // pack the given window into the framebuffer. Flush if required.
+  void send_framebuffer(size_t x_start, size_t y_start, size_t w, size_t h) {
+    if (this->tx_rem_() < 12)
+      this->tx_flush_();
+    tx_16(x_start);
+    tx_16(y_start);
+    tx_16(w);
+    tx_16(h);
+    tx_16(0);  // raw encoding
+    tx_16(0);
+    for (size_t y = 0; y != h; y++) {
+      auto bytes = w * PIXEL_BYTES;
+      if (this->tx_rem_() < bytes)
+        this->tx_flush_();
+      memcpy(this->tx_buf_ + this->tx_buflen_,
+             this->display_buffer_ + ((y + y_start) * this->width_ + x_start) * PIXEL_BYTES, w * PIXEL_BYTES);
+      this->tx_buflen_ += bytes;
+    }
   }
 
   void mark_dirty_(ssize_t x, ssize_t y, ssize_t w, ssize_t h) {
@@ -596,6 +610,8 @@ class VNCDisplay : public display::Display {
         if (this->on_connect_ != nullptr) {
           this->defer([this]() { this->on_connect_(); });
           this->on_connect_();
+          this->mark_dirty_(0, 0, this->width_, this->height_);
+          this->update_frame_();
         }
         break;
 
@@ -681,6 +697,7 @@ class VNCDisplay : public display::Display {
   QueueHandle_t queue_{};
   std::unique_ptr<socket::Socket> client_sock_{};
   ClientState state_;
+  bool internal_update_{};
   circ_buf_t inq_{};
 };
 
