@@ -13,7 +13,7 @@ class LVGLNumber : public number::Number {
   void set_control_lambda(std::function<void(float)> control_lambda) { this->control_lambda_ = control_lambda; }
 
  protected:
-  void control(float value) override;
+  void control(float value) { this->control_lambda_(value); }
   std::function<void(float)> control_lambda_{};
 };
 

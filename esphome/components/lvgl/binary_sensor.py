@@ -6,7 +6,7 @@ from esphome.components.binary_sensor import (
     new_binary_sensor,
 )
 from esphome.const import CONF_EVENT
-from .. import (
+from . import (
     add_init_lambda,
     LVGL_SCHEMA,
     CONF_LVGL_ID,

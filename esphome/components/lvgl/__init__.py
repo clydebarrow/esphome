@@ -122,6 +122,7 @@ CONF_ADJUSTABLE = "adjustable"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_BACKGROUND_STYLE = "background_style"
+CONF_BREAK = "break"
 CONF_BUFFER_SIZE = "buffer_size"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
@@ -437,10 +438,10 @@ def cv_point_list(value):
     values = list(map(cv_int_list, value))
     for v in values:
         if (
-            not isinstance(v, list)
-            or not len(v) == 2
-            or not isinstance(v[0], int)
-            or not isinstance(v[1], int)
+                not isinstance(v, list)
+                or not len(v) == 2
+                or not isinstance(v[0], int)
+                or not isinstance(v[1], int)
         ):
             raise cv.Invalid("Points must be a list of x,y integer pairs")
     return {
@@ -653,18 +654,34 @@ BAR_SCHEMA = cv.Schema(
 
 SLIDER_SCHEMA = BAR_SCHEMA
 
+
+def optional_boolean(value):
+    if value is None:
+        return True
+    return cv.boolean(value)
+
+
 BTNMATRIX_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_ONE_CHECKED, default=False): cv.boolean,
-        cv.Required(CONF_BUTTONS): cv.Schema(
-            {
-                cv.Required(CONF_TEXT): lv_text_value,
-                cv.GenerateID(): cv.declare_id(lvgl_btnmatrix_btn_idx_t),
-                cv.Optional(CONF_WIDTH): cv.positive_int,
-                cv.Optional(CONF_CONTROL): cv.ensure_list(
-                    cv.Schema({cv.Optional(k): cv.boolean for k in BTNMATRIX_CTRLS})
+        cv.Required(CONF_BUTTONS): cv.ensure_list(
+            cv.Any(
+                cv.Schema(
+                    {
+                        cv.Required(CONF_BREAK): optional_boolean,
+                    }
                 ),
-            }
+                cv.Schema(
+                    {
+                        cv.Required(CONF_TEXT): lv_text_value,
+                        cv.GenerateID(): cv.declare_id(lvgl_btnmatrix_btn_idx_t),
+                        cv.Optional(CONF_WIDTH): cv.positive_int,
+                        cv.Optional(CONF_CONTROL): cv.ensure_list(
+                            cv.Schema({cv.Optional(k.lower()): cv.boolean for k in BTNMATRIX_CTRLS})
+                        ),
+                    }
+                ),
+            )
         ),
     }
 )
@@ -727,7 +744,7 @@ CONFIG_SCHEMA = (
                 ),
                 requires_component("rotary_encoder"),
             ),
-            cv.Optional(CONF_COLOR_DEPTH, default=8): cv.one_of(1, 8, 16, 32),
+            cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(1, 8, 16, 32),
             cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
                 *LOG_LEVELS, upper=True
@@ -1004,8 +1021,19 @@ async def btn_to_code(_, var, btn):
 
 async def btnmatrix_to_code(_, btnm, conf):
     text_list = []
+    ctrl_list = []
     for btn in conf[CONF_BUTTONS]:
-        text_list.append(cg.safe_exp(btn[CONF_TEXT]))
+        if brk := btn.get(CONF_BREAK):
+            text_list.append("\n")
+        else:
+            text_list.append(cg.safe_exp(btn[CONF_TEXT]))
+        if controls := btn.get(CONF_CONTROL):
+            print(controls)
+            ctrl = []
+            for item in controls:
+                ctrl.extend([k for k, v in item.items() if v])
+            print(ctrl)
+    return []
     sca_id = cv.declare_id(cg.std_string)
     sca = cg.static_const_array(sca_id, cg.ArrayInitializer(text_list))
     init = [f"lv_btnmatrix_set_map({btnm}, {sca})"]
