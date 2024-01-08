@@ -912,7 +912,7 @@ def set_obj_properties(var, config):
         adds = join_enums(flag_set, "LV_OBJ_FLAG_")
         init.append(f"lv_obj_add_flag({var}, {adds})")
     if flag_clr:
-        clrs = join_enums(flag_set, "LV_OBJ_FLAG_")
+        clrs = join_enums(flag_clr, "LV_OBJ_FLAG_")
         init.append(f"lv_obj_clear_flag({var}, {clrs})")
 
     if layout := config.get(CONF_LAYOUT):
