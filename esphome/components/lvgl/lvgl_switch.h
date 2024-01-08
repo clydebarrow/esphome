@@ -14,7 +14,10 @@ class LVGLSwitch : public switch_::Switch {
   void set_state_lambda(std::function<void(bool)> state_lambda) { this->state_lambda_ = state_lambda; }
 
  protected:
-  void write_state(bool value) { this->state_lambda_(value); }
+  void write_state(bool value) {
+    if (this->state_lambda != nullptr)
+      this->state_lambda_(value);
+  }
   std::function<void(bool)> state_lambda_{};
 };
 

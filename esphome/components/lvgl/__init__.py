@@ -1415,11 +1415,15 @@ async def widget_to_code(lv_component, widget, parent):
 
 def modify_schema(widget_type):
     lv_type = globals()[f"lv_{widget_type}_t"]
-    schema = part_schema(widget_type).extend(
-        {
-            cv.Required(CONF_ID): cv.use_id(lv_type),
-            cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
-        }
+    schema = (
+        part_schema(widget_type)
+        .extend(
+            {
+                cv.Required(CONF_ID): cv.use_id(lv_type),
+                cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
+            }
+        )
+        .extend(FLAG_SCHEMA)
     )
     if extras := globals().get(f"{widget_type.upper()}_SCHEMA"):
         return schema.extend(extras)
