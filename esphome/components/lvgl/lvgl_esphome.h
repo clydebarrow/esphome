@@ -63,8 +63,9 @@ typedef lv_switch_t LvSwitchType;
 typedef lv_table_t LvTableType;
 typedef lv_textarea_t LvTextareaType;
 typedef struct {
-  size_t index;
-} LvBtnmatrixBtnIndexType;
+  lv_obj_t ** btnm;
+  uint16_t index;
+} LvBtnmBtn;
 
 typedef std::function<float(void)> value_lambda_t;
 typedef std::function<void(float)> set_value_lambda_t;
