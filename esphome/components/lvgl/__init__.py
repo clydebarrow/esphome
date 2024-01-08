@@ -60,6 +60,7 @@ from esphome.const import (
     CONF_COLOR,
     CONF_MIN_VALUE,
     CONF_MAX_VALUE,
+    CONF_MESSAGE,
     CONF_MODE,
     CONF_WIDTH,
     CONF_SENSOR,
@@ -145,6 +146,7 @@ CONF_INDICATORS = "indicators"
 CONF_LABEL_GAP = "label_gap"
 CONF_LAYOUT = "layout"
 CONF_LINE_WIDTH = "line_width"
+CONF_LOCAL = "local"
 CONF_LOG_LEVEL = "log_level"
 CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
@@ -243,13 +245,12 @@ LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
 ]
 
 # Record those we actually use
-
 lv_fonts_used = set()
 
 
 def lv_font(value):
     """Accept either the name of a built-in LVGL font, or the ID of an ESPHome font"""
-    # global lv_fonts_used
+    global lv_fonts_used
     if value == SCHEMA_EXTRACT:
         return LV_FONTS
     if isinstance(value, str) and value.lower() in LV_FONTS:

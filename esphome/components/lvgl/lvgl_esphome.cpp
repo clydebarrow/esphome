@@ -3,9 +3,6 @@
 #include "esphome/core/hal.h"
 #include "lvgl_hal.h"
 
-namespace esphome {
-namespace lvgl {
-
 static const char *TAG = "lvgl";
 unsigned long lv_millis(void) { return esphome::millis(); }
 
@@ -43,6 +40,3 @@ void *lv_custom_mem_realloc(void *ptr, unsigned int size) {
 #endif
   return heap_caps_realloc(ptr, size, cap_bits);
 }
-
-}  // namespace lvgl
-}  // namespace esphome
