@@ -7,7 +7,7 @@ from esphome.const import (
     CONF_ID,
     CONF_VALUE,
 )
-from .. import (
+from . import (
     lvgl_ns,
     LVGL_SCHEMA,
     lv_arc_t,
@@ -17,8 +17,9 @@ from .. import (
     CONF_ANIMATED,
     lv_animated,
     set_event_cb,
+    CONF_SLIDER,
+    CONF_ARC,
 )
-from ..sensor import CONF_ARC_ID, CONF_SLIDER_ID
 
 LVGLNumber = lvgl_ns.class_("LVGLNumber", number.Number)
 
@@ -27,8 +28,8 @@ CONFIG_SCHEMA = (
     .extend(LVGL_SCHEMA)
     .extend(
         {
-            cv.Exclusive(CONF_ARC_ID, CONF_VALUE): cv.use_id(lv_arc_t),
-            cv.Exclusive(CONF_SLIDER_ID, CONF_VALUE): cv.use_id(lv_slider_t),
+            cv.Exclusive(CONF_ARC, CONF_VALUE): cv.use_id(lv_arc_t),
+            cv.Exclusive(CONF_SLIDER, CONF_VALUE): cv.use_id(lv_slider_t),
             cv.Optional(CONF_ANIMATED, default=True): lv_animated,
         }
     )
@@ -43,11 +44,11 @@ async def to_code(config):
 
     animated = config[CONF_ANIMATED]
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    if CONF_ARC_ID in config:
-        obj = await cg.get_variable(config[CONF_ARC_ID])
+    if arc := config.get(CONF_ARC):
+        obj = await cg.get_variable(arc)
         lv_type = "arc"
-    elif CONF_SLIDER_ID in config:
-        obj = await cg.get_variable(config[CONF_SLIDER_ID])
+    elif slider := config.get(CONF_SLIDER):
+        obj = await cg.get_variable(slider)
         lv_type = "slider"
     else:
         return

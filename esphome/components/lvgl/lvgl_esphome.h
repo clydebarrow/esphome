@@ -1,6 +1,9 @@
 #pragma once
 
 #include "esphome/components/display/display.h"
+#include "esphome/core/automation.h"
+#include "esphome/core/component.h"
+
 #if LVGL_USES_IMAGE
 #include "esphome/components/image/image.h"
 #endif
@@ -9,6 +12,9 @@
 #endif
 #if LV_USE_TOUCHSCREEN
 #include "esphome/components/touchscreen/touchscreen.h"
+#endif
+#if LV_USE_ROTARY_ENCODER
+#include "esphome/components/rotary_encoder/rotary_encoder.h"
 #endif
 #include "esphome/components/display/display_color_utils.h"
 #include "esphome/core/component.h"
@@ -27,7 +33,7 @@ static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, c
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
 #elif LV_COLOR_DEPTH == 32
-static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_A888;
+static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_888;
 #else
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 #endif
@@ -49,6 +55,17 @@ typedef lv_arc_t LvArcType;
 typedef lv_bar_t LvBarType;
 typedef lv_theme_t LvThemeType;
 typedef lv_checkbox_t LvCheckboxType;
+typedef lv_btnmatrix_t LvBtnmatrixType;
+typedef lv_canvas_t LvCanvasType;
+typedef lv_dropdown_t LvDropdownType;
+typedef lv_roller_t LvRollerType;
+typedef lv_switch_t LvSwitchType;
+typedef lv_table_t LvTableType;
+typedef lv_textarea_t LvTextareaType;
+typedef struct {
+  lv_obj_t ** btnm;
+  uint16_t index;
+} LvBtnmBtn;
 
 typedef std::function<float(void)> value_lambda_t;
 typedef std::function<void(float)> set_value_lambda_t;
@@ -190,7 +207,6 @@ class Indicator : public Updater {
     } else if (this->start_value_ != nullptr) {
       new_value = this->start_value_();
       if (!std::isnan(new_value) && new_value != this->last_start_state_) {
-        esph_log_v(TAG, "new value %f", new_value);
         lv_meter_set_indicator_value(this->meter_, this->indicator_, this->start_value_());
         this->last_start_state_ = new_value;
       }
@@ -318,8 +334,6 @@ static lv_img_dsc_t *lv_img_from(image::Image *src) {
 #endif
       break;
   }
-  // esph_log_d(TAG, "Image type %d, width %d, height %d, length %d", img->header.cf, img->header.w, img->header.h,
-  //           img->data_size);
   return img;
 }
 #endif
@@ -338,17 +352,18 @@ class LvglComponent : public PollingComponent {
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
     lv_log_register_print_cb(log_cb);
-    size_t buf_size = this->display_->get_width() * this->display_->get_height() / 4;
-    auto buf = lv_custom_mem_alloc(buf_size * LV_COLOR_DEPTH / 8);
+    size_t bytes_per_pixel = LV_COLOR_DEPTH / 8;
+    size_t buffer_pixels = this->displays_[0]->get_width() * this->displays_[0]->get_height() / this->buffer_frac_;
+    auto buf = lv_custom_mem_alloc(buffer_pixels * bytes_per_pixel);
     if (buf == nullptr) {
-      esph_log_e(TAG, "Malloc failed to allocate %d bytes", buf_size);
+      esph_log_e(TAG, "Malloc failed to allocate %d bytes", buffer_pixels * bytes_per_pixel);
       this->mark_failed();
       return;
     }
-    lv_disp_draw_buf_init(&this->draw_buf_, buf, nullptr, buf_size);
+    lv_disp_draw_buf_init(&this->draw_buf_, buf, nullptr, buffer_pixels);
     lv_disp_drv_init(&this->disp_drv_);
-    this->disp_drv_.hor_res = this->display_->get_width();
-    this->disp_drv_.ver_res = this->display_->get_height();
+    this->disp_drv_.hor_res = this->displays_[0]->get_width();
+    this->disp_drv_.ver_res = this->displays_[0]->get_height();
     this->disp_drv_.draw_buf = &this->draw_buf_;
     this->disp_drv_.user_data = this;
     this->disp_drv_.flush_cb = static_flush_cb;
@@ -380,7 +395,7 @@ class LvglComponent : public PollingComponent {
     this->idle_callbacks_.add(std::move(callback));
   }
 
-  void set_display(display::Display *display) { this->display_ = display; }
+  void add_display(display::Display *display) { this->displays_.push_back(display); }
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { esph_log_config(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
@@ -391,18 +406,21 @@ class LvglComponent : public PollingComponent {
   }
   bool is_paused() { return this->paused_; }
   bool is_idle(uint32_t idle_ms) { return lv_disp_get_inactive_time(this->disp_) > idle_ms; }
+  void set_buffer_frac(size_t frac) { this->buffer_frac_ = frac; }
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
-    this->display_->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
-                                   (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
+    for (auto display : this->displays_) {
+      display->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
+                              (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
+    }
     lv_disp_flush_ready(disp_drv);
     esph_log_v(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
                lv_area_get_height(area), (int) (millis() - now));
   }
 
-  display::Display *display_{};
+  std::vector<display::Display *> displays_{};
   lv_disp_draw_buf_t draw_buf_{};
   lv_disp_drv_t disp_drv_{};
   lv_disp_t *disp_{};
@@ -411,6 +429,7 @@ class LvglComponent : public PollingComponent {
   CallbackManager<void(uint32_t)> idle_callbacks_{};
   std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
   std::vector<Updater *> updaters_;
+  size_t buffer_frac_{1};
   bool paused_{};
 };
 
@@ -426,31 +445,44 @@ template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
 
 class IdleTrigger : public Trigger<> {
  public:
-  explicit IdleTrigger(LvglComponent *parent, uint32_t timeout) : timeout_(timeout) {
+  explicit IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(timeout) {
     parent->add_on_idle_callback([this](uint32_t idle_time) {
-      if (!this->is_idle_ && idle_time > this->timeout_) {
+      if (!this->is_idle_ && idle_time > this->timeout_.value()) {
         this->is_idle_ = true;
         this->trigger();
-      } else if (this->is_idle_ && idle_time < this->timeout_) {
+      } else if (this->is_idle_ && idle_time < this->timeout_.value()) {
         this->is_idle_ = false;
       }
     });
   }
 
  protected:
-  uint32_t timeout_;
+  TemplatableValue<uint32_t> timeout_;
   bool is_idle_{};
 };
 
-template<typename... Ts> class PauseAction : public Action<Ts...>, public Parented<LvglComponent> {
+template<typename... Ts> class LvglAction : public Action<Ts...>, public Parented<LvglComponent> {
  public:
-  TEMPLATABLE_VALUE(bool, paused)
+  void play(Ts... x) override { this->action_(this->parent_); }
 
-  void play(Ts... x) override { this->parent_->set_paused(this->paused_.value(x...)); }
+  void set_action(std::function<void(LvglComponent *)> action) { this->action_ = action; }
+
+ protected:
+  std::function<void(LvglComponent *)> action_{};
 };
 
-#if 1
-class LVTouchListener;
+template<typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<LvglComponent> {
+ public:
+  bool check(Ts... x) override { return this->condition_lambda_(this->parent_); }
+  void set_condition_lambda(std::function<bool(LvglComponent *)> condition_lambda) {
+    this->condition_lambda_ = condition_lambda;
+  }
+
+ protected:
+  std::function<bool(LvglComponent *)> condition_lambda_{};
+};
+
+#if LV_USE_TOUCHSCREEN
 class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglComponent> {
  public:
   LVTouchListener() {
@@ -482,16 +514,35 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
   touchscreen::TouchPoint touch_point_{};
   bool touch_pressed_{};
 };
+#endif
 
-template<typename... Ts> class LvglCondition : public Condition<Ts...>, public Parented<LvglComponent> {
+#if LV_USE_ROTARY_ENCODER
+class LVRotaryEncoderListener : public Parented<LvglComponent> {
  public:
-  bool check(Ts... x) override { return this->condition_lambda_(); }
-  void set_condition_lambda(std::function<bool(void)> condition_lambda) { this->condition_lambda_ = condition_lambda; }
+  LVRotaryEncoderListener() {
+    lv_indev_drv_init(&this->drv);
+    this->drv.type = LV_INDEV_TYPE_ENCODER;
+    this->drv.user_data = this;
+    this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {
+      LVRotaryEncoderListener *l = (LVRotaryEncoderListener *) d->user_data;
+      data->state = l->pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+      data->continue_reading = false;
+      data->enc_diff = l->count_ - l->last_count_;
+      l->last_count_ = l->count_;
+    };
+  }
+
+  void set_count(int32_t count) { this->count_ = count; }
+  void set_pressed(bool pressed) { this->pressed_ = pressed && !this->parent_->is_paused(); }
+  lv_indev_drv_t drv{};
 
  protected:
-  std::function<bool(void)> condition_lambda_{};
+  bool pressed_{};
+  int32_t count_{};
+  int32_t last_count_{};
+  binary_sensor::BinarySensor *binary_sensor_{};
+  sensor::Sensor *sensor_{};
 };
-
 #endif
 
 template<typename... Ts> class NotifyAction : public Action<Ts...> {

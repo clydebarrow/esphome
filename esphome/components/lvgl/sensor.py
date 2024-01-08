@@ -2,13 +2,15 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.components.sensor import sensor_schema, new_sensor, Sensor
 from esphome.const import CONF_VALUE
-from .. import (
+from . import (
     add_init_lambda,
     lv_arc_t,
     LVGL_SCHEMA,
     CONF_LVGL_ID,
     lv_slider_t,
     set_event_cb,
+    CONF_SLIDER,
+    CONF_ARC,
 )
 
 CONF_ARC_ID = "arc_id"
@@ -18,8 +20,8 @@ CONFIG_SCHEMA = (
     .extend(LVGL_SCHEMA)
     .extend(
         {
-            cv.Exclusive(CONF_ARC_ID, CONF_VALUE): cv.use_id(lv_arc_t),
-            cv.Exclusive(CONF_SLIDER_ID, CONF_VALUE): cv.use_id(lv_slider_t),
+            cv.Exclusive(CONF_ARC, CONF_VALUE): cv.use_id(lv_arc_t),
+            cv.Exclusive(CONF_SLIDER, CONF_VALUE): cv.use_id(lv_slider_t),
         }
     )
 )
@@ -28,11 +30,11 @@ CONFIG_SCHEMA = (
 async def to_code(config):
     sensor = await new_sensor(config)
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    if CONF_ARC_ID in config:
-        obj = await cg.get_variable(config[CONF_ARC_ID])
+    if arc := config.get(CONF_ARC):
+        obj = await cg.get_variable(arc)
         lv_type = "arc"
-    elif CONF_SLIDER_ID in config:
-        obj = await cg.get_variable(config[CONF_SLIDER_ID])
+    elif slider := config.get(CONF_SLIDER):
+        obj = await cg.get_variable(slider)
         lv_type = "slider"
     else:
         return
