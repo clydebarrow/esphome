@@ -4,6 +4,8 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 import esphome.components.image as image
+from esphome.components.text_sensor import TextSensor
+from esphome.coroutine import FakeAwaitable
 from .defines import (
     # widgets
     CONF_ARC,
@@ -71,7 +73,6 @@ from esphome.const import (
     CONF_TIMEOUT,
 )
 from esphome.cpp_generator import LambdaExpression
-from ...coroutine import FakeAwaitable
 
 # import auto
 DOMAIN = "lvgl"
@@ -294,7 +295,6 @@ def lv_any_of(choices, prefix):
 
     @schema_extractor("one_of")
     def validator(value):
-        print(value, type(value))
         if not isinstance(value, list):
             value = [value]
         if value == SCHEMA_EXTRACT:
@@ -441,7 +441,7 @@ def lv_text_value(value):
     if isinstance(value, cv.Lambda):
         return cv.returning_lambda(value)
     if isinstance(value, ID):
-        return cv.use_id(Sensor)(value)
+        return cv.use_id(TextSensor)(value)
     return cv.string(value)
 
 
@@ -1016,7 +1016,7 @@ async def get_matrix_button(id: ID):
 
 async def btnmatrix_to_code(_, btnm, conf):
     text_list = []
-    ctrl_list = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
+    ctrl_list = []
     width_list = []
     id = conf[CONF_ID]
     for row in conf[CONF_ROWS]:
@@ -1025,7 +1025,7 @@ async def btnmatrix_to_code(_, btnm, conf):
             btnm_comp_list[bid] = (btnm, len(width_list))
             text_list.append(f"{cg.safe_exp(btn[CONF_TEXT])}")
             width_list.append(btn[CONF_WIDTH])
-            ctrl = ["0"]
+            ctrl = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
             if controls := btn.get(CONF_CONTROL):
                 for item in controls:
                     ctrl.extend(
@@ -1505,13 +1505,11 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
 async def arc_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
-    animated = config[CONF_ANIMATED]
     (value, lamb) = await get_value_lambda(config.get(CONF_VALUE))
-    print(value, lamb)
     if value is not None:
-        init.append(f"lv_arc_set_value({obj}, {value}, {animated})")
+        init.append(f"lv_arc_set_value({obj}, {value})")
     elif lamb != "nullptr":
-        init.append(f"lv_arc_set_value({obj}, {lamb}(), {animated})")
+        init.append(f"lv_arc_set_value({obj}, {lamb}())")
     return await update_to_code(config, action_id, obj, init, template_arg)
 
 

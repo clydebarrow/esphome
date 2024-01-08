@@ -42,6 +42,7 @@ async def to_code(config):
     await add_init_lambda(
         paren,
         [
+            f"{sensor}->publish_state((lv_obj_get_state({obj}) & LV_STATE_PRESSED) != 0)",
             f"lv_obj_add_event_cb({obj}, [](lv_event_t *e) {{"
             f"{test} {sensor}->publish_state(true);"
             "}, LV_EVENT_PRESSING, nullptr)",
