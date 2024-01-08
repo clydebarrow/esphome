@@ -294,13 +294,12 @@ def lv_any_of(choices, prefix):
 
     @schema_extractor("one_of")
     def validator(value):
+        print(value, type(value))
+        if not isinstance(value, list):
+            value = [value]
         if value == SCHEMA_EXTRACT:
             return choices
-        return "|".join(
-            map(
-                lambda v: "(int)" + lv_prefix(v, choices, prefix), cv.ensure_list(value)
-            )
-        )
+        return "|".join(map(lambda v: "(int)" + lv_prefix(v, choices, prefix), value))
 
     return validator
 
@@ -983,6 +982,10 @@ async def obj_to_code(_, var, obj):
     return []
 
 
+async def switch_to_code(_, var, btn):
+    return []
+
+
 async def btn_to_code(_, var, btn):
     return []
 
@@ -994,21 +997,26 @@ btnm_comp_list = {}
 def get_btn_generator(id):
     while True:
         try:
-            return btnm_comp_list[id]
+            return CONF_BTN, btnm_comp_list[id]
         except KeyError:
-            yield
+            try:
+                return CONF_OBJ, CORE.variables[id]
+            except KeyError:
+                yield
 
 
 async def get_matrix_button(id: ID):
     # Fast path, check if already registered without awaiting
-    if id in btnm_comp_list:
-        return btnm_comp_list[id]
+    if obj := CORE.variables.get(id):
+        return CONF_OBJ, obj
+    if obj := btnm_comp_list.get(id):
+        return CONF_BTN, obj
     return await FakeAwaitable(get_btn_generator(id))
 
 
 async def btnmatrix_to_code(_, btnm, conf):
     text_list = []
-    ctrl_list = []
+    ctrl_list = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
     width_list = []
     id = conf[CONF_ID]
     for row in conf[CONF_ROWS]:
@@ -1401,7 +1409,7 @@ async def widget_to_code(lv_component, widget, parent):
         fun = globals()[fun]
         init.extend(await fun(lv_component, var, v))
     else:
-        raise cv.Invalid(f"No handler for widget `{t}'")
+        raise cv.Invalid(f"No handler for widget {t}")
     return var, init
 
 

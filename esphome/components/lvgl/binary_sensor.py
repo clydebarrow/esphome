@@ -10,37 +10,35 @@ from . import (
     LVGL_SCHEMA,
     CONF_LVGL_ID,
     CONF_OBJ,
-    lv_obj_t,
-    LvBtnmBtn,
     get_matrix_button,
+    lv_pseudo_button_t,
+    CONF_BTN,
+    requires_component,
 )
-
-CONF_MATRIX_BTN = "matrix_btn"
 
 BASE_SCHEMA = binary_sensor_schema(BinarySensor).extend(LVGL_SCHEMA)
 CONFIG_SCHEMA = cv.All(
     BASE_SCHEMA.extend(
         {
-            cv.Exclusive(CONF_OBJ, "object"): cv.use_id(lv_obj_t),
-            cv.Exclusive(CONF_MATRIX_BTN, "object"): cv.use_id(LvBtnmBtn),
+            cv.Required(CONF_OBJ): cv.use_id(lv_pseudo_button_t),
+            cv.Required(CONF_OBJ): cv.use_id(lv_pseudo_button_t),
         }
     ),
-    cv.has_at_least_one_key(CONF_OBJ, CONF_MATRIX_BTN),
+    requires_component("binary_sensor"),
 )
 
 
 async def to_code(config):
     sensor = await new_binary_sensor(config)
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    init = []
-    if id := config.get(CONF_OBJ):
-        obj = await cg.get_variable(id)
-        test = ""
-    elif id := config.get(CONF_MATRIX_BTN):
-        (obj, idx) = await get_matrix_button(id)
+    type, obj = await get_matrix_button(config[CONF_OBJ])
+    if type == CONF_BTN:
+        # map the button ID to the button matrix and an index
+        idx = obj[1]
+        obj = obj[0]
         test = f"if (lv_btnmatrix_get_selected_btn({obj}) == {idx})"
     else:
-        return
+        test = ""
     await add_init_lambda(
         paren,
         [
