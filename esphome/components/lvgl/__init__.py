@@ -1186,13 +1186,17 @@ def indicator_update_schema(base):
     return base.extend({cv.Required(CONF_ID): cv.use_id(lv_meter_indicator_t)})
 
 
-async def update_to_code(config, action_id, obj, init, template_arg):
-    init.insert(0, f"if ({obj} == nullptr) return")
-    if config is not None:
-        init.extend(set_obj_properties(obj, config))
-    lamb = await cg.process_lambda(Lambda(";\n".join([*init, ""])), [])
+async def action_to_code(action, action_id, obj, template_arg):
+    action.insert(0, f"if ({obj} == nullptr) return")
+    lamb = await cg.process_lambda(Lambda(";\n".join([*action, ""])), [])
     var = cg.new_Pvariable(action_id, template_arg, lamb)
     return var
+
+
+async def update_to_code(config, action_id, obj, init, template_arg):
+    if config is not None:
+        init.extend(set_obj_properties(obj, config))
+    return await action_to_code(init, action_id, obj, template_arg)
 
 
 CONFIG_SCHEMA = (
@@ -1305,6 +1309,68 @@ def modify_schema(widget_type):
     if extras := globals().get(f"{widget_type.upper()}_SCHEMA"):
         return schema.extend(extras)
     return schema
+
+
+ACTION_SCHEMA = cv.maybe_simple_value(
+    {
+        cv.Required(CONF_ID): cv.use_id(lv_pseudo_button_t),
+    },
+    key=CONF_ID,
+)
+
+
+@automation.register_action("lvgl.obj.disable", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_disable_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_add_state({obj}, LV_STATE_DISABLED)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [
+            f"lv_btnmatrix_add_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
+        ]
+    return await action_to_code(action, action_id, obj, template_arg)
+
+
+@automation.register_action("lvgl.obj.enable", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_enable_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_clear_state({obj}, LV_STATE_DISABLED)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [
+            f"lv_btnmatrix_clear_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
+        ]
+    return await action_to_code(action, action_id, obj, template_arg)
+
+
+@automation.register_action("lvgl.obj.show", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_show_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_clear_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [
+            f"lv_btnmatrix_clear_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"
+        ]
+    return await action_to_code(action, action_id, obj, template_arg)
+
+
+@automation.register_action("lvgl.obj.hide", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_hide_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_add_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [f"lv_btnmatrix_set_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"]
+    return await action_to_code(action, action_id, obj, template_arg)
 
 
 @automation.register_action("lvgl.obj.update", ObjUpdateAction, modify_schema(CONF_OBJ))
