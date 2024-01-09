@@ -81,6 +81,8 @@ from esphome.const import (
     CONF_TRIGGER_ID,
     CONF_TIMEOUT,
     CONF_OPTIONS,
+    CONF_BRIGHTNESS,
+    CONF_LED,
 )
 from esphome.cpp_generator import LambdaExpression
 from .lv_validation import (
@@ -154,6 +156,7 @@ lv_btnmatrix_t = cg.MockObjClass("LvBtnmatrixType", parents=[lv_obj_t])
 lv_canvas_t = cg.MockObjClass("LvCanvasType", parents=[lv_obj_t])
 lv_dropdown_t = cg.MockObjClass("LvDropdownType", parents=[lv_obj_t])
 lv_roller_t = cg.MockObjClass("LvRollerType", parents=[lv_obj_t])
+lv_led_t = cg.MockObjClass("LvLedType", parents=[lv_obj_t])
 lv_switch_t = cg.MockObjClass("LvSwitchType", parents=[lv_obj_t])
 lv_table_t = cg.MockObjClass("LvTableType", parents=[lv_obj_t])
 lv_textarea_t = cg.MockObjClass("LvTextareaType", parents=[lv_obj_t])
@@ -226,6 +229,7 @@ WIDGET_TYPES = {
     CONF_IMG: (CONF_MAIN,),
     CONF_INDICATOR: (),
     CONF_LABEL: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
+    CONF_LED: (CONF_MAIN,),
     CONF_LINE: (CONF_MAIN,),
     CONF_DROPDOWN_LIST: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
     CONF_METER: (CONF_MAIN,),
@@ -573,6 +577,13 @@ ROLLER_MODIFY_SCHEMA = ROLLER_BASE_SCHEMA.extend(
     }
 )
 
+LED_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_COLOR): lv_color,
+        cv.Optional(CONF_BRIGHTNESS): cv.templatable(cv.percentage),
+    }
+)
+
 
 def obj_schema(parts=(CONF_MAIN,)):
     return (
@@ -623,22 +634,23 @@ def widget_schema(name):
 WIDGET_SCHEMA = cv.Any(dict(map(widget_schema, WIDGET_TYPES)))
 
 
-async def get_boolean_lambda(value):
-    lamb = None
+async def get_boolean_value(value):
+    if value is None:
+        return None
     if isinstance(value, Lambda):
         lamb = await cg.process_lambda(value, [], return_type=cg.bool_)
-        value = None
     elif isinstance(value, ID):
-        lamb = "[] {" f"return {value}->get_state();" "}"
-        value = None
-    return value, lamb
+        lamb = f"[] {{ return {value}->get_state(); }}"
+    else:
+        return value
+    return f"{lamb}()"
 
 
 async def get_text_value(value):
     if isinstance(value, Lambda):
         return f"{await cg.process_lambda(value, [], return_type=cg.const_char_ptr)}()"
     elif isinstance(value, ID):
-        return "[] {" f"return {value}->get_state().c_str();" "}"
+        return "[] {" f"return {value}->get_state().c_str();}}()"
     return cg.safe_exp(value)
 
 
@@ -884,6 +896,26 @@ async def switch_to_code(var, btn):
 
 async def btn_to_code(var, btn):
     return []
+
+
+async def led_to_code(var, config):
+    init = []
+    if color := config.get(CONF_COLOR):
+        init.append(f"lv_led_set_color({var}, {color})")
+    if brightness := await get_value_expr(config.get(CONF_BRIGHTNESS)):
+        init.append(f"lv_led_set_brightness({var}, {brightness} * 255)")
+    return init
+
+
+@automation.register_action(
+    "lvgl.led.update",
+    ObjUpdateAction,
+    modify_schema(CONF_LED),
+)
+async def led_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = await led_to_code(obj, config)
+    return await update_to_code(config, action_id, obj, init, template_arg)
 
 
 async def roller_to_code(var, config):

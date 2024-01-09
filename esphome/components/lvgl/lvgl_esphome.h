@@ -60,6 +60,7 @@ typedef lv_canvas_t LvCanvasType;
 typedef lv_dropdown_t LvDropdownType;
 typedef lv_dropdown_list_t LvDropdownListType;
 typedef lv_roller_t LvRollerType;
+typedef lv_led_t LvLedType;
 typedef lv_switch_t LvSwitchType;
 typedef lv_table_t LvTableType;
 typedef lv_textarea_t LvTextareaType;

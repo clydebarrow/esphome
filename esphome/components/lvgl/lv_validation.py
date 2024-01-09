@@ -196,7 +196,7 @@ def lv_boolean_value(value):
         return cv.returning_lambda(value)
     if isinstance(value, ID):
         return cv.use_id(BinarySensor)(value)
-    return cv.boolean(value)
+    return "true" if cv.boolean(value) else "false"
 
 
 def optional_boolean(value):
