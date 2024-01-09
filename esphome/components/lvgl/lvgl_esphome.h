@@ -64,7 +64,7 @@ typedef lv_switch_t LvSwitchType;
 typedef lv_table_t LvTableType;
 typedef lv_textarea_t LvTextareaType;
 typedef struct {
-  lv_obj_t ** btnm;
+  lv_obj_t **btnm;
   uint16_t index;
 } LvBtnmBtn;
 

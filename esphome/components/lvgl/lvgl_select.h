@@ -41,9 +41,7 @@ class LVGLSelect : public select::Select {
       this->publish_state(value.value());
   }
 
-  void set_options(const char * str) {
-    this->traits.set_options(split_string(str));
-  }
+  void set_options(const char *str) { this->traits.set_options(split_string(str)); }
 
  protected:
   void control(const std::string &value) override {
