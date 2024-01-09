@@ -1,9 +1,15 @@
 import logging
-from esphome.core import CORE, ID, Lambda
+from esphome.core import (
+    CORE,
+    ID,
+    Lambda,
+)
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
-import esphome.components.image as image
+
+from esphome.components.text_sensor import TextSensor
+from esphome.coroutine import FakeAwaitable
 
 from .defines import (
     # widgets
@@ -42,14 +48,17 @@ from .defines import (
     FLEX_FLOWS,
     OBJ_FLAGS,
     BTNMATRIX_CTRLS,
+    # Input devices
+    CONF_ROTARY_ENCODERS,
+    CONF_TOUCHSCREENS,
 )
 
 from esphome.components.sensor import Sensor
-from esphome.components.touchscreen import Touchscreen, CONF_TOUCHSCREEN_ID
-from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
+from esphome.components.touchscreen import (
+    Touchscreen,
+    CONF_TOUCHSCREEN_ID,
+)
 from esphome.components.display import Display
-from esphome.components import color
-from esphome.components.font import Font
 from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
 from esphome.components.binary_sensor import BinarySensor
 from esphome.const import (
@@ -73,7 +82,25 @@ from esphome.const import (
     CONF_TIMEOUT,
 )
 from esphome.cpp_generator import LambdaExpression
-from ...coroutine import FakeAwaitable
+from .lv_validation import (
+    lv_one_of,
+    lv_opacity,
+    lv_bool,
+    lv_stop_value,
+    lv_any_of,
+    lv_size,
+    lv_font,
+    lv_angle,
+    pixels_or_percent,
+    lv_zoom,
+    lv_animated,
+    join_enums,
+    lv_fonts_used,
+    lv_uses,
+    lv_color,
+    REQUIRED_COMPONENTS,
+    lvgl_components_required,
+)
 
 # import auto
 DOMAIN = "lvgl"
@@ -158,7 +185,6 @@ CONF_ONE_CHECKED = "one_checked"
 CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
-CONF_ROTARY_ENCODERS = "rotary_encoders"
 CONF_ROTATION = "rotation"
 CONF_ROWS = "rows"
 CONF_R_MOD = "r_mod"
@@ -175,7 +201,6 @@ CONF_STYLE_DEFINITIONS = "style_definitions"
 CONF_STYLE_ID = "style_id"
 CONF_TEXT = "text"
 CONF_THEME = "theme"
-CONF_TOUCHSCREENS = "touchscreens"
 CONF_WIDGETS = "widgets"
 
 # for notification msgbox
@@ -213,148 +238,7 @@ WIDGET_TYPES = {
     ),
 }
 
-REQUIRED_COMPONENTS = {CONF_IMG: image.DOMAIN}
-# List of other components used
-lvgl_components_required = set()
-
-
-def requires_component(comp):
-    def validator(value):
-        lvgl_components_required.add(comp)
-        return cv.requires_component(comp)(value)
-
-    return validator
-
-
-def lv_color(value):
-    if isinstance(value, int):
-        hexval = cv.hex_int(value)
-        return f"lv_color_hex({hexval})"
-    color_id = cv.use_id(color)(value)
-    return f"lv_color_from({color_id})"
-
-
 # List the LVGL built-in fonts that are available
-LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
-    "montserrat_12_subpx",
-    "montserrat_28_compressed",
-    "dejavu_16_persian_hebrew",
-    "simsun_16_cjk16",
-    "unscii_8",
-    "unscii_16",
-]
-
-# Record those we actually use
-lv_fonts_used = set()
-
-
-def lv_font(value):
-    """Accept either the name of a built-in LVGL font, or the ID of an ESPHome font"""
-    global lv_fonts_used
-    if value == SCHEMA_EXTRACT:
-        return LV_FONTS
-    if isinstance(value, str) and value.lower() in LV_FONTS:
-        font = cv.one_of(*LV_FONTS, lower=True)(value)
-        lv_fonts_used.add(font)
-        return "&lv_font_" + font
-    lv_uses.add("FONT")
-    font = cv.use_id(Font)(value)
-    return f"(new lvgl::FontEngine({font}))->get_lv_font()"
-
-
-def lv_bool(value):
-    if cv.boolean(value):
-        return "true"
-    return "false"
-
-
-def lv_prefix(value, choices, prefix):
-    if value.startswith(prefix):
-        return cv.one_of(*list(map(lambda v: prefix + v, choices)), upper=True)(value)
-    return prefix + cv.one_of(*choices, upper=True)(value)
-
-
-def lv_animated(value):
-    if isinstance(value, bool):
-        value = "ON" if value else "OFF"
-    return lv_one_of(["OFF", "ON"], "LV_ANIM_")(value)
-
-
-def lv_one_of(choices, prefix):
-    """Allow one of a list of choices, mapped to upper case, and prepend the choice with the prefix.
-    It's also permitted to include the prefix in the value"""
-
-    @schema_extractor("one_of")
-    def validator(value):
-        if value == SCHEMA_EXTRACT:
-            return choices
-        return lv_prefix(value, choices, prefix)
-
-    return validator
-
-
-def join_enums(enums, prefix=""):
-    return "|".join(map(lambda e: f"(int){prefix}{e.upper()}", enums))
-
-
-def lv_any_of(choices, prefix):
-    """Allow any of a list of choices, mapped to upper case, and prepend the choice with the prefix.
-    It's also permitted to include the prefix in the value"""
-
-    @schema_extractor("one_of")
-    def validator(value):
-        print(value, type(value))
-        if not isinstance(value, list):
-            value = [value]
-        if value == SCHEMA_EXTRACT:
-            return choices
-        return "|".join(map(lambda v: "(int)" + lv_prefix(v, choices, prefix), value))
-
-    return validator
-
-
-def pixels_or_percent(value):
-    """A length in one axis - either a number (pixels) or a percentage"""
-    if isinstance(value, int):
-        return str(cv.int_(value))
-    # Will throw an exception if not a percentage.
-    return f"lv_pct({int(cv.percentage(value) * 100)})"
-
-
-def lv_zoom(value):
-    value = cv.float_range(0.1, 10.0)(value)
-    return int(value * 256)
-
-
-def lv_angle(value):
-    return cv.float_range(0.0, 360.0)(cv.angle(value))
-
-
-@schema_extractor("one_of")
-def lv_size(value):
-    """A size in one axis - one of "size_content", a number (pixels) or a percentage"""
-    if value == SCHEMA_EXTRACT:
-        return ["size_content", "pixels", "..%"]
-    if isinstance(value, str) and not value.endswith("%"):
-        if value.upper() == "SIZE_CONTENT":
-            return "LV_SIZE_CONTENT"
-        raise cv.Invalid("must be 'size_content', a pixel position or a percentage")
-    if isinstance(value, int):
-        return str(cv.int_(value))
-    # Will throw an exception if not a percentage.
-    return f"lv_pct({int(cv.percentage(value) * 100)})"
-
-
-def lv_opacity(value):
-    value = cv.Any(cv.percentage, lv_one_of(["TRANSP", "COVER"], "LV_OPA_"))(value)
-    if isinstance(value, str):
-        return value
-    return int(value * 255)
-
-
-def lv_stop_value(value):
-    return cv.int_range(0, 255)
-
 
 STYLE_PROPS = {
     "align": lv_one_of(ALIGNMENTS, "LV_ALIGN_"),
@@ -450,7 +334,7 @@ def lv_text_value(value):
     if isinstance(value, cv.Lambda):
         return cv.returning_lambda(value)
     if isinstance(value, ID):
-        return cv.use_id(Sensor)(value)
+        return cv.use_id(TextSensor)(value)
     return cv.string(value)
 
 
@@ -615,7 +499,6 @@ INDICATOR_SCHEMA = cv.Schema(
                     cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
                 }
             ),
-            requires_component("image"),
         ),
         cv.Exclusive(CONF_ARC, CONF_INDICATORS): INDICATOR_ARC_SCHEMA.extend(
             {
@@ -707,7 +590,6 @@ def container_schema(widget_type):
 
 
 def widget_schema(name):
-    global lvgl_components_required
     validator = container_schema(name)
     if required := REQUIRED_COMPONENTS.get(name):
         validator = cv.All(validator, cv.requires_component(required))
@@ -837,10 +719,6 @@ async def theme_to_code(theme):
     ]
 
 
-lv_uses = {
-    "USER_DATA",
-    "LOG",
-}
 lv_temp_vars = set()  # Temporary variables
 lv_groups = set()  # Widget group names
 lv_defines = {}  # Dict of #defines to provide as build flags
@@ -1025,7 +903,7 @@ async def get_matrix_button(id: ID):
 
 async def btnmatrix_to_code(_, btnm, conf):
     text_list = []
-    ctrl_list = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
+    ctrl_list = []
     width_list = []
     id = conf[CONF_ID]
     for row in conf[CONF_ROWS]:
@@ -1034,7 +912,7 @@ async def btnmatrix_to_code(_, btnm, conf):
             btnm_comp_list[bid] = (btnm, len(width_list))
             text_list.append(f"{cg.safe_exp(btn[CONF_TEXT])}")
             width_list.append(btn[CONF_WIDTH])
-            ctrl = ["0"]
+            ctrl = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
             if controls := btn.get(CONF_CONTROL):
                 for item in controls:
                     ctrl.extend(
@@ -1317,13 +1195,17 @@ def indicator_update_schema(base):
     return base.extend({cv.Required(CONF_ID): cv.use_id(lv_meter_indicator_t)})
 
 
-async def update_to_code(config, action_id, obj, init, template_arg):
-    init.insert(0, f"if ({obj} == nullptr) return")
-    if config is not None:
-        init.extend(set_obj_properties(obj, config))
-    lamb = await cg.process_lambda(Lambda(";\n".join([*init, ""])), [])
+async def action_to_code(action, action_id, obj, template_arg):
+    action.insert(0, f"if ({obj} == nullptr) return")
+    lamb = await cg.process_lambda(Lambda(";\n".join([*action, ""])), [])
     var = cg.new_Pvariable(action_id, template_arg, lamb)
     return var
+
+
+async def update_to_code(config, action_id, obj, init, template_arg):
+    if config is not None:
+        init.extend(set_obj_properties(obj, config))
+    return await action_to_code(init, action_id, obj, template_arg)
 
 
 CONFIG_SCHEMA = (
@@ -1362,7 +1244,6 @@ CONFIG_SCHEMA = (
                         }
                     )
                 ),
-                requires_component("rotary_encoder"),
             ),
             cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(1, 8, 16, 32),
             cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
@@ -1437,6 +1318,68 @@ def modify_schema(widget_type):
     if extras := globals().get(f"{widget_type.upper()}_SCHEMA"):
         return schema.extend(extras)
     return schema
+
+
+ACTION_SCHEMA = cv.maybe_simple_value(
+    {
+        cv.Required(CONF_ID): cv.use_id(lv_pseudo_button_t),
+    },
+    key=CONF_ID,
+)
+
+
+@automation.register_action("lvgl.obj.disable", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_disable_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_add_state({obj}, LV_STATE_DISABLED)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [
+            f"lv_btnmatrix_add_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
+        ]
+    return await action_to_code(action, action_id, obj, template_arg)
+
+
+@automation.register_action("lvgl.obj.enable", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_enable_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_clear_state({obj}, LV_STATE_DISABLED)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [
+            f"lv_btnmatrix_clear_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
+        ]
+    return await action_to_code(action, action_id, obj, template_arg)
+
+
+@automation.register_action("lvgl.obj.show", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_show_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_clear_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [
+            f"lv_btnmatrix_clear_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"
+        ]
+    return await action_to_code(action, action_id, obj, template_arg)
+
+
+@automation.register_action("lvgl.obj.hide", ObjUpdateAction, ACTION_SCHEMA)
+async def obj_hide_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    if otype == CONF_OBJ:
+        action = [f"lv_obj_add_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
+    else:
+        idx = obj[1]
+        obj = obj[0]
+        action = [f"lv_btnmatrix_set_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"]
+    return await action_to_code(action, action_id, obj, template_arg)
 
 
 @automation.register_action("lvgl.obj.update", ObjUpdateAction, modify_schema(CONF_OBJ))
@@ -1514,13 +1457,11 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
 async def arc_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
-    animated = config[CONF_ANIMATED]
     (value, lamb) = await get_value_lambda(config.get(CONF_VALUE))
-    print(value, lamb)
     if value is not None:
-        init.append(f"lv_arc_set_value({obj}, {value}, {animated})")
+        init.append(f"lv_arc_set_value({obj}, {value})")
     elif lamb != "nullptr":
-        init.append(f"lv_arc_set_value({obj}, {lamb}(), {animated})")
+        init.append(f"lv_arc_set_value({obj}, {lamb}())")
     return await update_to_code(config, action_id, obj, init, template_arg)
 
 

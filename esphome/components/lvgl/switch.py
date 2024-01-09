@@ -14,9 +14,9 @@ from . import (
     lvgl_ns,
     lv_pseudo_button_t,
     get_matrix_button,
-    requires_component,
     set_event_cb,
 )
+from .lv_validation import requires_component
 
 LVGLSwitch = lvgl_ns.class_("LVGLSwitch", Switch)
 BASE_SCHEMA = switch_schema(LVGLSwitch).extend(LVGL_SCHEMA)
@@ -38,26 +38,23 @@ async def to_code(config):
         # map the button ID to the button matrix and an index
         idx = obj[1]
         obj = obj[0]
-        init = set_event_cb(
-            obj,
-            f"if (lv_btnmatrix_get_selected_btn({obj}) == {idx})"
-            f"{switch}->publish_state(lv_btnmatrix_has_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_CHECKED))",
-            "LV_EVENT_VALUE_CHANGED",
-        )
+        publish = f"""if (lv_btnmatrix_get_selected_btn({obj}) == {idx})
+            {switch}->publish_state(lv_btnmatrix_has_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_CHECKED))"""
         set_state = f"""
             if (v) lv_btnmatrix_set_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_CHECKED);
             else lv_btnmatrix_clear_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_CHECKED);
             """
     else:
-        init = set_event_cb(
-            obj,
-            f"{switch}->publish_state(lv_obj_get_state({obj}) & LV_STATE_CHECKED)",
-            "LV_EVENT_VALUE_CHANGED",
-        )
+        publish = f"{switch}->publish_state((lv_obj_get_state({obj}) & LV_STATE_CHECKED) != 0)"
         set_state = f"""
             if (v) lv_obj_add_state({obj}, LV_STATE_CHECKED);
             else lv_obj_clear_state({obj}, LV_STATE_CHECKED);
             """
+    init = set_event_cb(
+        obj,
+        publish,
+        "LV_EVENT_VALUE_CHANGED",
+    )
     set_state += f"{switch}->publish_state(v);"
     init.append(f"{switch}->set_state_lambda([] (bool v) {{\n" + set_state + "\n})")
     await add_init_lambda(paren, init)

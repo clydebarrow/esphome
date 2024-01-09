@@ -47,25 +47,29 @@ async def to_code(config):
     if arc := config.get(CONF_ARC):
         obj = await cg.get_variable(arc)
         lv_type = "arc"
+        animated = ""
     elif slider := config.get(CONF_SLIDER):
         obj = await cg.get_variable(slider)
         lv_type = "slider"
+        animated = f", {animated}"
     else:
         return
+    publish = f"{var}->publish_state(lv_{lv_type}_get_value({obj}))"
     init = set_event_cb(
         obj,
-        f"   {var}->publish_state(lv_{lv_type}_get_value({obj}));\n",
+        publish,
         "LV_EVENT_VALUE_CHANGED",
         f"{paren}->get_custom_change_event()",
-    ) + [
-        f"{var}->set_control_lambda([] (float v) {{\n"
-        f"  lv_{lv_type}_set_value({obj}, v, {animated});\n"
-        "})"
-    ]
+    )
     init.extend(
         [
+            f"""{var}->set_control_lambda([] (float v) {{
+               lv_{lv_type}_set_value({obj}, v{animated});
+               {publish};
+            }})""",
             f"{var}->traits.set_max_value(lv_{lv_type}_get_max_value({obj}))",
             f"{var}->traits.set_min_value(lv_{lv_type}_get_min_value({obj}))",
+            publish,
         ]
     )
     await add_init_lambda(paren, init)
