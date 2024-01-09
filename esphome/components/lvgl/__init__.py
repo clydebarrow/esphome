@@ -52,6 +52,7 @@ from .defines import (
     CONF_TOUCHSCREENS,
     LV_SYMBOLS,
     DIRECTIONS,
+    ROLLER_MODES,
 )
 
 from esphome.components.touchscreen import (
@@ -549,9 +550,26 @@ DROPDOWN_SCHEMA = DROPDOWN_BASE_SCHEMA.extend(
     }
 )
 
-DROPDOWN_MODIFY_SCHEMA = DROPDOWN_BASE_SCHEMA.extend(
+DROPDOWN_MODIFY_SCHEMA = DROPDOWN_BASE_SCHEMA
+
+ROLLER_BASE_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_OPTIONS): cv.ensure_list(lv_option_string),
+        cv.Optional(CONF_SELECTED_INDEX): cv.templatable(cv.int_),
+        cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(
+            ROLLER_MODES, "LV_ROLLER_MODE_"
+        ),
+    }
+)
+
+ROLLER_SCHEMA = ROLLER_BASE_SCHEMA.extend(
+    {
+        cv.Required(CONF_OPTIONS): cv.ensure_list(lv_option_string),
+    }
+)
+
+ROLLER_MODIFY_SCHEMA = ROLLER_BASE_SCHEMA.extend(
+    {
+        cv.Optional(CONF_ANIMATED, default=True): lv_animated,
     }
 )
 
@@ -866,6 +884,30 @@ async def switch_to_code(var, btn):
 
 async def btn_to_code(var, btn):
     return []
+
+
+async def roller_to_code(var, config):
+    init = []
+    mode = config[CONF_MODE]
+    if options := config.get(CONF_OPTIONS):
+        text = cg.safe_exp("\n".join(options))
+        init.append(f"lv_roller_set_options({var}, {text}, {mode})")
+    animated = config.get(CONF_ANIMATED) or "LV_ANIM_OFF"
+    if selected := config.get(CONF_SELECTED_INDEX):
+        value = await get_value_expr(selected, cg.uint16)
+        init.append(f"lv_roller_set_selected({var}, {value}, {animated})")
+    return init
+
+
+@automation.register_action(
+    "lvgl.roller.update",
+    ObjUpdateAction,
+    modify_schema(CONF_ROLLER),
+)
+async def roller_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = await roller_to_code(obj, config)
+    return await update_to_code(config, action_id, obj, init, template_arg)
 
 
 async def dropdown_to_code(var, config):

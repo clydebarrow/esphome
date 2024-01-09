@@ -21,7 +21,6 @@ CONFIG_SCHEMA = cv.All(
     BASE_SCHEMA.extend(
         {
             cv.Required(CONF_OBJ): cv.use_id(lv_pseudo_button_t),
-            cv.Required(CONF_OBJ): cv.use_id(lv_pseudo_button_t),
         }
     ),
     requires_component("binary_sensor"),

@@ -3,6 +3,7 @@ import esphome.config_validation as cv
 from esphome.components import select
 from esphome.const import (
     CONF_ID,
+    CONF_VALUE,
 )
 from . import (
     lvgl_ns,
@@ -12,18 +13,23 @@ from . import (
     set_event_cb,
     CONF_DROPDOWN,
     lv_dropdown_t,
+    lv_roller_t,
+    CONF_ROLLER,
 )
+from .lv_validation import requires_component
 
 LVGLSelect = lvgl_ns.class_("LVGLSelect", select.Select)
 
-CONFIG_SCHEMA = (
+CONFIG_SCHEMA = cv.All(
     select.select_schema(LVGLSelect)
     .extend(LVGL_SCHEMA)
     .extend(
         {
-            cv.Required(CONF_DROPDOWN): cv.use_id(lv_dropdown_t),
+            cv.Exclusive(CONF_DROPDOWN, CONF_VALUE): cv.use_id(lv_dropdown_t),
+            cv.Exclusive(CONF_ROLLER, CONF_VALUE): cv.use_id(lv_roller_t),
         }
-    )
+    ),
+    requires_component("select"),
 )
 
 
@@ -31,19 +37,28 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await select.register_select(var, config, options=[])
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    drop = config[CONF_DROPDOWN]
-    obj = await cg.get_variable(drop)
-    publish = f"{var}->publish_index(lv_dropdown_get_selected({obj}))"
-    init = set_event_cb(
-        obj,
-        publish,
-        "LV_EVENT_VALUE_CHANGED",
+    init = []
+    if obj := config.get(CONF_DROPDOWN):
+        animated = ""
+        obj = await cg.get_variable(obj)
+        otype = "dropdown"
+    else:
+        animated = ", LV_ANIM_OFF"
+        otype = "roller"
+        obj = await cg.get_variable(config[CONF_ROLLER])
+    publish = f"{var}->publish_index(lv_{otype}_get_selected({obj}))"
+    init.extend(
+        set_event_cb(
+            obj,
+            publish,
+            "LV_EVENT_VALUE_CHANGED",
+        )
     )
     init.extend(
         [
-            f"""{var}->set_options(lv_dropdown_get_options({obj}));
+            f"""{var}->set_options(lv_{otype}_get_options({obj}));
             {var}->set_control_lambda([] (size_t v) {{
-                lv_dropdown_set_selected({obj}, v);
+                lv_{otype}_set_selected({obj}, v {animated});
                {publish};
             }})""",
             publish,
