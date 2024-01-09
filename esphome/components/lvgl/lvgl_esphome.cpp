@@ -4,9 +4,7 @@
 #include "lvgl_hal.h"
 
 namespace esphome {
-namespace lvgl {
-static const char *TAG = "lvgl";
-}  // namespace lvgl
+namespace lvgl {}  // namespace lvgl
 }  // namespace esphome
 unsigned long lv_millis(void) { return esphome::millis(); }
 

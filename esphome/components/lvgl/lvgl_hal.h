@@ -12,6 +12,7 @@
 
 namespace esphome {
 namespace lvgl {
+static const char *TAG = "lvgl";
 }  // namespace lvgl
 }  // namespace esphome
 EXTERNC unsigned long lv_millis(void);
