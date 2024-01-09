@@ -14,9 +14,9 @@ from . import (
     lvgl_ns,
     lv_pseudo_button_t,
     get_matrix_button,
-    requires_component,
     set_event_cb,
 )
+from .lv_validation import requires_component
 
 LVGLSwitch = lvgl_ns.class_("LVGLSwitch", Switch)
 BASE_SCHEMA = switch_schema(LVGLSwitch).extend(LVGL_SCHEMA)

@@ -13,8 +13,8 @@ from . import (
     get_matrix_button,
     lv_pseudo_button_t,
     CONF_BTN,
-    requires_component,
 )
+from .lv_validation import requires_component
 
 BASE_SCHEMA = binary_sensor_schema(BinarySensor).extend(LVGL_SCHEMA)
 CONFIG_SCHEMA = cv.All(

@@ -16,6 +16,10 @@ CONF_SWITCH = "switch"
 CONF_TABLE = "table"
 CONF_TEXTAREA = "textarea"
 
+# Input devices
+CONF_ROTARY_ENCODERS = "rotary_encoders"
+CONF_TOUCHSCREENS = "touchscreens"
+
 # Parts
 CONF_MAIN = "main"
 CONF_SCROLLBAR = "scrollbar"
@@ -26,6 +30,15 @@ CONF_ITEMS = "items"
 CONF_TICKS = "ticks"
 CONF_CURSOR = "cursor"
 CONF_TEXTAREA_PLACEHOLDER = "textarea_placeholder"
+
+LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
+    "montserrat_12_subpx",
+    "montserrat_28_compressed",
+    "dejavu_16_persian_hebrew",
+    "simsun_16_cjk16",
+    "unscii_8",
+    "unscii_16",
+]
 
 LOG_LEVELS = (
     "TRACE",

@@ -1,5 +1,9 @@
 import logging
-from esphome.core import CORE, ID, Lambda
+from esphome.core import (
+    CORE,
+    ID,
+    Lambda,
+)
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
@@ -43,14 +47,17 @@ from .defines import (
     FLEX_FLOWS,
     OBJ_FLAGS,
     BTNMATRIX_CTRLS,
+    # Input devices
+    CONF_ROTARY_ENCODERS,
+    CONF_TOUCHSCREENS,
 )
 
 from esphome.components.sensor import Sensor
-from esphome.components.touchscreen import Touchscreen, CONF_TOUCHSCREEN_ID
-from esphome.schema_extractors import schema_extractor, SCHEMA_EXTRACT
+from esphome.components.touchscreen import (
+    Touchscreen,
+    CONF_TOUCHSCREEN_ID,
+)
 from esphome.components.display import Display
-from esphome.components import color
-from esphome.components.font import Font
 from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
 from esphome.components.binary_sensor import BinarySensor
 from esphome.const import (
@@ -73,6 +80,25 @@ from esphome.const import (
     CONF_TIMEOUT,
 )
 from esphome.cpp_generator import LambdaExpression
+from .lv_validation import (
+    lv_one_of,
+    lv_opacity,
+    lv_bool,
+    lv_stop_value,
+    lv_any_of,
+    lv_size,
+    lv_font,
+    lv_angle,
+    pixels_or_percent,
+    lv_zoom,
+    lv_animated,
+    join_enums,
+    lv_fonts_used,
+    lv_uses,
+    lv_color,
+    REQUIRED_COMPONENTS,
+    lvgl_components_required,
+)
 
 # import auto
 DOMAIN = "lvgl"
@@ -157,7 +183,6 @@ CONF_ONE_CHECKED = "one_checked"
 CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
-CONF_ROTARY_ENCODERS = "rotary_encoders"
 CONF_ROTATION = "rotation"
 CONF_ROWS = "rows"
 CONF_R_MOD = "r_mod"
@@ -174,7 +199,6 @@ CONF_STYLE_DEFINITIONS = "style_definitions"
 CONF_STYLE_ID = "style_id"
 CONF_TEXT = "text"
 CONF_THEME = "theme"
-CONF_TOUCHSCREENS = "touchscreens"
 CONF_WIDGETS = "widgets"
 
 # list of widgets and the parts allowed
@@ -205,147 +229,7 @@ WIDGET_TYPES = {
     ),
 }
 
-REQUIRED_COMPONENTS = {CONF_IMG: image.DOMAIN}
-# List of other components used
-lvgl_components_required = set()
-
-
-def requires_component(comp):
-    def validator(value):
-        lvgl_components_required.add(comp)
-        return cv.requires_component(comp)(value)
-
-    return validator
-
-
-def lv_color(value):
-    if isinstance(value, int):
-        hexval = cv.hex_int(value)
-        return f"lv_color_hex({hexval})"
-    color_id = cv.use_id(color)(value)
-    return f"lv_color_from({color_id})"
-
-
 # List the LVGL built-in fonts that are available
-LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
-    "montserrat_12_subpx",
-    "montserrat_28_compressed",
-    "dejavu_16_persian_hebrew",
-    "simsun_16_cjk16",
-    "unscii_8",
-    "unscii_16",
-]
-
-# Record those we actually use
-lv_fonts_used = set()
-
-
-def lv_font(value):
-    """Accept either the name of a built-in LVGL font, or the ID of an ESPHome font"""
-    global lv_fonts_used
-    if value == SCHEMA_EXTRACT:
-        return LV_FONTS
-    if isinstance(value, str) and value.lower() in LV_FONTS:
-        font = cv.one_of(*LV_FONTS, lower=True)(value)
-        lv_fonts_used.add(font)
-        return "&lv_font_" + font
-    lv_uses.add("FONT")
-    font = cv.use_id(Font)(value)
-    return f"(new lvgl::FontEngine({font}))->get_lv_font()"
-
-
-def lv_bool(value):
-    if cv.boolean(value):
-        return "true"
-    return "false"
-
-
-def lv_prefix(value, choices, prefix):
-    if value.startswith(prefix):
-        return cv.one_of(*list(map(lambda v: prefix + v, choices)), upper=True)(value)
-    return prefix + cv.one_of(*choices, upper=True)(value)
-
-
-def lv_animated(value):
-    if isinstance(value, bool):
-        value = "ON" if value else "OFF"
-    return lv_one_of(["OFF", "ON"], "LV_ANIM_")(value)
-
-
-def lv_one_of(choices, prefix):
-    """Allow one of a list of choices, mapped to upper case, and prepend the choice with the prefix.
-    It's also permitted to include the prefix in the value"""
-
-    @schema_extractor("one_of")
-    def validator(value):
-        if value == SCHEMA_EXTRACT:
-            return choices
-        return lv_prefix(value, choices, prefix)
-
-    return validator
-
-
-def join_enums(enums, prefix=""):
-    return "|".join(map(lambda e: f"(int){prefix}{e.upper()}", enums))
-
-
-def lv_any_of(choices, prefix):
-    """Allow any of a list of choices, mapped to upper case, and prepend the choice with the prefix.
-    It's also permitted to include the prefix in the value"""
-
-    @schema_extractor("one_of")
-    def validator(value):
-        if not isinstance(value, list):
-            value = [value]
-        if value == SCHEMA_EXTRACT:
-            return choices
-        return "|".join(map(lambda v: "(int)" + lv_prefix(v, choices, prefix), value))
-
-    return validator
-
-
-def pixels_or_percent(value):
-    """A length in one axis - either a number (pixels) or a percentage"""
-    if isinstance(value, int):
-        return str(cv.int_(value))
-    # Will throw an exception if not a percentage.
-    return f"lv_pct({int(cv.percentage(value) * 100)})"
-
-
-def lv_zoom(value):
-    value = cv.float_range(0.1, 10.0)(value)
-    return int(value * 256)
-
-
-def lv_angle(value):
-    return cv.float_range(0.0, 360.0)(cv.angle(value))
-
-
-@schema_extractor("one_of")
-def lv_size(value):
-    """A size in one axis - one of "size_content", a number (pixels) or a percentage"""
-    if value == SCHEMA_EXTRACT:
-        return ["size_content", "pixels", "..%"]
-    if isinstance(value, str) and not value.endswith("%"):
-        if value.upper() == "SIZE_CONTENT":
-            return "LV_SIZE_CONTENT"
-        raise cv.Invalid("must be 'size_content', a pixel position or a percentage")
-    if isinstance(value, int):
-        return str(cv.int_(value))
-    # Will throw an exception if not a percentage.
-    return f"lv_pct({int(cv.percentage(value) * 100)})"
-
-
-def lv_opacity(value):
-    value = cv.Any(cv.percentage, lv_one_of(["TRANSP", "COVER"], "LV_OPA_"))(value)
-    if isinstance(value, str):
-        return value
-    return int(value * 255)
-
-
-def lv_stop_value(value):
-    return cv.int_range(0, 255)
-
 
 STYLE_PROPS = {
     "align": lv_one_of(ALIGNMENTS, "LV_ALIGN_"),
@@ -606,7 +490,6 @@ INDICATOR_SCHEMA = cv.Schema(
                     cv.GenerateID(): cv.declare_id(lv_meter_indicator_t),
                 }
             ),
-            requires_component("image"),
         ),
         cv.Exclusive(CONF_ARC, CONF_INDICATORS): INDICATOR_ARC_SCHEMA.extend(
             {
@@ -698,7 +581,6 @@ def container_schema(widget_type):
 
 
 def widget_schema(name):
-    global lvgl_components_required
     validator = container_schema(name)
     if required := REQUIRED_COMPONENTS.get(name):
         validator = cv.All(validator, cv.requires_component(required))
@@ -828,10 +710,6 @@ async def theme_to_code(theme):
     ]
 
 
-lv_uses = {
-    "USER_DATA",
-    "LOG",
-}
 lv_temp_vars = set()  # Temporary variables
 lv_groups = set()  # Widget group names
 lv_defines = {}  # Dict of #defines to provide as build flags
@@ -1353,7 +1231,6 @@ CONFIG_SCHEMA = (
                         }
                     )
                 ),
-                requires_component("rotary_encoder"),
             ),
             cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(1, 8, 16, 32),
             cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
