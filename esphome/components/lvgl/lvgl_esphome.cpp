@@ -3,7 +3,11 @@
 #include "esphome/core/hal.h"
 #include "lvgl_hal.h"
 
+namespace esphome {
+namespace lvgl {
 static const char *TAG = "lvgl";
+}  // namespace lvgl
+}  // namespace esphome
 unsigned long lv_millis(void) { return esphome::millis(); }
 
 static unsigned cap_bits = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
@@ -16,18 +20,18 @@ void *lv_custom_mem_alloc(unsigned int size) {
     ptr = heap_caps_malloc(size, cap_bits);
   }
   if (ptr == nullptr) {
-    esphome::esph_log_e(TAG, "Failed to allocate %u bytes", size);
+    esphome::esph_log_e(esphome::lvgl::TAG, "Failed to allocate %u bytes", size);
     return nullptr;
   }
 #ifdef ESPHOME_LOG_HAS_VERBOSE
-  esphome::esph_log_v(TAG, "allocate %u - > %p", size, ptr);
+  esphome::esph_log_v(esphome::lvgl::TAG, "allocate %u - > %p", size, ptr);
 #endif
   return ptr;
 }
 
 void lv_custom_mem_free(void *ptr) {
 #ifdef ESPHOME_LOG_HAS_VERBOSE
-  esphome::esph_log_v(TAG, "free %p", ptr);
+  esphome::esph_log_v(esphome::lvgl::TAG, "free %p", ptr);
 #endif
   if (ptr == nullptr)
     return;
@@ -36,7 +40,7 @@ void lv_custom_mem_free(void *ptr) {
 
 void *lv_custom_mem_realloc(void *ptr, unsigned int size) {
 #ifdef ESPHOME_LOG_HAS_VERBOSE
-  esphome::esph_log_v(TAG, "realloc %p: %u", ptr, size);
+  esphome::esph_log_v(esphome::lvgl::TAG, "realloc %p: %u", ptr, size);
 #endif
   return heap_caps_realloc(ptr, size, cap_bits);
 }

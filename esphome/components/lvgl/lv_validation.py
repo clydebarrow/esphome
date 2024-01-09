@@ -1,10 +1,5 @@
 import esphome.config_validation as cv
-from .defines import (
-    LV_FONTS,
-    CONF_IMG,
-    CONF_ROTARY_ENCODERS,
-    CONF_TOUCHSCREENS,
-)
+from esphome.core import ID
 from esphome.schema_extractors import (
     SCHEMA_EXTRACT,
     schema_extractor,
@@ -18,7 +13,12 @@ from esphome.const import (
     CONF_MAX_VALUE,
     CONF_MIN_VALUE,
 )
-from ...core import ID
+from .defines import (
+    LV_FONTS,
+    CONF_IMG,
+    CONF_ROTARY_ENCODERS,
+    CONF_TOUCHSCREENS,
+)
 
 lv_uses = {
     "USER_DATA",
@@ -128,9 +128,9 @@ def lv_id_name(value):
 
 
 def pixels_or_percent(value):
+    """A length in one axis - either a number (pixels) or a percentage"""
     if value == SCHEMA_EXTRACT:
         return ["pixels", "..%"]
-    """A length in one axis - either a number (pixels) or a percentage"""
     if isinstance(value, int):
         return str(cv.int_(value))
     # Will throw an exception if not a percentage.

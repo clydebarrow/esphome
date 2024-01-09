@@ -7,8 +7,41 @@ from esphome.core import (
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
-import esphome.components.image as image
+from esphome.components.image import Image_
 from esphome.coroutine import FakeAwaitable
+from esphome.components.touchscreen import (
+    Touchscreen,
+    CONF_TOUCHSCREEN_ID,
+)
+from esphome.components.display import Display
+from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
+from esphome.components.binary_sensor import BinarySensor
+from esphome.const import (
+    CONF_ID,
+    CONF_VALUE,
+    CONF_RANGE_FROM,
+    CONF_RANGE_TO,
+    CONF_COLOR,
+    CONF_MIN_VALUE,
+    CONF_MAX_VALUE,
+    CONF_MODE,
+    CONF_WIDTH,
+    CONF_SENSOR,
+    CONF_BINARY_SENSOR,
+    CONF_GROUP,
+    CONF_LENGTH,
+    CONF_COUNT,
+    CONF_STATE,
+    CONF_TRIGGER_ID,
+    CONF_TIMEOUT,
+    CONF_OPTIONS,
+    CONF_BRIGHTNESS,
+    CONF_LED,
+    CONF_LOCAL,
+    CONF_ROTATION,
+    CONF_BUFFER_SIZE,
+)
+from esphome.cpp_generator import LambdaExpression
 from .defines import (
     # widgets
     CONF_ARC,
@@ -55,36 +88,6 @@ from .defines import (
     ROLLER_MODES,
 )
 
-from esphome.components.touchscreen import (
-    Touchscreen,
-    CONF_TOUCHSCREEN_ID,
-)
-from esphome.components.display import Display
-from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
-from esphome.components.binary_sensor import BinarySensor
-from esphome.const import (
-    CONF_ID,
-    CONF_VALUE,
-    CONF_RANGE_FROM,
-    CONF_RANGE_TO,
-    CONF_COLOR,
-    CONF_MIN_VALUE,
-    CONF_MAX_VALUE,
-    CONF_MODE,
-    CONF_WIDTH,
-    CONF_SENSOR,
-    CONF_BINARY_SENSOR,
-    CONF_GROUP,
-    CONF_LENGTH,
-    CONF_COUNT,
-    CONF_STATE,
-    CONF_TRIGGER_ID,
-    CONF_TIMEOUT,
-    CONF_OPTIONS,
-    CONF_BRIGHTNESS,
-    CONF_LED,
-)
-from esphome.cpp_generator import LambdaExpression
 from .lv_validation import (
     lv_one_of,
     lv_opacity,
@@ -165,7 +168,6 @@ CONF_ADJUSTABLE = "adjustable"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_BACKGROUND_STYLE = "background_style"
-CONF_BUFFER_SIZE = "buffer_size"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
 CONF_CHANGE_RATE = "change_rate"
@@ -185,7 +187,6 @@ CONF_INDICATORS = "indicators"
 CONF_LABEL_GAP = "label_gap"
 CONF_LAYOUT = "layout"
 CONF_LINE_WIDTH = "line_width"
-CONF_LOCAL = "local"
 CONF_LOG_LEVEL = "log_level"
 CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
@@ -197,7 +198,6 @@ CONF_ONE_CHECKED = "one_checked"
 CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
-CONF_ROTATION = "rotation"
 CONF_ROWS = "rows"
 CONF_R_MOD = "r_mod"
 CONF_SCALES = "scales"
@@ -402,7 +402,7 @@ SLIDER_SCHEMA = BAR_SCHEMA
 
 LINE_SCHEMA = {cv.Optional(CONF_POINTS): cv_point_list}
 
-IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(image.Image_)}
+IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(Image_)}
 
 # Schema for a single button in a btnmatrix
 BTNM_BTN_SCHEMA = cv.Schema(
@@ -649,7 +649,7 @@ async def get_boolean_value(value):
 async def get_text_value(value):
     if isinstance(value, Lambda):
         return f"{await cg.process_lambda(value, [], return_type=cg.const_char_ptr)}()"
-    elif isinstance(value, ID):
+    if isinstance(value, ID):
         return "[] {" f"return {value}->get_state().c_str();}}()"
     return cg.safe_exp(value)
 
@@ -772,7 +772,9 @@ def add_group(name):
 
 def add_define(macro, value="1"):
     if macro in lv_defines and lv_defines[macro] != value:
-        LOGGER.error(f"Redefinition of {macro} - was {lv_defines[macro]}, now {value}")
+        LOGGER.error(
+            "Redefinition of %s - was %s now %s", macro, lv_defines[macro], value
+        )
     lv_defines[macro] = value
 
 
@@ -867,7 +869,7 @@ async def create_lv_obj(t, lv_component, config, parent):
         init.append(f"lv_group_add_obj({group}, {var})")
     if CONF_WIDGETS in config:
         for widg in config[CONF_WIDGETS]:
-            (obj, ext_init) = await widget_to_code(lv_component, widg, var)
+            (_, ext_init) = await widget_to_code(lv_component, widg, var)
             init.extend(ext_init)
     return var, init
 
@@ -1033,8 +1035,8 @@ async def btnmatrix_to_code(btnm, conf):
     return init
 
 
-async def img_to_code(var, image):
-    return [f"lv_img_set_src({var}, lv_img_from({image[CONF_SRC]}))"]
+async def img_to_code(var, img):
+    return [f"lv_img_set_src({var}, lv_img_from({img[CONF_SRC]}))"]
 
 
 async def line_to_code(var, line):
