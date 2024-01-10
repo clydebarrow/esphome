@@ -1224,7 +1224,9 @@ async def to_code(config):
     cg.add_global(lvgl_ns.using)
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
-    for display in config.get(CONF_DISPLAY_ID, []):
+    if display := config.get(CONF_DISPLAY_ID):
+        cg.add(lv_component.add_display(await cg.get_variable(display)))
+    for display in config.get(CONF_DISPLAYS, []):
         cg.add(
             lv_component.add_display(await cg.get_variable(display[CONF_DISPLAY_ID]))
         )

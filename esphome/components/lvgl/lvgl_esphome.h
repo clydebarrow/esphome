@@ -2,7 +2,7 @@
 
 // required for clang-tidy
 #ifndef LV_CONF_SKIP
-#define LV_CONF_SKIP 1
+#define LV_CONF_SKIP 1  // NOLINT
 #endif
 #include "esphome/components/display/display.h"
 #include "esphome/core/automation.h"
