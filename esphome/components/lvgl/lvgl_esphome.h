@@ -1,5 +1,9 @@
 #pragma once
 
+// required for clang-tidy
+#ifndef LV_CONF_SKIP
+#define LV_CONF_SKIP 1
+#endif
 #include "esphome/components/display/display.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
@@ -40,6 +44,7 @@ static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 // The ESPHome name munging does not work well with the lv_ types, and will produce variable names
 // that are the same as the type.
 // to work-around this these typedefs are used.
+typedef lv_obj_t LvScreenType;
 typedef lv_obj_t LvObjType;
 typedef lv_style_t LvStyleType;
 typedef lv_point_t LvPointType;

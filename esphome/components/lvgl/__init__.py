@@ -57,6 +57,7 @@ from .defines import (
     CONF_LINE,
     CONF_METER,
     CONF_ROLLER,
+    CONF_SCREENS,
     CONF_SLIDER,
     CONF_SWITCH,
     CONF_TABLE,
@@ -136,6 +137,7 @@ LvglAction = lvgl_ns.class_("LvglAction", automation.Action)
 lv_pseudo_button_t = lvgl_ns.class_("LvPseudoButton")
 LvBtnmBtn = lvgl_ns.class_("LvBtnmBtn", lv_pseudo_button_t)
 lv_obj_t = cg.global_ns.class_("LvObjType", lv_pseudo_button_t)
+lv_screen_t = cg.global_ns.class_("LvScreenType")
 lv_point_t = cg.global_ns.struct("LvPointType")
 lv_obj_t_ptr = lv_obj_t.operator("ptr")
 lv_style_t = cg.global_ns.struct("LvStyleType")
@@ -179,6 +181,7 @@ CONF_CRITICAL_VALUE = "critical_value"
 CONF_DEFAULT = "default"
 CONF_DIR = "dir"
 CONF_DISPLAY_ID = "display_id"
+CONF_DISPLAYS = "displays"
 CONF_END_ANGLE = "end_angle"
 CONF_END_VALUE = "end_value"
 CONF_FLAGS = "flags"
@@ -1289,7 +1292,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_ID, default=CONF_LVGL_COMPONENT): cv.declare_id(
                 LvglComponent
             ),
-            cv.Required(CONF_DISPLAY_ID): cv.ensure_list(
+            cv.Exclusive(CONF_DISPLAYS, CONF_DISPLAY_ID): cv.ensure_list(
                 cv.maybe_simple_value(
                     {
                         cv.Required(CONF_DISPLAY_ID): cv.use_id(Display),
@@ -1297,6 +1300,7 @@ CONFIG_SCHEMA = (
                     key=CONF_DISPLAY_ID,
                 )
             ),
+            cv.Exclusive(CONF_DISPLAY_ID, CONF_DISPLAY_ID): cv.use_id(Display),
             cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
                 cv.maybe_simple_value(
                     {
@@ -1339,7 +1343,10 @@ CONFIG_SCHEMA = (
                     ),
                 }
             ),
-            cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
+            cv.Exclusive(CONF_WIDGETS, CONF_SCREENS): cv.ensure_list(WIDGET_SCHEMA),
+            cv.Exclusive(CONF_SCREENS, CONF_SCREENS): cv.ensure_list(
+                container_schema(CONF_OBJ)
+            ),
             cv.Optional(CONF_THEME): cv.Schema(
                 dict(
                     map(
@@ -1353,7 +1360,7 @@ CONFIG_SCHEMA = (
             ).extend({cv.GenerateID(CONF_ID): cv.declare_id(lv_theme_t)}),
         }
     )
-)
+).add_extra(cv.has_at_least_one_key(CONF_SCREENS, CONF_WIDGETS))
 
 # For use by platform components
 LVGL_SCHEMA = cv.Schema(
