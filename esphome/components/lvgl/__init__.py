@@ -113,6 +113,7 @@ from .lv_validation import (
     validate_max_min,
     lv_option_string,
     lv_id_name,
+    requires_component,
 )
 
 # import auto
@@ -629,8 +630,7 @@ def container_schema(widget_type):
 def widget_schema(name):
     validator = container_schema(name)
     if required := REQUIRED_COMPONENTS.get(name):
-        validator = cv.All(validator, cv.requires_component(required))
-        lvgl_components_required.add(required)
+        validator = cv.All(validator, requires_component(required))
     return cv.Exclusive(name, CONF_WIDGETS), validator
 
 

@@ -29,6 +29,7 @@
 #include <lvgl.h>
 #include <vector>
 
+static const char *const TAG = "lvgl";
 namespace esphome {
 namespace lvgl {
 
