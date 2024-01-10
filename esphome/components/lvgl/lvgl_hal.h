@@ -9,13 +9,14 @@
 #else
 #define EXTERNC extern
 #endif
+#include <stddef.h>
 
 namespace esphome {
 namespace lvgl {
-static const char *TAG = "lvgl";
+static const char *const TAG = "lvgl";
 }  // namespace lvgl
 }  // namespace esphome
 EXTERNC unsigned long lv_millis(void);
-EXTERNC void *lv_custom_mem_alloc(unsigned int size);
+EXTERNC void *lv_custom_mem_alloc(size_t size);
 EXTERNC void lv_custom_mem_free(void *ptr);
-EXTERNC void *lv_custom_mem_realloc(void *ptr, unsigned int size);
+EXTERNC void *lv_custom_mem_realloc(void *ptr, size_t size);

@@ -28,7 +28,6 @@
 namespace esphome {
 namespace lvgl {
 
-static const char *const TAG = "lvgl";
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
