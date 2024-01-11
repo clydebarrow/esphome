@@ -216,7 +216,7 @@ class LvglComponent : public PollingComponent {
     reinterpret_cast<LvglComponent *>(disp_drv->user_data)->flush_cb_(disp_drv, area, color_p);
   }
 
-  float get_setup_priority() const override { return setup_priority::PROCESSOR; }
+  float get_setup_priority() const override { return setup_priority::HARDWARE - 20; } //initialize after screen
   static void log_cb(const char *buf) { esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%s", buf); }
 
   void setup() override {
