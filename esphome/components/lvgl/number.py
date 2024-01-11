@@ -20,10 +20,11 @@ from . import (
     CONF_SLIDER,
     CONF_ARC,
 )
+from .lv_validation import requires_component
 
 LVGLNumber = lvgl_ns.class_("LVGLNumber", number.Number)
 
-CONFIG_SCHEMA = (
+CONFIG_SCHEMA = cv.All(
     number.number_schema(LVGLNumber)
     .extend(LVGL_SCHEMA)
     .extend(
@@ -32,7 +33,8 @@ CONFIG_SCHEMA = (
             cv.Exclusive(CONF_SLIDER, CONF_VALUE): cv.use_id(lv_slider_t),
             cv.Optional(CONF_ANIMATED, default=True): lv_animated,
         }
-    )
+    ),
+    requires_component("number"),
 )
 
 

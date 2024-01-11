@@ -9,8 +9,11 @@ CONF_DROPDOWN = "dropdown"
 CONF_IMG = "img"
 CONF_LABEL = "label"
 CONF_LINE = "line"
+CONF_DROPDOWN_LIST = "dropdown_list"
 CONF_METER = "meter"
 CONF_ROLLER = "roller"
+CONF_SCREEN = "screen"
+CONF_SCREENS = "screens"
 CONF_SLIDER = "slider"
 CONF_SWITCH = "switch"
 CONF_TABLE = "table"
@@ -76,6 +79,8 @@ PARTS = [
     CONF_TEXTAREA_PLACEHOLDER,
 ]
 
+ROLLER_MODES = ["NORMAL", "INFINITE"]
+DIRECTIONS = ("LEFT", "RIGHT", "BOTTOM", "TOP")
 ALIGNMENTS = [
     "TOP_LEFT",
     "TOP_MID",
@@ -158,4 +163,67 @@ BTNMATRIX_CTRLS = (
     "RECOLOR",
     "CUSTOM_1",
     "CUSTOM_2",
+)
+
+LV_SYMBOLS = (
+    "AUDIO",
+    "VIDEO",
+    "LIST",
+    "OK",
+    "CLOSE",
+    "POWER",
+    "SETTINGS",
+    "HOME",
+    "DOWNLOAD",
+    "DRIVE",
+    "REFRESH",
+    "MUTE",
+    "VOLUME_MID",
+    "VOLUME_MAX",
+    "IMAGE",
+    "TINT",
+    "PREV",
+    "PLAY",
+    "PAUSE",
+    "STOP",
+    "NEXT",
+    "EJECT",
+    "LEFT",
+    "RIGHT",
+    "PLUS",
+    "MINUS",
+    "EYE_OPEN",
+    "EYE_CLOSE",
+    "WARNING",
+    "SHUFFLE",
+    "UP",
+    "DOWN",
+    "LOOP",
+    "DIRECTORY",
+    "UPLOAD",
+    "CALL",
+    "CUT",
+    "COPY",
+    "SAVE",
+    "BARS",
+    "ENVELOPE",
+    "CHARGE",
+    "PASTE",
+    "BELL",
+    "KEYBOARD",
+    "GPS",
+    "FILE",
+    "WIFI",
+    "BATTERY_FULL",
+    "BATTERY_3",
+    "BATTERY_2",
+    "BATTERY_1",
+    "BATTERY_EMPTY",
+    "USB",
+    "BLUETOOTH",
+    "TRASH",
+    "EDIT",
+    "BACKSPACE",
+    "SD_CARD",
+    "NEW_LINE",
 )

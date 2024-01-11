@@ -8,52 +8,8 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 
-from esphome.components.text_sensor import TextSensor
+from esphome.components.image import Image_
 from esphome.coroutine import FakeAwaitable
-
-from .defines import (
-    # widgets
-    CONF_ARC,
-    CONF_BAR,
-    CONF_BTN,
-    CONF_BTNMATRIX,
-    CONF_CANVAS,
-    CONF_CHECKBOX,
-    CONF_DROPDOWN,
-    CONF_IMG,
-    CONF_LABEL,
-    CONF_LINE,
-    CONF_METER,
-    CONF_ROLLER,
-    CONF_SLIDER,
-    CONF_SWITCH,
-    CONF_TABLE,
-    CONF_TEXTAREA,
-    # Parts
-    CONF_MAIN,
-    CONF_SCROLLBAR,
-    CONF_INDICATOR,
-    CONF_KNOB,
-    CONF_SELECTED,
-    CONF_ITEMS,
-    CONF_TICKS,
-    CONF_CURSOR,
-    CONF_TEXTAREA_PLACEHOLDER,
-    ALIGNMENTS,
-    ARC_MODES,
-    BAR_MODES,
-    LOG_LEVELS,
-    STATES,
-    PARTS,
-    FLEX_FLOWS,
-    OBJ_FLAGS,
-    BTNMATRIX_CTRLS,
-    # Input devices
-    CONF_ROTARY_ENCODERS,
-    CONF_TOUCHSCREENS,
-)
-
-from esphome.components.sensor import Sensor
 from esphome.components.touchscreen import (
     Touchscreen,
     CONF_TOUCHSCREEN_ID,
@@ -80,7 +36,62 @@ from esphome.const import (
     CONF_STATE,
     CONF_TRIGGER_ID,
     CONF_TIMEOUT,
+    CONF_OPTIONS,
+    CONF_BRIGHTNESS,
+    CONF_LED,
+    CONF_LOCAL,
+    CONF_ROTATION,
+    CONF_BUFFER_SIZE,
 )
+from esphome.cpp_generator import LambdaExpression
+from .defines import (
+    # widgets
+    CONF_ARC,
+    CONF_BAR,
+    CONF_BTN,
+    CONF_BTNMATRIX,
+    CONF_CANVAS,
+    CONF_CHECKBOX,
+    CONF_DROPDOWN,
+    CONF_DROPDOWN_LIST,
+    CONF_IMG,
+    CONF_LABEL,
+    CONF_LINE,
+    CONF_METER,
+    CONF_ROLLER,
+    CONF_SCREENS,
+    CONF_SLIDER,
+    CONF_SWITCH,
+    CONF_TABLE,
+    CONF_TEXTAREA,
+    # Parts
+    CONF_MAIN,
+    CONF_SCROLLBAR,
+    CONF_INDICATOR,
+    CONF_KNOB,
+    CONF_SELECTED,
+    CONF_ITEMS,
+    CONF_TICKS,
+    CONF_CURSOR,
+    CONF_TEXTAREA_PLACEHOLDER,
+    ALIGNMENTS,
+    ARC_MODES,
+    BAR_MODES,
+    LOG_LEVELS,
+    STATES,
+    PARTS,
+    FLEX_FLOWS,
+    OBJ_FLAGS,
+    BTNMATRIX_CTRLS,
+    # Input devices
+    CONF_ROTARY_ENCODERS,
+    CONF_TOUCHSCREENS,
+    LV_SYMBOLS,
+    DIRECTIONS,
+    ROLLER_MODES,
+)
+
+
 from esphome.cpp_generator import LambdaExpression
 from .lv_validation import (
     lv_one_of,
@@ -100,6 +111,13 @@ from .lv_validation import (
     lv_color,
     REQUIRED_COMPONENTS,
     lvgl_components_required,
+    cv_int_list,
+    lv_value,
+    lv_text_value,
+    validate_max_min,
+    lv_option_string,
+    lv_id_name,
+    requires_component,
 )
 
 # import auto
@@ -124,6 +142,7 @@ LvglAction = lvgl_ns.class_("LvglAction", automation.Action)
 lv_pseudo_button_t = lvgl_ns.class_("LvPseudoButton")
 LvBtnmBtn = lvgl_ns.class_("LvBtnmBtn", lv_pseudo_button_t)
 lv_obj_t = cg.global_ns.class_("LvObjType", lv_pseudo_button_t)
+lv_screen_t = cg.global_ns.class_("LvScreenType")
 lv_point_t = cg.global_ns.struct("LvPointType")
 lv_obj_t_ptr = lv_obj_t.operator("ptr")
 lv_style_t = cg.global_ns.struct("LvStyleType")
@@ -133,6 +152,7 @@ lv_meter_indicator_t = cg.global_ns.struct("LvMeterIndicatorType")
 lv_indicator_t = cg.global_ns.struct("LvMeterIndicatorType")
 lv_meter_indicator_t_ptr = lv_meter_indicator_t.operator("ptr")
 lv_label_t = cg.MockObjClass("LvLabelType", parents=[lv_obj_t])
+lv_dropdown_list_t = cg.MockObjClass("LvDropdownListType", parents=[lv_obj_t])
 lv_meter_t = cg.MockObjClass("LvMeterType", parents=[lv_obj_t])
 lv_slider_t = cg.MockObjClass("LvSliderType", parents=[lv_obj_t])
 lv_btn_t = cg.MockObjClass("LvBtnType", parents=[lv_obj_t])
@@ -146,6 +166,7 @@ lv_btnmatrix_t = cg.MockObjClass("LvBtnmatrixType", parents=[lv_obj_t])
 lv_canvas_t = cg.MockObjClass("LvCanvasType", parents=[lv_obj_t])
 lv_dropdown_t = cg.MockObjClass("LvDropdownType", parents=[lv_obj_t])
 lv_roller_t = cg.MockObjClass("LvRollerType", parents=[lv_obj_t])
+lv_led_t = cg.MockObjClass("LvLedType", parents=[lv_obj_t])
 lv_switch_t = cg.MockObjClass("LvSwitchType", parents=[lv_obj_t])
 lv_table_t = cg.MockObjClass("LvTableType", parents=[lv_obj_t])
 lv_textarea_t = cg.MockObjClass("LvTextareaType", parents=[lv_obj_t])
@@ -154,7 +175,6 @@ CONF_ADJUSTABLE = "adjustable"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_BACKGROUND_STYLE = "background_style"
-CONF_BUFFER_SIZE = "buffer_size"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
 CONF_CHANGE_RATE = "change_rate"
@@ -164,7 +184,9 @@ CONF_COLOR_START = "color_start"
 CONF_CONTROL = "control"
 CONF_CRITICAL_VALUE = "critical_value"
 CONF_DEFAULT = "default"
+CONF_DIR = "dir"
 CONF_DISPLAY_ID = "display_id"
+CONF_DISPLAYS = "displays"
 CONF_END_ANGLE = "end_angle"
 CONF_END_VALUE = "end_value"
 CONF_FLAGS = "flags"
@@ -173,7 +195,6 @@ CONF_INDICATORS = "indicators"
 CONF_LABEL_GAP = "label_gap"
 CONF_LAYOUT = "layout"
 CONF_LINE_WIDTH = "line_width"
-CONF_LOCAL = "local"
 CONF_LOG_LEVEL = "log_level"
 CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
@@ -185,7 +206,6 @@ CONF_ONE_CHECKED = "one_checked"
 CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
-CONF_ROTATION = "rotation"
 CONF_ROWS = "rows"
 CONF_R_MOD = "r_mod"
 CONF_SCALES = "scales"
@@ -199,6 +219,8 @@ CONF_STYLE = "style"
 CONF_STYLES = "styles"
 CONF_STYLE_DEFINITIONS = "style_definitions"
 CONF_STYLE_ID = "style_id"
+CONF_SYMBOL = "symbol"
+CONF_SELECTED_INDEX = "selected_index"
 CONF_TEXT = "text"
 CONF_THEME = "theme"
 CONF_WIDGETS = "widgets"
@@ -222,7 +244,9 @@ WIDGET_TYPES = {
     CONF_IMG: (CONF_MAIN,),
     CONF_INDICATOR: (),
     CONF_LABEL: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
+    CONF_LED: (CONF_MAIN,),
     CONF_LINE: (CONF_MAIN,),
+    CONF_DROPDOWN_LIST: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
     CONF_METER: (CONF_MAIN,),
     CONF_OBJ: (CONF_MAIN,),
     CONF_ROLLER: (CONF_MAIN, CONF_SELECTED),
@@ -314,54 +338,31 @@ STYLE_PROPS = {
 }
 
 
+def modify_schema(widget_type):
+    lv_type = globals()[f"lv_{widget_type}_t"]
+    schema = (
+        part_schema(widget_type)
+        .extend(
+            {
+                cv.Required(CONF_ID): cv.use_id(lv_type),
+                cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
+            }
+        )
+        .extend(FLAG_SCHEMA)
+    )
+    if extras := globals().get(f"{widget_type.upper()}_MODIFY_SCHEMA"):
+        return schema.extend(extras)
+    if extras := globals().get(f"{widget_type.upper()}_SCHEMA"):
+        return schema.extend(extras)
+    return schema
+
+
 def generate_id(base):
     generate_id.counter += 1
     return f"lvgl_{base}_{generate_id.counter}"
 
 
 generate_id.counter = 0
-
-
-def lv_value(value, validators=None):
-    if isinstance(value, int):
-        return cv.float_(float(cv.int_(value)))
-    if isinstance(value, float):
-        return cv.float_(value)
-    return cv.templatable(cv.use_id(Sensor))(value)
-
-
-def lv_text_value(value):
-    if isinstance(value, cv.Lambda):
-        return cv.returning_lambda(value)
-    if isinstance(value, ID):
-        return cv.use_id(TextSensor)(value)
-    return cv.string(value)
-
-
-def lv_boolean_value(value):
-    if isinstance(value, cv.Lambda):
-        return cv.returning_lambda(value)
-    if isinstance(value, ID):
-        return cv.use_id(BinarySensor)(value)
-    return cv.boolean(value)
-
-
-def optional_boolean(value):
-    if value is None:
-        return True
-    return cv.boolean(value)
-
-
-def validate_max_min(config):
-    if CONF_MAX_VALUE in config and CONF_MIN_VALUE in config:
-        if config[CONF_MAX_VALUE] <= config[CONF_MIN_VALUE]:
-            raise cv.Invalid("max_value must be greater than min_value")
-    return config
-
-
-def cv_int_list(il):
-    nl = il.replace(" ", "").split(",")
-    return list(map(int, nl))
 
 
 def cv_point_list(value):
@@ -380,6 +381,14 @@ def cv_point_list(value):
         CONF_ID: cv.declare_id(lv_point_t)(generate_id(CONF_POINTS)),
         CONF_POINTS: values,
     }
+
+
+def part_schema(parts):
+    if isinstance(parts, str):
+        parts = WIDGET_TYPES[parts]
+    return cv.Schema({cv.Optional(part): STATE_SCHEMA for part in parts}).extend(
+        STATE_SCHEMA
+    )
 
 
 STYLE_SCHEMA = cv.Schema({cv.Optional(k): v for k, v in STYLE_PROPS.items()}).extend(
@@ -408,7 +417,7 @@ SLIDER_SCHEMA = BAR_SCHEMA
 
 LINE_SCHEMA = {cv.Optional(CONF_POINTS): cv_point_list}
 
-IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(image.Image_)}
+IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(Image_)}
 
 # Schema for a single button in a btnmatrix
 BTNM_BTN_SCHEMA = cv.Schema(
@@ -542,13 +551,53 @@ SCALE_SCHEMA = cv.Schema(
 
 METER_SCHEMA = {cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA)}
 
+LABEL_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
+CHECKBOX_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
 
-def part_schema(parts):
-    if isinstance(parts, str):
-        parts = WIDGET_TYPES[parts]
-    return cv.Schema({cv.Optional(part): STATE_SCHEMA for part in parts}).extend(
-        STATE_SCHEMA
-    )
+DROPDOWN_BASE_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_SYMBOL): lv_one_of(LV_SYMBOLS, "LV_SYMBOL_"),
+        cv.Optional(CONF_SELECTED_INDEX): cv.templatable(cv.int_),
+        cv.Optional(CONF_DIR, default="BOTTOM"): lv_one_of(DIRECTIONS, "LV_DIR_"),
+        cv.Optional(CONF_DROPDOWN_LIST): part_schema(CONF_DROPDOWN_LIST),
+    }
+)
+
+DROPDOWN_SCHEMA = DROPDOWN_BASE_SCHEMA.extend(
+    {
+        cv.Required(CONF_OPTIONS): cv.ensure_list(lv_option_string),
+    }
+)
+
+DROPDOWN_MODIFY_SCHEMA = DROPDOWN_BASE_SCHEMA
+
+ROLLER_BASE_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_SELECTED_INDEX): cv.templatable(cv.int_),
+        cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(
+            ROLLER_MODES, "LV_ROLLER_MODE_"
+        ),
+    }
+)
+
+ROLLER_SCHEMA = ROLLER_BASE_SCHEMA.extend(
+    {
+        cv.Required(CONF_OPTIONS): cv.ensure_list(lv_option_string),
+    }
+)
+
+ROLLER_MODIFY_SCHEMA = ROLLER_BASE_SCHEMA.extend(
+    {
+        cv.Optional(CONF_ANIMATED, default=True): lv_animated,
+    }
+)
+
+LED_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_COLOR): lv_color,
+        cv.Optional(CONF_BRIGHTNESS): cv.templatable(cv.percentage),
+    }
+)
 
 
 def obj_schema(parts=(CONF_MAIN,)):
@@ -563,7 +612,7 @@ def obj_schema(parts=(CONF_MAIN,)):
                         FLEX_FLOWS, prefix="LV_FLEX_FLOW_"
                     ),
                     cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
-                    cv.Optional(CONF_GROUP): cv.validate_id_name,
+                    cv.Optional(CONF_GROUP): lv_id_name,
                 }
             )
         )
@@ -592,51 +641,45 @@ def container_schema(widget_type):
 def widget_schema(name):
     validator = container_schema(name)
     if required := REQUIRED_COMPONENTS.get(name):
-        validator = cv.All(validator, cv.requires_component(required))
-        lvgl_components_required.add(required)
+        validator = cv.All(validator, requires_component(required))
     return cv.Exclusive(name, CONF_WIDGETS), validator
 
-
-LABEL_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
-CHECKBOX_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
 
 WIDGET_SCHEMA = cv.Any(dict(map(widget_schema, WIDGET_TYPES)))
 
 
-async def get_boolean_lambda(value):
-    lamb = None
+async def get_boolean_value(value):
+    if value is None:
+        return None
     if isinstance(value, Lambda):
         lamb = await cg.process_lambda(value, [], return_type=cg.bool_)
-        value = None
     elif isinstance(value, ID):
-        lamb = "[] {" f"return {value}->get_state();" "}"
-        value = None
-    return value, lamb
+        lamb = f"[] {{ return {value}->get_state(); }}"
+    else:
+        return value
+    return f"{lamb}()"
 
 
-async def get_text_lambda(value):
-    lamb = None
+async def get_text_value(value):
     if isinstance(value, Lambda):
-        lamb = await cg.process_lambda(value, [], return_type=cg.const_char_ptr)
-        value = None
-    elif isinstance(value, ID):
-        lamb = "[] {" f"return {value}->get_state().c_str();" "}"
-        value = None
-    return value, lamb
-
-
-async def get_value_lambda(value):
-    if value is None:
-        return None, "nullptr"
-    if isinstance(value, Lambda):
-        return None, await cg.process_lambda(value, [], return_type=float)
+        return f"{await cg.process_lambda(value, [], return_type=cg.const_char_ptr)}()"
     if isinstance(value, ID):
-        return None, "[] {" f"return {value}->get_state();" "}"
-    return value, "nullptr"
+        return "[] {" f"return {value}->get_state().c_str();}}()"
+    return cg.safe_exp(value)
+
+
+async def get_value_expr(input, return_type=cg.float_):
+    if input is None:
+        return None
+    if isinstance(input, Lambda):
+        return f"{await cg.process_lambda(input, [], return_type=return_type)}()"
+    if isinstance(input, ID):
+        return "[] {" f"return ({return_type}){input}->get_state();" "}"
+    return f"(({return_type}){input})"
 
 
 async def get_end_value(config):
-    return await get_value_lambda(config.get(CONF_END_VALUE))
+    return await get_value_expr(config.get(CONF_END_VALUE))
 
 
 async def get_start_value(config):
@@ -644,7 +687,7 @@ async def get_start_value(config):
         value = config[CONF_START_VALUE]
     else:
         value = config.get(CONF_VALUE)
-    return await get_value_lambda(value)
+    return await get_value_expr(value)
 
 
 async def add_init_lambda(lv_component, init):
@@ -743,7 +786,9 @@ def add_group(name):
 
 def add_define(macro, value="1"):
     if macro in lv_defines and lv_defines[macro] != value:
-        LOGGER.error(f"Redefinition of {macro} - was {lv_defines[macro]}, now {value}")
+        LOGGER.error(
+            "Redefinition of %s - was %s now %s", macro, lv_defines[macro], value
+        )
     lv_defines[macro] = value
 
 
@@ -838,43 +883,110 @@ async def create_lv_obj(t, lv_component, config, parent):
         init.append(f"lv_group_add_obj({group}, {var})")
     if CONF_WIDGETS in config:
         for widg in config[CONF_WIDGETS]:
-            (obj, ext_init) = await widget_to_code(lv_component, widg, var)
+            (_, ext_init) = await widget_to_code(lv_component, widg, var)
             init.extend(ext_init)
     return var, init
 
 
-async def checkbox_to_code(lv_component, var, checkbox):
+async def checkbox_to_code(var, checkbox):
     """For a text object, create and set text"""
-    if CONF_TEXT in checkbox:
-        (value, lamb) = await get_text_lambda(checkbox[CONF_TEXT])
-        if value is not None:
-            return [f'lv_checkbox_set_text({var}, "{value}")']
-        if lamb is not None:
-            return [f"{lv_component}->add_updater(new Checkbox({var}, {lamb}))"]
+    if value := await get_text_value(checkbox.get(CONF_TEXT)):
+        return [f"lv_checkbox_set_text({var}, {value})"]
     return []
 
 
-async def label_to_code(lv_component, var, label):
+async def label_to_code(var, label):
     """For a text object, create and set text"""
-    if CONF_TEXT in label:
-        (value, lamb) = await get_text_lambda(label[CONF_TEXT])
-        if value is not None:
-            return [f'lv_label_set_text({var}, "{value}")']
-        if lamb is not None:
-            return [f"{lv_component}->add_updater(new Label({var}, {lamb}))"]
+    if value := await get_text_value(label.get(CONF_TEXT)):
+        return [f"lv_label_set_text({var}, {value})"]
     return []
 
 
-async def obj_to_code(_, var, obj):
+async def obj_to_code(var, obj):
     return []
 
 
-async def switch_to_code(_, var, btn):
+async def switch_to_code(var, btn):
     return []
 
 
-async def btn_to_code(_, var, btn):
+async def btn_to_code(var, btn):
     return []
+
+
+async def led_to_code(var, config):
+    init = []
+    if color := config.get(CONF_COLOR):
+        init.append(f"lv_led_set_color({var}, {color})")
+    if brightness := await get_value_expr(config.get(CONF_BRIGHTNESS)):
+        init.append(f"lv_led_set_brightness({var}, {brightness} * 255)")
+    return init
+
+
+@automation.register_action(
+    "lvgl.led.update",
+    ObjUpdateAction,
+    modify_schema(CONF_LED),
+)
+async def led_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = await led_to_code(obj, config)
+    return await update_to_code(config, action_id, obj, init, template_arg)
+
+
+async def roller_to_code(var, config):
+    init = []
+    mode = config[CONF_MODE]
+    if options := config.get(CONF_OPTIONS):
+        text = cg.safe_exp("\n".join(options))
+        init.append(f"lv_roller_set_options({var}, {text}, {mode})")
+    animated = config.get(CONF_ANIMATED) or "LV_ANIM_OFF"
+    if selected := config.get(CONF_SELECTED_INDEX):
+        value = await get_value_expr(selected, cg.uint16)
+        init.append(f"lv_roller_set_selected({var}, {value}, {animated})")
+    return init
+
+
+@automation.register_action(
+    "lvgl.roller.update",
+    ObjUpdateAction,
+    modify_schema(CONF_ROLLER),
+)
+async def roller_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = await roller_to_code(obj, config)
+    return await update_to_code(config, action_id, obj, init, template_arg)
+
+
+async def dropdown_to_code(var, config):
+    init = []
+    if options := config.get(CONF_OPTIONS):
+        text = cg.safe_exp("\n".join(options))
+        init.append(f"lv_dropdown_set_options({var}, {text})")
+    if symbol := config.get(CONF_SYMBOL):
+        init.append(f"lv_dropdown_set_symbol({var}, {symbol})")
+    if selected := config.get(CONF_SELECTED_INDEX):
+        value = await get_value_expr(selected, cg.uint16)
+        init.append(f"lv_dropdown_set_selected({var}, {value})")
+    if dir := config.get(CONF_DIR):
+        init.append(f"lv_dropdown_set_dir({var}, {dir})")
+    if list := config.get(CONF_DROPDOWN_LIST):
+        s = f"{var}__list"
+        init.extend(add_temp_var("lv_obj_t", s))
+        init.append(f"{s} = lv_dropdown_get_list({var});")
+        init.extend(set_obj_properties(s, list))
+    return init
+
+
+@automation.register_action(
+    "lvgl.dropdown.update",
+    ObjUpdateAction,
+    modify_schema(CONF_DROPDOWN),
+)
+async def dropdown_update_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    init = await dropdown_to_code(obj, config)
+    return await update_to_code(config, action_id, obj, init, template_arg)
 
 
 # Track mapping arrays by component
@@ -901,7 +1013,7 @@ async def get_matrix_button(id: ID):
     return await FakeAwaitable(get_btn_generator(id))
 
 
-async def btnmatrix_to_code(_, btnm, conf):
+async def btnmatrix_to_code(btnm, conf):
     text_list = []
     ctrl_list = []
     width_list = []
@@ -937,11 +1049,11 @@ async def btnmatrix_to_code(_, btnm, conf):
     return init
 
 
-async def img_to_code(_, var, image):
-    return [f"lv_img_set_src({var}, lv_img_from({image[CONF_SRC]}))"]
+async def img_to_code(var, img):
+    return [f"lv_img_set_src({var}, lv_img_from({img[CONF_SRC]}))"]
 
 
-async def line_to_code(lv_component, var, line):
+async def line_to_code(var, line):
     """For a line object, create and add the points"""
     data = line[CONF_POINTS]
     point_list = data[CONF_POINTS]
@@ -955,7 +1067,7 @@ async def line_to_code(lv_component, var, line):
 meter_indicators = {}
 
 
-async def meter_to_code(lv_component, var, meter):
+async def meter_to_code(var, meter):
     """For a meter object, create and set parameters"""
 
     init = []
@@ -1007,8 +1119,8 @@ async def meter_to_code(lv_component, var, meter):
                     f"{ivar} = lv_meter_add_scale_lines({var}, {s}, {v[CONF_COLOR_START]},"
                     + f"{color_end}, {v[CONF_LOCAL]}, {v[CONF_R_MOD]})"
                 )
-            (start_value, start_lamb) = await get_start_value(v)
-            (end_value, end_lamb) = await get_end_value(v)
+            start_value = await get_start_value(v)
+            end_value = await get_end_value(v)
             if start_value is not None:
                 init.append(
                     f"lv_meter_set_indicator_start_value({var}, {ivar}, {start_value})"
@@ -1017,15 +1129,11 @@ async def meter_to_code(lv_component, var, meter):
                 init.append(
                     f"lv_meter_set_indicator_end_value({var}, {ivar}, {end_value})"
                 )
-            if start_lamb != "nullptr" or end_lamb != "nullptr":
-                init.append(
-                    f"{lv_component}->add_updater(new Indicator({var}, {ivar}, {start_lamb}, {end_lamb}))"
-                )
 
     return init
 
 
-async def arc_to_code(lv_component, var, arc):
+async def arc_to_code(var, arc):
     init = [
         f"lv_arc_set_range({var}, {arc[CONF_MIN_VALUE]}, {arc[CONF_MAX_VALUE]})",
         f"lv_arc_set_bg_angles({var}, {arc[CONF_START_ANGLE]}, {arc[CONF_END_ANGLE]})",
@@ -1033,41 +1141,20 @@ async def arc_to_code(lv_component, var, arc):
         f"lv_arc_set_mode({var}, {arc[CONF_MODE]})",
         f"lv_arc_set_change_rate({var}, {arc[CONF_CHANGE_RATE]})",
     ]
-    (value, lamb) = await get_start_value(arc)
+    value = await get_start_value(arc)
     if value is not None:
         init.append(f"lv_arc_set_value({var}, {value})")
-    if lamb != "nullptr":
-        init.append(f"{lv_component}->add_updater(new Arc({var}, {lamb})")
     return init
 
 
-async def bar_to_code(lv_component, var, conf):
+async def bar_to_code(var, conf):
     init = [
         f"lv_bar_set_range({var}, {conf[CONF_MIN_VALUE]}, {conf[CONF_MAX_VALUE]})",
         f"lv_bar_set_mode({var}, {conf[CONF_MODE]})",
     ]
-    (value, lamb) = await get_start_value(conf)
+    value = await get_start_value(conf)
     if value is not None:
         init.append(f"lv_bar_set_value({var}, {value}, LV_ANIM_OFF)")
-    if lamb != "nullptr":
-        init.append(
-            f"{lv_component}->add_updater(new Bar({var}, {lamb}, {conf[CONF_ANIMATED]}))"
-        )
-    return init
-
-
-async def slider_to_code(lv_component, var, slider):
-    init = [
-        f"lv_slider_set_range({var}, {slider[CONF_MIN_VALUE]}, {slider[CONF_MAX_VALUE]})",
-        f"lv_slider_set_mode({var}, {slider[CONF_MODE]})",
-    ]
-    (value, lamb) = await get_start_value(slider)
-    if value is not None:
-        init.append(f"lv_slider_set_value({var}, {value}, LV_ANIM_OFF)")
-    if lamb != "nullptr":
-        init.append(
-            f"{lv_component}->add_updater(new Slider({var}, {lamb}, {slider[CONF_ANIMATED]}))"
-        )
     return init
 
 
@@ -1148,7 +1235,9 @@ async def to_code(config):
     cg.add_global(lvgl_ns.using)
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
-    for display in config.get(CONF_DISPLAY_ID, []):
+    if display := config.get(CONF_DISPLAY_ID):
+        cg.add(lv_component.add_display(await cg.get_variable(display)))
+    for display in config.get(CONF_DISPLAYS, []):
         cg.add(
             lv_component.add_display(await cg.get_variable(display[CONF_DISPLAY_ID]))
         )
@@ -1216,7 +1305,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_ID, default=CONF_LVGL_COMPONENT): cv.declare_id(
                 LvglComponent
             ),
-            cv.Required(CONF_DISPLAY_ID): cv.ensure_list(
+            cv.Exclusive(CONF_DISPLAYS, CONF_DISPLAY_ID): cv.ensure_list(
                 cv.maybe_simple_value(
                     {
                         cv.Required(CONF_DISPLAY_ID): cv.use_id(Display),
@@ -1224,6 +1313,7 @@ CONFIG_SCHEMA = (
                     key=CONF_DISPLAY_ID,
                 )
             ),
+            cv.Exclusive(CONF_DISPLAY_ID, CONF_DISPLAY_ID): cv.use_id(Display),
             cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
                 cv.maybe_simple_value(
                     {
@@ -1239,7 +1329,7 @@ CONFIG_SCHEMA = (
                         {
                             cv.Required(CONF_SENSOR): cv.use_id(RotaryEncoderSensor),
                             cv.Optional(CONF_BINARY_SENSOR): cv.use_id(BinarySensor),
-                            cv.Optional(CONF_GROUP): cv.validate_id_name,
+                            cv.Optional(CONF_GROUP): lv_id_name,
                             cv.GenerateID(): cv.declare_id(LVRotaryEncoderListener),
                         }
                     )
@@ -1266,7 +1356,10 @@ CONFIG_SCHEMA = (
                     ),
                 }
             ),
-            cv.Required(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
+            cv.Exclusive(CONF_WIDGETS, CONF_SCREENS): cv.ensure_list(WIDGET_SCHEMA),
+            cv.Exclusive(CONF_SCREENS, CONF_SCREENS): cv.ensure_list(
+                container_schema(CONF_OBJ)
+            ),
             cv.Optional(CONF_THEME): cv.Schema(
                 dict(
                     map(
@@ -1280,7 +1373,7 @@ CONFIG_SCHEMA = (
             ).extend({cv.GenerateID(CONF_ID): cv.declare_id(lv_theme_t)}),
         }
     )
-)
+).add_extra(cv.has_at_least_one_key(CONF_SCREENS, CONF_WIDGETS))
 
 # For use by platform components
 LVGL_SCHEMA = cv.Schema(
@@ -1297,27 +1390,10 @@ async def widget_to_code(lv_component, widget, parent):
     fun = f"{t}_to_code"
     if fun in globals():
         fun = globals()[fun]
-        init.extend(await fun(lv_component, var, v))
+        init.extend(await fun(var, v))
     else:
         raise cv.Invalid(f"No handler for widget {t}")
     return var, init
-
-
-def modify_schema(widget_type):
-    lv_type = globals()[f"lv_{widget_type}_t"]
-    schema = (
-        part_schema(widget_type)
-        .extend(
-            {
-                cv.Required(CONF_ID): cv.use_id(lv_type),
-                cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
-            }
-        )
-        .extend(FLAG_SCHEMA)
-    )
-    if extras := globals().get(f"{widget_type.upper()}_SCHEMA"):
-        return schema.extend(extras)
-    return schema
 
 
 ACTION_SCHEMA = cv.maybe_simple_value(
@@ -1396,12 +1472,8 @@ async def obj_update_to_code(config, action_id, template_arg, args):
 async def checkbox_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
-    if CONF_TEXT in config:
-        (value, lamb) = await get_text_lambda(config[CONF_TEXT])
-        if value is not None:
-            init.append(f'lv_checkbox_set_text({obj}, "{value}")')
-        if lamb is not None:
-            init.append(f"lv_checkbox_set_text({obj}, {lamb}())")
+    if value := await get_text_value(config.get(CONF_TEXT)):
+        init.append(f"lv_checkbox_set_text({obj}, {value})")
     return await update_to_code(config, action_id, obj, init, template_arg)
 
 
@@ -1413,12 +1485,8 @@ async def checkbox_update_to_code(config, action_id, template_arg, args):
 async def label_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
-    if CONF_TEXT in config:
-        (value, lamb) = await get_text_lambda(config[CONF_TEXT])
-        if value is not None:
-            init.append(f'lv_label_set_text({obj}, "{value}")')
-        if lamb is not None:
-            init.append(f"lv_label_set_text({obj}, {lamb}())")
+    if value := await get_text_value(config.get(CONF_TEXT)):
+        init.append(f"lv_label_set_text({obj}, {value})")
     return await update_to_code(config, action_id, obj, init, template_arg)
 
 
@@ -1431,21 +1499,15 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     meter = meter_indicators[config[CONF_ID]]
     init = []
-    (start_value, start_lamb) = await get_start_value(config)
-    (end_value, end_lamb) = await get_end_value(config)
-    selector = "start_" if end_value is not None or end_lamb != "nullptr" else ""
+    start_value = await get_start_value(config)
+    end_value = await get_end_value(config)
+    selector = "start_" if end_value is not None else ""
     if start_value is not None:
         init.append(
             f"lv_meter_set_indicator_{selector}value({meter},{obj}, {start_value})"
         )
-    elif start_lamb != "nullptr":
-        init.append(
-            f"lv_meter_set_indicator_{selector}value({meter},{obj}, {start_lamb}())"
-        )
     if end_value is not None:
         init.append(f"lv_meter_set_indicator_end_value({meter},{obj}, {end_value})")
-    elif end_lamb != "nullptr":
-        init.append(f"lv_meter_set_indicator_end_value({meter},{obj}, {end_lamb}())")
     return await update_to_code(None, action_id, obj, init, template_arg)
 
 
@@ -1457,12 +1519,20 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
 async def arc_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
-    (value, lamb) = await get_value_lambda(config.get(CONF_VALUE))
-    if value is not None:
-        init.append(f"lv_arc_set_value({obj}, {value})")
-    elif lamb != "nullptr":
-        init.append(f"lv_arc_set_value({obj}, {lamb}())")
+    value = await get_value_expr(config.get(CONF_VALUE))
+    init.append(f"lv_arc_set_value({obj}, {value})")
     return await update_to_code(config, action_id, obj, init, template_arg)
+
+
+async def slider_to_code(var, slider):
+    init = [
+        f"lv_slider_set_range({var}, {slider[CONF_MIN_VALUE]}, {slider[CONF_MAX_VALUE]})",
+        f"lv_slider_set_mode({var}, {slider[CONF_MODE]})",
+    ]
+    value = await get_start_value(slider)
+    if value is not None:
+        init.append(f"lv_slider_set_value({var}, {value}, LV_ANIM_OFF)")
+    return init
 
 
 @automation.register_action(
@@ -1474,11 +1544,8 @@ async def slider_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
     animated = config[CONF_ANIMATED]
-    (value, lamb) = await get_value_lambda(config.get(CONF_VALUE))
-    if value is not None:
-        init.append(f"lv_slider_set_value({obj}, {value}, {animated})")
-    elif lamb != "nullptr":
-        init.append(f"lv_slider_set_value({obj}, {lamb}(), {animated})")
+    value = await get_value_expr(config.get(CONF_VALUE), cg.uint32)
+    init.append(f"lv_slider_set_value({obj}, {value}, {animated})")
     return await update_to_code(config, action_id, obj, init, template_arg)
 
 

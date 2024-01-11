@@ -1,5 +1,9 @@
 #pragma once
 
+// required for clang-tidy
+#ifndef LV_CONF_SKIP
+#define LV_CONF_SKIP 1  // NOLINT
+#endif
 #include "esphome/components/display/display.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
@@ -25,10 +29,10 @@
 #include <lvgl.h>
 #include <vector>
 
+static const char *const TAG = "lvgl";
 namespace esphome {
 namespace lvgl {
 
-static const char *const TAG = "lvgl";
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
@@ -41,6 +45,7 @@ static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
 // The ESPHome name munging does not work well with the lv_ types, and will produce variable names
 // that are the same as the type.
 // to work-around this these typedefs are used.
+typedef lv_obj_t LvScreenType;
 typedef lv_obj_t LvObjType;
 typedef lv_style_t LvStyleType;
 typedef lv_point_t LvPointType;
@@ -58,12 +63,14 @@ typedef lv_checkbox_t LvCheckboxType;
 typedef lv_btnmatrix_t LvBtnmatrixType;
 typedef lv_canvas_t LvCanvasType;
 typedef lv_dropdown_t LvDropdownType;
+typedef lv_dropdown_list_t LvDropdownListType;
 typedef lv_roller_t LvRollerType;
+typedef lv_led_t LvLedType;
 typedef lv_switch_t LvSwitchType;
 typedef lv_table_t LvTableType;
 typedef lv_textarea_t LvTextareaType;
 typedef struct {
-  lv_obj_t ** btnm;
+  lv_obj_t **btnm;
   uint16_t index;
 } LvBtnmBtn;
 

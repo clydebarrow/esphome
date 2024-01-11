@@ -54,6 +54,8 @@ esphome/components/bl0940/* @tobias-
 esphome/components/bl0942/* @dbuezas
 esphome/components/ble_client/* @buxtronix @clydebarrow
 esphome/components/bluetooth_proxy/* @jesserockz
+esphome/components/bme280_base/* @esphome/core
+esphome/components/bme280_spi/* @apbodrov
 esphome/components/bme680_bsec/* @trvrnrth
 esphome/components/bmi160/* @flaviut
 esphome/components/bmp3xx/* @martgras
@@ -85,7 +87,6 @@ esphome/components/delonghi/* @grob6000
 esphome/components/dfplayer/* @glmnet
 esphome/components/dfrobot_sen0395/* @niklasweber
 esphome/components/dht/* @OttoWinter
-esphome/components/display_buffer/* @clydebarrow
 esphome/components/display_menu_base/* @numo68
 esphome/components/dps310/* @kbx81
 esphome/components/ds1307/* @badbadc0ffee
@@ -175,6 +176,7 @@ esphome/components/lilygo_t5_47/touchscreen/* @jesserockz
 esphome/components/lock/* @esphome/core
 esphome/components/logger/* @esphome/core
 esphome/components/ltr390/* @sjtrny
+esphome/components/lvgl/* @clydebarrow
 esphome/components/matrix_keypad/* @ssieb
 esphome/components/max31865/* @DAVe3283
 esphome/components/max44009/* @berfenger
@@ -231,7 +233,6 @@ esphome/components/noblex/* @AGalfra
 esphome/components/number/* @esphome/core
 esphome/components/ota/* @esphome/core
 esphome/components/output/* @esphome/core
-esphome/components/panel_driver/* @clydebarrow
 esphome/components/pca6416a/* @Mat931
 esphome/components/pca9554/* @clydebarrow @hwstar
 esphome/components/pcf85063/* @brogon
@@ -318,7 +319,6 @@ esphome/components/ssd1331_base/* @kbx81
 esphome/components/ssd1331_spi/* @kbx81
 esphome/components/ssd1351_base/* @kbx81
 esphome/components/ssd1351_spi/* @kbx81
-esphome/components/st7701s/* @clydebarrow
 esphome/components/st7567_base/* @latonita
 esphome/components/st7567_i2c/* @latonita
 esphome/components/st7567_spi/* @latonita

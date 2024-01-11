@@ -1,14 +1,29 @@
 import esphome.config_validation as cv
-from .defines import LV_FONTS, CONF_IMG, CONF_ROTARY_ENCODERS, CONF_TOUCHSCREENS
-from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
+from esphome.core import ID
+from esphome.schema_extractors import (
+    SCHEMA_EXTRACT,
+    schema_extractor,
+)
 from esphome.components.font import Font
 from esphome.components.color import ColorStruct
+from esphome.components.binary_sensor import BinarySensor
+from esphome.components.sensor import Sensor
+from esphome.components.text_sensor import TextSensor
+from esphome.const import (
+    CONF_MAX_VALUE,
+    CONF_MIN_VALUE,
+)
+from .defines import (
+    LV_FONTS,
+    CONF_IMG,
+    CONF_ROTARY_ENCODERS,
+    CONF_TOUCHSCREENS,
+)
 
 lv_uses = {
     "USER_DATA",
     "LOG",
 }
-
 
 lv_fonts_used = set()
 
@@ -29,7 +44,10 @@ def requires_component(comp):
     return validator
 
 
+@schema_extractor("one_of")
 def lv_color(value):
+    if value == SCHEMA_EXTRACT:
+        return ["hex color value", "color ID"]
     if isinstance(value, int):
         hexval = cv.hex_int(value)
         return f"lv_color_hex({hexval})"
@@ -50,7 +68,10 @@ def lv_font(value):
     return f"(new lvgl::FontEngine({font}))->get_lv_font()"
 
 
+@schema_extractor("one_of")
 def lv_bool(value):
+    if value == SCHEMA_EXTRACT:
+        return ["true", "false"]
     if cv.boolean(value):
         return "true"
     return "false"
@@ -91,17 +112,25 @@ def lv_any_of(choices, prefix):
 
     @schema_extractor("one_of")
     def validator(value):
-        if not isinstance(value, list):
-            value = [value]
         if value == SCHEMA_EXTRACT:
             return choices
+        if not isinstance(value, list):
+            value = [value]
         return "|".join(map(lambda v: "(int)" + lv_prefix(v, choices, prefix), value))
 
     return validator
 
 
+def lv_id_name(value):
+    if value == SCHEMA_EXTRACT:
+        return "id"
+    return cv.validate_id_name(value)
+
+
 def pixels_or_percent(value):
     """A length in one axis - either a number (pixels) or a percentage"""
+    if value == SCHEMA_EXTRACT:
+        return ["pixels", "..%"]
     if isinstance(value, int):
         return str(cv.int_(value))
     # Will throw an exception if not a percentage.
@@ -144,3 +173,52 @@ def lv_opacity(value):
 
 def lv_stop_value(value):
     return cv.int_range(0, 255)(value)
+
+
+def lv_value(value, validators=None):
+    if isinstance(value, int):
+        return cv.float_(float(cv.int_(value)))
+    if isinstance(value, float):
+        return cv.float_(value)
+    return cv.templatable(cv.use_id(Sensor))(value)
+
+
+def lv_text_value(value):
+    if isinstance(value, cv.Lambda):
+        return cv.returning_lambda(value)
+    if isinstance(value, ID):
+        return cv.use_id(TextSensor)(value)
+    return cv.string(value)
+
+
+def lv_boolean_value(value):
+    if isinstance(value, cv.Lambda):
+        return cv.returning_lambda(value)
+    if isinstance(value, ID):
+        return cv.use_id(BinarySensor)(value)
+    return "true" if cv.boolean(value) else "false"
+
+
+def optional_boolean(value):
+    if value is None:
+        return True
+    return cv.boolean(value)
+
+
+def validate_max_min(config):
+    if CONF_MAX_VALUE in config and CONF_MIN_VALUE in config:
+        if config[CONF_MAX_VALUE] <= config[CONF_MIN_VALUE]:
+            raise cv.Invalid("max_value must be greater than min_value")
+    return config
+
+
+def cv_int_list(il):
+    nl = il.replace(" ", "").split(",")
+    return list(map(int, nl))
+
+
+def lv_option_string(value):
+    value = cv.string(value).strip()
+    if value.find("\n") != -1:
+        raise cv.Invalid("Options strings must not contain newlines")
+    return value
