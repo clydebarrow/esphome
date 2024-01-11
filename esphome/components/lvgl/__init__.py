@@ -57,7 +57,7 @@ from .defines import (
     CONF_LINE,
     CONF_METER,
     CONF_ROLLER,
-    CONF_SCREENS,
+    CONF_PAGES,
     CONF_SLIDER,
     CONF_SWITCH,
     CONF_TABLE,
@@ -1345,24 +1345,16 @@ CONFIG_SCHEMA = (
                     ),
                 }
             ),
-            cv.Exclusive(CONF_WIDGETS, CONF_SCREENS): cv.ensure_list(WIDGET_SCHEMA),
-            cv.Exclusive(CONF_SCREENS, CONF_SCREENS): cv.ensure_list(
+            cv.Exclusive(CONF_WIDGETS, CONF_PAGES): cv.ensure_list(WIDGET_SCHEMA),
+            cv.Exclusive(CONF_PAGES, CONF_PAGES): cv.ensure_list(
                 container_schema(CONF_OBJ)
             ),
             cv.Optional(CONF_THEME): cv.Schema(
-                dict(
-                    map(
-                        lambda w: (
-                            cv.Optional(w),
-                            obj_schema(w),
-                        ),
-                        WIDGET_TYPES,
-                    )
-                )
+                {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES},
             ).extend({cv.GenerateID(CONF_ID): cv.declare_id(lv_theme_t)}),
         }
     )
-).add_extra(cv.has_at_least_one_key(CONF_SCREENS, CONF_WIDGETS))
+).add_extra(cv.has_at_least_one_key(CONF_PAGES, CONF_WIDGETS))
 
 # For use by platform components
 LVGL_SCHEMA = cv.Schema(
