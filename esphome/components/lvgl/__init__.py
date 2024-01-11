@@ -93,6 +93,7 @@ from .defines import (
     ROLLER_MODES,
     CONF_PAGE,
     LV_ANIM,
+    TEXT_WRAPS,
 )
 
 from .lv_validation import (
@@ -231,6 +232,9 @@ CONF_SYMBOL = "symbol"
 CONF_SELECTED_INDEX = "selected_index"
 CONF_SKIP = "skip"
 CONF_TEXT = "text"
+CONF_RECOLOR = "recolor"
+CONF_TEXT_WRAP = "text_wrap"
+
 CONF_THEME = "theme"
 CONF_WIDGETS = "widgets"
 
@@ -558,7 +562,11 @@ PAGE_SCHEMA = {
     cv.Optional(CONF_SKIP, default=False): lv_bool,
 }
 
-LABEL_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
+LABEL_SCHEMA = {
+    cv.Optional(CONF_TEXT): lv_text_value,
+    cv.Optional(CONF_RECOLOR): cv.boolean,
+    cv.Optional(CONF_TEXT_WRAP): lv_one_of(TEXT_WRAPS, "LV_LABEL_LONG_"),
+}
 CHECKBOX_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
 
 DROPDOWN_BASE_SCHEMA = cv.Schema(
@@ -911,9 +919,14 @@ async def checkbox_to_code(var, checkbox):
 
 async def label_to_code(var, label):
     """For a text object, create and set text"""
+    code = []
     if value := await get_text_value(label.get(CONF_TEXT)):
-        return [f"lv_label_set_text({var}, {value})"]
-    return []
+        code.append(f"lv_label_set_text({var}, {value})")
+    if CONF_RECOLOR in label and label[CONF_RECOLOR]:
+        code.append(f"lv_label_set_recolor({var}, {value})")
+    if CONF_TEXT_WRAP in label:
+        code.append(f"lv_label_set_long_mode({var}, {label[CONF_TEXT_WRAP]})")
+    return code
 
 
 async def obj_to_code(var, obj):
@@ -1346,7 +1359,8 @@ async def to_code(config):
     if style_defs := config.get(CONF_STYLE_DEFINITIONS, []):
         styles_to_code(style_defs)
     # must do this before generating widgets
-    if theme := config[CONF_THEME]:
+    if CONF_THEME in config:
+        theme = config[CONF_THEME]
         init.extend(await theme_to_code(theme))
     if widgets := config.get(CONF_WIDGETS):
         for widg in widgets:

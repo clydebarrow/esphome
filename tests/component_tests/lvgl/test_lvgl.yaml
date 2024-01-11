@@ -1,0 +1,53 @@
+# Tests for ESP32-S3 boards
+---
+esphome:
+  name: test
+
+esp32:
+  board: esp32-s3-devkitc-1
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: SomeNetwork
+  password: SomePassword
+
+spi:
+  clk_pin: 9
+  mosi_pin: 12
+  #miso_pin: 14
+  interface: hardware
+
+
+display:
+  - platform: ili9xxx
+    model: ILI9341
+    id: screen
+    dc_pin: 13
+    reset_pin: 14
+    auto_clear_enabled: false
+    update_interval: never
+    cs_pin: 10
+    #rotation: 90
+    data_rate: 40MHz
+    transform:
+      swap_xy: true
+
+lvgl:
+  id: mygui
+  display_id: screen
+  color_depth: 16
+  bg_color: 0x0a0a0a
+  text_color: 0xffffff
+  widgets:
+    - label:
+        id: charging_label
+        x: 5
+        y: 30
+        recolor: true
+        text: "0W"
+    - label:
+        id: voltage_label
+        x: 5
+        y: 50
+        text: "0V"
