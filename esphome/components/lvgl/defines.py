@@ -13,6 +13,7 @@ CONF_DROPDOWN_LIST = "dropdown_list"
 CONF_METER = "meter"
 CONF_ROLLER = "roller"
 CONF_SCREEN = "screen"
+CONF_PAGE = "page"
 CONF_PAGES = "pages"
 CONF_SLIDER = "slider"
 CONF_SWITCH = "switch"
@@ -42,6 +43,24 @@ LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
     "unscii_8",
     "unscii_16",
 ]
+
+LV_ANIM = (
+    "NONE",
+    "OVER_LEFT",
+    "OVER_RIGHT",
+    "OVER_TOP",
+    "OVER_BOTTOM",
+    "MOVE_LEFT",
+    "MOVE_RIGHT",
+    "MOVE_TOP",
+    "MOVE_BOTTOM",
+    "FADE_IN",
+    "FADE_OUT",
+    "OUT_LEFT",
+    "OUT_RIGHT",
+    "OUT_TOP",
+    "OUT_BOTTOM",
+)
 
 LOG_LEVELS = (
     "TRACE",

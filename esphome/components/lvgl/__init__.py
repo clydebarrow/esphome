@@ -40,8 +40,12 @@ from esphome.const import (
     CONF_LOCAL,
     CONF_ROTATION,
     CONF_BUFFER_SIZE,
+    CONF_TIME,
 )
-from esphome.cpp_generator import LambdaExpression
+from esphome.cpp_generator import (
+    LambdaExpression,
+    MockObj,
+)
 from .defines import (
     # widgets
     CONF_ARC,
@@ -87,6 +91,8 @@ from .defines import (
     LV_SYMBOLS,
     DIRECTIONS,
     ROLLER_MODES,
+    CONF_PAGE,
+    LV_ANIM,
 )
 
 from .lv_validation import (
@@ -138,6 +144,7 @@ LvglAction = lvgl_ns.class_("LvglAction", automation.Action)
 lv_pseudo_button_t = lvgl_ns.class_("LvPseudoButton")
 LvBtnmBtn = lvgl_ns.class_("LvBtnmBtn", lv_pseudo_button_t)
 lv_obj_t = cg.global_ns.class_("LvObjType", lv_pseudo_button_t)
+lv_page_t = cg.global_ns.class_("LvPageType")
 lv_screen_t = cg.global_ns.class_("LvScreenType")
 lv_point_t = cg.global_ns.struct("LvPointType")
 lv_obj_t_ptr = lv_obj_t.operator("ptr")
@@ -167,9 +174,11 @@ lv_switch_t = cg.MockObjClass("LvSwitchType", parents=[lv_obj_t])
 lv_table_t = cg.MockObjClass("LvTableType", parents=[lv_obj_t])
 lv_textarea_t = cg.MockObjClass("LvTextareaType", parents=[lv_obj_t])
 
+CONF_ACTION = "action"
 CONF_ADJUSTABLE = "adjustable"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
+CONF_ANIMATION = "animation"
 CONF_BACKGROUND_STYLE = "background_style"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
@@ -187,6 +196,7 @@ CONF_END_ANGLE = "end_angle"
 CONF_END_VALUE = "end_value"
 CONF_FLAGS = "flags"
 CONF_FLEX_FLOW = "flex_flow"
+CONF_HOME = "home"
 CONF_INDICATORS = "indicators"
 CONF_LABEL_GAP = "label_gap"
 CONF_LAYOUT = "layout"
@@ -199,9 +209,11 @@ CONF_OBJ = "obj"
 CONF_OBJ_ID = "obj_id"
 CONF_ON_IDLE = "on_idle"
 CONF_ONE_CHECKED = "one_checked"
+CONF_NEXT = "next"
 CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
+CONF_PREVIOUS = "previous"
 CONF_ROWS = "rows"
 CONF_R_MOD = "r_mod"
 CONF_SCALES = "scales"
@@ -217,6 +229,7 @@ CONF_STYLE_DEFINITIONS = "style_definitions"
 CONF_STYLE_ID = "style_id"
 CONF_SYMBOL = "symbol"
 CONF_SELECTED_INDEX = "selected_index"
+CONF_SKIP = "skip"
 CONF_TEXT = "text"
 CONF_THEME = "theme"
 CONF_WIDGETS = "widgets"
@@ -238,6 +251,7 @@ WIDGET_TYPES = {
     CONF_DROPDOWN_LIST: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
     CONF_METER: (CONF_MAIN,),
     CONF_OBJ: (CONF_MAIN,),
+    CONF_PAGE: (CONF_MAIN,),
     CONF_ROLLER: (CONF_MAIN, CONF_SELECTED),
     CONF_SLIDER: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
     CONF_SWITCH: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
@@ -540,6 +554,10 @@ SCALE_SCHEMA = cv.Schema(
 
 METER_SCHEMA = {cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA)}
 
+PAGE_SCHEMA = {
+    cv.Optional(CONF_SKIP, default=False): lv_bool,
+}
+
 LABEL_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
 CHECKBOX_SCHEMA = {cv.Optional(CONF_TEXT): lv_text_value}
 
@@ -585,6 +603,13 @@ LED_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_COLOR): lv_color,
         cv.Optional(CONF_BRIGHTNESS): cv.templatable(cv.percentage),
+    }
+)
+
+# For use by platform components
+LVGL_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
     }
 )
 
@@ -861,7 +886,7 @@ def set_obj_properties(var, config):
     return init
 
 
-async def create_lv_obj(t, lv_component, config, parent):
+async def create_lv_obj(t, config, parent):
     """Write object creation code for an object extending lv_obj_t"""
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr, type_=lv_obj_t)
@@ -872,7 +897,7 @@ async def create_lv_obj(t, lv_component, config, parent):
         init.append(f"lv_group_add_obj({group}, {var})")
     if CONF_WIDGETS in config:
         for widg in config[CONF_WIDGETS]:
-            (_, ext_init) = await widget_to_code(lv_component, widg, var)
+            (_, ext_init) = await widget_to_code(widg, var)
             init.extend(ext_init)
     return var, init
 
@@ -895,6 +920,23 @@ async def obj_to_code(var, obj):
     return []
 
 
+async def page_to_code(config, index):
+    """Write object creation code for an object extending lv_obj_t"""
+    init = []
+    var = cg.new_Pvariable(config[CONF_ID])
+    page = f"{var}->page"
+    init.append(f"{var}->index = {index}")
+    init.append(f"{page} = lv_obj_create(nullptr)")
+    skip = config[CONF_SKIP]
+    init.append(f"{var}->skip = {skip}")
+    init.extend(set_obj_properties(page, config))
+    if CONF_WIDGETS in config:
+        for widg in config[CONF_WIDGETS]:
+            (_, ext_init) = await widget_to_code(widg, page)
+            init.extend(ext_init)
+    return var, init
+
+
 async def switch_to_code(var, btn):
     return []
 
@@ -910,6 +952,63 @@ async def led_to_code(var, config):
     if brightness := await get_value_expr(config.get(CONF_BRIGHTNESS)):
         init.append(f"lv_led_set_brightness({var}, {brightness} * 255)")
     return init
+
+
+SHOW_SCHEMA = LVGL_SCHEMA.extend(
+    {
+        cv.Optional(CONF_ANIMATION, default="NONE"): lv_one_of(
+            LV_ANIM, "LV_SCR_LOAD_ANIM_"
+        ),
+        cv.Optional(CONF_TIME, default="50ms"): cv.positive_time_period_milliseconds,
+    }
+)
+
+
+@automation.register_action(
+    "lvgl.page.next",
+    ObjUpdateAction,
+    SHOW_SCHEMA,
+)
+async def page_next_to_code(config, action_id, template_arg, args):
+    lv_comp = await cg.get_variable(config[CONF_LVGL_ID])
+    animation = config[CONF_ANIMATION]
+    time = config[CONF_TIME].milliseconds
+    init = [f"{lv_comp}->show_next_page(false, {animation}, {time})"]
+    return await action_to_code(init, action_id, lv_comp, template_arg)
+
+
+@automation.register_action(
+    "lvgl.page.previous",
+    ObjUpdateAction,
+    SHOW_SCHEMA,
+)
+async def page_previous_to_code(config, action_id, template_arg, args):
+    lv_comp = await cg.get_variable(config[CONF_LVGL_ID])
+    animation = config[CONF_ANIMATION]
+    time = config[CONF_TIME].milliseconds
+    init = [f"{lv_comp}->show_next_page(true, {animation}, {time})"]
+    return await action_to_code(init, action_id, lv_comp, template_arg)
+
+
+@automation.register_action(
+    "lvgl.page.show",
+    ObjUpdateAction,
+    cv.maybe_simple_value(
+        SHOW_SCHEMA.extend(
+            {
+                cv.Required(CONF_ID): cv.use_id(lv_page_t),
+            }
+        ),
+        key=CONF_ID,
+    ),
+)
+async def page_show_to_code(config, action_id, template_arg, args):
+    obj = await cg.get_variable(config[CONF_ID])
+    lv_comp = await cg.get_variable(config[CONF_LVGL_ID])
+    animation = config[CONF_ANIMATION]
+    time = config[CONF_TIME].milliseconds
+    init = [f"{lv_comp}->show_page({obj}->index, {animation}, {time})"]
+    return await action_to_code(init, action_id, obj, template_arg)
 
 
 @automation.register_action(
@@ -1249,9 +1348,15 @@ async def to_code(config):
     # must do this before generating widgets
     if theme := config[CONF_THEME]:
         init.extend(await theme_to_code(theme))
-    for widg in config[CONF_WIDGETS]:
-        (_, ext_init) = await widget_to_code(lv_component, widg, "lv_scr_act()")
-        init.extend(ext_init)
+    if widgets := config.get(CONF_WIDGETS):
+        for widg in widgets:
+            (_, ext_init) = await widget_to_code(widg, "lv_scr_act()")
+            init.extend(ext_init)
+    if pages := config.get(CONF_PAGES):
+        for index, page in enumerate(pages):
+            pvar, pinit = await page_to_code(page, index)
+            init.append(f"{lv_component}->add_page({pvar})")
+            init.extend(pinit)
 
     init.extend(await touchscreens_to_code(lv_component, config))
     init.extend(await rotary_encoders_to_code(lv_component, config))
@@ -1262,6 +1367,9 @@ async def to_code(config):
             trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], lv_component, templ)
             await automation.build_automation(trigger, [], conf)
 
+    for i in init:
+        if isinstance(i, MockObj):
+            print(i)
     await add_init_lambda(lv_component, init)
     for use in lv_uses:
         CORE.add_build_flag(f"-DLV_USE_{use.upper()}=1")
@@ -1347,7 +1455,7 @@ CONFIG_SCHEMA = (
             ),
             cv.Exclusive(CONF_WIDGETS, CONF_PAGES): cv.ensure_list(WIDGET_SCHEMA),
             cv.Exclusive(CONF_PAGES, CONF_PAGES): cv.ensure_list(
-                container_schema(CONF_OBJ)
+                container_schema(CONF_PAGE)
             ),
             cv.Optional(CONF_THEME): cv.Schema(
                 {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES},
@@ -1356,18 +1464,11 @@ CONFIG_SCHEMA = (
     )
 ).add_extra(cv.has_at_least_one_key(CONF_PAGES, CONF_WIDGETS))
 
-# For use by platform components
-LVGL_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
-    }
-)
 
-
-async def widget_to_code(lv_component, widget, parent):
+async def widget_to_code(widget, parent):
     (t, v) = next(iter(widget.items()))
     lv_uses.add(t)
-    (var, init) = await create_lv_obj(t, lv_component, v, parent)
+    (var, init) = await create_lv_obj(t, v, parent)
     fun = f"{t}_to_code"
     if fun in globals():
         fun = globals()[fun]
