@@ -323,6 +323,14 @@ class LvglComponent : public PollingComponent {
   bool paused_{};
 };
 
+class EventTrigger : public Trigger<> {
+ public:
+  explicit EventTrigger(lv_obj_t *obj, lv_event_code_t event) {
+    lv_obj_add_event_cb(
+        obj, [](lv_event_t *ev) { ((EventTrigger *) ev->user_data)->trigger(); }, event, this);
+  }
+};
+
 class IdleTrigger : public Trigger<> {
  public:
   explicit IdleTrigger(LvglComponent *parent, TemplatableValue<uint32_t> timeout) : timeout_(timeout) {
@@ -365,8 +373,10 @@ template<typename... Ts> class LvglCondition : public Condition<Ts...>, public P
 #if LV_USE_TOUCHSCREEN
 class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglComponent> {
  public:
-  LVTouchListener() {
+  LVTouchListener(uint32_t long_press_time, uint32_t long_press_repeat_time) {
     lv_indev_drv_init(&this->drv);
+    this->drv.long_press_repeat_time = long_press_repeat_time;
+    this->drv.long_press_time = long_press_time;
     this->drv.type = LV_INDEV_TYPE_POINTER;
     this->drv.user_data = this;
     this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {

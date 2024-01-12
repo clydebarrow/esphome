@@ -14,7 +14,6 @@ CONF_METER = "meter"
 CONF_ROLLER = "roller"
 CONF_SCREEN = "screen"
 CONF_PAGE = "page"
-CONF_PAGES = "pages"
 CONF_SLIDER = "slider"
 CONF_SWITCH = "switch"
 CONF_TABLE = "table"
@@ -43,6 +42,22 @@ LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
     "unscii_8",
     "unscii_16",
 ]
+
+LV_EVENT = [
+    "PRESSED",
+    "SHORT_CLICKED",
+    "LONG_PRESSED",
+    "LONG_PRESSED_REPEAT",
+    "CLICKED",
+    "RELEASED",
+    "SCROLL_BEGIN",
+    "SCROLL_END",
+    "SCROLL",
+    "FOCUSED",
+    "DEFOCUSED",
+]
+
+LV_EVENT_TRIGGERS = list(map(lambda x: "on_" + x.lower(), LV_EVENT))
 
 LV_ANIM = (
     "NONE",
