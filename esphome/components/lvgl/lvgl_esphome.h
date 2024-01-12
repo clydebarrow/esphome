@@ -29,9 +29,9 @@
 #include <lvgl.h>
 #include <vector>
 
-static const char *const TAG = "lvgl";
 namespace esphome {
 namespace lvgl {
+static const char *const TAG = "lvgl";
 
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 #if LV_COLOR_DEPTH == 16
@@ -221,7 +221,9 @@ class LvglComponent : public PollingComponent {
 
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
+#if LV_USE_LOG
     lv_log_register_print_cb(log_cb);
+#endif
     size_t bytes_per_pixel = LV_COLOR_DEPTH / 8;
     size_t buffer_pixels = this->displays_[0]->get_width() * this->displays_[0]->get_height() / this->buffer_frac_;
     auto buf = lv_custom_mem_alloc(buffer_pixels * bytes_per_pixel);
