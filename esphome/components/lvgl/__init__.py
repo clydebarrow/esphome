@@ -13,6 +13,7 @@ from esphome.components.touchscreen import (
     Touchscreen,
     CONF_TOUCHSCREEN_ID,
 )
+from esphome.schema_extractors import SCHEMA_EXTRACT
 from esphome.components.display import Display
 from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
 from esphome.components.binary_sensor import BinarySensor
@@ -121,7 +122,6 @@ from .lv_validation import (
     lv_id_name,
     requires_component,
 )
-from esphome.schema_extractors import SCHEMA_EXTRACT
 
 # import auto
 DOMAIN = "lvgl"
@@ -235,6 +235,7 @@ CONF_SYMBOL = "symbol"
 CONF_SELECTED_INDEX = "selected_index"
 CONF_SKIP = "skip"
 CONF_TEXT = "text"
+CONF_TOP_LAYER = "top_layer"
 CONF_THEME = "theme"
 CONF_WIDGETS = "widgets"
 
@@ -411,7 +412,6 @@ AUTOMATION_SCHEMA = {
     )
     for event in LV_EVENT_TRIGGERS
 }
-
 
 TEXT_SCHEMA = {
     cv.Exclusive(CONF_TEXT, CONF_TEXT): lv_text_value,
@@ -1436,6 +1436,14 @@ async def to_code(config):
     # must do this before generating widgets
     if theme := config[CONF_THEME]:
         init.extend(await theme_to_code(theme))
+    if top_conf := config.get(CONF_TOP_LAYER):
+        init.extend(set_obj_properties("lv_disp_get_layer_top(lv_disp)", top_conf))
+        if widgets := top_conf.get(CONF_WIDGETS):
+            for widg in widgets:
+                (_, ext_init) = await widget_to_code(
+                    widg, "lv_disp_get_layer_top(lv_disp)"
+                )
+                init.extend(ext_init)
     if widgets := config.get(CONF_WIDGETS):
         init.extend(set_obj_properties("lv_scr_act()", config))
         for widg in widgets:
@@ -1556,6 +1564,7 @@ CONFIG_SCHEMA = (
             cv.Exclusive(CONF_PAGES, CONF_PAGES): cv.ensure_list(
                 container_schema(CONF_PAGE)
             ),
+            cv.Optional(CONF_TOP_LAYER): container_schema(CONF_OBJ),
             cv.Optional(CONF_THEME): cv.Schema(
                 {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES},
             ).extend({cv.GenerateID(CONF_ID): cv.declare_id(lv_theme_t)}),

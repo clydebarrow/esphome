@@ -151,6 +151,8 @@ def lv_size(value):
     """A size in one axis - one of "size_content", a number (pixels) or a percentage"""
     if value == SCHEMA_EXTRACT:
         return ["size_content", "pixels", "..%"]
+    if isinstance(value, str) and value.lower().endswith("px"):
+        value = cv.int_(value[:-2])
     if isinstance(value, str) and not value.endswith("%"):
         if value.upper() == "SIZE_CONTENT":
             return "LV_SIZE_CONTENT"
