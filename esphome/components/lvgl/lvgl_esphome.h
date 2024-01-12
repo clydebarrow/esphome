@@ -80,7 +80,7 @@ typedef struct {
   bool skip;
 } LvPageType;
 
-typedef std::function<float(void)> value_lambda_t;
+typedef std::function<void(lv_obj_t *)> LvLambdaType;
 typedef std::function<void(float)> set_value_lambda_t;
 typedef void(event_callback_t)(_lv_event_t *);
 typedef std::function<const char *(void)> text_lambda_t;

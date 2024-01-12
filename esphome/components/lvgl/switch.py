@@ -10,11 +10,11 @@ from . import (
     LVGL_SCHEMA,
     CONF_LVGL_ID,
     CONF_BTN,
-    CONF_OBJ,
     lvgl_ns,
     lv_pseudo_button_t,
     get_matrix_button,
     set_event_cb,
+    CONF_WIDGET,
 )
 from .lv_validation import requires_component
 
@@ -23,7 +23,7 @@ BASE_SCHEMA = switch_schema(LVGLSwitch).extend(LVGL_SCHEMA)
 CONFIG_SCHEMA = cv.All(
     BASE_SCHEMA.extend(
         {
-            cv.Required(CONF_OBJ): cv.use_id(lv_pseudo_button_t),
+            cv.Required(CONF_WIDGET): cv.use_id(lv_pseudo_button_t),
         }
     ),
     requires_component("switch"),
@@ -33,7 +33,7 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     switch = await new_switch(config)
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    (otype, obj) = await get_matrix_button(config[CONF_OBJ])
+    (otype, obj) = await get_matrix_button(config[CONF_WIDGET])
     if otype == CONF_BTN:
         # map the button ID to the button matrix and an index
         idx = obj[1]

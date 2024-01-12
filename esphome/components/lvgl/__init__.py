@@ -141,6 +141,8 @@ FontEngine = lvgl_ns.class_("FontEngine")
 ObjUpdateAction = lvgl_ns.class_("ObjUpdateAction", automation.Action)
 LvglCondition = lvgl_ns.class_("LvglCondition", automation.Condition)
 LvglAction = lvgl_ns.class_("LvglAction", automation.Action)
+lv_lambda_t = lvgl_ns.class_("LvLambdaType")
+# lv_lambda_ptr_t = lvgl_ns.class_("LvLambdaType").operator("ptr")
 
 # Can't use the native type names here, since ESPHome munges variable names and they conflict
 lv_pseudo_button_t = lvgl_ns.class_("LvPseudoButton")
@@ -210,7 +212,6 @@ CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
 CONF_MAJOR = "major"
 CONF_OBJ = "obj"
-CONF_OBJ_ID = "obj_id"
 CONF_ON_IDLE = "on_idle"
 CONF_ONE_CHECKED = "one_checked"
 CONF_NEXT = "next"
@@ -237,6 +238,7 @@ CONF_SKIP = "skip"
 CONF_TEXT = "text"
 CONF_TOP_LAYER = "top_layer"
 CONF_THEME = "theme"
+CONF_WIDGET = "widget"
 CONF_WIDGETS = "widgets"
 
 # list of widgets and the parts allowed
@@ -776,39 +778,25 @@ def styles_to_code(styles):
                 cgen(f"lv_style_set_{prop}({svar}, {style[prop]})")
 
 
-theme_group_dict = {}
+theme_widget_map = {}
 
 
 async def theme_to_code(theme):
-    tvar = cg.new_Pvariable(theme[CONF_ID])
-    lamb = []
-    # obj styles apply to everything
-    if style := theme.get(CONF_OBJ):
-        lamb.extend(set_obj_properties("obj", style))
-        if group := add_group(style.get(CONF_GROUP)):
-            theme_group_dict["obj"] = group
+    init = []
     for widget, style in theme.items():
-        if not isinstance(style, dict) or widget == CONF_OBJ:
+        if not isinstance(style, dict):
             continue
-        if group := add_group(style.get(CONF_GROUP)):
-            theme_group_dict[widget] = group
-        lamb.append(f"  if (lv_obj_check_type(obj, &lv_{widget}_class)) {{")
-        lamb.extend(set_obj_properties("obj", style))
-        lamb.append("  return")
-        lamb.append("  }")
-    lamb = await cg.process_lambda(
-        Lambda(";\n".join([*lamb, ""])),
-        [(lv_theme_t_ptr, "th"), (lv_obj_t_ptr, "obj")],
-        capture="",
-    )
 
-    return [
-        "auto current_theme_p = lv_disp_get_theme(NULL)",
-        f"*{tvar} = *current_theme_p",
-        f"lv_theme_set_parent({tvar}, current_theme_p)",
-        f"lv_theme_set_apply_cb({tvar}, {lamb})",
-        f"lv_disp_set_theme(NULL, {tvar})",
-    ]
+        init.extend(set_obj_properties("obj", style))
+        lamb = await cg.process_lambda(
+            Lambda(";\n".join([*init, ""])),
+            [(lv_obj_t_ptr, "obj")],
+            capture="",
+        )
+        apply = f"lv_theme_apply_{widget}"
+        theme_widget_map[widget] = apply
+        lamb_id = ID(apply, type=lv_lambda_t, is_declaration=True)
+        cg.variable(lamb_id, lamb)
 
 
 lv_temp_vars = set()  # Temporary variables
@@ -926,10 +914,10 @@ async def create_lv_obj(t, config, parent):
     init = []
     var = cg.Pvariable(config[CONF_ID], cg.nullptr, type_=lv_obj_t)
     init.append(f"{var} = lv_{t}_create({parent})")
+    if theme := theme_widget_map.get(t):
+        init.append(f"{theme}({var})")
     init.extend(set_obj_properties(var, config))
     # Workaround because theme does not correctly set group
-    if group := theme_group_dict.get(t) or theme_group_dict.get("obj"):
-        init.append(f"lv_group_add_obj({group}, {var})")
     if CONF_WIDGETS in config:
         for widg in config[CONF_WIDGETS]:
             (_, ext_init) = await widget_to_code(widg, var)
@@ -962,6 +950,8 @@ async def page_to_code(config, pconf, index):
     page = f"{var}->page"
     init.append(f"{var}->index = {index}")
     init.append(f"{page} = lv_obj_create(nullptr)")
+    if theme := theme_widget_map.get("page"):
+        init.append(f"{theme}({var})")
     skip = pconf[CONF_SKIP]
     init.append(f"{var}->skip = {skip}")
     # Set outer config first
@@ -1434,8 +1424,8 @@ async def to_code(config):
     if style_defs := config.get(CONF_STYLE_DEFINITIONS, []):
         styles_to_code(style_defs)
     # must do this before generating widgets
-    if theme := config[CONF_THEME]:
-        init.extend(await theme_to_code(theme))
+    if theme := config.get(CONF_THEME):
+        await theme_to_code(theme)
     if top_conf := config.get(CONF_TOP_LAYER):
         init.extend(set_obj_properties("lv_disp_get_layer_top(lv_disp)", top_conf))
         if widgets := top_conf.get(CONF_WIDGETS):
@@ -1566,8 +1556,8 @@ CONFIG_SCHEMA = (
             ),
             cv.Optional(CONF_TOP_LAYER): container_schema(CONF_OBJ),
             cv.Optional(CONF_THEME): cv.Schema(
-                {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES},
-            ).extend({cv.GenerateID(CONF_ID): cv.declare_id(lv_theme_t)}),
+                {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES}
+            ).extend({cv.Optional(CONF_PAGE): obj_schema(CONF_PAGE)}),
         }
     )
 ).add_extra(cv.has_at_least_one_key(CONF_PAGES, CONF_WIDGETS))
@@ -1600,7 +1590,7 @@ ACTION_SCHEMA = cv.maybe_simple_value(
 )
 
 
-@automation.register_action("lvgl.obj.disable", ObjUpdateAction, ACTION_SCHEMA)
+@automation.register_action("lvgl.widget.disable", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_disable_to_code(config, action_id, template_arg, args):
     otype, obj = await get_matrix_button(config[CONF_ID])
     if otype == CONF_OBJ:
@@ -1614,7 +1604,7 @@ async def obj_disable_to_code(config, action_id, template_arg, args):
     return await action_to_code(action, action_id, obj, template_arg)
 
 
-@automation.register_action("lvgl.obj.enable", ObjUpdateAction, ACTION_SCHEMA)
+@automation.register_action("lvgl.widget.enable", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_enable_to_code(config, action_id, template_arg, args):
     otype, obj = await get_matrix_button(config[CONF_ID])
     if otype == CONF_OBJ:
@@ -1628,7 +1618,7 @@ async def obj_enable_to_code(config, action_id, template_arg, args):
     return await action_to_code(action, action_id, obj, template_arg)
 
 
-@automation.register_action("lvgl.obj.show", ObjUpdateAction, ACTION_SCHEMA)
+@automation.register_action("lvgl.widget.show", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_show_to_code(config, action_id, template_arg, args):
     otype, obj = await get_matrix_button(config[CONF_ID])
     if otype == CONF_OBJ:
@@ -1642,7 +1632,7 @@ async def obj_show_to_code(config, action_id, template_arg, args):
     return await action_to_code(action, action_id, obj, template_arg)
 
 
-@automation.register_action("lvgl.obj.hide", ObjUpdateAction, ACTION_SCHEMA)
+@automation.register_action("lvgl.widget.hide", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_hide_to_code(config, action_id, template_arg, args):
     otype, obj = await get_matrix_button(config[CONF_ID])
     if otype == CONF_OBJ:
@@ -1654,7 +1644,9 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
     return await action_to_code(action, action_id, obj, template_arg)
 
 
-@automation.register_action("lvgl.obj.update", ObjUpdateAction, modify_schema(CONF_OBJ))
+@automation.register_action(
+    "lvgl.widget.update", ObjUpdateAction, modify_schema(CONF_OBJ)
+)
 async def obj_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     return await update_to_code(config, action_id, obj, [], template_arg)
@@ -1759,21 +1751,22 @@ async def img_update_to_code(config, action_id, template_arg, args):
 
 
 @automation.register_action(
-    "lvgl.obj.invalidate",
+    "lvgl.widget.redraw",
     LvglAction,
     cv.Schema(
         {
-            cv.GenerateID(): cv.use_id(LvglComponent),
-            cv.Optional(CONF_OBJ_ID): cv.use_id(lv_obj_t),
+            cv.Optional(CONF_ID): cv.use_id(lv_obj_t),
+            cv.GenerateID(CONF_LVGL_ID): cv.use_id(LvglComponent),
         }
     ),
 )
 async def obj_invalidate_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
-    await cg.register_parented(var, config[CONF_ID])
-    obj = "lv_scr_act()"
-    if obj_id := config.get(CONF_OBJ_ID):
+    await cg.register_parented(var, config[CONF_LVGL_ID])
+    if obj_id := config.get(CONF_ID):
         obj = cg.get_variable(obj_id)
+    else:
+        obj = "lv_scr_act()"
     lamb = await cg.process_lambda(
         Lambda(f"lv_obj_invalidate({obj});"), [(LvglComponentPtr, "lvgl_comp")]
     )
