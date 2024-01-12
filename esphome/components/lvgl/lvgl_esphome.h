@@ -29,9 +29,9 @@
 #include <lvgl.h>
 #include <vector>
 
-static const char *const TAG = "lvgl";
 namespace esphome {
 namespace lvgl {
+static const char *const TAG = "lvgl";
 
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 #if LV_COLOR_DEPTH == 16
@@ -74,161 +74,16 @@ typedef struct {
   uint16_t index;
 } LvBtnmBtn;
 
-typedef std::function<float(void)> value_lambda_t;
+typedef struct {
+  lv_obj_t *page;
+  size_t index;
+  bool skip;
+} LvPageType;
+
+typedef std::function<void(lv_obj_t *)> LvLambdaType;
 typedef std::function<void(float)> set_value_lambda_t;
 typedef void(event_callback_t)(_lv_event_t *);
 typedef std::function<const char *(void)> text_lambda_t;
-
-class Updater {
- public:
-  virtual void update() = 0;
-};
-
-class Arc : public Updater {
- public:
-  Arc(lv_obj_t *arc, value_lambda_t lamb) : arc_(arc), value_(lamb) {}
-
-  void update() override {
-    float new_value = this->value_();
-    if (new_value != this->last_value_) {
-      this->last_value_ = new_value;
-      lv_arc_set_value(this->arc_, new_value);
-    }
-  }
-
- protected:
-  lv_obj_t *arc_{};
-  value_lambda_t value_{};
-  float last_value_{NAN};
-};
-
-class Slider : public Updater {
- public:
-  Slider(lv_obj_t *slider, value_lambda_t lamb, bool anim) : slider_(slider), value_(lamb), anim_{anim} {}
-
-  void update() override {
-    float new_value = this->value_();
-    if (new_value != this->last_value_) {
-      this->last_value_ = new_value;
-      lv_slider_set_value(this->slider_, new_value, this->anim_ ? LV_ANIM_ON : LV_ANIM_OFF);
-    }
-  }
-
- protected:
-  lv_obj_t *slider_{};
-  value_lambda_t value_{};
-  float last_value_{NAN};
-  bool anim_{};
-};
-
-class Bar : public Updater {
- public:
-  Bar(lv_obj_t *bar, value_lambda_t lamb, bool anim) : bar_(bar), value_(lamb), anim_{anim} {}
-
-  void update() override {
-    float new_value = this->value_();
-    if (new_value != this->last_value_) {
-      this->last_value_ = new_value;
-      lv_bar_set_value(this->bar_, new_value, this->anim_ ? LV_ANIM_ON : LV_ANIM_OFF);
-    }
-  }
-
- protected:
-  lv_obj_t *bar_{};
-  value_lambda_t value_{};
-  float last_value_{NAN};
-  bool anim_{};
-};
-
-class Checkbox : public Updater {
- public:
-  Checkbox(lv_obj_t *checkbox, text_lambda_t value) : checkbox_(checkbox), value_(value) {}
-
-  void update() override {
-    const char *t = this->value_();
-    if (this->data_ != nullptr && strcmp(t, this->data_) == 0)
-      return;
-    // this jiggery-pokery seems necessary - in theory using set_text() should make the checkbox copy the data
-    // internally, but in practice this does not seem to work right.
-    if (this->data_len_ <= strlen(t)) {
-      this->data_len_ = strlen(t) + 10;
-      this->data_ = (char *) realloc(this->data_, this->data_len_);
-    }
-    strcpy(this->data_, t);
-    lv_checkbox_set_text_static(this->checkbox_, this->data_);
-  }
-
- protected:
-  lv_obj_t *checkbox_{};
-  text_lambda_t value_{};
-  char *data_{};
-  size_t data_len_{};
-};
-class Label : public Updater {
- public:
-  Label(lv_obj_t *label, text_lambda_t value) : label_(label), value_(value) {}
-
-  void update() override {
-    const char *t = this->value_();
-    if (this->data_ != nullptr && strcmp(t, this->data_) == 0)
-      return;
-    // this jiggery-pokery seems necessary - in theory using set_text() should make the label copy the data
-    // internally, but in practice this does not seem to work right.
-    if (this->data_len_ <= strlen(t)) {
-      this->data_len_ = strlen(t) + 10;
-      this->data_ = (char *) realloc(this->data_, this->data_len_);
-    }
-    strcpy(this->data_, t);
-    lv_label_set_text_static(this->label_, this->data_);
-  }
-
- protected:
-  lv_obj_t *label_{};
-  text_lambda_t value_{};
-  char *data_{};
-  size_t data_len_{};
-};
-
-#if LV_USE_METER
-class Indicator : public Updater {
- public:
-  Indicator(lv_obj_t *meter, lv_meter_indicator_t *indicator, value_lambda_t start_value, value_lambda_t end_value)
-      : meter_(meter), indicator_(indicator), start_value_(start_value), end_value_(end_value) {}
-
- public:
-  void update() override {
-    float new_value;
-    if (this->end_value_ != nullptr) {
-      new_value = this->end_value_();
-      if (!std::isnan(new_value) && new_value != this->last_end_state_) {
-        lv_meter_set_indicator_end_value(this->meter_, this->indicator_, new_value);
-        this->last_end_state_ = new_value;
-      }
-      if (this->start_value_ != nullptr) {
-        new_value = this->start_value_();
-        if (!std::isnan(new_value) && new_value != this->last_start_state_) {
-          lv_meter_set_indicator_start_value(this->meter_, this->indicator_, this->start_value_());
-          this->last_start_state_ = new_value;
-        }
-      }
-    } else if (this->start_value_ != nullptr) {
-      new_value = this->start_value_();
-      if (!std::isnan(new_value) && new_value != this->last_start_state_) {
-        lv_meter_set_indicator_value(this->meter_, this->indicator_, this->start_value_());
-        this->last_start_state_ = new_value;
-      }
-    }
-  }
-
- protected:
-  float last_start_state_{NAN};
-  float last_end_state_{NAN};
-  lv_obj_t *meter_{};
-  lv_meter_indicator_t *indicator_{};
-  value_lambda_t start_value_{};
-  value_lambda_t end_value_{};
-};
-#endif  // LV_USE_METER
 
 #if LV_USE_FONT
 class FontEngine {
@@ -354,11 +209,11 @@ class LvglComponent : public PollingComponent {
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
   static void log_cb(const char *buf) { esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%s", buf); }
 
-  void add_updater(Updater *updater) { this->updaters_.push_back(updater); }
-
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
+#if LV_USE_LOG
     lv_log_register_print_cb(log_cb);
+#endif
     size_t bytes_per_pixel = LV_COLOR_DEPTH / 8;
     size_t buffer_pixels = this->displays_[0]->get_width() * this->displays_[0]->get_height() / this->buffer_frac_;
     auto buf = lv_custom_mem_alloc(buffer_pixels * bytes_per_pixel);
@@ -378,6 +233,12 @@ class LvglComponent : public PollingComponent {
     this->custom_change_event_ = (lv_event_code_t) lv_event_register_id();
     for (auto v : this->init_lambdas_)
       v(this->disp_);
+    if (!this->pages_.empty()) {
+      auto page = this->pages_[0];
+      esph_log_d(TAG, "loading page: size = %d, index %d, ptr %p", this->pages_.size(), page->index, page->page);
+      if (page->page != nullptr)
+        lv_scr_load(this->pages_[0]->page);
+    }
     // this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
     esph_log_config(TAG, "LVGL Setup complete");
   }
@@ -386,9 +247,6 @@ class LvglComponent : public PollingComponent {
     // update indicators
     if (this->paused_)
       return;
-    for (auto updater : this->updaters_) {
-      updater->update();
-    }
     this->idle_callbacks_.call(lv_disp_get_inactive_time(this->disp_));
   }
 
@@ -414,6 +272,22 @@ class LvglComponent : public PollingComponent {
   bool is_paused() { return this->paused_; }
   bool is_idle(uint32_t idle_ms) { return lv_disp_get_inactive_time(this->disp_) > idle_ms; }
   void set_buffer_frac(size_t frac) { this->buffer_frac_ = frac; }
+  void add_page(LvPageType *page) { this->pages_.push_back(page); }
+  void show_page(size_t index, lv_scr_load_anim_t anim, uint32_t time) {
+    this->page_index_ = index;
+    lv_scr_load_anim(this->pages_[index]->page, anim, time, 0, false);
+  }
+  void show_next_page(bool reverse, lv_scr_load_anim_t anim, uint32_t time) {
+    int next = this->page_index_;
+    int dir = reverse ? -1 : 1;
+    while (next + dir >= 0 && next + dir < this->pages_.size()) {
+      next += dir;
+      if (!this->pages_[next]->skip) {
+        this->show_page(next, anim, time);
+        return;
+      }
+    }
+  }
 
  protected:
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
@@ -435,19 +309,18 @@ class LvglComponent : public PollingComponent {
 
   CallbackManager<void(uint32_t)> idle_callbacks_{};
   std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
-  std::vector<Updater *> updaters_;
+  std::vector<LvPageType *> pages_{};
+  size_t page_index_{0};
   size_t buffer_frac_{1};
   bool paused_{};
 };
 
-template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
+class EventTrigger : public Trigger<> {
  public:
-  explicit ObjUpdateAction(std::function<void()> lamb) : lamb_(lamb) {}
-
-  void play(Ts... x) override { this->lamb_(); }
-
- protected:
-  std::function<void()> lamb_;
+  explicit EventTrigger(lv_obj_t *obj, lv_event_code_t event) {
+    lv_obj_add_event_cb(
+        obj, [](lv_event_t *ev) { ((EventTrigger *) ev->user_data)->trigger(); }, event, this);
+  }
 };
 
 class IdleTrigger : public Trigger<> {
@@ -466,6 +339,16 @@ class IdleTrigger : public Trigger<> {
  protected:
   TemplatableValue<uint32_t> timeout_;
   bool is_idle_{};
+};
+  
+template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
+ public:
+  explicit ObjUpdateAction(std::function<void()> lamb) : lamb_(lamb) {}
+
+  void play(Ts... x) override { this->lamb_(); }
+
+ protected:
+  std::function<void()> lamb_;
 };
 
 template<typename... Ts> class LvglAction : public Action<Ts...>, public Parented<LvglComponent> {
@@ -492,8 +375,10 @@ template<typename... Ts> class LvglCondition : public Condition<Ts...>, public P
 #if LV_USE_TOUCHSCREEN
 class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglComponent> {
  public:
-  LVTouchListener() {
+  LVTouchListener(uint32_t long_press_time, uint32_t long_press_repeat_time) {
     lv_indev_drv_init(&this->drv);
+    this->drv.long_press_repeat_time = long_press_repeat_time;
+    this->drv.long_press_time = long_press_time;
     this->drv.type = LV_INDEV_TYPE_POINTER;
     this->drv.user_data = this;
     this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {

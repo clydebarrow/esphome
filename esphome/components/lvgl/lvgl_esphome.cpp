@@ -9,7 +9,7 @@ namespace lvgl {}  // namespace lvgl
 static const char *const TAG = "lvgl";
 size_t lv_millis(void) { return esphome::millis(); }
 
-static unsigned cap_bits = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+static unsigned cap_bits = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;  // NOLINT
 
 void *lv_custom_mem_alloc(size_t size) {
   void *ptr;

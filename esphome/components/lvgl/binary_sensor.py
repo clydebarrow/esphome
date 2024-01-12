@@ -9,10 +9,10 @@ from . import (
     add_init_lambda,
     LVGL_SCHEMA,
     CONF_LVGL_ID,
-    CONF_OBJ,
     get_matrix_button,
     lv_pseudo_button_t,
     CONF_BTN,
+    CONF_WIDGET,
 )
 from .lv_validation import requires_component
 
@@ -20,7 +20,7 @@ BASE_SCHEMA = binary_sensor_schema(BinarySensor).extend(LVGL_SCHEMA)
 CONFIG_SCHEMA = cv.All(
     BASE_SCHEMA.extend(
         {
-            cv.Required(CONF_OBJ): cv.use_id(lv_pseudo_button_t),
+            cv.Required(CONF_WIDGET): cv.use_id(lv_pseudo_button_t),
         }
     ),
     requires_component("binary_sensor"),
@@ -30,7 +30,7 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     sensor = await new_binary_sensor(config)
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    type, obj = await get_matrix_button(config[CONF_OBJ])
+    type, obj = await get_matrix_button(config[CONF_WIDGET])
     if type == CONF_BTN:
         # map the button ID to the button matrix and an index
         idx = obj[1]
