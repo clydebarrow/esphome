@@ -718,7 +718,7 @@ async def get_boolean_value(value):
 
 
 async def get_text_value(config):
-    if value := config.get(CONF_TEXT):
+    if (value := config.get(CONF_TEXT)) is not None:
         if isinstance(value, Lambda):
             return (
                 f"{await cg.process_lambda(value, [], return_type=cg.const_char_ptr)}()"
@@ -939,7 +939,7 @@ async def create_lv_obj(t, config, parent):
 
 async def checkbox_to_code(var, checkbox_conf):
     """For a text object, create and set text"""
-    if value := await get_text_value(checkbox_conf):
+    if (value := await get_text_value(checkbox_conf)) is not None:
         return [f"lv_checkbox_set_text({var}, {value})"]
     return []
 
@@ -947,11 +947,11 @@ async def checkbox_to_code(var, checkbox_conf):
 async def label_to_code(var, label_conf):
     """For a text object, create and set text"""
     init = []
-    if value := await get_text_value(label_conf):
+    if (value := await get_text_value(label_conf)) is not None:
         init.append(f"lv_label_set_text({var}, {value})")
     if mode := label_conf.get(CONF_LONG_MODE):
         init.append(f"lv_label_set_long_mode({var}, {mode})")
-    if recolor := label_conf.get(CONF_RECOLOR):
+    if (recolor := label_conf.get(CONF_RECOLOR)) is not None:
         init.append(f"lv_label_set_recolor({var}, {recolor})")
     return init
 
@@ -1676,9 +1676,7 @@ async def obj_update_to_code(config, action_id, template_arg, args):
 )
 async def checkbox_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
-    init = []
-    if value := await get_text_value(config):
-        init.append(f"lv_checkbox_set_text({obj}, {value})")
+    init = await checkbox_to_code(obj, config)
     return await update_to_code(config, action_id, obj, init, template_arg)
 
 
@@ -1689,9 +1687,7 @@ async def checkbox_update_to_code(config, action_id, template_arg, args):
 )
 async def label_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
-    init = []
-    if value := await get_text_value(config):
-        init.append(f"lv_label_set_text({obj}, {value})")
+    init = await label_to_code(obj, config)
     return await update_to_code(config, action_id, obj, init, template_arg)
 
 
