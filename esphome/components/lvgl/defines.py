@@ -85,6 +85,15 @@ LOG_LEVELS = (
     "USER",
     "NONE",
 )
+
+LV_LONG_MODES = (
+    "WRAP",
+    "DOT",
+    "SCROLL",
+    "SCROLL_CIRCULAR",
+    "CLIP",
+)
+
 STATES = (
     "default",
     "checked",

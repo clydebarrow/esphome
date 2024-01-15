@@ -5,6 +5,7 @@ from esphome.components import light
 from esphome.const import (
     CONF_LED,
     CONF_OUTPUT_ID,
+    CONF_GAMMA_CORRECT,
 )
 from . import (
     add_init_lambda,
@@ -20,6 +21,7 @@ LVLight = lvgl_ns.class_("LVLight", LightOutput)
 CONFIG_SCHEMA = cv.All(
     light.RGB_LIGHT_SCHEMA.extend(
         {
+            cv.Optional(CONF_GAMMA_CORRECT, default=0.0): cv.positive_float,
             cv.Required(CONF_LED): cv.use_id(lv_led_t),
             cv.GenerateID(CONF_OUTPUT_ID): cv.declare_id(LVLight),
         }

@@ -94,6 +94,7 @@ from .defines import (
     CONF_PAGE,
     LV_ANIM,
     LV_EVENT_TRIGGERS,
+    LV_LONG_MODES,
 )
 
 from .lv_validation import (
@@ -210,6 +211,7 @@ CONF_LONG_PRESS_TIME = "long_press_time"
 CONF_LONG_PRESS_REPEAT_TIME = "long_press_repeat_time"
 CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
+CONF_LONG_MODE = "long_mode"
 CONF_MAJOR = "major"
 CONF_OBJ = "obj"
 CONF_ON_IDLE = "on_idle"
@@ -221,6 +223,7 @@ CONF_POINTS = "points"
 CONF_PREVIOUS = "previous"
 CONF_ROWS = "rows"
 CONF_R_MOD = "r_mod"
+CONF_RECOLOR = "recolor"
 CONF_SCALES = "scales"
 CONF_SCALE_LINES = "scale_lines"
 CONF_SRC = "src"
@@ -415,10 +418,12 @@ AUTOMATION_SCHEMA = {
     for event in LV_EVENT_TRIGGERS
 }
 
-TEXT_SCHEMA = {
-    cv.Exclusive(CONF_TEXT, CONF_TEXT): lv_text_value,
-    cv.Exclusive(CONF_SYMBOL, CONF_TEXT): lv_one_of(LV_SYMBOLS, "LV_SYMBOL_"),
-}
+TEXT_SCHEMA = cv.Schema(
+    {
+        cv.Exclusive(CONF_TEXT, CONF_TEXT): lv_text_value,
+        cv.Exclusive(CONF_SYMBOL, CONF_TEXT): lv_one_of(LV_SYMBOLS, "LV_SYMBOL_"),
+    }
+)
 
 STYLE_SCHEMA = cv.Schema({cv.Optional(k): v for k, v in STYLE_PROPS.items()}).extend(
     {
@@ -585,7 +590,13 @@ PAGE_SCHEMA = {
     cv.Optional(CONF_SKIP, default=False): lv_bool,
 }
 
-LABEL_SCHEMA = TEXT_SCHEMA
+LABEL_SCHEMA = TEXT_SCHEMA.extend(
+    {
+        cv.Optional(CONF_RECOLOR): lv_bool,
+        cv.Optional(CONF_LONG_MODE): lv_one_of(LV_LONG_MODES, prefix="LV_LABEL_LONG_"),
+    }
+)
+
 CHECKBOX_SCHEMA = TEXT_SCHEMA
 
 DROPDOWN_BASE_SCHEMA = cv.Schema(
@@ -934,9 +945,14 @@ async def checkbox_to_code(var, checkbox_conf):
 
 async def label_to_code(var, label_conf):
     """For a text object, create and set text"""
+    init = []
     if value := await get_text_value(label_conf):
-        return [f"lv_label_set_text({var}, {value})"]
-    return []
+        init.append(f"lv_label_set_text({var}, {value})")
+    if mode := label_conf.get(CONF_LONG_MODE):
+        init.append(f"lv_label_set_long_mode({var}, {mode})")
+    if recolor := label_conf.get(CONF_RECOLOR):
+        init.append(f"lv_label_set_recolor({var}, {recolor})")
+    return init
 
 
 async def obj_to_code(var, obj):
