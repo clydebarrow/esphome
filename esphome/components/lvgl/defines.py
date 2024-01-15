@@ -43,19 +43,19 @@ LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
     "unscii_16",
 ]
 
-LV_EVENT = [
-    "PRESSED",
-    "SHORT_CLICKED",
-    "LONG_PRESSED",
-    "LONG_PRESSED_REPEAT",
-    "CLICKED",
-    "RELEASED",
-    "SCROLL_BEGIN",
-    "SCROLL_END",
-    "SCROLL",
-    "FOCUSED",
-    "DEFOCUSED",
-]
+LV_EVENT = {
+    "PRESS": "PRESSED",
+    "SHORT_CLICK": "SHORT_CLICKED",
+    "LONG_PRESS": "LONG_PRESSED",
+    "LONG_PRESS_REPEAT": "LONG_PRESSED_REPEAT",
+    "CLICK": "CLICKED",
+    "RELEASE": "RELEASED",
+    "SCROLL_BEGIN": "SCROLL_BEGIN",
+    "SCROLL_END": "SCROLL_END",
+    "SCROLL": "SCROLL",
+    "FOCUS": "FOCUSED",
+    "DEFOCUS": "DEFOCUSED",
+}
 
 LV_EVENT_TRIGGERS = list(map(lambda x: "on_" + x.lower(), LV_EVENT))
 

@@ -95,6 +95,7 @@ from .defines import (
     LV_ANIM,
     LV_EVENT_TRIGGERS,
     LV_LONG_MODES,
+    LV_EVENT,
 )
 
 from .lv_validation import (
@@ -1348,6 +1349,7 @@ async def generate_triggers():
         for event, conf in {
             event: conf for event, conf in wconf.items() if event in LV_EVENT_TRIGGERS
         }.items():
+            event = LV_EVENT[event[3:].upper()]
             conf = conf[0]
             trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
             await automation.build_automation(trigger, [], conf)
@@ -1356,7 +1358,7 @@ async def generate_triggers():
             lv_obj_add_flag({obj}, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb({obj}, [](lv_event_t *ev) {{
                 {trigger}->trigger();
-            }}, LV_EVENT_{event[3:].upper()}, nullptr)
+            }}, LV_EVENT_{event.upper()}, nullptr)
             """
             )
 
@@ -1367,6 +1369,7 @@ async def generate_triggers():
         for event, conf in {
             event: conf for event, conf in bconf.items() if event in LV_EVENT_TRIGGERS
         }.items():
+            event = LV_EVENT[event[3:].upper()]
             conf = conf[0]
             trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
             await automation.build_automation(trigger, [], conf)
@@ -1375,7 +1378,7 @@ async def generate_triggers():
             lv_obj_add_event_cb({btnm}, [](lv_event_t *ev) {{
                 if (lv_btnmatrix_get_selected_btn({btnm}) == {index})
                     {trigger}->trigger();
-            }}, LV_EVENT_{event[3:].upper()}, nullptr)
+            }}, LV_EVENT_{event.upper()}, nullptr)
             """
             )
 
@@ -1730,11 +1733,10 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
     ),
 )
 async def button_update_to_code(config, action_id, template_arg, args):
-    otype, obj = await get_matrix_button(config[CONF_ID])
+    _, obj = await get_matrix_button(config[CONF_ID])
     index = obj[1]
     btnm = obj[0]
     init = []
-    print(config)
     if (width := config.get(CONF_WIDTH)) is not None:
         init.append(f"lv_btnmatrix_set_btn_width({btnm}, {index}, {width})")
     if config.get(CONF_SELECTED):
