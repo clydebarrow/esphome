@@ -1356,7 +1356,6 @@ async def generate_triggers():
             lv_obj_add_flag({obj}, LV_OBJ_FLAG_CLICKABLE);
             lv_obj_add_event_cb({obj}, [](lv_event_t *ev) {{
                 {trigger}->trigger();
-                esph_log_d("lvgl", "Event {event} on {obj.id}");
             }}, LV_EVENT_{event[3:].upper()}, nullptr)
             """
             )
@@ -1376,7 +1375,6 @@ async def generate_triggers():
             lv_obj_add_event_cb({btnm}, [](lv_event_t *ev) {{
                 if (lv_btnmatrix_get_selected_btn({btnm}) == {index})
                     {trigger}->trigger();
-                esph_log_d("lvgl", "Event {event} on {btnm.id}");
             }}, LV_EVENT_{event[3:].upper()}, nullptr)
             """
             )
@@ -1713,6 +1711,44 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
     if end_value is not None:
         init.append(f"lv_meter_set_indicator_end_value({meter},{obj}, {end_value})")
     return await update_to_code(None, action_id, obj, init, template_arg)
+
+
+@automation.register_action(
+    "lvgl.button.update",
+    ObjUpdateAction,
+    cv.Schema(
+        {
+            cv.Optional(CONF_WIDTH, default=1): cv.positive_int,
+            cv.Optional(CONF_CONTROL): cv.ensure_list(
+                cv.Schema(
+                    {cv.Optional(k.lower()): cv.boolean for k in BTNMATRIX_CTRLS}
+                ),
+            ),
+            cv.Required(CONF_ID): cv.use_id(LvBtnmBtn),
+            cv.Optional(CONF_SELECTED): lv_bool,
+        }
+    ),
+)
+async def button_update_to_code(config, action_id, template_arg, args):
+    otype, obj = await get_matrix_button(config[CONF_ID])
+    index = obj[1]
+    btnm = obj[0]
+    init = []
+    print(config)
+    if (width := config.get(CONF_WIDTH)) is not None:
+        init.append(f"lv_btnmatrix_set_btn_width({btnm}, {index}, {width})")
+    if config.get(CONF_SELECTED):
+        init.append(f"lv_btnmatrix_set_selected_btn({btnm}, {index})")
+    if controls := config.get(CONF_CONTROL):
+        ctrl = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
+        for item in controls:
+            ctrl.extend(
+                [f"(int)LV_BTNMATRIX_CTRL_{k.upper()}" for k, v in item.items() if v]
+            )
+        controls = "|".join(ctrl)
+        init.append(f"lv_btnmatrix_set_btn_ctrl({btnm}, {index}, {controls})")
+
+    return await action_to_code(init, action_id, btnm, template_arg)
 
 
 @automation.register_action(
