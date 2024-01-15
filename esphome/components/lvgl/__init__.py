@@ -726,7 +726,7 @@ async def get_text_value(config):
             return "[] {" f"return {value}->get_state().c_str();}}()"
         return cg.safe_exp(value)
     if value := config.get(CONF_SYMBOL):
-        return cg.safe_exp(value)
+        return value
     return None
 
 
