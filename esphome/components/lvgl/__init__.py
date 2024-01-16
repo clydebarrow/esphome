@@ -98,6 +98,7 @@ from .defines import (
     LV_EVENT_TRIGGERS,
     LV_LONG_MODES,
     LV_EVENT,
+    CONF_MSGBOX,
 )
 
 from .lv_validation import (
@@ -191,6 +192,7 @@ CONF_BACKGROUND_STYLE = "background_style"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
 CONF_CHANGE_RATE = "change_rate"
+CONF_CLOSE_BUTTON = "close_button"
 CONF_COLOR_DEPTH = "color_depth"
 CONF_COLOR_END = "color_end"
 CONF_COLOR_START = "color_start"
@@ -216,6 +218,7 @@ CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
 CONF_LONG_MODE = "long_mode"
 CONF_MAJOR = "major"
+CONF_MODAL = "modal"
 CONF_PAGE_WRAP = "page_wrap"
 CONF_OBJ = "obj"
 CONF_ON_IDLE = "on_idle"
@@ -243,6 +246,7 @@ CONF_SYMBOL = "symbol"
 CONF_SELECTED_INDEX = "selected_index"
 CONF_SKIP = "skip"
 CONF_TEXT = "text"
+CONF_TITLE = "title"
 CONF_TOP_LAYER = "top_layer"
 CONF_THEME = "theme"
 CONF_WIDGET = "widget"
@@ -263,6 +267,7 @@ WIDGET_TYPES = {
     CONF_LED: (CONF_MAIN,),
     CONF_LINE: (CONF_MAIN,),
     CONF_DROPDOWN_LIST: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
+    CONF_MSGBOX: (CONF_MAIN,),
     CONF_METER: (CONF_MAIN,),
     CONF_OBJ: (CONF_MAIN,),
     CONF_PAGE: (CONF_MAIN,),
@@ -597,6 +602,14 @@ SCALE_SCHEMA = cv.Schema(
 )
 
 METER_SCHEMA = {cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA)}
+
+MSGBOX_SCHEMA = {
+    cv.Required(CONF_TITLE): STYLE_SCHEMA.extend(TEXT_SCHEMA),
+    cv.Required(CONF_TEXT): STYLE_SCHEMA.extend(TEXT_SCHEMA),
+    cv.Optional(CONF_BUTTONS): cv.ensure_list(BTNM_BTN_SCHEMA),
+    cv.Optional(CONF_CLOSE_BUTTON): lv_bool,
+    cv.Optional(CONF_MODAL, default=True): lv_bool,
+}
 
 PAGE_SCHEMA = {
     cv.Optional(CONF_SKIP, default=False): lv_bool,
@@ -934,17 +947,6 @@ def set_obj_properties(var, config):
 
 async def create_lv_obj(t, config, parent):
     """Write object creation code for an object extending lv_obj_t"""
-    init = []
-    var = cg.Pvariable(config[CONF_ID], cg.nullptr, type_=lv_obj_t)
-    init.append(f"{var} = lv_{t}_create({parent})")
-    if theme := theme_widget_map.get(t):
-        init.append(f"{theme}({var})")
-    init.extend(set_obj_properties(var, config))
-    # Workaround because theme does not correctly set group
-    if CONF_WIDGETS in config:
-        for widg in config[CONF_WIDGETS]:
-            (_, ext_init) = await widget_to_code(widg, var)
-            init.extend(ext_init)
     return var, init
 
 
@@ -1156,12 +1158,18 @@ async def get_matrix_button(id: ID):
     return await FakeAwaitable(get_btn_generator(id))
 
 
-async def btnmatrix_to_code(btnm, conf):
+def get_button_data(config, id, btnm):
+    """
+    Process a button matrix button list
+    :param config: The row list
+    :param id: An id basis for the text array
+    :param btnm: The parent variable
+    :return: text array id, control list, width list
+    """
     text_list = []
     ctrl_list = []
     width_list = []
-    id = conf[CONF_ID]
-    for row in conf[CONF_ROWS]:
+    for row in config:
         for btn in row[CONF_BUTTONS]:
             bid = btn[CONF_ID]
             btnm_comp_list[bid] = (btnm, len(width_list), btn)
@@ -1186,14 +1194,30 @@ async def btnmatrix_to_code(btnm, conf):
         text_list.append('"\\n"')
     text_list = text_list[:-1]
     text_list.append("NULL")
-    text_list = cg.RawExpression("{" + ",".join(text_list) + "}")
     text_id = ID(f"{id.id}_text_array", is_declaration=True, type=char_ptr_const)
-    text_id = cg.static_const_array(text_id, text_list)
+    text_id = cg.static_const_array(text_id, cg.RawExpression("{" + ",".join(text_list) + "}"))
+    return text_id, ctrl_list, width_list
+
+
+async def btnmatrix_to_code(btnm, conf):
+    id = conf[CONF_ID]
+    text_id, ctrl_list, width_list = get_button_data(conf[CONF_ROWS], id, btnm)
     init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
     for index, ctrl in enumerate(ctrl_list):
         init.append(f"lv_btnmatrix_set_btn_ctrl({btnm}, {index}, {ctrl})")
     for index, width in enumerate(width_list):
         init.append(f"lv_btnmatrix_set_btn_width({btnm}, {index}, {width})")
+    return init
+
+
+async def msgbox_to_code(var, conf):
+    return []
+
+
+async def create_msgbox(var, conf, parent):
+    init = []
+    id = conf[CONF_ID]
+    text_id, ctrl_list, width_list = get_button_data((conf,), id, var)
     return init
 
 
@@ -1615,7 +1639,20 @@ CONFIG_SCHEMA = (
 async def widget_to_code(widget, parent):
     (w_type, w_cnfig) = next(iter(widget.items()))
     lv_uses.add(w_type)
-    (var, init) = await create_lv_obj(w_type, w_cnfig, parent)
+    # special case, create function is non-standard
+    init = []
+    var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
+    if w_type == CONF_MSGBOX:
+        init.extend(await create_msgbox(var, w_cnfig, parent))
+    else:
+        init.append(f"{var} = lv_{w_type}_create({parent})")
+    if theme := theme_widget_map.get(w_type):
+        init.append(f"{theme}({var})")
+    init.extend(set_obj_properties(var, w_cnfig))
+    if widgets := w_cnfig.get(CONF_WIDGETS):
+        for widg in widgets:
+            (_, ext_init) = await widget_to_code(widg, var)
+            init.extend(ext_init)
     fun = f"{w_type}_to_code"
     if fun in globals():
         fun = globals()[fun]
