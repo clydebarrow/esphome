@@ -19,6 +19,8 @@ from . import (
     set_event_cb,
     CONF_SLIDER,
     CONF_ARC,
+    CONF_BAR,
+    lv_bar_t,
 )
 from .lv_validation import requires_component
 
@@ -31,6 +33,7 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.Exclusive(CONF_ARC, CONF_VALUE): cv.use_id(lv_arc_t),
             cv.Exclusive(CONF_SLIDER, CONF_VALUE): cv.use_id(lv_slider_t),
+            cv.Exclusive(CONF_BAR, CONF_VALUE): cv.use_id(lv_bar_t),
             cv.Optional(CONF_ANIMATED, default=True): lv_animated,
         }
     ),
@@ -54,6 +57,10 @@ async def to_code(config):
         obj = await cg.get_variable(slider)
         lv_type = "slider"
         animated = f", {animated}"
+    elif bar := config.get(CONF_BAR):
+        obj = await cg.get_variable(bar)
+        lv_type = "bar"
+        animated = f", {animated}"
     else:
         return
     publish = f"{var}->publish_state(lv_{lv_type}_get_value({obj}))"
@@ -61,12 +68,13 @@ async def to_code(config):
         obj,
         publish,
         "LV_EVENT_VALUE_CHANGED",
-        f"{paren}->get_custom_change_event()",
     )
     init.extend(
         [
             f"""{var}->set_control_lambda([] (float v) {{
                lv_{lv_type}_set_value({obj}, v{animated});
+               lv_{lv_type}_set_value({obj}, v{animated});
+               lv_event_send({obj}, {paren}->get_custom_change_event(), nullptr);
                {publish};
             }})""",
             f"{var}->traits.set_max_value(lv_{lv_type}_get_max_value({obj}))",

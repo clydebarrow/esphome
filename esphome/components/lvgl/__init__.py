@@ -1,3 +1,4 @@
+import functools
 import logging
 from esphome.core import (
     CORE,
@@ -214,8 +215,10 @@ CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
 CONF_LONG_MODE = "long_mode"
 CONF_MAJOR = "major"
+CONF_PAGE_WRAP = "page_wrap"
 CONF_OBJ = "obj"
 CONF_ON_IDLE = "on_idle"
+CONF_ON_VALUE = "on_value"
 CONF_ONE_CHECKED = "one_checked"
 CONF_NEXT = "next"
 CONF_PIVOT_X = "pivot_x"
@@ -386,14 +389,8 @@ def cv_point_list(value):
     if not isinstance(value, list):
         raise cv.Invalid("List of points required")
     values = list(map(cv_int_list, value))
-    for v in values:
-        if (
-            not isinstance(v, list)
-            or not len(v) == 2
-            or not isinstance(v[0], int)
-            or not isinstance(v[1], int)
-        ):
-            raise cv.Invalid("Points must be a list of x,y integer pairs")
+    if not functools.reduce(lambda f, v: f and len(v) == 2, values, True):
+        raise cv.Invalid("Points must be a list of x,y integer pairs")
     return {
         CONF_ID: cv.declare_id(lv_point_t)(generate_id(CONF_POINTS)),
         CONF_POINTS: values,
@@ -445,6 +442,13 @@ BAR_SCHEMA = cv.Schema(
         cv.Optional(CONF_MAX_VALUE, default=100): cv.int_,
         cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(BAR_MODES, "LV_BAR_MODE_"),
         cv.Optional(CONF_ANIMATED, default=True): lv_animated,
+        cv.Optional(CONF_ON_VALUE): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
+                    automation.Trigger.template(cg.float_)
+                )
+            }
+        ),
     }
 )
 
@@ -491,6 +495,13 @@ ARC_SCHEMA = cv.Schema(
         cv.Optional(CONF_ADJUSTABLE, default=False): bool,
         cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(ARC_MODES, "LV_ARC_MODE_"),
         cv.Optional(CONF_CHANGE_RATE, default=720): cv.uint16_t,
+        cv.Optional(CONF_ON_VALUE): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
+                    automation.Trigger.template(cg.float_)
+                )
+            }
+        ),
     }
 )
 
@@ -1270,15 +1281,15 @@ async def meter_to_code(var, meter):
     return init
 
 
-async def arc_to_code(var, arc):
+async def arc_to_code(var, config):
     init = [
-        f"lv_arc_set_range({var}, {arc[CONF_MIN_VALUE]}, {arc[CONF_MAX_VALUE]})",
-        f"lv_arc_set_bg_angles({var}, {arc[CONF_START_ANGLE]}, {arc[CONF_END_ANGLE]})",
-        f"lv_arc_set_rotation({var}, {arc[CONF_ROTATION]})",
-        f"lv_arc_set_mode({var}, {arc[CONF_MODE]})",
-        f"lv_arc_set_change_rate({var}, {arc[CONF_CHANGE_RATE]})",
+        f"lv_arc_set_range({var}, {config[CONF_MIN_VALUE]}, {config[CONF_MAX_VALUE]})",
+        f"lv_arc_set_bg_angles({var}, {config[CONF_START_ANGLE]}, {config[CONF_END_ANGLE]})",
+        f"lv_arc_set_rotation({var}, {config[CONF_ROTATION]})",
+        f"lv_arc_set_mode({var}, {config[CONF_MODE]})",
+        f"lv_arc_set_change_rate({var}, {config[CONF_CHANGE_RATE]})",
     ]
-    value = await get_start_value(arc)
+    value = await get_start_value(config)
     if value is not None:
         init.append(f"lv_arc_set_value({var}, {value})")
     return init
@@ -1343,9 +1354,9 @@ async def touchscreens_to_code(var, config):
     return init
 
 
-async def generate_triggers():
+async def generate_triggers(lv_component):
     init = []
-    for obj, wconf in widget_list:
+    for obj, wconf, wtype in widget_list:
         for event, conf in {
             event: conf for event, conf in wconf.items() if event in LV_EVENT_TRIGGERS
         }.items():
@@ -1361,7 +1372,21 @@ async def generate_triggers():
             }}, LV_EVENT_{event.upper()}, nullptr)
             """
             )
-
+    for obj, wconf, wtype in widget_list:
+        if on_value := wconf.get(CONF_ON_VALUE):
+            for conf in on_value:
+                trigger = cg.new_Pvariable(
+                    conf[CONF_TRIGGER_ID],
+                )
+                await automation.build_automation(trigger, [(cg.float_, "x")], conf)
+                init.extend(
+                    set_event_cb(
+                        obj,
+                        f"{trigger}->trigger(lv_{wtype}_get_value({obj}))",
+                        "LV_EVENT_VALUE_CHANGED",
+                        f"{lv_component}->get_custom_change_event()",
+                    )
+                )
     for obj, pair in btnm_comp_list.items():
         bconf = pair[2]
         index = pair[1]
@@ -1462,7 +1487,8 @@ async def to_code(config):
             init.append(f"{lv_component}->add_page({pvar})")
             init.extend(pinit)
 
-    init.extend(await generate_triggers())
+    init.append(f"{lv_component}->set_page_wrap({config[CONF_PAGE_WRAP]})")
+    init.extend(await generate_triggers(lv_component))
     init.extend(await touchscreens_to_code(lv_component, config))
     init.extend(await rotary_encoders_to_code(lv_component, config))
     init.extend(set_obj_properties("lv_scr_act()", config))
@@ -1571,6 +1597,7 @@ CONFIG_SCHEMA = (
             cv.Exclusive(CONF_PAGES, CONF_PAGES): cv.ensure_list(
                 container_schema(CONF_PAGE)
             ),
+            cv.Optional(CONF_PAGE_WRAP, default=True): lv_bool,
             cv.Optional(CONF_TOP_LAYER): container_schema(CONF_OBJ),
             cv.Optional(CONF_THEME): cv.Schema(
                 {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES}
@@ -1594,6 +1621,7 @@ async def widget_to_code(widget, parent):
         (
             var,
             w_cnfig,
+            w_type,
         )
     )
     return var, init

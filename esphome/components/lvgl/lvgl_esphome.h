@@ -280,23 +280,36 @@ class LvglComponent : public PollingComponent {
       lv_disp_trig_activity(this->disp_);  // resets the inactivity time
   }
   bool is_paused() { return this->paused_; }
+  void set_page_wrap(bool page_wrap) { this->page_wrap_ = page_wrap; }
   bool is_idle(uint32_t idle_ms) { return lv_disp_get_inactive_time(this->disp_) > idle_ms; }
   void set_buffer_frac(size_t frac) { this->buffer_frac_ = frac; }
   void add_page(LvPageType *page) { this->pages_.push_back(page); }
   void show_page(size_t index, lv_scr_load_anim_t anim, uint32_t time) {
+    if (index >= this->pages_.size())
+      return;
     this->page_index_ = index;
     lv_scr_load_anim(this->pages_[index]->page, anim, time, 0, false);
   }
   void show_next_page(bool reverse, lv_scr_load_anim_t anim, uint32_t time) {
+    if (this->pages_.empty())
+      return;
     int next = this->page_index_;
-    int dir = reverse ? -1 : 1;
-    while (next + dir >= 0 && next + dir < this->pages_.size()) {
-      next += dir;
-      if (!this->pages_[next]->skip) {
-        this->show_page(next, anim, time);
+    if (!this->page_wrap_) {
+      if (next == 0 && reverse)
         return;
-      }
+      if (next == this->pages_.size() - 1 && !reverse)
+        return;
     }
+    do {
+      if (reverse) {
+        if (next-- == 0)
+          next = this->pages_.size() - 1;
+      } else {
+        if (++next == this->pages_.size())
+          next = 0;
+      }
+    } while (this->pages_[next]->skip && next != this->page_index_);
+    this->show_page(next, anim, time);
   }
 
  protected:
@@ -320,17 +333,10 @@ class LvglComponent : public PollingComponent {
   CallbackManager<void(uint32_t)> idle_callbacks_{};
   std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
   std::vector<LvPageType *> pages_{};
+  bool page_wrap_{true};
   size_t page_index_{0};
   size_t buffer_frac_{1};
   bool paused_{};
-};
-
-class EventTrigger : public Trigger<> {
- public:
-  explicit EventTrigger(lv_obj_t *obj, lv_event_code_t event) {
-    lv_obj_add_event_cb(
-        obj, [](lv_event_t *ev) { ((EventTrigger *) ev->user_data)->trigger(); }, event, this);
-  }
 };
 
 class IdleTrigger : public Trigger<> {

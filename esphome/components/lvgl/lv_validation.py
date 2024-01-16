@@ -215,6 +215,7 @@ def validate_max_min(config):
 
 
 def cv_int_list(il):
+    il = cv.string(il)
     nl = il.replace(" ", "").split(",")
     return list(map(int, nl))
 
