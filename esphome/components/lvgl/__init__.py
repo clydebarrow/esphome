@@ -44,6 +44,7 @@ from esphome.const import (
     CONF_TRIGGER_ID,
     CONF_VALUE,
     CONF_WIDTH,
+    CONF_ON_VALUE,
 )
 from esphome.cpp_generator import (
     LambdaExpression,
@@ -218,7 +219,6 @@ CONF_MAJOR = "major"
 CONF_PAGE_WRAP = "page_wrap"
 CONF_OBJ = "obj"
 CONF_ON_IDLE = "on_idle"
-CONF_ON_VALUE = "on_value"
 CONF_ONE_CHECKED = "one_checked"
 CONF_NEXT = "next"
 CONF_PIVOT_X = "pivot_x"

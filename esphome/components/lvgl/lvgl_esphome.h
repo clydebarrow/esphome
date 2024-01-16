@@ -294,19 +294,20 @@ class LvglComponent : public PollingComponent {
     if (this->pages_.empty())
       return;
     int next = this->page_index_;
-    if (!this->page_wrap_) {
-      if (next == 0 && reverse)
-        return;
-      if (next == this->pages_.size() - 1 && !reverse)
-        return;
-    }
     do {
       if (reverse) {
-        if (next-- == 0)
-          next = this->pages_.size() - 1;
+        if (next == 0) {
+          if (!this->page_wrap_)
+            return;
+          next = this->pages_.size();
+        }
+        next--;
       } else {
-        if (++next == this->pages_.size())
+        if (++next == this->pages_.size()) {
+          if (!this->page_wrap_)
+            return;
           next = 0;
+        }
       }
     } while (this->pages_[next]->skip && next != this->page_index_);
     this->show_page(next, anim, time);

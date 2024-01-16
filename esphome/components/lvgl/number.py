@@ -49,16 +49,16 @@ async def to_code(config):
 
     animated = config[CONF_ANIMATED]
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    if arc := config.get(CONF_ARC):
-        obj = await cg.get_variable(arc)
+    if obj := config.get(CONF_ARC):
+        obj = await cg.get_variable(obj)
         lv_type = "arc"
         animated = ""
-    elif slider := config.get(CONF_SLIDER):
-        obj = await cg.get_variable(slider)
+    elif obj := config.get(CONF_SLIDER):
+        obj = await cg.get_variable(obj)
         lv_type = "slider"
         animated = f", {animated}"
-    elif bar := config.get(CONF_BAR):
-        obj = await cg.get_variable(bar)
+    elif obj := config.get(CONF_BAR):
+        obj = await cg.get_variable(obj)
         lv_type = "bar"
         animated = f", {animated}"
     else:
