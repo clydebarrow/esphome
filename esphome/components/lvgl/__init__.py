@@ -1604,7 +1604,12 @@ CONFIG_SCHEMA = (
             ).extend({cv.Optional(CONF_PAGE): obj_schema(CONF_PAGE)}),
         }
     )
-).add_extra(cv.has_at_least_one_key(CONF_PAGES, CONF_WIDGETS))
+).add_extra(
+    cv.All(
+        cv.has_at_least_one_key(CONF_PAGES, CONF_WIDGETS),
+        cv.has_at_least_one_key(CONF_DISPLAY_ID, CONF_DISPLAYS),
+    )
+)
 
 
 async def widget_to_code(widget, parent):
