@@ -478,7 +478,7 @@ BTNM_BTN_SCHEMA = cv.Schema(
 
 BTNMATRIX_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_ONE_CHECKED, default=False): cv.boolean,
+        cv.Optional(CONF_ONE_CHECKED, default=False): lv_bool,
         cv.Required(CONF_ROWS): cv.ensure_list(
             cv.Schema(
                 {
@@ -1223,9 +1223,11 @@ def set_btn_data(btnm, ctrl_list, width_list):
 
 async def btnmatrix_to_code(btnm, conf):
     id = conf[CONF_ID]
+
     text_id, ctrl_list, width_list = get_button_data(conf[CONF_ROWS], id, btnm)
     init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
     init.extend(set_btn_data(btnm, ctrl_list, width_list))
+    init.append(f"lv_btnmatrix_set_one_checked({btnm}, {conf[CONF_ONE_CHECKED]})")
     return init
 
 
