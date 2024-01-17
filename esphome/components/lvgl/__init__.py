@@ -98,7 +98,6 @@ from .defines import (
     LV_EVENT_TRIGGERS,
     LV_LONG_MODES,
     LV_EVENT,
-    CONF_MSGBOX,
 )
 
 from .lv_validation import (
@@ -156,6 +155,7 @@ lv_obj_t = cg.global_ns.class_("LvObjType", lv_pseudo_button_t)
 lv_page_t = cg.global_ns.class_("LvPageType")
 lv_screen_t = cg.global_ns.class_("LvScreenType")
 lv_point_t = cg.global_ns.struct("LvPointType")
+lv_msgbox_t = cg.global_ns.struct("LvMsgBoxType")
 lv_obj_t_ptr = lv_obj_t.operator("ptr")
 lv_style_t = cg.global_ns.struct("LvStyleType")
 lv_theme_t = cg.global_ns.struct("LvThemeType")
@@ -189,6 +189,7 @@ CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_ANIMATION = "animation"
 CONF_BACKGROUND_STYLE = "background_style"
+CONF_BODY = "body"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
 CONF_CHANGE_RATE = "change_rate"
@@ -218,12 +219,12 @@ CONF_LVGL_COMPONENT = "lvgl_component"
 CONF_LVGL_ID = "lvgl_id"
 CONF_LONG_MODE = "long_mode"
 CONF_MAJOR = "major"
-CONF_MODAL = "modal"
-CONF_PAGE_WRAP = "page_wrap"
+CONF_MSGBOXES = "msgboxes"
 CONF_OBJ = "obj"
 CONF_ON_IDLE = "on_idle"
 CONF_ONE_CHECKED = "one_checked"
 CONF_NEXT = "next"
+CONF_PAGE_WRAP = "page_wrap"
 CONF_PIVOT_X = "pivot_x"
 CONF_PIVOT_Y = "pivot_y"
 CONF_POINTS = "points"
@@ -267,7 +268,6 @@ WIDGET_TYPES = {
     CONF_LED: (CONF_MAIN,),
     CONF_LINE: (CONF_MAIN,),
     CONF_DROPDOWN_LIST: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
-    CONF_MSGBOX: (CONF_MAIN,),
     CONF_METER: (CONF_MAIN,),
     CONF_OBJ: (CONF_MAIN,),
     CONF_PAGE: (CONF_MAIN,),
@@ -603,14 +603,9 @@ SCALE_SCHEMA = cv.Schema(
 
 METER_SCHEMA = {cv.Optional(CONF_SCALES): cv.ensure_list(SCALE_SCHEMA)}
 
-MSGBOX_SCHEMA = {
-    cv.Required(CONF_TITLE): STYLE_SCHEMA.extend(TEXT_SCHEMA),
-    cv.Required(CONF_TEXT): STYLE_SCHEMA.extend(TEXT_SCHEMA),
-    cv.Optional(CONF_BUTTONS): cv.ensure_list(BTNM_BTN_SCHEMA),
-    cv.Optional(CONF_CLOSE_BUTTON): lv_bool,
-    cv.Optional(CONF_MODAL, default=True): lv_bool,
-}
-
+STYLED_TEXT_SCHEMA = cv.maybe_simple_value(
+    STYLE_SCHEMA.extend(TEXT_SCHEMA), key=CONF_TEXT
+)
 PAGE_SCHEMA = {
     cv.Optional(CONF_SKIP, default=False): lv_bool,
 }
@@ -677,18 +672,28 @@ LVGL_SCHEMA = cv.Schema(
 )
 
 
+def get_layout(layout=cv.UNDEFINED, flow="ROW_WRAP"):
+    return cv.Schema(
+        {
+            cv.Optional(CONF_LAYOUT, default=layout): lv_one_of(
+                ["FLEX", "GRID"], "LV_LAYOUT_"
+            ),
+            cv.Optional(CONF_FLEX_FLOW, default=flow): lv_one_of(
+                FLEX_FLOWS, prefix="LV_FLEX_FLOW_"
+            ),
+        }
+    )
+
+
 def obj_schema(parts=(CONF_MAIN,)):
     return (
         part_schema(parts)
         .extend(FLAG_SCHEMA)
         .extend(AUTOMATION_SCHEMA)
+        .extend(get_layout())
         .extend(
             cv.Schema(
                 {
-                    cv.Optional(CONF_LAYOUT): lv_one_of(["FLEX", "GRID"], "LV_LAYOUT_"),
-                    cv.Optional(CONF_FLEX_FLOW, default="ROW_WRAP"): lv_one_of(
-                        FLEX_FLOWS, prefix="LV_FLEX_FLOW_"
-                    ),
                     cv.Optional(CONF_STATE): SET_STATE_SCHEMA,
                     cv.Optional(CONF_GROUP): lv_id_name,
                 }
@@ -727,6 +732,17 @@ def widget_schema(name):
 
 
 WIDGET_SCHEMA = cv.Any(dict(map(widget_schema, WIDGET_TYPES)))
+
+MSGBOX_SCHEMA = STYLE_SCHEMA.extend(
+    {
+        cv.GenerateID(CONF_ID): cv.declare_id(lv_obj_t),
+        cv.Required(CONF_TITLE): STYLED_TEXT_SCHEMA,
+        cv.Optional(CONF_BODY): STYLED_TEXT_SCHEMA,
+        cv.Optional(CONF_BUTTONS): cv.ensure_list(BTNM_BTN_SCHEMA),
+        cv.Optional(CONF_CLOSE_BUTTON): lv_bool,
+        cv.Optional(CONF_WIDGETS): cv.ensure_list(WIDGET_SCHEMA),
+    }
+)
 
 
 async def get_boolean_value(value):
@@ -943,11 +959,6 @@ def set_obj_properties(var, config):
             clears = join_enums(clears, "LV_STATE_")
             init.append(f"lv_obj_clear_state({var}, {clears})")
     return init
-
-
-async def create_lv_obj(t, config, parent):
-    """Write object creation code for an object extending lv_obj_t"""
-    return var, init
 
 
 async def checkbox_to_code(var, checkbox_conf):
@@ -1195,14 +1206,14 @@ def get_button_data(config, id, btnm):
     text_list = text_list[:-1]
     text_list.append("NULL")
     text_id = ID(f"{id.id}_text_array", is_declaration=True, type=char_ptr_const)
-    text_id = cg.static_const_array(text_id, cg.RawExpression("{" + ",".join(text_list) + "}"))
+    text_id = cg.static_const_array(
+        text_id, cg.RawExpression("{" + ",".join(text_list) + "}")
+    )
     return text_id, ctrl_list, width_list
 
 
-async def btnmatrix_to_code(btnm, conf):
-    id = conf[CONF_ID]
-    text_id, ctrl_list, width_list = get_button_data(conf[CONF_ROWS], id, btnm)
-    init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
+def set_btn_data(btnm, ctrl_list, width_list):
+    init = []
     for index, ctrl in enumerate(ctrl_list):
         init.append(f"lv_btnmatrix_set_btn_ctrl({btnm}, {index}, {ctrl})")
     for index, width in enumerate(width_list):
@@ -1210,14 +1221,64 @@ async def btnmatrix_to_code(btnm, conf):
     return init
 
 
-async def msgbox_to_code(var, conf):
-    return []
+async def btnmatrix_to_code(btnm, conf):
+    id = conf[CONF_ID]
+    text_id, ctrl_list, width_list = get_button_data(conf[CONF_ROWS], id, btnm)
+    init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
+    init.extend(set_btn_data(btnm, ctrl_list, width_list))
+    return init
 
 
-async def create_msgbox(var, conf, parent):
+async def msgbox_to_code(conf):
+    """
+    Construct a message box. This consists of a full-screen translucent background enclosing a centered container
+    with an optional title, body, close button and a button matrix. And any other widgets the user cares to add
+    :param conf: The config data
+    :return: code to add to the init lambda
+    """
     init = []
     id = conf[CONF_ID]
-    text_id, ctrl_list, width_list = get_button_data((conf,), id, var)
+    outer = cg.new_variable(
+        ID(id.id, is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
+    )
+    btnm = cg.new_variable(
+        ID(f"{id.id}_btnm", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
+    )
+    text_id, ctrl_list, width_list = get_button_data((conf,), id, btnm)
+    msgbox = cg.new_variable(
+        ID(f"{id.id}_msgbox", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
+    )
+    text = await get_text_value(conf.get(CONF_BODY))
+    title = await get_text_value(conf.get(CONF_TITLE))
+    close_button = conf[CONF_CLOSE_BUTTON]
+    init.append(
+        f"""{outer} = lv_obj_create(lv_disp_get_layer_top(lv_disp));
+                    lv_obj_set_width({outer}, lv_pct(100));
+                    lv_obj_set_height({outer}, lv_pct(100));
+                    lv_obj_set_style_bg_opa({outer}, 128, 0);
+                    lv_obj_set_style_bg_color({outer}, lv_color_black(), 0);
+                    lv_obj_set_style_border_width({outer}, 0, 0);
+                    lv_obj_set_style_pad_all({outer}, 0, 0);
+                    lv_obj_set_style_radius({outer}, 0, 0);
+                    lv_obj_add_flag({outer}, LV_OBJ_FLAG_HIDDEN);
+                    {msgbox} = lv_msgbox_create({outer}, {title}, {text}, {text_id}, {close_button});
+                    lv_obj_set_style_align({msgbox}, LV_ALIGN_CENTER, 0);
+                    {btnm} = lv_msgbox_get_btns({msgbox});
+                """
+    )
+    if close_button:
+        init.append(
+            f"""lv_obj_remove_event_cb(lv_msgbox_get_close_btn({msgbox}), nullptr);
+                        lv_obj_add_event_cb(lv_msgbox_get_close_btn({msgbox}), [] (lv_event_t *ev) {{
+                            lv_obj_add_flag({outer}, LV_OBJ_FLAG_HIDDEN);
+                        }}, LV_EVENT_CLICKED, nullptr);
+                    """
+        )
+    if len(ctrl_list) != 0 or len(width_list) != 0:
+        s = f"{msgbox}__tobj"
+        init.extend(add_temp_var("lv_obj_t", s))
+        init.append(f"{s} = lv_msgbox_get_btns({msgbox})")
+        init.extend(set_btn_data(s, ctrl_list, width_list))
     return init
 
 
@@ -1511,6 +1572,9 @@ async def to_code(config):
             init.append(f"{lv_component}->add_page({pvar})")
             init.extend(pinit)
 
+    if msgboxes := config.get(CONF_MSGBOXES):
+        for msgbox in msgboxes:
+            init.extend(await msgbox_to_code(msgbox))
     init.append(f"{lv_component}->set_page_wrap({config[CONF_PAGE_WRAP]})")
     init.extend(await generate_triggers(lv_component))
     init.extend(await touchscreens_to_code(lv_component, config))
@@ -1621,6 +1685,7 @@ CONFIG_SCHEMA = (
             cv.Exclusive(CONF_PAGES, CONF_PAGES): cv.ensure_list(
                 container_schema(CONF_PAGE)
             ),
+            cv.Optional(CONF_MSGBOXES): cv.ensure_list(MSGBOX_SCHEMA),
             cv.Optional(CONF_PAGE_WRAP, default=True): lv_bool,
             cv.Optional(CONF_TOP_LAYER): container_schema(CONF_OBJ),
             cv.Optional(CONF_THEME): cv.Schema(
@@ -1642,10 +1707,7 @@ async def widget_to_code(widget, parent):
     # special case, create function is non-standard
     init = []
     var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
-    if w_type == CONF_MSGBOX:
-        init.extend(await create_msgbox(var, w_cnfig, parent))
-    else:
-        init.append(f"{var} = lv_{w_type}_create({parent})")
+    init.append(f"{var} = lv_{w_type}_create({parent})")
     if theme := theme_widget_map.get(w_type):
         init.append(f"{theme}({var})")
     init.extend(set_obj_properties(var, w_cnfig))

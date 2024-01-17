@@ -54,6 +54,7 @@ typedef lv_meter_t LvMeterType;
 typedef lv_meter_indicator_t LvMeterIndicatorType;
 typedef lv_slider_t LvSliderType;
 typedef lv_btn_t LvBtnType;
+typedef lv_msgbox_t LvMsgBoxType;
 typedef lv_line_t LvLineType;
 typedef lv_img_t LvImgType;
 typedef lv_arc_t LvArcType;
