@@ -125,6 +125,7 @@ from .lv_validation import (
     lv_option_string,
     lv_id_name,
     requires_component,
+    lv_boolean_value,
 )
 
 # import auto
@@ -436,7 +437,7 @@ STYLE_SCHEMA = cv.Schema({cv.Optional(k): v for k, v in STYLE_PROPS.items()}).ex
 STATE_SCHEMA = cv.Schema({cv.Optional(state): STYLE_SCHEMA for state in STATES}).extend(
     STYLE_SCHEMA
 )
-SET_STATE_SCHEMA = cv.Schema({cv.Optional(state): cv.boolean for state in STATES})
+SET_STATE_SCHEMA = cv.Schema({cv.Optional(state): lv_boolean_value for state in STATES})
 FLAG_SCHEMA = cv.Schema({cv.Optional(flag): cv.boolean for flag in OBJ_FLAGS})
 FLAG_LIST = cv.ensure_list(lv_one_of(OBJ_FLAGS, "LV_OBJ_FLAG_"))
 
@@ -839,7 +840,7 @@ async def theme_to_code(theme):
         if not isinstance(style, dict):
             continue
 
-        init.extend(set_obj_properties("obj", style))
+        init.extend(await set_obj_properties("obj", style))
         lamb = await cg.process_lambda(
             Lambda(";\n".join([*init, ""])),
             [(lv_obj_t_ptr, "obj")],
@@ -905,7 +906,7 @@ def collect_parts(config):
     return parts
 
 
-def set_obj_properties(var, config):
+async def set_obj_properties(var, config):
     """Return a list of C++ statements to apply properties to an lv_obj_t"""
     init = []
     parts = collect_parts(config)
@@ -947,8 +948,11 @@ def set_obj_properties(var, config):
     if states := config.get(CONF_STATE):
         adds = set()
         clears = set()
+        lambs = {}
         for key, value in states.items():
-            if value:
+            if isinstance(value, cv.Lambda):
+                lambs[key] = value
+            elif value:
                 adds.add(key)
             else:
                 clears.add(key)
@@ -958,6 +962,16 @@ def set_obj_properties(var, config):
         if clears:
             clears = join_enums(clears, "LV_STATE_")
             init.append(f"lv_obj_clear_state({var}, {clears})")
+        for key, value in lambs.items():
+            lamb = await cg.process_lambda(value, [], return_type=cg.bool_)
+            init.append(
+                f"""
+                if({lamb}())
+                    lv_obj_add_state({var}, LV_STATE_{key.upper()});
+                else
+                    lv_obj_clear_state({var}, LV_STATE_{key.upper()});
+                """
+            )
     return init
 
 
@@ -996,8 +1010,8 @@ async def page_to_code(config, pconf, index):
     skip = pconf[CONF_SKIP]
     init.append(f"{var}->skip = {skip}")
     # Set outer config first
-    init.extend(set_obj_properties(page, config))
-    init.extend(set_obj_properties(page, pconf))
+    init.extend(await set_obj_properties(page, config))
+    init.extend(await set_obj_properties(page, pconf))
     if CONF_WIDGETS in pconf:
         for widg in pconf[CONF_WIDGETS]:
             (_, ext_init) = await widget_to_code(widg, page)
@@ -1130,7 +1144,7 @@ async def dropdown_to_code(var, config):
         s = f"{var}__list"
         init.extend(add_temp_var("lv_obj_t", s))
         init.append(f"{s} = lv_dropdown_get_list({var});")
-        init.extend(set_obj_properties(s, list))
+        init.extend(await set_obj_properties(s, list))
     return init
 
 
@@ -1556,7 +1570,9 @@ async def to_code(config):
     if theme := config.get(CONF_THEME):
         await theme_to_code(theme)
     if top_conf := config.get(CONF_TOP_LAYER):
-        init.extend(set_obj_properties("lv_disp_get_layer_top(lv_disp)", top_conf))
+        init.extend(
+            await set_obj_properties("lv_disp_get_layer_top(lv_disp)", top_conf)
+        )
         if widgets := top_conf.get(CONF_WIDGETS):
             for widg in widgets:
                 (_, ext_init) = await widget_to_code(
@@ -1564,7 +1580,7 @@ async def to_code(config):
                 )
                 init.extend(ext_init)
     if widgets := config.get(CONF_WIDGETS):
-        init.extend(set_obj_properties("lv_scr_act()", config))
+        init.extend(await set_obj_properties("lv_scr_act()", config))
         for widg in widgets:
             (_, ext_init) = await widget_to_code(widg, "lv_scr_act()")
             init.extend(ext_init)
@@ -1581,7 +1597,7 @@ async def to_code(config):
     init.extend(await generate_triggers(lv_component))
     init.extend(await touchscreens_to_code(lv_component, config))
     init.extend(await rotary_encoders_to_code(lv_component, config))
-    init.extend(set_obj_properties("lv_scr_act()", config))
+    init.extend(await set_obj_properties("lv_scr_act()", config))
     if on_idle := config.get(CONF_ON_IDLE):
         for conf in on_idle:
             templ = await cg.templatable(conf[CONF_TIMEOUT], [], cg.uint32)
@@ -1608,7 +1624,7 @@ async def action_to_code(action, action_id, obj, template_arg):
 
 async def update_to_code(config, action_id, obj, init, template_arg):
     if config is not None:
-        init.extend(set_obj_properties(obj, config))
+        init.extend(await set_obj_properties(obj, config))
     return await action_to_code(init, action_id, obj, template_arg)
 
 
@@ -1712,7 +1728,7 @@ async def widget_to_code(widget, parent):
     init.append(f"{var} = lv_{w_type}_create({parent})")
     if theme := theme_widget_map.get(w_type):
         init.append(f"{theme}({var})")
-    init.extend(set_obj_properties(var, w_cnfig))
+    init.extend(await set_obj_properties(var, w_cnfig))
     if widgets := w_cnfig.get(CONF_WIDGETS):
         for widg in widgets:
             (_, ext_init) = await widget_to_code(widg, var)
