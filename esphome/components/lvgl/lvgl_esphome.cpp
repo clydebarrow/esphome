@@ -9,6 +9,11 @@ namespace lvgl {}  // namespace lvgl
 static const char *const TAG = "lvgl";
 size_t lv_millis(void) { return esphome::millis(); }
 
+#if USE_HOST
+void *lv_custom_mem_alloc(size_t size) { return malloc(size); }
+void lv_custom_mem_free(void *ptr) { return free(ptr); }
+void *lv_custom_mem_realloc(void *ptr, size_t size) { return realloc(ptr, size); }
+#else
 static unsigned cap_bits = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;  // NOLINT
 
 void *lv_custom_mem_alloc(size_t size) {
@@ -43,3 +48,4 @@ void *lv_custom_mem_realloc(void *ptr, size_t size) {
 #endif
   return heap_caps_realloc(ptr, size, cap_bits);
 }
+#endif
