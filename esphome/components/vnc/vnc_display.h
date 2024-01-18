@@ -740,7 +740,7 @@ class VNCDisplay : public display::Display {
       len -= res;
       ptr += res;
     }
-    printhex("Wrote", buffer, total);
+    //printhex("Wrote", buffer, total);
     return total;
   }
 
