@@ -12,7 +12,7 @@
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/network/util.h"
 #if USE_HOST
-#include <pthread/pthread.h>
+#include <pthread.h>
 #endif
 
 namespace esphome {
