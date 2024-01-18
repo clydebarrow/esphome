@@ -952,7 +952,7 @@ async def set_obj_properties(var, config):
         for key, value in states.items():
             if isinstance(value, cv.Lambda):
                 lambs[key] = value
-            elif value:
+            elif value == "true":
                 adds.add(key)
             else:
                 clears.add(key)
