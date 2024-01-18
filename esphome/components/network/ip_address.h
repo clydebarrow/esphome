@@ -55,7 +55,8 @@ struct IPAddress {
   IPAddress(const std::string &in_address) { ipaddr_aton(in_address.c_str(), &ip_addr_); }
   IPAddress(ip4_addr_t *other_ip) { memcpy((void *) &ip_addr_, (void *) other_ip, sizeof(ip4_addr_t)); }
 #if USE_ESP32 && LWIP_IPV6
-  ip_addr_.type = IPADDR_TYPE_V4;
+    ip_addr_.type = IPADDR_TYPE_V4;
+  }
 #endif
 #if USE_ARDUINO
   IPAddress(const arduino_ns::IPAddress &other_ip) { ip_addr_set_ip4_u32(&ip_addr_, other_ip); }
@@ -115,7 +116,7 @@ struct IPAddress {
 #if LWIP_IPV6
       (((u8_t *) (&ip_addr_.u_addr.ip4))[3]) += increase;
 #else
-      (((u8_t *) (&ip_addr_.addr))[3]) += increase;
+        (((u8_t *) (&ip_addr_.addr))[3]) += increase;
 #endif /* LWIP_IPV6 */
     }
     return *this;
