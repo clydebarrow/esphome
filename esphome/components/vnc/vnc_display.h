@@ -240,7 +240,7 @@ class VNCDisplay : public display::Display {
 #if USE_HOST
     auto err = pthread_mutex_init(&this->mutex_, nullptr);
     if (err != 0) {
-      esph_log_d(TAG, "Failed to init mutex: err=%d, errno=%d", err, errno);
+      esph_log_e(TAG, "Failed to init mutex: err=%d, errno=%d", err, errno);
       this->mark_failed();
       return;
     }
@@ -253,7 +253,7 @@ class VNCDisplay : public display::Display {
         },
         this);
     if (err != 0) {
-      esph_log_d(TAG, "Failed to init mutex: err=%d, errno=%d", err, errno);
+      esph_log_e(TAG, "Failed to init mutex: err=%d, errno=%d", err, errno);
       this->mark_failed();
     }
 #else
@@ -343,7 +343,8 @@ class VNCDisplay : public display::Display {
       this->queue_.push_back(r);
       pthread_mutex_unlock(&this->mutex_);
       return true;
-    }
+    } else
+      esph_log_v(TAG, "trylock failed - erro %d", err);
     return false;
 #else
     return xQueueSend(this->queue_, &r, 0) == pdTRUE;
@@ -409,24 +410,28 @@ class VNCDisplay : public display::Display {
 
   void tx_task_() {
     rect_t rp;
+    struct timespec ts {};
+    std::vector<rect_t> vec{};
     for (;;) {  // NOLINT
 #if USE_HOST
-      struct timespec ts {};
-      std::vector<rect_t> vec{};
-      if (pthread_mutex_lock(&this->mutex_)) {
+      if (pthread_mutex_lock(&this->mutex_) == 0) {
         for (auto r : this->queue_)
           vec.push_back(r);
         this->queue_.clear();
         pthread_mutex_unlock(&this->mutex_);
-        esph_log_v(TAG, "Send %zu windows", vec.size());
       }
-      for (auto r : vec) {
-        this->send_framebuffer(r.x_min, r.y_min, r.x_max - r.x_min + 1, r.y_max - r.y_min + 1);
+      if (!vec.empty()) {
+        this->tx_8(0);
+        this->tx_8(0);
+        this->tx_16(vec.size());
+        for (auto r : vec) {
+          this->send_framebuffer(r.x_min, r.y_min, r.x_max - r.x_min + 1, r.y_max - r.y_min + 1);
+        }
+        this->tx_flush_();
+        vec.clear();
       }
-      this->tx_flush_();
-      vec.clear();
       ts.tv_sec = 0;
-      ts.tv_nsec = 1000000;
+      ts.tv_nsec = 10000000;
       nanosleep(&ts, nullptr);
 
 #else
@@ -449,6 +454,7 @@ class VNCDisplay : public display::Display {
   }
   // pack the given window into the framebuffer. Flush if required.
   void send_framebuffer(size_t x_start, size_t y_start, size_t w, size_t h) {
+    esph_log_v(TAG, "Send_framebuffer w/h %zu/%zu, txbuflen %zu", w, h, this->tx_buflen_);
     if (this->tx_rem_() < 12)
       this->tx_flush_();
     tx_16(x_start);
@@ -734,9 +740,7 @@ class VNCDisplay : public display::Display {
       len -= res;
       ptr += res;
     }
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
     printhex("Wrote", buffer, total);
-#endif
     return total;
   }
 
