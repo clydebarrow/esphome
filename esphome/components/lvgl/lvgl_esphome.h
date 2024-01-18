@@ -5,6 +5,7 @@
 #define LV_CONF_SKIP 1  // NOLINT
 #endif
 #include "esphome/components/display/display.h"
+#include "esphome/components/key_provider/key_provider.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 
@@ -61,7 +62,6 @@ typedef lv_arc_t LvArcType;
 typedef lv_bar_t LvBarType;
 typedef lv_theme_t LvThemeType;
 typedef lv_checkbox_t LvCheckboxType;
-typedef lv_btnmatrix_t LvBtnmatrixType;
 typedef lv_canvas_t LvCanvasType;
 typedef lv_dropdown_t LvDropdownType;
 typedef lv_dropdown_list_t LvDropdownListType;
@@ -70,10 +70,35 @@ typedef lv_led_t LvLedType;
 typedef lv_switch_t LvSwitchType;
 typedef lv_table_t LvTableType;
 typedef lv_textarea_t LvTextareaType;
-typedef struct {
-  lv_obj_t **btnm;
-  uint16_t index;
-} LvBtnmBtn;
+typedef lv_obj_t LvBtnmBtn;
+
+// Parent class for things that wrap an LVGL object
+class LvCompound {
+ public:
+  virtual void set_obj(lv_obj_t *lv_obj) { this->obj = lv_obj; }
+  lv_obj_t *obj{};
+};
+
+class LvBtnmatrixType : public key_provider::KeyProvider, public LvCompound {
+ public:
+  void set_obj(lv_obj_t *lv_obj) override {
+    LvCompound::set_obj(lv_obj);
+    lv_obj_add_event_cb(
+        lv_obj,
+        [](lv_event_t *event) {
+          LvBtnmatrixType *self = (LvBtnmatrixType *) event->user_data;
+          if (self->key_callback_.size() == 0)
+            return;
+          auto key_idx = lv_btnmatrix_get_selected_btn(self->obj);
+          auto str = lv_btnmatrix_get_btn_text(self->obj, key_idx);
+          auto len = strlen(str);
+          while (len--)
+            self->send_key_(*str++);
+        },
+        LV_EVENT_VALUE_CHANGED, this);
+  }
+};
+// typedef lv_btnmatrix_t LvBtnmatrixType;
 
 typedef struct {
   lv_obj_t *page;
@@ -229,7 +254,7 @@ class LvglComponent : public PollingComponent {
     size_t buffer_pixels = this->displays_[0]->get_width() * this->displays_[0]->get_height() / this->buffer_frac_;
     auto buf = lv_custom_mem_alloc(buffer_pixels * bytes_per_pixel);
     if (buf == nullptr) {
-      esph_log_e(TAG, "Malloc failed to allocate %d bytes", buffer_pixels * bytes_per_pixel);
+      esph_log_e(TAG, "Malloc failed to allocate %zu bytes", buffer_pixels * bytes_per_pixel);
       this->mark_failed();
       return;
     }
@@ -246,7 +271,7 @@ class LvglComponent : public PollingComponent {
       v(this->disp_);
     if (!this->pages_.empty()) {
       auto page = this->pages_[0];
-      esph_log_d(TAG, "loading page: size = %d, index %d, ptr %p", this->pages_.size(), page->index, page->page);
+      esph_log_d(TAG, "loading page: size = %zu, index %zu, ptr %p", this->pages_.size(), page->index, page->page);
       if (page->page != nullptr)
         lv_scr_load(this->pages_[0]->page);
     }

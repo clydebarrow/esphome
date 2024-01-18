@@ -28,7 +28,7 @@ void *lv_custom_mem_alloc(size_t size) {
     return nullptr;
   }
 #ifdef ESPHOME_LOG_HAS_VERBOSE
-  esphome::esph_log_v(TAG, "allocate %u - > %p", size, ptr);
+  esphome::esph_log_v(TAG, "allocate %zu - > %p", size, ptr);
 #endif
   return ptr;
 }

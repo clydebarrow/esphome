@@ -9,6 +9,7 @@ import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome import automation
 from esphome.components.image import Image_
+from esphome.components.key_provider import KeyProvider
 from esphome.coroutine import FakeAwaitable
 from esphome.components.touchscreen import (
     Touchscreen,
@@ -130,8 +131,9 @@ from .lv_validation import (
 
 # import auto
 DOMAIN = "lvgl"
-DEPENDENCIES = ["display"]
-CODEOWNERS = ["@clydebarrow"]
+DEPENDENCIES = ("display",)
+AUTO_LOAD = ("key_provider",)
+CODEOWNERS = ("@clydebarrow",)
 LOGGER = logging.getLogger(__name__)
 
 char_ptr_const = cg.global_ns.namespace("char").operator("ptr")
@@ -150,6 +152,7 @@ lv_lambda_t = lvgl_ns.class_("LvLambdaType")
 # lv_lambda_ptr_t = lvgl_ns.class_("LvLambdaType").operator("ptr")
 
 # Can't use the native type names here, since ESPHome munges variable names and they conflict
+LvCompound = lvgl_ns.class_("LvCompound")
 lv_pseudo_button_t = lvgl_ns.class_("LvPseudoButton")
 LvBtnmBtn = lvgl_ns.class_("LvBtnmBtn", lv_pseudo_button_t)
 lv_obj_t = cg.global_ns.class_("LvObjType", lv_pseudo_button_t)
@@ -175,7 +178,6 @@ lv_img_t = cg.MockObjClass("LvImgType", parents=[lv_obj_t])
 lv_arc_t = cg.MockObjClass("LvArcType", parents=[lv_obj_t])
 lv_bar_t = cg.MockObjClass("LvBarType", parents=[lv_obj_t])
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
-lv_btnmatrix_t = cg.MockObjClass("LvBtnmatrixType", parents=[lv_obj_t])
 lv_canvas_t = cg.MockObjClass("LvCanvasType", parents=[lv_obj_t])
 lv_dropdown_t = cg.MockObjClass("LvDropdownType", parents=[lv_obj_t])
 lv_roller_t = cg.MockObjClass("LvRollerType", parents=[lv_obj_t])
@@ -183,6 +185,9 @@ lv_led_t = cg.MockObjClass("LvLedType", parents=[lv_obj_t])
 lv_switch_t = cg.MockObjClass("LvSwitchType", parents=[lv_obj_t])
 lv_table_t = cg.MockObjClass("LvTableType", parents=[lv_obj_t])
 lv_textarea_t = cg.MockObjClass("LvTextareaType", parents=[lv_obj_t])
+lv_btnmatrix_t = cg.MockObjClass(
+    "LvBtnmatrixType", parents=[lv_obj_t, KeyProvider, LvCompound]
+)
 
 CONF_ACTION = "action"
 CONF_ADJUSTABLE = "adjustable"
@@ -1720,23 +1725,31 @@ CONFIG_SCHEMA = (
 
 
 async def widget_to_code(widget, parent):
+    init = []
     (w_type, w_cnfig) = next(iter(widget.items()))
     lv_uses.add(w_type)
+    id = w_cnfig[CONF_ID]
+    if id.type.inherits_from(LvCompound):
+        var = cg.new_Pvariable(id)
+        init.append(f"{var}->set_obj(lv_{w_type}_create({parent}))")
+        obj = f"{var}->obj"
+    else:
+        var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
+        init.append(f"{var} = lv_{w_type}_create({parent})")
+        obj = var
     # special case, create function is non-standard
-    init = []
-    var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
-    init.append(f"{var} = lv_{w_type}_create({parent})")
+
     if theme := theme_widget_map.get(w_type):
-        init.append(f"{theme}({var})")
-    init.extend(await set_obj_properties(var, w_cnfig))
+        init.append(f"{theme}({obj})")
+    init.extend(await set_obj_properties(obj, w_cnfig))
     if widgets := w_cnfig.get(CONF_WIDGETS):
         for widg in widgets:
-            (_, ext_init) = await widget_to_code(widg, var)
+            (_, ext_init) = await widget_to_code(widg, obj)
             init.extend(ext_init)
     fun = f"{w_type}_to_code"
     if fun in globals():
         fun = globals()[fun]
-        init.extend(await fun(var, w_cnfig))
+        init.extend(await fun(obj, w_cnfig))
     else:
         raise cv.Invalid(f"No handler for widget {w_type}")
     widget_list.append(
@@ -1764,9 +1777,10 @@ async def obj_disable_to_code(config, action_id, template_arg, args):
         action = [f"lv_obj_add_state({obj}, LV_STATE_DISABLED)"]
     else:
         idx = obj[1]
-        obj = obj[0]
+        btnm = obj[0]
+        obj = btnm
         action = [
-            f"lv_btnmatrix_add_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
+            f"lv_btnmatrix_add_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
         ]
     return await action_to_code(action, action_id, obj, template_arg)
 
@@ -1778,9 +1792,10 @@ async def obj_enable_to_code(config, action_id, template_arg, args):
         action = [f"lv_obj_clear_state({obj}, LV_STATE_DISABLED)"]
     else:
         idx = obj[1]
-        obj = obj[0]
+        btnm = obj[0]
+        obj = btnm
         action = [
-            f"lv_btnmatrix_clear_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
+            f"lv_btnmatrix_clear_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
         ]
     return await action_to_code(action, action_id, obj, template_arg)
 
@@ -1792,9 +1807,10 @@ async def obj_show_to_code(config, action_id, template_arg, args):
         action = [f"lv_obj_clear_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
     else:
         idx = obj[1]
-        obj = obj[0]
+        btnm = obj[0]
+        obj = btnm
         action = [
-            f"lv_btnmatrix_clear_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"
+            f"lv_btnmatrix_clear_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"
         ]
     return await action_to_code(action, action_id, obj, template_arg)
 
@@ -1806,8 +1822,9 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
         action = [f"lv_obj_add_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
     else:
         idx = obj[1]
-        obj = obj[0]
-        action = [f"lv_btnmatrix_set_btn_ctrl({obj}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"]
+        btnm = obj[0]
+        obj = btnm
+        action = [f"lv_btnmatrix_set_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"]
     return await action_to_code(action, action_id, obj, template_arg)
 
 
@@ -1867,7 +1884,7 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
     ObjUpdateAction,
     cv.Schema(
         {
-            cv.Optional(CONF_WIDTH, default=1): cv.positive_int,
+            cv.Optional(CONF_WIDTH): cv.positive_int,
             cv.Optional(CONF_CONTROL): cv.ensure_list(
                 cv.Schema(
                     {cv.Optional(k.lower()): cv.boolean for k in BTNMATRIX_CTRLS}
