@@ -11,7 +11,9 @@
 #include "esphome/core/application.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/network/util.h"
-#include "esp_task_wdt.h"
+#if USE_HOST
+#include <pthread/pthread.h>
+#endif
 
 namespace esphome {
 namespace vnc {
@@ -45,7 +47,7 @@ static inline uint16_t get32_be(const uint8_t *buf) { return buf[3] + (buf[2] <<
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
 static void printhex(const char *hdr, uint8_t const *buffer, size_t cnt) {
   char strbuf[256];
-  sprintf(strbuf, "%s %d bytes ", hdr, cnt);
+  snprintf(strbuf, sizeof strbuf, "%s %zu bytes ", hdr, cnt);
   for (size_t i = 0; i != cnt; i++) {
     size_t len = strlen(strbuf);
     if (len >= sizeof strbuf - 4)
@@ -235,16 +237,36 @@ class VNCDisplay : public display::Display {
     }
     // clear to grey
     memset(this->display_buffer_, 0x80, buffer_length);
+#if USE_HOST
+    auto err = pthread_mutex_init(&this->mutex_, nullptr);
+    if (err != 0) {
+      esph_log_d(TAG, "Failed to init mutex: err=%d, errno=%d", err, errno);
+      this->mark_failed();
+      return;
+    }
+    pthread_t tid;
+    err = pthread_create(
+        &tid, NULL,
+        [](void *arg) -> void * {
+          ((VNCDisplay *) arg)->tx_task_();
+          return nullptr;
+        },
+        this);
+    if (err != 0) {
+      esph_log_d(TAG, "Failed to init mutex: err=%d, errno=%d", err, errno);
+      this->mark_failed();
+    }
+#else
     this->queue_ = xQueueCreate(200, sizeof(rect_t));
     TaskHandle_t handle;
-    xTaskCreatePinnedToCore([](void *arg) { ((VNCDisplay *) arg)->tx_task_(); }, "VNCClient", 8192, this, 2, &handle,
-                            0);
+    xTaskCreatePinnedToCore([](void *arg) { ((VNCDisplay *) arg)->tx_task_(); }, "VNC", 8192, this, 2, &handle, 0);
+#endif
   }
 
   void dump_config() override {
     esph_log_config(TAG, "VNC Display:");
     esph_log_config(TAG, "  Dimensions: %dpx x %dpx", this->get_width(), this->get_height());
-    esph_log_config(TAG, "  Touchscreens: %d", this->touchscreens_.size());
+    esph_log_config(TAG, "  Touchscreens: %zu", this->touchscreens_.size());
   }
 
   void loop() override {
@@ -306,11 +328,26 @@ class VNCDisplay : public display::Display {
   }
 
   void update_frame_() {
-    if (is_dirty()) {
-      if (this->state_ == STATE_READY)
-        if (xQueueSend(this->queue_, &this->dirty_rect_, 0) == pdTRUE)
+    if (this->is_dirty()) {
+      if (this->state_ == STATE_READY) {
+        if (sendRect(this->dirty_rect_))
           this->mark_clean_();
+      }
     }
+  }
+
+  bool sendRect(rect_t r) {
+#if USE_HOST
+    auto err = pthread_mutex_trylock(&this->mutex_);
+    if (err == 0) {
+      this->queue_.push_back(r);
+      pthread_mutex_unlock(&this->mutex_);
+      return true;
+    }
+    return false;
+#else
+    return xQueueSend(this->queue_, &r, 0) == pdTRUE;
+#endif
   }
 
   void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
@@ -341,7 +378,7 @@ class VNCDisplay : public display::Display {
       r.y_min = y_start;
       r.x_max = x_start + w - 1;
       r.y_max = y_start + h - 1;
-      if (xQueueSend(this->queue_, &r, 0) != pdTRUE)
+      if (!sendRect(r))
         this->mark_dirty_(x_start, y_start, w, h);
     }
   }
@@ -372,8 +409,27 @@ class VNCDisplay : public display::Display {
 
   void tx_task_() {
     rect_t rp;
-    // esp_task_wdt_add(NULL);
     for (;;) {  // NOLINT
+#if USE_HOST
+      struct timespec ts {};
+      std::vector<rect_t> vec{};
+      if (pthread_mutex_lock(&this->mutex_)) {
+        for (auto r : this->queue_)
+          vec.push_back(r);
+        this->queue_.clear();
+        pthread_mutex_unlock(&this->mutex_);
+        esph_log_v(TAG, "Send %zu windows", vec.size());
+      }
+      for (auto r : vec) {
+        this->send_framebuffer(r.x_min, r.y_min, r.x_max - r.x_min + 1, r.y_max - r.y_min + 1);
+      }
+      this->tx_flush_();
+      vec.clear();
+      ts.tv_sec = 0;
+      ts.tv_nsec = 1000000;
+      nanosleep(&ts, nullptr);
+
+#else
       if (xQueuePeek(this->queue_, &rp, 1000) == pdPASS) {
         auto count = uxQueueMessagesWaiting(this->queue_);
         esph_log_v(TAG, "Send %d windows", count);
@@ -388,6 +444,7 @@ class VNCDisplay : public display::Display {
         this->tx_flush_();
         esph_log_v(TAG, "Send_framebuffer took %dms", (int) (millis() - now));
       }
+#endif
     }
   }
   // pack the given window into the framebuffer. Flush if required.
@@ -497,7 +554,7 @@ class VNCDisplay : public display::Display {
           len = get16_be(buffer + 2);
           if (buf_size(this->inq_) >= len * 4) {
             buf_copy(this->inq_, buffer, len * 4);
-            esph_log_d(TAG, "Read %d encoding types", len);
+            esph_log_d(TAG, "Read %zu encoding types", len);
           } else {
             esph_log_w(TAG, "Command 2 data truncated.");
           }
@@ -694,11 +751,16 @@ class VNCDisplay : public display::Display {
   HighFrequencyLoopRequester high_freq_;
   std::function<void()> on_connect_{};
   std::function<void()> on_disconnect_{};
-  QueueHandle_t queue_{};
   std::unique_ptr<socket::Socket> client_sock_{};
   ClientState state_;
   bool internal_update_{};
   circ_buf_t inq_{};
+#if USE_HOST
+  pthread_mutex_t mutex_{};
+  std::vector<rect_t> queue_{};
+#else
+  QueueHandle_t queue_{};
+#endif
 };
 
 }  // namespace vnc

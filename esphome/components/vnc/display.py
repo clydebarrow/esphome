@@ -47,10 +47,7 @@ CONFIG_SCHEMA = cv.All(
         }
     ).extend(cv.polling_component_schema("1s")),
     cv.has_at_most_one_key(CONF_PAGES, CONF_LAMBDA),
-    cv.Any(
-        cv.requires_component("wifi"),
-        cv.requires_component("ethernet"),
-    ),
+    cv.requires_component("network"),
 )
 
 
