@@ -1,6 +1,6 @@
 #include "real_time_clock.h"
 #include "esphome/core/log.h"
-#if USE_HOST
+#ifdef USE_HOST
 #include <sys/time.h>
 #else
 #include "lwip/opt.h"
