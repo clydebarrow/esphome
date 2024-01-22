@@ -38,7 +38,9 @@ void ILI9XXXDisplay::setup() {
   this->y_low_ = this->height_;
   this->x_high_ = 0;
   this->y_high_ = 0;
+}
 
+void ILI9XXXDisplay::alloc_buffer() {
   if (this->buffer_color_mode_ == BITS_16) {
     this->init_internal_(this->get_buffer_length_() * 2);
     if (this->buffer_ != nullptr) {
@@ -138,6 +140,11 @@ void ILI9XXXDisplay::fill(Color color) {
 void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color) {
   if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() || y < 0) {
     return;
+  }
+  if (this->buffer_ == nullptr) {
+    this->alloc_buffer();
+    if (this->is_failed())
+      return;
   }
   uint32_t pos = (y * width_) + x;
   uint16_t new_color;

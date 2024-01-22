@@ -95,7 +95,7 @@ class LvBtnmatrixType : public key_provider::KeyProvider, public LvCompound {
           while (len--)
             self->send_key_(*str++);
         },
-        LV_EVENT_VALUE_CHANGED, this);
+        LV_EVENT_CLICKED, this);
   }
 };
 // typedef lv_btnmatrix_t LvBtnmatrixType;
