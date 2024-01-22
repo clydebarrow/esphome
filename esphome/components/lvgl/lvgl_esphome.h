@@ -8,6 +8,7 @@
 #include "esphome/components/key_provider/key_provider.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
+#include <map>
 
 #if LVGL_USES_IMAGE
 #include "esphome/components/image/image.h"
@@ -90,13 +91,23 @@ class LvBtnmatrixType : public key_provider::KeyProvider, public LvCompound {
           if (self->key_callback_.size() == 0)
             return;
           auto key_idx = lv_btnmatrix_get_selected_btn(self->obj);
+          if (key_idx == LV_BTNMATRIX_BTN_NONE)
+            return;
+          if (self->key_map_.count(key_idx) != 0) {
+            self->send_key_(self->key_map_[key_idx]);
+            return;
+          }
           auto str = lv_btnmatrix_get_btn_text(self->obj, key_idx);
           auto len = strlen(str);
           while (len--)
             self->send_key_(*str++);
         },
-        LV_EVENT_CLICKED, this);
+        LV_EVENT_PRESSED, this);
   }
+
+  void set_key(size_t idx, uint8_t key) { this->key_map_[idx] = key; }
+ protected:
+  std::map<size_t, uint8_t > key_map_{};
 };
 // typedef lv_btnmatrix_t LvBtnmatrixType;
 
@@ -113,12 +124,12 @@ typedef std::function<const char *(void)> text_lambda_t;
 
 template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
  public:
-  explicit ObjUpdateAction(std::function<void()> lamb) : lamb_(lamb) {}
+  explicit ObjUpdateAction(std::function<void(Ts...)> &&lamb) : lamb_(std::move(lamb)) {}
 
-  void play(Ts... x) override { this->lamb_(); }
+  void play(Ts... x) override { this->lamb_(x...); }
 
  protected:
-  std::function<void()> lamb_;
+  std::function<void(Ts...)> lamb_;
 };
 
 #if LV_USE_FONT

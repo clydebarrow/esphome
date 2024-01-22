@@ -127,6 +127,7 @@ from .lv_validation import (
     lv_id_name,
     requires_component,
     lv_boolean_value,
+    lv_key_code,
 )
 
 # import auto
@@ -215,6 +216,7 @@ CONF_FLAGS = "flags"
 CONF_FLEX_FLOW = "flex_flow"
 CONF_HOME = "home"
 CONF_INDICATORS = "indicators"
+CONF_KEY_CODE = "key_code"
 CONF_LABEL_GAP = "label_gap"
 CONF_LAYOUT = "layout"
 CONF_LINE_WIDTH = "line_width"
@@ -474,6 +476,7 @@ BTNM_BTN_SCHEMA = cv.Schema(
     {
         cv.Exclusive(CONF_TEXT, CONF_TEXT): cv.string,
         cv.Exclusive(CONF_SYMBOL, CONF_TEXT): lv_one_of(LV_SYMBOLS, "LV_SYMBOL_"),
+        cv.Optional(CONF_KEY_CODE): lv_key_code,
         cv.GenerateID(): cv.declare_id(LvBtnmBtn),
         cv.Optional(CONF_WIDTH, default=1): cv.positive_int,
         cv.Optional(CONF_CONTROL): cv.ensure_list(
@@ -1061,7 +1064,7 @@ async def page_next_to_code(config, action_id, template_arg, args):
     animation = config[CONF_ANIMATION]
     time = config[CONF_TIME].milliseconds
     init = [f"{lv_comp}->show_next_page(false, {animation}, {time})"]
-    return await action_to_code(init, action_id, lv_comp, template_arg)
+    return await action_to_code(init, action_id, lv_comp, template_arg, args)
 
 
 @automation.register_action(
@@ -1074,7 +1077,7 @@ async def page_previous_to_code(config, action_id, template_arg, args):
     animation = config[CONF_ANIMATION]
     time = config[CONF_TIME].milliseconds
     init = [f"{lv_comp}->show_next_page(true, {animation}, {time})"]
-    return await action_to_code(init, action_id, lv_comp, template_arg)
+    return await action_to_code(init, action_id, lv_comp, template_arg, args)
 
 
 @automation.register_action(
@@ -1095,7 +1098,7 @@ async def page_show_to_code(config, action_id, template_arg, args):
     animation = config[CONF_ANIMATION]
     time = config[CONF_TIME].milliseconds
     init = [f"{lv_comp}->show_page({obj}->index, {animation}, {time})"]
-    return await action_to_code(init, action_id, obj, template_arg)
+    return await action_to_code(init, action_id, obj, template_arg, args)
 
 
 @automation.register_action(
@@ -1106,7 +1109,7 @@ async def page_show_to_code(config, action_id, template_arg, args):
 async def led_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = await led_to_code(obj, config)
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
 async def roller_to_code(var, config):
@@ -1130,7 +1133,7 @@ async def roller_to_code(var, config):
 async def roller_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = await roller_to_code(obj, config)
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
 async def dropdown_to_code(var, config):
@@ -1161,10 +1164,12 @@ async def dropdown_to_code(var, config):
 async def dropdown_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = await dropdown_to_code(obj, config)
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
-# Track mapping arrays by component
+# Map of lv_obj_ts to their parent compound, if one exists
+compound_map = {}
+# Map of ids to button matrices
 btnm_comp_list = {}
 
 
@@ -1199,6 +1204,7 @@ def get_button_data(config, id, btnm):
     text_list = []
     ctrl_list = []
     width_list = []
+    key_list = []
     for row in config:
         for btn in row[CONF_BUTTONS]:
             bid = btn[CONF_ID]
@@ -1209,6 +1215,7 @@ def get_button_data(config, id, btnm):
                 text_list.append(text)
             else:
                 text_list.append("")
+            key_list.append(btn.get(CONF_KEY_CODE) or 0)
             width_list.append(btn[CONF_WIDTH])
             ctrl = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
             if controls := btn.get(CONF_CONTROL):
@@ -1228,7 +1235,7 @@ def get_button_data(config, id, btnm):
     text_id = cg.static_const_array(
         text_id, cg.RawExpression("{" + ",".join(text_list) + "}")
     )
-    return text_id, ctrl_list, width_list
+    return text_id, ctrl_list, width_list, key_list
 
 
 def set_btn_data(btnm, ctrl_list, width_list):
@@ -1243,10 +1250,16 @@ def set_btn_data(btnm, ctrl_list, width_list):
 async def btnmatrix_to_code(btnm, conf):
     id = conf[CONF_ID]
 
-    text_id, ctrl_list, width_list = get_button_data(conf[CONF_ROWS], id, btnm)
+    text_id, ctrl_list, width_list, key_list = get_button_data(
+        conf[CONF_ROWS], id, btnm
+    )
     init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
     init.extend(set_btn_data(btnm, ctrl_list, width_list))
     init.append(f"lv_btnmatrix_set_one_checked({btnm}, {conf[CONF_ONE_CHECKED]})")
+    var = compound_map[btnm]
+    for index, key in enumerate(key_list):
+        if key != 0:
+            init.append(f"{var}->set_key({index}, {key})")
     return init
 
 
@@ -1265,7 +1278,7 @@ async def msgbox_to_code(conf):
     btnm = cg.new_variable(
         ID(f"{id.id}_btnm", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
-    text_id, ctrl_list, width_list = get_button_data((conf,), id, btnm)
+    text_id, ctrl_list, width_list, key_list = get_button_data((conf,), id, btnm)
     msgbox = cg.new_variable(
         ID(f"{id.id}_msgbox", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
@@ -1620,17 +1633,17 @@ def indicator_update_schema(base):
     return base.extend({cv.Required(CONF_ID): cv.use_id(lv_meter_indicator_t)})
 
 
-async def action_to_code(action, action_id, obj, template_arg):
+async def action_to_code(action, action_id, obj, template_arg, args):
     action.insert(0, f"if ({obj} == nullptr) return")
-    lamb = await cg.process_lambda(Lambda(";\n".join([*action, ""])), [])
+    lamb = await cg.process_lambda(Lambda(";\n".join([*action, ""])), args)
     var = cg.new_Pvariable(action_id, template_arg, lamb)
     return var
 
 
-async def update_to_code(config, action_id, obj, init, template_arg):
+async def update_to_code(config, action_id, obj, init, template_arg, args):
     if config is not None:
         init.extend(await set_obj_properties(obj, config))
-    return await action_to_code(init, action_id, obj, template_arg)
+    return await action_to_code(init, action_id, obj, template_arg, args)
 
 
 CONFIG_SCHEMA = (
@@ -1733,11 +1746,11 @@ async def widget_to_code(widget, parent):
         var = cg.new_Pvariable(id)
         init.append(f"{var}->set_obj(lv_{w_type}_create({parent}))")
         obj = f"{var}->obj"
+        compound_map[obj] = var
     else:
         var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
         init.append(f"{var} = lv_{w_type}_create({parent})")
         obj = var
-    # special case, create function is non-standard
 
     if theme := theme_widget_map.get(w_type):
         init.append(f"{theme}({obj})")
@@ -1782,7 +1795,7 @@ async def obj_disable_to_code(config, action_id, template_arg, args):
         action = [
             f"lv_btnmatrix_add_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
         ]
-    return await action_to_code(action, action_id, obj, template_arg)
+    return await action_to_code(action, action_id, obj, template_arg, args)
 
 
 @automation.register_action("lvgl.widget.enable", ObjUpdateAction, ACTION_SCHEMA)
@@ -1797,7 +1810,7 @@ async def obj_enable_to_code(config, action_id, template_arg, args):
         action = [
             f"lv_btnmatrix_clear_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
         ]
-    return await action_to_code(action, action_id, obj, template_arg)
+    return await action_to_code(action, action_id, obj, template_arg, args)
 
 
 @automation.register_action("lvgl.widget.show", ObjUpdateAction, ACTION_SCHEMA)
@@ -1812,7 +1825,7 @@ async def obj_show_to_code(config, action_id, template_arg, args):
         action = [
             f"lv_btnmatrix_clear_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"
         ]
-    return await action_to_code(action, action_id, obj, template_arg)
+    return await action_to_code(action, action_id, obj, template_arg, args)
 
 
 @automation.register_action("lvgl.widget.hide", ObjUpdateAction, ACTION_SCHEMA)
@@ -1825,7 +1838,7 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
         btnm = obj[0]
         obj = btnm
         action = [f"lv_btnmatrix_set_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"]
-    return await action_to_code(action, action_id, obj, template_arg)
+    return await action_to_code(action, action_id, obj, template_arg, args)
 
 
 @automation.register_action(
@@ -1833,7 +1846,7 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
 )
 async def obj_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
-    return await update_to_code(config, action_id, obj, [], template_arg)
+    return await update_to_code(config, action_id, obj, [], template_arg, args)
 
 
 @automation.register_action(
@@ -1844,7 +1857,7 @@ async def obj_update_to_code(config, action_id, template_arg, args):
 async def checkbox_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = await checkbox_to_code(obj, config)
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
 @automation.register_action(
@@ -1855,7 +1868,7 @@ async def checkbox_update_to_code(config, action_id, template_arg, args):
 async def label_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = await label_to_code(obj, config)
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
 @automation.register_action(
@@ -1876,7 +1889,7 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
         )
     if end_value is not None:
         init.append(f"lv_meter_set_indicator_end_value({meter},{obj}, {end_value})")
-    return await update_to_code(None, action_id, obj, init, template_arg)
+    return await update_to_code(None, action_id, obj, init, template_arg, args)
 
 
 @automation.register_action(
@@ -1913,7 +1926,7 @@ async def button_update_to_code(config, action_id, template_arg, args):
         controls = "|".join(ctrl)
         init.append(f"lv_btnmatrix_set_btn_ctrl({btnm}, {index}, {controls})")
 
-    return await action_to_code(init, action_id, btnm, template_arg)
+    return await action_to_code(init, action_id, btnm, template_arg, args)
 
 
 @automation.register_action(
@@ -1926,7 +1939,7 @@ async def arc_update_to_code(config, action_id, template_arg, args):
     init = []
     value = await get_value_expr(config.get(CONF_VALUE))
     init.append(f"lv_arc_set_value({obj}, {value})")
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
 async def slider_to_code(var, slider):
@@ -1951,7 +1964,7 @@ async def slider_update_to_code(config, action_id, template_arg, args):
     animated = config[CONF_ANIMATED]
     value = await get_value_expr(config.get(CONF_VALUE), cg.uint32)
     init.append(f"lv_slider_set_value({obj}, {value}, {animated})")
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
 @automation.register_action(
@@ -1964,7 +1977,7 @@ async def img_update_to_code(config, action_id, template_arg, args):
     init = []
     if src := config.get(CONF_SRC):
         init.append(f"lv_img_set_src({obj}, lv_img_from({src}))")
-    return await update_to_code(config, action_id, obj, init, template_arg)
+    return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
 @automation.register_action(

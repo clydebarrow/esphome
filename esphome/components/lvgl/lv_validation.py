@@ -89,6 +89,13 @@ def lv_animated(value):
     return lv_one_of(["OFF", "ON"], "LV_ANIM_")(value)
 
 
+def lv_key_code(value):
+    value = cv.Any(cv.All(cv.string_strict, cv.Length(min=1, max=1)), cv.uint8_t)(value)
+    if isinstance(value, str):
+        return ord(value[0])
+    return value
+
+
 def lv_one_of(choices, prefix):
     """Allow one of a list of choices, mapped to upper case, and prepend the choice with the prefix.
     It's also permitted to include the prefix in the value"""
