@@ -106,8 +106,9 @@ class LvBtnmatrixType : public key_provider::KeyProvider, public LvCompound {
   }
 
   void set_key(size_t idx, uint8_t key) { this->key_map_[idx] = key; }
+
  protected:
-  std::map<size_t, uint8_t > key_map_{};
+  std::map<size_t, uint8_t> key_map_{};
 };
 // typedef lv_btnmatrix_t LvBtnmatrixType;
 

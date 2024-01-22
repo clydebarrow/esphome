@@ -1278,7 +1278,7 @@ async def msgbox_to_code(conf):
     btnm = cg.new_variable(
         ID(f"{id.id}_btnm", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
-    text_id, ctrl_list, width_list, key_list = get_button_data((conf,), id, btnm)
+    text_id, ctrl_list, width_list, _ = get_button_data((conf,), id, btnm)
     msgbox = cg.new_variable(
         ID(f"{id.id}_msgbox", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
