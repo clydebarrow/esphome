@@ -1014,7 +1014,7 @@ async def page_to_code(config, pconf, index):
     init.append(f"{var}->index = {index}")
     init.append(f"{page} = lv_obj_create(nullptr)")
     if theme := theme_widget_map.get("page"):
-        init.append(f"{theme}({var})")
+        init.append(f"{theme}({page})")
     skip = pconf[CONF_SKIP]
     init.append(f"{var}->skip = {skip}")
     # Set outer config first
