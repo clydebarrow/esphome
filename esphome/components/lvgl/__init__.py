@@ -284,7 +284,7 @@ WIDGET_TYPES = {
     CONF_DROPDOWN_LIST: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),
     CONF_METER: (CONF_MAIN,),
     CONF_OBJ: (CONF_MAIN,),
-    CONF_PAGE: (CONF_MAIN,),
+    # CONF_PAGE: (CONF_MAIN,),
     CONF_ROLLER: (CONF_MAIN, CONF_SELECTED),
     CONF_SLIDER: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
     CONF_SWITCH: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
@@ -417,7 +417,7 @@ def cv_point_list(value):
 
 
 def part_schema(parts):
-    if isinstance(parts, str):
+    if isinstance(parts, str) and parts in WIDGET_TYPES:
         parts = WIDGET_TYPES[parts]
     return cv.Schema({cv.Optional(part): STATE_SCHEMA for part in parts}).extend(
         STATE_SCHEMA
