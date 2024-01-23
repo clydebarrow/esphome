@@ -79,7 +79,8 @@ from .defines import (
     CONF_TICKS,
     CONF_CURSOR,
     CONF_TEXTAREA_PLACEHOLDER,
-    ALIGNMENTS,
+    CHILD_ALIGNMENTS,
+    ALIGN_ALIGNMENTS,
     ARC_MODES,
     BAR_MODES,
     LOG_LEVELS,
@@ -129,6 +130,7 @@ from .lv_validation import (
     lv_boolean_value,
     lv_key_code,
 )
+from .widget import Widget
 
 # import auto
 DOMAIN = "lvgl"
@@ -192,6 +194,8 @@ lv_btnmatrix_t = cg.MockObjClass(
 
 CONF_ACTION = "action"
 CONF_ADJUSTABLE = "adjustable"
+CONF_ALIGN = "align"
+CONF_ALIGN_TO = "align_to"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_ANIMATION = "animation"
@@ -260,6 +264,8 @@ CONF_TOP_LAYER = "top_layer"
 CONF_THEME = "theme"
 CONF_WIDGET = "widget"
 CONF_WIDGETS = "widgets"
+CONF_X = "x"
+CONF_Y = "y"
 
 # list of widgets and the parts allowed
 WIDGET_TYPES = {
@@ -295,7 +301,7 @@ WIDGET_TYPES = {
 # List the LVGL built-in fonts that are available
 
 STYLE_PROPS = {
-    "align": lv_one_of(ALIGNMENTS, "LV_ALIGN_"),
+    "align": lv_one_of(CHILD_ALIGNMENTS, "LV_ALIGN_"),
     "arc_opa": lv_opacity,
     "arc_color": lv_color,
     "arc_rounded": lv_bool,
@@ -368,7 +374,7 @@ STYLE_PROPS = {
 }
 
 # Map of widgets to their config, used for trigger generation
-widget_list = []
+widget_map = {}
 
 
 def modify_schema(widget_type):
@@ -694,11 +700,24 @@ def get_layout(layout=cv.UNDEFINED, flow="ROW_WRAP"):
     )
 
 
+ALIGN_TO_SCHEMA = {
+    cv.Optional(CONF_ALIGN_TO): cv.Schema(
+        {
+            cv.Required(CONF_ID): cv.use_id(lv_obj_t),
+            cv.Required(CONF_ALIGN): lv_one_of(ALIGN_ALIGNMENTS, prefix="LV_ALIGN_"),
+            cv.Optional(CONF_X, default=0): pixels_or_percent,
+            cv.Optional(CONF_Y, default=0): pixels_or_percent,
+        }
+    )
+}
+
+
 def obj_schema(parts=(CONF_MAIN,)):
     return (
         part_schema(parts)
         .extend(FLAG_SCHEMA)
         .extend(AUTOMATION_SCHEMA)
+        .extend(ALIGN_TO_SCHEMA)
         .extend(get_layout())
         .extend(
             cv.Schema(
@@ -1475,9 +1494,12 @@ async def touchscreens_to_code(var, config):
 
 async def generate_triggers(lv_component):
     init = []
-    for obj, wconf, wtype in widget_list:
+    for key, widget in widget_map.items():
+        obj = widget.get_obj()
         for event, conf in {
-            event: conf for event, conf in wconf.items() if event in LV_EVENT_TRIGGERS
+            event: conf
+            for event, conf in widget.config.items()
+            if event in LV_EVENT_TRIGGERS
         }.items():
             event = LV_EVENT[event[3:].upper()]
             conf = conf[0]
@@ -1491,8 +1513,7 @@ async def generate_triggers(lv_component):
             }}, LV_EVENT_{event.upper()}, nullptr)
             """
             )
-    for obj, wconf, wtype in widget_list:
-        if on_value := wconf.get(CONF_ON_VALUE):
+        if on_value := widget.config.get(CONF_ON_VALUE):
             for conf in on_value:
                 trigger = cg.new_Pvariable(
                     conf[CONF_TRIGGER_ID],
@@ -1501,11 +1522,17 @@ async def generate_triggers(lv_component):
                 init.extend(
                     set_event_cb(
                         obj,
-                        f"{trigger}->trigger(lv_{wtype}_get_value({obj}))",
+                        f"{trigger}->trigger(lv_{widget.type}_get_value({obj}))",
                         "LV_EVENT_VALUE_CHANGED",
                         f"{lv_component}->get_custom_change_event()",
                     )
                 )
+        if align_to := widget.config.get(CONF_ALIGN_TO):
+            target = widget_map[align_to[CONF_ID]].get_obj()
+            align = align_to[CONF_ALIGN]
+            x = align_to[CONF_X]
+            y = align_to[CONF_Y]
+            init.append(f"lv_obj_align_to({obj}, {target}, {align}, {x}, {y})")
     for obj, pair in btnm_comp_list.items():
         bconf = pair[2]
         index = pair[1]
@@ -1765,13 +1792,7 @@ async def widget_to_code(widget, parent):
         init.extend(await fun(obj, w_cnfig))
     else:
         raise cv.Invalid(f"No handler for widget {w_type}")
-    widget_list.append(
-        (
-            var,
-            w_cnfig,
-            w_type,
-        )
-    )
+    widget_map[id] = Widget(var, w_type, w_cnfig, obj)
     return var, init
 
 

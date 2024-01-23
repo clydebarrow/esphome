@@ -110,7 +110,7 @@ STATES = (
     "user_4",
 )
 
-PARTS = [
+PARTS = (
     CONF_MAIN,
     CONF_SCROLLBAR,
     CONF_INDICATOR,
@@ -120,11 +120,11 @@ PARTS = [
     CONF_TICKS,
     CONF_CURSOR,
     CONF_TEXTAREA_PLACEHOLDER,
-]
+)
 
-ROLLER_MODES = ["NORMAL", "INFINITE"]
+ROLLER_MODES = ("NORMAL", "INFINITE")
 DIRECTIONS = ("LEFT", "RIGHT", "BOTTOM", "TOP")
-ALIGNMENTS = [
+CHILD_ALIGNMENTS = (
     "TOP_LEFT",
     "TOP_MID",
     "TOP_RIGHT",
@@ -134,6 +134,9 @@ ALIGNMENTS = [
     "BOTTOM_LEFT",
     "BOTTOM_MID",
     "BOTTOM_RIGHT",
+)
+
+ALIGN_ALIGNMENTS = CHILD_ALIGNMENTS + (
     "OUT_LEFT_TOP",
     "OUT_TOP_LEFT",
     "OUT_TOP_MID",
@@ -147,9 +150,9 @@ ALIGNMENTS = [
     "OUT_BOTTOM_MID",
     "OUT_BOTTOM_RIGHT",
     "OUT_RIGHT_BOTTOM",
-]
+)
 
-FLEX_FLOWS = [
+FLEX_FLOWS = (
     "ROW",
     "COLUMN",
     "ROW_WRAP",
@@ -158,9 +161,9 @@ FLEX_FLOWS = [
     "COLUMN_REVERSE",
     "ROW_WRAP_REVERSE",
     "COLUMN_WRAP_REVERSE",
-]
+)
 
-OBJ_FLAGS = [
+OBJ_FLAGS = (
     "hidden",
     "clickable",
     "click_focusable",
@@ -190,7 +193,7 @@ OBJ_FLAGS = [
     "user_2",
     "user_3",
     "user_4",
-]
+)
 
 ARC_MODES = ["NORMAL", "REVERSE", "SYMMETRICAL"]
 BAR_MODES = ["NORMAL", "SYMMETRICAL", "RANGE"]
