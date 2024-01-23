@@ -317,6 +317,7 @@ def fix_font():
 
 
 def fix_menu():
+    return
     if "display_menu_base" not in output:
         return
     # # Menu has a recursive schema which is not kept properly
