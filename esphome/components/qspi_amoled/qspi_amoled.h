@@ -53,8 +53,8 @@ enum Model {
 };
 
 class QspiAmoLed : public display::DisplayBuffer,
-                    public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW, spi::CLOCK_PHASE_LEADING,
-                                          spi::DATA_RATE_1MHZ> {
+                   public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW, spi::CLOCK_PHASE_LEADING,
+                                         spi::DATA_RATE_1MHZ> {
  public:
   void set_model(Model model) { this->model_ = model; }
   void update() override {
