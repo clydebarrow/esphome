@@ -1492,7 +1492,7 @@ async def touchscreens_to_code(var, config):
 
 async def generate_triggers(lv_component):
     init = []
-    for key, widget in widget_map.items():
+    for widget in widget_map.values():
         obj = widget.get_obj()
         for event, conf in {
             event: conf
