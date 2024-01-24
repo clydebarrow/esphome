@@ -44,7 +44,7 @@ void ILI9XXXDisplay::setup() {
   this->y_high_ = 0;
 }
 
-void ILI9XXXDisplay::alloc_buffer() {
+void ILI9XXXDisplay::alloc_buffer_() {
   if (this->buffer_color_mode_ == BITS_16) {
     this->init_internal_(this->get_buffer_length_() * 2);
     if (this->buffer_ != nullptr) {
@@ -147,7 +147,7 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
     return;
   }
   if (this->buffer_ == nullptr) {
-    this->alloc_buffer();
+    this->alloc_buffer_();
     if (this->is_failed())
       return;
   }
