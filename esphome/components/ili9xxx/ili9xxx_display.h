@@ -120,7 +120,7 @@ class ILI9XXXDisplay : public display::DisplayBuffer,
   void end_command_();
   void start_data_();
   void end_data_();
-  void alloc_buffer();
+  void alloc_buffer_();
 
   GPIOPin *reset_pin_{nullptr};
   GPIOPin *dc_pin_{nullptr};
