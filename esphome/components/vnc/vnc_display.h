@@ -700,7 +700,7 @@ class VNCDisplay : public display::Display {
             }
             continue;
           }
-        } while(buf_size(this->inq_) != 0);
+        } while (buf_size(this->inq_) != 0);
         break;
     }
   };

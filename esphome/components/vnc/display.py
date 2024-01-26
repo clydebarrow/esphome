@@ -3,7 +3,6 @@ import esphome.config_validation as cv
 from esphome.components import display
 from esphome import automation
 from esphome.core import Lambda
-from . import VNCDisplay, VNCTrigger
 from esphome.const import (
     CONF_DIMENSIONS,
     CONF_WIDTH,
@@ -16,6 +15,7 @@ from esphome.const import (
     CONF_TRIGGER_ID,
     CONF_ON_DISCONNECT,
 )
+from . import VNCDisplay, VNCTrigger
 
 DEPENDENCIES = ["network"]
 AUTO_LOAD = ["socket"]
