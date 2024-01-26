@@ -701,7 +701,7 @@ class VNCDisplay : public display::Display {
             buf_add(this->inq_, buffer, err);
             continue;
           }
-        } while(false);
+        } while (false);
         break;
     }
   };
