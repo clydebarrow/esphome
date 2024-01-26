@@ -18,7 +18,7 @@ from esphome.const import (
 from . import VNCDisplay, VNCTrigger
 
 DEPENDENCIES = ["network"]
-AUTO_LOAD = ["socket"]
+AUTO_LOAD = ["socket", "touchscreen"]
 
 CONFIG_SCHEMA = cv.All(
     display.FULL_DISPLAY_SCHEMA.extend(

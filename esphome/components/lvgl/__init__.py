@@ -1587,12 +1587,13 @@ async def to_code(config):
     cg.add_global(lvgl_ns.using)
     lv_component = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(lv_component, config)
+    displays = set()
     if display := config.get(CONF_DISPLAY_ID):
-        cg.add(lv_component.add_display(await cg.get_variable(display)))
+        displays.add(display)
     for display in config.get(CONF_DISPLAYS, []):
-        cg.add(
-            lv_component.add_display(await cg.get_variable(display[CONF_DISPLAY_ID]))
-        )
+        displays.add(display[CONF_DISPLAY_ID])
+    for display in displays:
+        cg.add(lv_component.add_display(await cg.get_variable(display)))
     frac = config[CONF_BUFFER_SIZE]
     if frac >= 0.75:
         frac = 1
@@ -1679,15 +1680,15 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_ID, default=CONF_LVGL_COMPONENT): cv.declare_id(
                 LvglComponent
             ),
-            cv.Exclusive(CONF_DISPLAYS, CONF_DISPLAY_ID): cv.ensure_list(
+            cv.GenerateID(CONF_DISPLAY_ID): cv.use_id(Display),
+            cv.Optional(CONF_DISPLAYS): cv.ensure_list(
                 cv.maybe_simple_value(
                     {
                         cv.Required(CONF_DISPLAY_ID): cv.use_id(Display),
                     },
                     key=CONF_DISPLAY_ID,
-                )
+                ),
             ),
-            cv.Exclusive(CONF_DISPLAY_ID, CONF_DISPLAY_ID): cv.use_id(Display),
             cv.Optional(CONF_TOUCHSCREENS): cv.ensure_list(
                 cv.maybe_simple_value(
                     {
@@ -1757,7 +1758,6 @@ CONFIG_SCHEMA = (
 ).add_extra(
     cv.All(
         cv.has_at_least_one_key(CONF_PAGES, CONF_WIDGETS),
-        cv.has_at_least_one_key(CONF_DISPLAY_ID, CONF_DISPLAYS),
     )
 )
 

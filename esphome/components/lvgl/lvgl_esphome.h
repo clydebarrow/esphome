@@ -456,10 +456,12 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
 #if LV_USE_ROTARY_ENCODER
 class LVRotaryEncoderListener : public Parented<LvglComponent> {
  public:
-  LVRotaryEncoderListener() {
+  LVRotaryEncoderListener(uint16_t lpt, uint16_t lprt) {
     lv_indev_drv_init(&this->drv);
     this->drv.type = LV_INDEV_TYPE_ENCODER;
     this->drv.user_data = this;
+    this->drv.long_press_time = lpt;
+    this->drv.long_press_repeat_time = lprt;
     this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {
       LVRotaryEncoderListener *l = (LVRotaryEncoderListener *) d->user_data;
       data->state = l->pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
