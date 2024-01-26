@@ -184,19 +184,19 @@ class VNCDisplay : public display::Display {
 
     this->listen_sock_ = socket::socket_ip(SOCK_STREAM, 0);
     if (this->listen_sock_ == nullptr) {
-      ESP_LOGW(TAG, "Could not create socket.");
+      esph_log_w(TAG, "Could not create socket.");
       this->mark_failed();
       return;
     }
     int enable = 1;
     int err = this->listen_sock_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
     if (err != 0) {
-      ESP_LOGW(TAG, "Socket unable to set reuseaddr: errno %d", err);
+      esph_log_w(TAG, "Socket unable to set reuseaddr: errno %d", err);
       // we can still continue
     }
     err = this->listen_sock_->setblocking(false);
     if (err != 0) {
-      ESP_LOGW(TAG, "Socket unable to set nonblocking mode: errno %d", err);
+      esph_log_w(TAG, "Socket unable to set nonblocking mode: errno %d", err);
       this->mark_failed();
       return;
     }
@@ -205,21 +205,21 @@ class VNCDisplay : public display::Display {
 
     socklen_t sl = socket::set_sockaddr_any((struct sockaddr *) &server, sizeof(server), this->port_);
     if (sl == 0) {
-      ESP_LOGW(TAG, "Socket unable to set sockaddr: errno %d", errno);
+      esph_log_w(TAG, "Socket unable to set sockaddr: errno %d", errno);
       this->mark_failed();
       return;
     }
 
     err = this->listen_sock_->bind((struct sockaddr *) &server, sl);
     if (err != 0) {
-      ESP_LOGW(TAG, "Socket unable to bind: errno %d", errno);
+      esph_log_w(TAG, "Socket unable to bind: errno %d", errno);
       this->mark_failed();
       return;
     }
 
     err = this->listen_sock_->listen(1);
     if (err != 0) {
-      ESP_LOGW(TAG, "Socket unable to listen: errno %d", errno);
+      esph_log_w(TAG, "Socket unable to listen: errno %d", errno);
       this->mark_failed();
       return;
     }
@@ -227,11 +227,11 @@ class VNCDisplay : public display::Display {
 
   void setup() override {
     size_t buffer_length = this->height_ * this->width_ * PIXEL_BYTES;
-    ESP_LOGCONFIG(TAG, "Setting up VNC server...");
+    esph_log_cONFIG(TAG, "Setting up VNC server...");
     ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
     this->display_buffer_ = allocator.allocate(buffer_length);
     if (this->display_buffer_ == nullptr) {
-      ESP_LOGE(TAG, "Could not allocate buffer for display!");
+      esph_log_e(TAG, "Could not allocate buffer for display!");
       this->mark_failed();
       return;
     }
@@ -291,7 +291,7 @@ class VNCDisplay : public display::Display {
         tv.tv_usec = 1000;
         // this->client_sock_->setblocking(false);
         this->client_sock_->setsockopt(SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        ESP_LOGD(TAG, "Accepted %s", this->client_sock_->getpeername().c_str());
+        esph_log_d(TAG, "Accepted %s", this->client_sock_->getpeername().c_str());
         int err = this->write_(RFB_MAGIC, sizeof RFB_MAGIC);
         if (err < 0)
           this->disconnect_();
