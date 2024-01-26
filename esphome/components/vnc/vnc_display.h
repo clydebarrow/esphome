@@ -537,11 +537,13 @@ class VNCDisplay : public display::Display {
     size_t len;
     if (this->skip_bytes_ != 0) {
       if (buf_size(this->inq_) <= this->skip_bytes_) {
+        esph_log_v(TAG, "Skipping %zu bytes from %zu", buf_size(this->inq_), this->skip_bytes_);
         this->skip_bytes_ -= buf_size(this->inq_);
         buf_clr(this->inq_);
         return false;
       }
-      buf_copy(this->inq_, buffer, buf_size(this->inq_));
+      esph_log_v(TAG, "Skipping %zu bytes", this->skip_bytes_);
+      buf_copy(this->inq_, buffer, this->skip_bytes_);
       this->skip_bytes_ = 0;
     }
     switch (buf_peek(this->inq_)) {
@@ -626,15 +628,15 @@ class VNCDisplay : public display::Display {
       case 6:  // cut buffer message
         if (buf_size(this->inq_) > 8) {
           buf_copy(this->inq_, buffer, 8);
-          uint32_t textlen = get32_be(buffer + 4);
+          size_t textlen = get32_be(buffer + 4);
           if (textlen < 256 && buf_size(this->inq_) >= textlen) {
             buf_copy(this->inq_, buffer, textlen);
             esph_log_d(TAG, "Received cut buffer %.*s", (unsigned) textlen, buffer);
-            return true;
           } else {
             esph_log_d(TAG, "Skipping cut buffer length %zu", textlen);
             this->skip_bytes_ = textlen;
           }
+          return true;
         }
         break;
 
@@ -689,13 +691,16 @@ class VNCDisplay : public display::Display {
         break;
 
       case STATE_READY:
-        err = this->read_(buffer, sizeof buffer);
-        if (err > 0)
-          buf_add(this->inq_, buffer, err);
-        while (buf_size(this->inq_) != 0) {
-          if (!this->process_())
-            break;
-        }
+        do {
+          err = this->read_(buffer, sizeof buffer);
+          if (err > 0) {
+            buf_add(this->inq_, buffer, err);
+            while (buf_size(this->inq_) != 0) {
+              this->process_();
+            }
+            continue;
+          }
+        } while(buf_size(this->inq_) != 0);
         break;
     }
   };
