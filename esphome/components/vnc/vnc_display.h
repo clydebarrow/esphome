@@ -535,6 +535,15 @@ class VNCDisplay : public display::Display {
   bool process_() {
     uint8_t buffer[256];
     size_t len;
+    if (this->skip_bytes_ != 0) {
+      if (buf_size(this->inq_) <= this->skip_bytes_) {
+        this->skip_bytes_ -= buf_size(this->inq_);
+        buf_clr(this->inq_);
+        return false;
+      }
+      buf_copy(this->inq_, buffer, buf_size(this->inq_));
+      this->skip_bytes_ = 0;
+    }
     switch (buf_peek(this->inq_)) {
       case 0:  // set pixel format
         if (buf_size(this->inq_) >= 20) {
@@ -623,7 +632,8 @@ class VNCDisplay : public display::Display {
             esph_log_d(TAG, "Received cut buffer %.*s", (unsigned) textlen, buffer);
             return true;
           } else {
-            buf_clr(this->inq_);
+            esph_log_d(TAG, "Skipping cut buffer length %zu", textlen);
+            this->skip_bytes_ = textlen;
           }
         }
         break;
@@ -740,7 +750,7 @@ class VNCDisplay : public display::Display {
       len -= res;
       ptr += res;
     }
-    //printhex("Wrote", buffer, total);
+    // printhex("Wrote", buffer, total);
     return total;
   }
 
@@ -759,6 +769,7 @@ class VNCDisplay : public display::Display {
   ClientState state_;
   bool internal_update_{};
   circ_buf_t inq_{};
+  size_t skip_bytes_{};
 #if USE_HOST
   pthread_mutex_t mutex_{};
   std::vector<rect_t> queue_{};
