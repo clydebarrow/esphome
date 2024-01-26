@@ -227,7 +227,7 @@ class VNCDisplay : public display::Display {
 
   void setup() override {
     size_t buffer_length = this->height_ * this->width_ * PIXEL_BYTES;
-    esph_log_cONFIG(TAG, "Setting up VNC server...");
+    esph_log_config(TAG, "Setting up VNC server...");
     ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
     this->display_buffer_ = allocator.allocate(buffer_length);
     if (this->display_buffer_ == nullptr) {
