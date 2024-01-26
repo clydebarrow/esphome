@@ -535,6 +535,8 @@ class VNCDisplay : public display::Display {
   bool process_() {
     uint8_t buffer[256];
     size_t len;
+    if (buf_size(this->inq_) == 0)
+      return false;
     if (this->skip_bytes_ != 0) {
       if (buf_size(this->inq_) <= this->skip_bytes_) {
         esph_log_v(TAG, "Skipping %zu bytes from %zu", buf_size(this->inq_), this->skip_bytes_);
@@ -692,14 +694,11 @@ class VNCDisplay : public display::Display {
 
       case STATE_READY:
         do {
-          err = this->read_(buffer, sizeof buffer);
-          if (err > 0) {
-            buf_add(this->inq_, buffer, err);
-            while (buf_size(this->inq_) != 0) {
-              this->process_();
-            }
+          while (this->process_())
             continue;
-          }
+          err = this->read_(buffer, sizeof buffer);
+          if (err > 0)
+            buf_add(this->inq_, buffer, err);
         } while (buf_size(this->inq_) != 0);
         break;
     }
