@@ -697,14 +697,17 @@ class VNCDisplay : public display::Display {
           while (this->process_())
             continue;
           err = this->read_(buffer, sizeof buffer);
-          if (err > 0)
+          if (err > 0) {
             buf_add(this->inq_, buffer, err);
-        } while (buf_size(this->inq_) != 0);
+            continue;
+          }
+        } while(false);
         break;
     }
   };
 
   void disconnect_() {
+    buf_clr(this->inq_);
     if (this->client_sock_ != nullptr) {
       this->client_sock_->close();
       this->client_sock_ = nullptr;
