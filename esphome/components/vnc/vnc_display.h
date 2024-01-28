@@ -93,7 +93,7 @@ static inline void buf_clr(circ_buf_t &buf) {
   buf.inp = 0;
   buf.outp = 0;
 }
-static inline size_t buf_size(const circ_buf_t &buf) { return (size_t)(uint8_t) (buf.inp - buf.outp); }
+static inline size_t buf_size(const circ_buf_t &buf) { return (size_t) (uint8_t) (buf.inp - buf.outp); }
 
 static inline uint8_t buf_peek(const circ_buf_t &buf) { return buf.data[buf.outp]; }
 
