@@ -18,6 +18,9 @@
 namespace esphome {
 namespace vnc {
 
+// this code only works on FreeRTOS or Posix host.
+
+#if defined(USE_HOST) || defined(pdTRUE)
 static const char *const TAG = "vnc";
 static const size_t VERSION_LEN = 12;
 static const size_t MAX_WRITE = 64 * 1024;
@@ -784,6 +787,7 @@ class VNCDisplay : public display::Display {
   QueueHandle_t queue_{};
 #endif
 };
+#endif
 
 }  // namespace vnc
 }  // namespace esphome
