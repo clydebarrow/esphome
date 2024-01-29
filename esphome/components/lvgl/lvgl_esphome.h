@@ -276,6 +276,7 @@ class LvglComponent : public PollingComponent {
     this->disp_drv_.ver_res = this->displays_[0]->get_height();
     this->disp_drv_.draw_buf = &this->draw_buf_;
     this->disp_drv_.user_data = this;
+    this->disp_drv_.full_refresh = this->full_refresh_;
     this->disp_drv_.flush_cb = static_flush_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
     this->custom_change_event_ = (lv_event_code_t) lv_event_register_id();
@@ -312,6 +313,7 @@ class LvglComponent : public PollingComponent {
   void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { esph_log_config(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
+  void set_full_refresh(bool full_refresh) { this->full_refresh_ = full_refresh; }
   void set_paused(bool paused) {
     this->paused_ = paused;
     if (!paused)
@@ -376,6 +378,7 @@ class LvglComponent : public PollingComponent {
   size_t page_index_{0};
   size_t buffer_frac_{1};
   bool paused_{};
+  bool full_refresh_{};
 };
 
 class IdleTrigger : public Trigger<> {

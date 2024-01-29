@@ -218,6 +218,7 @@ CONF_END_ANGLE = "end_angle"
 CONF_END_VALUE = "end_value"
 CONF_FLAGS = "flags"
 CONF_FLEX_FLOW = "flex_flow"
+CONF_FULL_REFRESH = "full_refresh"
 CONF_HOME = "home"
 CONF_INDICATORS = "indicators"
 CONF_KEY_CODE = "key_code"
@@ -1604,6 +1605,7 @@ async def to_code(config):
     else:
         frac = 8
     cg.add(lv_component.set_buffer_frac(int(frac)))
+    cg.add(lv_component.set_full_refresh(config[CONF_FULL_REFRESH]))
     cgen("lv_init()")
     if CONF_ROTARY_ENCODERS in config:  # or CONF_KEYBOARDS in config
         cgen("lv_group_set_default(lv_group_create())")
@@ -1723,6 +1725,7 @@ CONFIG_SCHEMA = (
                 ),
             ),
             cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(1, 8, 16, 32),
+            cv.Optional(CONF_FULL_REFRESH, default=False): cv.boolean,
             cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
                 *LOG_LEVELS, upper=True
