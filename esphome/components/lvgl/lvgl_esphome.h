@@ -256,6 +256,17 @@ class LvglComponent : public PollingComponent {
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
   static void log_cb(const char *buf) { esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%s", buf); }
+  static void rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area) {
+    // make sure all coordinates are even
+    if (area->x1 & 1)
+      area->x1--;
+    if (!(area->x2 & 1))
+      area->x2++;
+    if (area->y1 & 1)
+      area->y1--;
+    if (!(area->y2 & 1))
+      area->y2++;
+  }
 
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
@@ -278,6 +289,7 @@ class LvglComponent : public PollingComponent {
     this->disp_drv_.user_data = this;
     this->disp_drv_.full_refresh = this->full_refresh_;
     this->disp_drv_.flush_cb = static_flush_cb;
+    this->disp_drv_.rounder_cb = rounder_cb;
     this->disp_ = lv_disp_drv_register(&this->disp_drv_);
     this->custom_change_event_ = (lv_event_code_t) lv_event_register_id();
     for (auto v : this->init_lambdas_)
