@@ -19,6 +19,7 @@ namespace qspi_amoled {
 constexpr static const char *const TAG = "display.qspi_amoled";
 static const uint8_t SW_RESET_CMD = 0x01;
 static const uint8_t SLEEP_OUT = 0x11;
+static const uint8_t NORMAL_DISPLAY = 0x13;
 static const uint8_t INVERT_OFF = 0x20;
 static const uint8_t INVERT_ON = 0x21;
 static const uint8_t ALL_ON = 0x23;
