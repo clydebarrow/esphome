@@ -37,11 +37,11 @@ static const char *const TAG = "lvgl";
 
 static lv_color_t lv_color_from(Color color) { return lv_color_make(color.red, color.green, color.blue); }
 #if LV_COLOR_DEPTH == 16
-static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_565;
+static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BITNESS_565;
 #elif LV_COLOR_DEPTH == 32
-static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_888;
+static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BITNESS_888;
 #else
-static const display::ColorBitness LV_BITNESS = display::COLOR_BITNESS_332;
+static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BITNESS_332;
 #endif
 
 // The ESPHome name munging does not work well with the lv_ types, and will produce variable names
