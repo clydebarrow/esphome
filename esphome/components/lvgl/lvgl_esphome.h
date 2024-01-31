@@ -137,8 +137,8 @@ template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
 class FontEngine {
  public:
   FontEngine(font::Font *esp_font) : font_(esp_font) {
-    this->lv_font_.base_line = esp_font->get_baseline();
     this->lv_font_.line_height = esp_font->get_height();
+    this->lv_font_.base_line = 0;
     this->lv_font_.get_glyph_dsc = get_glyph_dsc_cb;
     this->lv_font_.get_glyph_bitmap = get_glyph_bitmap;
     this->lv_font_.dsc = this;
@@ -157,12 +157,11 @@ class FontEngine {
       return false;
     dsc->adv_w = gd->offset_x + gd->width;
     dsc->ofs_x = gd->offset_x;
-    dsc->ofs_y = gd->offset_y;
+    dsc->ofs_y = gd->offset_y + font->line_height - gd->height;
     dsc->box_w = gd->width;
     dsc->box_h = gd->height;
     dsc->is_placeholder = 0;
     dsc->bpp = 1;
-    // esph_log_d(TAG, "Returning dsc x/y %d/%d w/h %d/%d", dsc->ofs_x, dsc->ofs_y, dsc->box_w, dsc->box_h);
     return true;
   }
 
