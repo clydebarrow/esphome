@@ -26,6 +26,7 @@ lv_uses = {
 }
 
 lv_fonts_used = set()
+esphome_fonts_used = set()
 
 REQUIRED_COMPONENTS = {
     CONF_IMG: "image",
@@ -55,17 +56,22 @@ def lv_color(value):
     return f"lv_color_from({color_id})"
 
 
+def lv_builtin_font(value):
+    font = cv.one_of(*LV_FONTS, lower=True)(value)
+    lv_fonts_used.add(font)
+    return "&lv_font_" + font
+
+
 def lv_font(value):
     """Accept either the name of a built-in LVGL font, or the ID of an ESPHome font"""
     if value == SCHEMA_EXTRACT:
         return LV_FONTS
     if isinstance(value, str) and value.lower() in LV_FONTS:
-        font = cv.one_of(*LV_FONTS, lower=True)(value)
-        lv_fonts_used.add(font)
-        return "&lv_font_" + font
+        return lv_builtin_font(value)
     lv_uses.add("FONT")
     font = cv.use_id(Font)(value)
-    return f"(new lvgl::FontEngine({font}))->get_lv_font()"
+    esphome_fonts_used.add(font)
+    return f"{font}_as_lv_font_"
 
 
 @schema_extractor("one_of")

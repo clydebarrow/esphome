@@ -48,6 +48,7 @@ static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BIT
 // that are the same as the type.
 // to work-around this these typedefs are used.
 typedef lv_obj_t LvScreenType;
+typedef lv_font_t LvFontType;
 typedef lv_obj_t LvObjType;
 typedef lv_style_t LvStyleType;
 typedef lv_point_t LvPointType;
@@ -137,14 +138,15 @@ template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
 class FontEngine {
  public:
   FontEngine(font::Font *esp_font) : font_(esp_font) {
-    this->lv_font_.line_height = esp_font->get_height();
-    this->lv_font_.base_line = 0;
+    this->lv_font_.line_height = this->height_ = esp_font->get_height();
+    this->lv_font_.base_line = this->baseline_ = this->lv_font_.line_height - esp_font->get_baseline();
     this->lv_font_.get_glyph_dsc = get_glyph_dsc_cb;
     this->lv_font_.get_glyph_bitmap = get_glyph_bitmap;
     this->lv_font_.dsc = this;
     this->lv_font_.subpx = LV_FONT_SUBPX_NONE;
     this->lv_font_.underline_position = -1;
     this->lv_font_.underline_thickness = 1;
+    this->bpp_ = esp_font->get_bpp();
   }
 
   const lv_font_t *get_lv_font() { return &this->lv_font_; }
@@ -157,11 +159,11 @@ class FontEngine {
       return false;
     dsc->adv_w = gd->offset_x + gd->width;
     dsc->ofs_x = gd->offset_x;
-    dsc->ofs_y = gd->offset_y + font->line_height - gd->height;
+    dsc->ofs_y = fe->height_ - gd->height - gd->offset_y - fe->baseline_;
     dsc->box_w = gd->width;
     dsc->box_h = gd->height;
     dsc->is_placeholder = 0;
-    dsc->bpp = 1;
+    dsc->bpp = fe->bpp_;
     return true;
   }
 
@@ -180,11 +182,14 @@ class FontEngine {
   uint32_t last_letter_{};
   const font::GlyphData *last_data_{};
   lv_font_t lv_font_{};
+  uint16_t baseline_{};
+  uint16_t height_{};
+  uint8_t bpp_{};
 
   const font::GlyphData *get_glyph_data(uint32_t unicode_letter) {
     if (unicode_letter == last_letter_)
       return this->last_data_;
-    char unicode[4];
+    uint8_t unicode[4];
     if (unicode_letter > 0x7FF) {
       unicode[0] = 0xE0 + ((unicode_letter >> 12) & 0xF);
       unicode[1] = 0x80 + ((unicode_letter >> 6) & 0x3F);
@@ -192,8 +197,12 @@ class FontEngine {
     } else if (unicode_letter > 0x7F) {
       unicode[0] = 0xC0 + ((unicode_letter >> 6) & 0x1F);
       unicode[1] = 0x80 + (unicode_letter & 0x3F);
-    } else
+      unicode[2] = 0;
+    } else {
       unicode[0] = unicode_letter & 0x7F;
+      unicode[1] = 0;
+      unicode[2] = 0;
+    }
     int match_length;
     int glyph_n = this->font_->match_next_glyph(unicode, &match_length);
     if (glyph_n < 0)

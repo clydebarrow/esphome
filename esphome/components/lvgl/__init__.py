@@ -129,6 +129,8 @@ from .lv_validation import (
     requires_component,
     lv_boolean_value,
     lv_key_code,
+    esphome_fonts_used,
+    lv_builtin_font,
 )
 from .widget import Widget
 
@@ -159,6 +161,7 @@ LvCompound = lvgl_ns.class_("LvCompound")
 lv_pseudo_button_t = lvgl_ns.class_("LvPseudoButton")
 LvBtnmBtn = lvgl_ns.class_("LvBtnmBtn", lv_pseudo_button_t)
 lv_obj_t = cg.global_ns.class_("LvObjType", lv_pseudo_button_t)
+lv_font_t = cg.global_ns.class_("LvFontType")
 lv_page_t = cg.global_ns.class_("LvPageType")
 lv_screen_t = cg.global_ns.class_("LvScreenType")
 lv_point_t = cg.global_ns.struct("LvPointType")
@@ -209,8 +212,8 @@ CONF_COLOR_DEPTH = "color_depth"
 CONF_COLOR_END = "color_end"
 CONF_COLOR_START = "color_start"
 CONF_CONTROL = "control"
-CONF_CRITICAL_VALUE = "critical_value"
 CONF_DEFAULT = "default"
+CONF_DEFAULT_FONT = "default_font"
 CONF_DIR = "dir"
 CONF_DISPLAY_ID = "display_id"
 CONF_DISPLAYS = "displays"
@@ -1579,6 +1582,7 @@ async def to_code(config):
     for font in lv_fonts_used:
         add_define(f"LV_FONT_{font.upper()}")
     add_define("LV_COLOR_DEPTH", config[CONF_COLOR_DEPTH])
+    add_define("LV_FONT_DEFAULT", config[CONF_DEFAULT_FONT])
     if config[CONF_COLOR_DEPTH] == 16:
         add_define(
             "LV_COLOR_16_SWAP", "1" if config[CONF_BYTE_ORDER] == "big_endian" else "0"
@@ -1612,6 +1616,11 @@ async def to_code(config):
     init = []
     if style_defs := config.get(CONF_STYLE_DEFINITIONS, []):
         styles_to_code(style_defs)
+    for font in esphome_fonts_used:
+        getter = cg.RawExpression(f"(new lvgl::FontEngine({font}))->get_lv_font()")
+        cg.Pvariable(
+            ID(f"{font}_as_lv_font_", True, lv_font_t.operator("const")), getter
+        )
     # must do this before generating widgets
     if theme := config.get(CONF_THEME):
         await theme_to_code(theme)
@@ -1725,6 +1734,7 @@ CONFIG_SCHEMA = (
                 ),
             ),
             cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(1, 8, 16, 32),
+            cv.Optional(CONF_DEFAULT_FONT, default="montserrat_14"): lv_builtin_font,
             cv.Optional(CONF_FULL_REFRESH, default=False): cv.boolean,
             cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
