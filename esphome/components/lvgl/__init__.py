@@ -1614,14 +1614,13 @@ async def to_code(config):
     if CONF_ROTARY_ENCODERS in config:  # or CONF_KEYBOARDS in config
         cgen("lv_group_set_default(lv_group_create())")
     init = []
-    if style_defs := config.get(CONF_STYLE_DEFINITIONS, []):
-        styles_to_code(style_defs)
     for font in esphome_fonts_used:
         getter = cg.RawExpression(f"(new lvgl::FontEngine({font}))->get_lv_font()")
         cg.Pvariable(
             ID(f"{font}_as_lv_font_", True, lv_font_t.operator("const")), getter
         )
-    # must do this before generating widgets
+    if style_defs := config.get(CONF_STYLE_DEFINITIONS, []):
+        styles_to_code(style_defs)
     if theme := config.get(CONF_THEME):
         await theme_to_code(theme)
     if top_conf := config.get(CONF_TOP_LAYER):
