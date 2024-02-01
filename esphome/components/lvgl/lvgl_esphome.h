@@ -189,19 +189,22 @@ class FontEngine {
   const font::GlyphData *get_glyph_data(uint32_t unicode_letter) {
     if (unicode_letter == last_letter_)
       return this->last_data_;
-    uint8_t unicode[4];
-    if (unicode_letter > 0x7FF) {
+    uint8_t unicode[5];
+    memset(unicode, 0, sizeof unicode);
+    if (unicode_letter > 0xFFFF) {
+      unicode[0] = 0xF0 + ((unicode_letter >> 18) & 0x7);
+      unicode[1] = 0x80 + ((unicode_letter >> 12) & 0x3F);
+      unicode[2] = 0x80 + ((unicode_letter >> 6) & 0x3F);
+      unicode[3] = 0x80 + (unicode_letter & 0x3F);
+    } else if (unicode_letter > 0x7FF) {
       unicode[0] = 0xE0 + ((unicode_letter >> 12) & 0xF);
       unicode[1] = 0x80 + ((unicode_letter >> 6) & 0x3F);
       unicode[2] = 0x80 + (unicode_letter & 0x3F);
     } else if (unicode_letter > 0x7F) {
       unicode[0] = 0xC0 + ((unicode_letter >> 6) & 0x1F);
       unicode[1] = 0x80 + (unicode_letter & 0x3F);
-      unicode[2] = 0;
     } else {
-      unicode[0] = unicode_letter & 0x7F;
-      unicode[1] = 0;
-      unicode[2] = 0;
+      unicode[0] = unicode_letter;
     }
     int match_length;
     int glyph_n = this->font_->match_next_glyph(unicode, &match_length);
