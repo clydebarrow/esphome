@@ -1429,6 +1429,14 @@ async def arc_to_code(var, config):
         f"lv_arc_set_mode({var}, {config[CONF_MODE]})",
         f"lv_arc_set_change_rate({var}, {config[CONF_CHANGE_RATE]})",
     ]
+    if not config[CONF_ADJUSTABLE]:
+        init.extend(
+            [
+                f"lv_obj_remove_style({var}, nullptr, LV_PART_KNOB)",
+                f"lv_obj_clear_flag({var}, LV_OBJ_FLAG_CLICKABLE)",
+            ]
+        )
+
     value = await get_start_value(config)
     if value is not None:
         init.append(f"lv_arc_set_value({var}, {value})")
@@ -1877,6 +1885,8 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
 )
 async def obj_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
+    if obj.type.inherits_from(LvCompound):
+        obj = f"{obj}->obj"
     return await update_to_code(config, action_id, obj, [], template_arg, args)
 
 
