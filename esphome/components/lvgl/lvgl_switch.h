@@ -1,7 +1,8 @@
 #pragma once
 
-#if LVGL_USES_SWITCH
+#if 1
 #include "esphome/components/switch/switch.h"
+#include "esphome/components/output/binary_output.h"
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/preferences.h"
