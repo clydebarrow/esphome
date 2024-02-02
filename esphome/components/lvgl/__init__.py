@@ -1884,8 +1884,9 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
     "lvgl.widget.update", ObjUpdateAction, modify_schema(CONF_OBJ)
 )
 async def obj_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
-    if obj.type.inherits_from(LvCompound):
+    obj_id = config[CONF_ID]
+    obj = await cg.get_variable(obj_id)
+    if obj_id.type.inherits_from(LvCompound):
         obj = f"{obj}->obj"
     return await update_to_code(config, action_id, obj, [], template_arg, args)
 
