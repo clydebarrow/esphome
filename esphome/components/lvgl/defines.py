@@ -35,8 +35,6 @@ CONF_CURSOR = "cursor"
 CONF_TEXTAREA_PLACEHOLDER = "textarea_placeholder"
 
 LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
-    "montserrat_12_subpx",
-    "montserrat_28_compressed",
     "dejavu_16_persian_hebrew",
     "simsun_16_cjk16",
     "unscii_8",
