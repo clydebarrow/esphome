@@ -377,9 +377,6 @@ STYLE_PROPS = {
     "y": pixels_or_percent,
 }
 
-# Map of widgets to their config, used for trigger generation
-widget_map = {}
-
 
 def modify_schema(widget_type):
     lv_type = globals()[f"lv_{widget_type}_t"]
@@ -863,6 +860,22 @@ def styles_to_code(styles):
 
 
 theme_widget_map = {}
+# Map of widgets to their config, used for trigger generation
+widget_map = {}
+
+
+def get_widget_generator(id):
+    while True:
+        try:
+            return widget_map[id]
+        except KeyError:
+            yield
+
+
+async def get_widget(id: ID):
+    if obj := widget_map.get(id):
+        return obj
+    return await FakeAwaitable(get_widget_generator(id))
 
 
 async def theme_to_code(theme):
@@ -1885,10 +1898,8 @@ async def obj_hide_to_code(config, action_id, template_arg, args):
 )
 async def obj_update_to_code(config, action_id, template_arg, args):
     obj_id = config[CONF_ID]
-    obj = await cg.get_variable(obj_id)
-    if obj_id.type.inherits_from(LvCompound):
-        obj = f"{obj}->obj"
-    return await update_to_code(config, action_id, obj, [], template_arg, args)
+    widget = await get_widget(obj_id)
+    return await update_to_code(config, action_id, widget.obj, [], template_arg, args)
 
 
 @automation.register_action(
