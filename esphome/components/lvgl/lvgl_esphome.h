@@ -267,7 +267,7 @@ class LvglComponent : public PollingComponent {
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
   static void log_cb(const char *buf) {
-    esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%.*s", (int)strlen(buf) - 1, buf);
+    esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%.*s", (int) strlen(buf) - 1, buf);
   }
   static void rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area) {
     // make sure all coordinates are even
