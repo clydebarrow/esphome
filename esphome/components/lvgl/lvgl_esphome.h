@@ -48,6 +48,7 @@ static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BIT
 // that are the same as the type.
 // to work-around this these typedefs are used.
 typedef lv_obj_t LvScreenType;
+typedef lv_color_t LvColorType;
 typedef lv_font_t LvFontType;
 typedef lv_obj_t LvObjType;
 typedef lv_style_t LvStyleType;

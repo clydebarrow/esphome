@@ -1,14 +1,10 @@
 import esphome.config_validation as cv
-from esphome.core import ID
 from esphome.schema_extractors import (
     SCHEMA_EXTRACT,
     schema_extractor,
 )
 from esphome.components.font import Font
 from esphome.components.color import ColorStruct
-from esphome.components.binary_sensor import BinarySensor
-from esphome.components.sensor import Sensor
-from esphome.components.text_sensor import TextSensor
 from esphome.const import (
     CONF_MAX_VALUE,
     CONF_MIN_VALUE,
@@ -46,9 +42,11 @@ def requires_component(comp):
 
 
 @schema_extractor("one_of")
-def lv_color(value):
+def lv_color_validator(value):
     if value == SCHEMA_EXTRACT:
         return ["hex color value", "color ID"]
+    if isinstance(value, cv.Lambda):
+        return cv.returning_lambda(value)
     if isinstance(value, int):
         hexval = cv.hex_int(value)
         return f"lv_color_hex({hexval})"
@@ -74,13 +72,15 @@ def lv_font(value):
     return f"{font}_as_lv_font_"
 
 
+def is_esphome_font(font):
+    return "_as_lv_font_" in font
+
+
 @schema_extractor("one_of")
-def lv_bool(value):
+def lv_bool_validator(value):
     if value == SCHEMA_EXTRACT:
         return ["true", "false"]
-    if cv.boolean(value):
-        return "true"
-    return "false"
+    return "true" if cv.boolean(value) else "false"
 
 
 def lv_prefix(value, choices, prefix):
@@ -188,30 +188,6 @@ def lv_opacity(value):
 
 def lv_stop_value(value):
     return cv.int_range(0, 255)(value)
-
-
-def lv_value(value, validators=None):
-    if isinstance(value, int):
-        return cv.float_(float(cv.int_(value)))
-    if isinstance(value, float):
-        return cv.float_(value)
-    return cv.templatable(cv.use_id(Sensor))(value)
-
-
-def lv_text_value(value):
-    if isinstance(value, cv.Lambda):
-        return cv.returning_lambda(value)
-    if isinstance(value, ID):
-        return cv.use_id(TextSensor)(value)
-    return cv.string(value)
-
-
-def lv_boolean_value(value):
-    if isinstance(value, cv.Lambda):
-        return cv.returning_lambda(value)
-    if isinstance(value, ID):
-        return cv.use_id(BinarySensor)(value)
-    return "true" if cv.boolean(value) else "false"
 
 
 def optional_boolean(value):

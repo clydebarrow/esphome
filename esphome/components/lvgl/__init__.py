@@ -7,7 +7,9 @@ from esphome.core import (
 )
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome import automation
+from esphome import (
+    automation,
+)
 from esphome.components.image import Image_
 from esphome.components.key_provider import KeyProvider
 from esphome.coroutine import FakeAwaitable
@@ -92,7 +94,6 @@ from .defines import (
     # Input devices
     CONF_ROTARY_ENCODERS,
     CONF_TOUCHSCREENS,
-    LV_SYMBOLS,
     DIRECTIONS,
     ROLLER_MODES,
     CONF_PAGE,
@@ -105,7 +106,6 @@ from .defines import (
 from .lv_validation import (
     lv_one_of,
     lv_opacity,
-    lv_bool,
     lv_stop_value,
     lv_any_of,
     lv_size,
@@ -117,22 +117,22 @@ from .lv_validation import (
     join_enums,
     lv_fonts_used,
     lv_uses,
-    lv_color,
     REQUIRED_COMPONENTS,
     lvgl_components_required,
     cv_int_list,
-    lv_value,
-    lv_text_value,
     validate_max_min,
     lv_option_string,
     lv_id_name,
     requires_component,
-    lv_boolean_value,
     lv_key_code,
     esphome_fonts_used,
-    lv_builtin_font,
+    is_esphome_font,
+    lv_color_validator,
+    lv_bool_validator,
 )
 from .widget import Widget
+from ..sensor import Sensor
+from ..text_sensor import TextSensor
 
 # import auto
 DOMAIN = "lvgl"
@@ -168,6 +168,7 @@ lv_point_t = cg.global_ns.struct("LvPointType")
 lv_msgbox_t = cg.global_ns.struct("LvMsgBoxType")
 lv_obj_t_ptr = lv_obj_t.operator("ptr")
 lv_style_t = cg.global_ns.struct("LvStyleType")
+lv_color_t = cg.global_ns.struct("LvColorType")
 lv_theme_t = cg.global_ns.struct("LvThemeType")
 lv_theme_t_ptr = lv_theme_t.operator("ptr")
 lv_meter_indicator_t = cg.global_ns.struct("LvMeterIndicatorType")
@@ -301,6 +302,44 @@ WIDGET_TYPES = {
         CONF_TEXTAREA_PLACEHOLDER,
     ),
 }
+
+
+class LValidator:
+    def __init__(self, validator, rtype, idtype=None, idexpr=None, retmapper=None):
+        self.validator = validator
+        self.rtype = rtype
+        self.idtype = idtype
+        self.idexpr = idexpr
+        self.retmapper = retmapper
+
+    def __call__(self, value):
+        if isinstance(value, cv.Lambda):
+            return cv.returning_lambda(value)
+        if self.idtype is not None and isinstance(value, ID):
+            return cv.use_id(self.idtype)(value)
+        return self.validator(value)
+
+    async def process(self, value, args=()):
+        if isinstance(value, Lambda):
+            return f"{await cg.process_lambda(value, args, return_type=self.rtype)}()"
+        if self.idtype is not None and isinstance(value, ID):
+            return f"{value}->{self.idexpr};"
+        if self.retmapper is not None:
+            return self.retmapper(value)
+        return value
+
+
+lv_color = LValidator(lv_color_validator, lv_color_t)
+lv_bool = LValidator(lv_bool_validator, cg.bool_, BinarySensor, "get_state()")
+lv_text = LValidator(
+    cv.string,
+    cg.const_char_ptr,
+    TextSensor,
+    "get_state().c_str()",
+    lambda s: cg.safe_exp(f"{s}"),
+)
+lv_float = LValidator(cv.float_, cg.float_, Sensor, "get_state()")
+lv_int = LValidator(cv.int_, cg.int_, Sensor, "get_state()")
 
 # List the LVGL built-in fonts that are available
 
@@ -438,8 +477,7 @@ AUTOMATION_SCHEMA = {
 
 TEXT_SCHEMA = cv.Schema(
     {
-        cv.Exclusive(CONF_TEXT, CONF_TEXT): lv_text_value,
-        cv.Exclusive(CONF_SYMBOL, CONF_TEXT): lv_one_of(LV_SYMBOLS, "LV_SYMBOL_"),
+        cv.Exclusive(CONF_TEXT, CONF_TEXT): lv_text,
     }
 )
 
@@ -451,13 +489,13 @@ STYLE_SCHEMA = cv.Schema({cv.Optional(k): v for k, v in STYLE_PROPS.items()}).ex
 STATE_SCHEMA = cv.Schema({cv.Optional(state): STYLE_SCHEMA for state in STATES}).extend(
     STYLE_SCHEMA
 )
-SET_STATE_SCHEMA = cv.Schema({cv.Optional(state): lv_boolean_value for state in STATES})
+SET_STATE_SCHEMA = cv.Schema({cv.Optional(state): lv_bool for state in STATES})
 FLAG_SCHEMA = cv.Schema({cv.Optional(flag): cv.boolean for flag in OBJ_FLAGS})
 FLAG_LIST = cv.ensure_list(lv_one_of(OBJ_FLAGS, "LV_OBJ_FLAG_"))
 
 BAR_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_VALUE): lv_value,
+        cv.Optional(CONF_VALUE): lv_float,
         cv.Optional(CONF_MIN_VALUE, default=0): cv.int_,
         cv.Optional(CONF_MAX_VALUE, default=100): cv.int_,
         cv.Optional(CONF_MODE, default="NORMAL"): lv_one_of(BAR_MODES, "LV_BAR_MODE_"),
@@ -481,8 +519,7 @@ IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(Image_)}
 # Schema for a single button in a btnmatrix
 BTNM_BTN_SCHEMA = cv.Schema(
     {
-        cv.Exclusive(CONF_TEXT, CONF_TEXT): cv.string,
-        cv.Exclusive(CONF_SYMBOL, CONF_TEXT): lv_one_of(LV_SYMBOLS, "LV_SYMBOL_"),
+        cv.Optional(CONF_TEXT): cv.string,
         cv.Optional(CONF_KEY_CODE): lv_key_code,
         cv.GenerateID(): cv.declare_id(LvBtnmBtn),
         cv.Optional(CONF_WIDTH, default=1): cv.positive_int,
@@ -507,7 +544,7 @@ BTNMATRIX_SCHEMA = cv.Schema(
 
 ARC_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_VALUE): lv_value,
+        cv.Optional(CONF_VALUE): lv_float,
         cv.Optional(CONF_MIN_VALUE, default=0): cv.int_,
         cv.Optional(CONF_MAX_VALUE, default=100): cv.int_,
         cv.Optional(CONF_START_ANGLE, default=135): lv_angle,
@@ -531,14 +568,14 @@ INDICATOR_LINE_SCHEMA = cv.Schema(
         cv.Optional(CONF_WIDTH, default=4): lv_size,
         cv.Optional(CONF_COLOR, default=0): lv_color,
         cv.Optional(CONF_R_MOD, default=0): lv_size,
-        cv.Optional(CONF_VALUE): lv_value,
+        cv.Optional(CONF_VALUE): lv_float,
     }
 )
 INDICATOR_IMG_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
         cv.Optional(CONF_PIVOT_Y, default="50%"): lv_size,
-        cv.Optional(CONF_VALUE): lv_value,
+        cv.Optional(CONF_VALUE): lv_float,
     }
 )
 INDICATOR_ARC_SCHEMA = cv.Schema(
@@ -546,9 +583,9 @@ INDICATOR_ARC_SCHEMA = cv.Schema(
         cv.Optional(CONF_WIDTH, default=4): lv_size,
         cv.Optional(CONF_COLOR, default=0): lv_color,
         cv.Optional(CONF_R_MOD, default=0): lv_size,
-        cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_value,
-        cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_value,
-        cv.Optional(CONF_END_VALUE): lv_value,
+        cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_float,
+        cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_float,
+        cv.Optional(CONF_END_VALUE): lv_float,
     }
 )
 INDICATOR_TICKS_SCHEMA = cv.Schema(
@@ -557,9 +594,9 @@ INDICATOR_TICKS_SCHEMA = cv.Schema(
         cv.Optional(CONF_COLOR_START, default=0): lv_color,
         cv.Optional(CONF_COLOR_END): lv_color,
         cv.Optional(CONF_R_MOD, default=0): lv_size,
-        cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_value,
-        cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_value,
-        cv.Optional(CONF_END_VALUE): lv_value,
+        cv.Exclusive(CONF_VALUE, CONF_VALUE): lv_float,
+        cv.Exclusive(CONF_START_VALUE, CONF_VALUE): lv_float,
+        cv.Optional(CONF_END_VALUE): lv_float,
         cv.Optional(CONF_LOCAL, default=False): lv_bool,
     }
 )
@@ -637,7 +674,7 @@ CHECKBOX_SCHEMA = TEXT_SCHEMA
 
 DROPDOWN_BASE_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_SYMBOL): lv_one_of(LV_SYMBOLS, "LV_SYMBOL_"),
+        cv.Optional(CONF_SYMBOL): lv_text,
         cv.Optional(CONF_SELECTED_INDEX): cv.templatable(cv.int_),
         cv.Optional(CONF_DIR, default="BOTTOM"): lv_one_of(DIRECTIONS, "LV_DIR_"),
         cv.Optional(CONF_DROPDOWN_LIST): part_schema(CONF_DROPDOWN_LIST),
@@ -774,44 +811,14 @@ MSGBOX_SCHEMA = STYLE_SCHEMA.extend(
 )
 
 
-async def get_boolean_value(value):
-    if value is None:
-        return None
+async def get_color_value(value):
     if isinstance(value, Lambda):
-        lamb = await cg.process_lambda(value, [], return_type=cg.bool_)
-    elif isinstance(value, ID):
-        lamb = f"[] {{ return {value}->get_state(); }}"
-    else:
-        return value
-    return f"{lamb}()"
-
-
-async def get_text_value(config):
-    if (value := config.get(CONF_TEXT)) is not None:
-        if isinstance(value, Lambda):
-            return (
-                f"{await cg.process_lambda(value, [], return_type=cg.const_char_ptr)}()"
-            )
-        if isinstance(value, ID):
-            return "[] {" f"return {value}->get_state().c_str();}}()"
-        return cg.safe_exp(value)
-    if value := config.get(CONF_SYMBOL):
-        return value
-    return None
-
-
-async def get_value_expr(input, return_type=cg.float_):
-    if input is None:
-        return None
-    if isinstance(input, Lambda):
-        return f"{await cg.process_lambda(input, [], return_type=return_type)}()"
-    if isinstance(input, ID):
-        return "[] {" f"return ({return_type}){input}->get_state();" "}"
-    return f"(({return_type}){input})"
+        return f"{await cg.process_lambda(value, [], return_type=lv_color_t)}()"
+    return value
 
 
 async def get_end_value(config):
-    return await get_value_expr(config.get(CONF_END_VALUE))
+    return await lv_int.process(config.get(CONF_END_VALUE))
 
 
 async def get_start_value(config):
@@ -819,7 +826,7 @@ async def get_start_value(config):
         value = config[CONF_START_VALUE]
     else:
         value = config.get(CONF_VALUE)
-    return await get_value_expr(value)
+    return await lv_int.process(value)
 
 
 async def add_init_lambda(lv_component, init):
@@ -963,6 +970,8 @@ async def set_obj_properties(var, config):
             for prop, value in {
                 k: v for k, v in props.items() if k in STYLE_PROPS
             }.items():
+                if isinstance(STYLE_PROPS[prop], LValidator):
+                    value = await STYLE_PROPS[prop].process(value)
                 init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
     if group := add_group(config.get(CONF_GROUP)):
         init.append(f"lv_group_add_obj({group}, {var})")
@@ -1021,7 +1030,7 @@ async def set_obj_properties(var, config):
 
 async def checkbox_to_code(var, checkbox_conf):
     """For a text object, create and set text"""
-    if (value := await get_text_value(checkbox_conf)) is not None:
+    if value := await lv_text.process(checkbox_conf[CONF_TEXT]):
         return [f"lv_checkbox_set_text({var}, {value})"]
     return []
 
@@ -1029,7 +1038,7 @@ async def checkbox_to_code(var, checkbox_conf):
 async def label_to_code(var, label_conf):
     """For a text object, create and set text"""
     init = []
-    if (value := await get_text_value(label_conf)) is not None:
+    if value := await lv_text.process(label_conf.get(CONF_TEXT)):
         init.append(f"lv_label_set_text({var}, {value})")
     if mode := label_conf.get(CONF_LONG_MODE):
         init.append(f"lv_label_set_long_mode({var}, {mode})")
@@ -1073,7 +1082,7 @@ async def led_to_code(var, config):
     init = []
     if color := config.get(CONF_COLOR):
         init.append(f"lv_led_set_color({var}, {color})")
-    if brightness := await get_value_expr(config.get(CONF_BRIGHTNESS)):
+    if brightness := await lv_float.process(config.get(CONF_BRIGHTNESS)):
         init.append(f"lv_led_set_brightness({var}, {brightness} * 255)")
     return init
 
@@ -1154,7 +1163,7 @@ async def roller_to_code(var, config):
         init.append(f"lv_roller_set_options({var}, {text}, {mode})")
     animated = config.get(CONF_ANIMATED) or "LV_ANIM_OFF"
     if selected := config.get(CONF_SELECTED_INDEX):
-        value = await get_value_expr(selected, cg.uint16)
+        value = await lv_int.process(selected)
         init.append(f"lv_roller_set_selected({var}, {value}, {animated})")
     return init
 
@@ -1176,9 +1185,9 @@ async def dropdown_to_code(var, config):
         text = cg.safe_exp("\n".join(options))
         init.append(f"lv_dropdown_set_options({var}, {text})")
     if symbol := config.get(CONF_SYMBOL):
-        init.append(f"lv_dropdown_set_symbol({var}, {symbol})")
+        init.append(f"lv_dropdown_set_symbol({var}, {await lv_text.process(symbol)})")
     if selected := config.get(CONF_SELECTED_INDEX):
-        value = await get_value_expr(selected, cg.uint16)
+        value = await lv_int.process(selected)
         init.append(f"lv_dropdown_set_selected({var}, {value})")
     if dir := config.get(CONF_DIR):
         init.append(f"lv_dropdown_set_dir({var}, {dir})")
@@ -1227,7 +1236,7 @@ async def get_matrix_button(id: ID):
     return await FakeAwaitable(get_btn_generator(id))
 
 
-def get_button_data(config, id, btnm):
+async def get_button_data(config, id, btnm):
     """
     Process a button matrix button list
     :param config: The row list
@@ -1245,8 +1254,6 @@ def get_button_data(config, id, btnm):
             btnm_comp_list[bid] = (btnm, len(width_list), btn)
             if text := btn.get(CONF_TEXT):
                 text_list.append(f"{cg.safe_exp(text)}")
-            elif text := btn.get(CONF_SYMBOL):
-                text_list.append(text)
             else:
                 text_list.append("")
             key_list.append(btn.get(CONF_KEY_CODE) or 0)
@@ -1284,7 +1291,7 @@ def set_btn_data(btnm, ctrl_list, width_list):
 async def btnmatrix_to_code(btnm, conf):
     id = conf[CONF_ID]
 
-    text_id, ctrl_list, width_list, key_list = get_button_data(
+    text_id, ctrl_list, width_list, key_list = await get_button_data(
         conf[CONF_ROWS], id, btnm
     )
     init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
@@ -1312,12 +1319,12 @@ async def msgbox_to_code(conf):
     btnm = cg.new_variable(
         ID(f"{id.id}_btnm", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
-    text_id, ctrl_list, width_list, _ = get_button_data((conf,), id, btnm)
+    text_id, ctrl_list, width_list, _ = await get_button_data((conf,), id, btnm)
     msgbox = cg.new_variable(
         ID(f"{id.id}_msgbox", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
-    text = await get_text_value(conf.get(CONF_BODY))
-    title = await get_text_value(conf.get(CONF_TITLE))
+    text = await lv_text.process(conf.get(CONF_BODY))
+    title = await lv_text.process(conf.get(CONF_TITLE))
     close_button = conf[CONF_CLOSE_BUTTON]
     init.append(
         f"""{outer} = lv_obj_create(lv_disp_get_layer_top(lv_disp));
@@ -1603,7 +1610,11 @@ async def to_code(config):
     for font in lv_fonts_used:
         add_define(f"LV_FONT_{font.upper()}")
     add_define("LV_COLOR_DEPTH", config[CONF_COLOR_DEPTH])
-    add_define("LV_FONT_DEFAULT", config[CONF_DEFAULT_FONT])
+    default_font = config[CONF_DEFAULT_FONT]
+    add_define("LV_FONT_DEFAULT", default_font)
+    if is_esphome_font(default_font):
+        add_define("LV_FONT_CUSTOM_DECLARE", f"LV_FONT_DECLARE(*{default_font})")
+
     if config[CONF_COLOR_DEPTH] == 16:
         add_define(
             "LV_COLOR_16_SWAP", "1" if config[CONF_BYTE_ORDER] == "big_endian" else "0"
@@ -1754,7 +1765,7 @@ CONFIG_SCHEMA = (
                 ),
             ),
             cv.Optional(CONF_COLOR_DEPTH, default=16): cv.one_of(1, 8, 16, 32),
-            cv.Optional(CONF_DEFAULT_FONT, default="montserrat_14"): lv_builtin_font,
+            cv.Optional(CONF_DEFAULT_FONT, default="montserrat_14"): lv_font,
             cv.Optional(CONF_FULL_REFRESH, default=False): cv.boolean,
             cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
@@ -1990,7 +2001,7 @@ async def button_update_to_code(config, action_id, template_arg, args):
 async def arc_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
-    value = await get_value_expr(config.get(CONF_VALUE))
+    value = await lv_int.process(config.get(CONF_VALUE))
     init.append(f"lv_arc_set_value({obj}, {value})")
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
@@ -2015,7 +2026,7 @@ async def slider_update_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     init = []
     animated = config[CONF_ANIMATED]
-    value = await get_value_expr(config.get(CONF_VALUE), cg.uint32)
+    value = await lv_int.process(config.get(CONF_VALUE))
     init.append(f"lv_slider_set_value({obj}, {value}, {animated})")
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
