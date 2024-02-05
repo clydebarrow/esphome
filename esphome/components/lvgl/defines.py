@@ -34,9 +34,9 @@ CONF_TICKS = "ticks"
 CONF_CURSOR = "cursor"
 CONF_TEXTAREA_PLACEHOLDER = "textarea_placeholder"
 
-LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(12, 50, 2))) + [
+LV_FONTS = list(map(lambda size: f"montserrat_{size}", range(8, 50, 2))) + [
     "dejavu_16_persian_hebrew",
-    "simsun_16_cjk16",
+    "simsun_16_cjk",
     "unscii_8",
     "unscii_16",
 ]
