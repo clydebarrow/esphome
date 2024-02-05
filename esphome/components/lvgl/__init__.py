@@ -206,6 +206,8 @@ CONF_ANIMATED = "animated"
 CONF_ANIMATION = "animation"
 CONF_ANTIALIAS = "antialias"
 CONF_BACKGROUND_STYLE = "background_style"
+CONF_DISP_BG_COLOR = "disp_bg_color"
+CONF_DISP_BG_IMAGE = "disp_bg_image"
 CONF_BODY = "body"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
@@ -1731,6 +1733,11 @@ async def to_code(config):
             trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], lv_component, templ)
             await automation.build_automation(trigger, [], conf)
 
+    if bg_color := config.get(CONF_DISP_BG_COLOR):
+        init.append(f"lv_disp_set_bg_color(lv_disp, {bg_color})")
+    if bg_image := config.get(CONF_DISP_BG_IMAGE):
+        init.append(f"lv_disp_set_bg_image(lv_disp, {bg_image})")
+        # add_define("LV_COLOR_SCREEN_TRANSP", "1")
     await add_init_lambda(lv_component, init)
     for use in lv_uses:
         CORE.add_build_flag(f"-DLV_USE_{use.upper()}=1")
@@ -1839,6 +1846,8 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_THEME): cv.Schema(
                 {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES}
             ),
+            cv.Exclusive(CONF_DISP_BG_IMAGE, CONF_DISP_BG_COLOR): cv.use_id(Image_),
+            cv.Exclusive(CONF_DISP_BG_COLOR, CONF_DISP_BG_COLOR): lv_color,
         }
     )
 ).add_extra(
