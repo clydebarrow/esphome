@@ -266,6 +266,7 @@ CONF_SKIP = "skip"
 CONF_TEXT = "text"
 CONF_TITLE = "title"
 CONF_TOP_LAYER = "top_layer"
+CONF_TRANSPARENCY_KEY = "transparency_key"
 CONF_THEME = "theme"
 CONF_WIDGET = "widget"
 CONF_WIDGETS = "widgets"
@@ -1619,6 +1620,9 @@ async def to_code(config):
         add_define(
             "LV_COLOR_16_SWAP", "1" if config[CONF_BYTE_ORDER] == "big_endian" else "0"
         )
+    add_define(
+        "LV_COLOR_CHROMA_KEY", await lv_color.process(config[CONF_TRANSPARENCY_KEY])
+    )
     CORE.add_build_flag("-Isrc")
 
     cg.add_global(lvgl_ns.using)
@@ -1794,6 +1798,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_MSGBOXES): cv.ensure_list(MSGBOX_SCHEMA),
             cv.Optional(CONF_PAGE_WRAP, default=True): lv_bool,
             cv.Optional(CONF_TOP_LAYER): container_schema(CONF_OBJ),
+            cv.Optional(CONF_TRANSPARENCY_KEY, default=0x000400): lv_color,
             cv.Optional(CONF_THEME): cv.Schema(
                 {cv.Optional(w): obj_schema(w) for w in WIDGET_TYPES}
             ),

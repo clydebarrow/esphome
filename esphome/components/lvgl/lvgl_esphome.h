@@ -242,7 +242,7 @@ static lv_img_dsc_t *lv_img_from(image::Image *src) {
 
     case image::IMAGE_TYPE_RGB565:
 #if LV_COLOR_DEPTH == 16
-      img->header.cf = LV_IMG_CF_TRUE_COLOR;
+      img->header.cf = src->has_transparency() ? LV_IMG_CF_TRUE_COLOR_CHROMA_KEYED : LV_IMG_CF_TRUE_COLOR;
 #else
       img->header.cf = LV_IMG_CF_RGB565;
 #endif
