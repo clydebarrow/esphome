@@ -156,7 +156,7 @@ def lv_zoom(value):
 
 
 def lv_angle(value):
-    return cv.float_range(0.0, 360.0)(cv.angle(value))
+    return cv.float_range(0.0, 360.0)(cv.angle(value)) * 10
 
 
 @schema_extractor("one_of")

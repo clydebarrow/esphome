@@ -200,9 +200,11 @@ CONF_ACTION = "action"
 CONF_ADJUSTABLE = "adjustable"
 CONF_ALIGN = "align"
 CONF_ALIGN_TO = "align_to"
+CONF_ANGLE = "angle"
 CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_ANIMATION = "animation"
+CONF_ANTIALIAS = "antialias"
 CONF_BACKGROUND_STYLE = "background_style"
 CONF_BODY = "body"
 CONF_BUTTONS = "buttons"
@@ -238,6 +240,8 @@ CONF_LONG_MODE = "long_mode"
 CONF_MAJOR = "major"
 CONF_MSGBOXES = "msgboxes"
 CONF_OBJ = "obj"
+CONF_OFFSET_X = "offset_x"
+CONF_OFFSET_Y = "offset_y"
 CONF_ON_IDLE = "on_idle"
 CONF_ONE_CHECKED = "one_checked"
 CONF_NEXT = "next"
@@ -272,6 +276,7 @@ CONF_WIDGET = "widget"
 CONF_WIDGETS = "widgets"
 CONF_X = "x"
 CONF_Y = "y"
+CONF_ZOOM = "zoom"
 
 # list of widgets and the parts allowed
 WIDGET_TYPES = {
@@ -369,6 +374,8 @@ STYLE_PROPS = {
     "border_width": cv.positive_int,
     "clip_corner": lv_bool,
     "height": lv_size,
+    "img_recolor": lv_color,
+    "img_recolor_opa": lv_opacity,
     "line_width": cv.positive_int,
     "line_dash_width": cv.positive_int,
     "line_dash_gap": cv.positive_int,
@@ -411,7 +418,7 @@ STYLE_PROPS = {
     "max_width": pixels_or_percent,
     "min_height": pixels_or_percent,
     "min_width": pixels_or_percent,
-    "radius": cv.Any(cv.positive_int, lv_one_of(["CIRCLE"], "LV_RADIUS_")),
+    "radius": cv.Any(lv_size, lv_one_of(["CIRCLE"], "LV_RADIUS_")),
     "width": lv_size,
     "x": pixels_or_percent,
     "y": pixels_or_percent,
@@ -515,7 +522,17 @@ SLIDER_SCHEMA = BAR_SCHEMA
 
 LINE_SCHEMA = {cv.Optional(CONF_POINTS): cv_point_list}
 
-IMG_SCHEMA = {cv.Required(CONF_SRC): cv.use_id(Image_)}
+IMG_SCHEMA = {
+    cv.Required(CONF_SRC): cv.use_id(Image_),
+    cv.Optional(CONF_PIVOT_X, default="50%"): lv_size,
+    cv.Optional(CONF_PIVOT_Y, default="50%"): lv_size,
+    cv.Optional(CONF_ANGLE): lv_angle,
+    cv.Optional(CONF_ZOOM): lv_zoom,
+    cv.Optional(CONF_OFFSET_X): lv_size,
+    cv.Optional(CONF_OFFSET_Y): lv_size,
+    cv.Optional(CONF_ANTIALIAS): lv_bool,
+    cv.Optional(CONF_MODE): lv_one_of(("VIRTUAL", "REAL"), prefix="LV_IMG_SIZE_MODE_"),
+}
 
 # Schema for a single button in a btnmatrix
 BTNM_BTN_SCHEMA = cv.Schema(
@@ -1359,7 +1376,27 @@ async def msgbox_to_code(conf):
 
 
 async def img_to_code(var, img):
-    return [f"lv_img_set_src({var}, lv_img_from({img[CONF_SRC]}))"]
+    init = [f"lv_img_set_src({var}, lv_img_from({img[CONF_SRC]}))"]
+    if angle := img.get(CONF_ANGLE):
+        pivot_x = img[CONF_PIVOT_X]
+        pivot_y = img[CONF_PIVOT_Y]
+        init.extend(
+            [
+                f"lv_img_set_pivot({var}, {pivot_x}, {pivot_y})",
+                f"lv_img_set_angle({var}, {angle})",
+            ]
+        )
+    if zoom := img.get(CONF_ZOOM):
+        init.append(f"lv_img_set_zoom({var}, {zoom})")
+    if offset_x := img.get(CONF_OFFSET_X):
+        init.append(f"lv_img_set_offset_x({var}, {offset_x})")
+    if offset_y := img.get(CONF_OFFSET_Y):
+        init.append(f"lv_img_set_offset_y({var}, {offset_y})")
+    if antialias := img.get(CONF_ANTIALIAS):
+        init.append(f"lv_img_set_antialias({var}, {antialias})")
+    if mode := img.get(CONF_MODE):
+        init.append(f"lv_img_set_size_mode({var}, {mode})")
+    return init
 
 
 async def line_to_code(var, line):
