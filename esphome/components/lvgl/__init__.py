@@ -130,7 +130,12 @@ from .lv_validation import (
     lv_color_validator,
     lv_bool_validator,
 )
-from .widget import Widget
+from .widget import (
+    Widget,
+    add_temp_var,
+    lv_temp_vars,
+    MatrixButton,
+)
 from ..sensor import Sensor
 from ..text_sensor import TextSensor
 
@@ -177,17 +182,19 @@ lv_meter_indicator_t_ptr = lv_meter_indicator_t.operator("ptr")
 lv_label_t = cg.MockObjClass("LvLabelType", parents=[lv_obj_t])
 lv_dropdown_list_t = cg.MockObjClass("LvDropdownListType", parents=[lv_obj_t])
 lv_meter_t = cg.MockObjClass("LvMeterType", parents=[lv_obj_t])
-lv_slider_t = cg.MockObjClass("LvSliderType", parents=[lv_obj_t])
 lv_btn_t = cg.MockObjClass("LvBtnType", parents=[lv_obj_t])
 lv_checkbox_t = cg.MockObjClass("LvCheckboxType", parents=[lv_obj_t])
 lv_line_t = cg.MockObjClass("LvLineType", parents=[lv_obj_t])
 lv_img_t = cg.MockObjClass("LvImgType", parents=[lv_obj_t])
-lv_arc_t = cg.MockObjClass("LvArcType", parents=[lv_obj_t])
-lv_bar_t = cg.MockObjClass("LvBarType", parents=[lv_obj_t])
+lv_number_t = lvgl_ns.class_("LvPseudoNumber")
+lv_arc_t = cg.MockObjClass("LvArcType", parents=[lv_obj_t, lv_number_t])
+lv_bar_t = cg.MockObjClass("LvBarType", parents=[lv_obj_t, lv_number_t])
+lv_slider_t = cg.MockObjClass("LvSliderType", parents=[lv_obj_t, lv_number_t])
 lv_disp_t_ptr = cg.global_ns.struct("lv_disp_t").operator("ptr")
 lv_canvas_t = cg.MockObjClass("LvCanvasType", parents=[lv_obj_t])
-lv_dropdown_t = cg.MockObjClass("LvDropdownType", parents=[lv_obj_t])
-lv_roller_t = cg.MockObjClass("LvRollerType", parents=[lv_obj_t])
+lv_select_t = lvgl_ns.class_("LvPseudoSelect")
+lv_dropdown_t = cg.MockObjClass("LvDropdownType", parents=[lv_obj_t, lv_select_t])
+lv_roller_t = cg.MockObjClass("LvRollerType", parents=[lv_obj_t, lv_select_t])
 lv_led_t = cg.MockObjClass("LvLedType", parents=[lv_obj_t])
 lv_switch_t = cg.MockObjClass("LvSwitchType", parents=[lv_obj_t])
 lv_table_t = cg.MockObjClass("LvTableType", parents=[lv_obj_t])
@@ -857,21 +864,6 @@ async def add_init_lambda(lv_component, init):
     lv_temp_vars.clear()
 
 
-EVENT_LAMB = "event_lamb__"
-
-
-def set_event_cb(obj, code, *varargs):
-    init = add_temp_var("event_callback_t", EVENT_LAMB)
-    init.extend([f"{EVENT_LAMB} = [](lv_event_t *e) {{ {code} ;}} \n"])
-    for arg in varargs:
-        init.extend(
-            [
-                f"lv_obj_add_event_cb({obj}, {EVENT_LAMB}, {arg}, nullptr)",
-            ]
-        )
-    return init
-
-
 def cgen(*args):
     cg.add(cg.RawExpression("\n".join(args)))
 
@@ -899,7 +891,7 @@ def get_widget_generator(id):
             yield
 
 
-async def get_widget(id: ID):
+async def get_widget(id: ID) -> Widget:
     if obj := widget_map.get(id):
         return obj
     return await FakeAwaitable(get_widget_generator(id))
@@ -907,11 +899,12 @@ async def get_widget(id: ID):
 
 async def theme_to_code(theme):
     init = []
+    ow = Widget("obj", "obj")
     for widget, style in theme.items():
         if not isinstance(style, dict):
             continue
 
-        init.extend(await set_obj_properties("obj", style))
+        init.extend(await set_obj_properties(ow, style))
         lamb = await cg.process_lambda(
             Lambda(";\n".join([*init, ""])),
             [(lv_obj_t_ptr, "obj")],
@@ -923,16 +916,8 @@ async def theme_to_code(theme):
         cg.variable(lamb_id, lamb)
 
 
-lv_temp_vars = set()  # Temporary variables
 lv_groups = set()  # Widget group names
 lv_defines = {}  # Dict of #defines to provide as build flags
-
-
-def add_temp_var(var_type, var_name):
-    if var_name in lv_temp_vars:
-        return []
-    lv_temp_vars.add(var_name)
-    return [f"{var_type} * {var_name}"]
 
 
 def add_group(name):
@@ -977,7 +962,7 @@ def collect_parts(config):
     return parts
 
 
-async def set_obj_properties(var, config):
+async def set_obj_properties(widget: Widget, config):
     """Return a list of C++ statements to apply properties to an lv_obj_t"""
     init = []
     parts = collect_parts(config)
@@ -986,15 +971,17 @@ async def set_obj_properties(var, config):
             lv_state = f"(int)LV_STATE_{state.upper()}|(int)LV_PART_{part.upper()}"
             if styles := props.get(CONF_STYLES):
                 for style_id in styles:
-                    init.append(f"lv_obj_add_style({var}, {style_id}, {lv_state})")
+                    init.append(
+                        f"lv_obj_add_style({widget.obj}, {style_id}, {lv_state})"
+                    )
             for prop, value in {
                 k: v for k, v in props.items() if k in STYLE_PROPS
             }.items():
                 if isinstance(STYLE_PROPS[prop], LValidator):
                     value = await STYLE_PROPS[prop].process(value)
-                init.append(f"lv_obj_set_style_{prop}({var}, {value}, {lv_state})")
+                init.extend(widget.set_style(prop, value, lv_state))
     if group := add_group(config.get(CONF_GROUP)):
-        init.append(f"lv_group_add_obj({group}, {var})")
+        init.append(f"lv_group_add_obj({group}, {widget.obj})")
     flag_clr = set()
     flag_set = set()
     props = parts[CONF_MAIN][CONF_DEFAULT]
@@ -1005,17 +992,17 @@ async def set_obj_properties(var, config):
             flag_clr.add(prop)
     if flag_set:
         adds = join_enums(flag_set, "LV_OBJ_FLAG_")
-        init.append(f"lv_obj_add_flag({var}, {adds})")
+        init.extend(widget.add_flag(adds))
     if flag_clr:
         clrs = join_enums(flag_clr, "LV_OBJ_FLAG_")
-        init.append(f"lv_obj_clear_flag({var}, {clrs})")
+        init.extend(widget.clear_flag(clrs))
 
     if layout := config.get(CONF_LAYOUT):
         layout = layout.upper()
-        init.append(f"lv_obj_set_layout({var}, {layout})")
+        init.extend(widget.set_property("layout", layout, "obj"))
         if layout == "LV_LAYOUT_FLEX":
             lv_uses.add("FLEX")
-            init.append(f"lv_obj_set_flex_flow({var}, {config[CONF_FLEX_FLOW]})")
+            init.extend(widget.set_property("flex_flow", config[CONF_FLEX_FLOW], "obj"))
         if layout == "LV_LAYOUT_GRID":
             lv_uses.add("GRID")
     if states := config.get(CONF_STATE):
@@ -1031,39 +1018,39 @@ async def set_obj_properties(var, config):
                 clears.add(key)
         if adds:
             adds = join_enums(adds, "LV_STATE_")
-            init.append(f"lv_obj_add_state({var}, {adds})")
+            init.extend(widget.add_state(adds))
         if clears:
             clears = join_enums(clears, "LV_STATE_")
-            init.append(f"lv_obj_clear_state({var}, {clears})")
+            init.extend(widget.clear_state(clears))
         for key, value in lambs.items():
             lamb = await cg.process_lambda(value, [], return_type=cg.bool_)
             init.append(
                 f"""
                 if({lamb}())
-                    lv_obj_add_state({var}, LV_STATE_{key.upper()});
+                    lv_obj_add_state({widget.obj}, LV_STATE_{key.upper()});
                 else
-                    lv_obj_clear_state({var}, LV_STATE_{key.upper()});
+                    lv_obj_clear_state({widget.obj}, LV_STATE_{key.upper()});
                 """
             )
     return init
 
 
-async def checkbox_to_code(var, checkbox_conf):
+async def checkbox_to_code(var: Widget, checkbox_conf):
     """For a text object, create and set text"""
-    if value := await lv_text.process(checkbox_conf[CONF_TEXT]):
-        return [f"lv_checkbox_set_text({var}, {value})"]
+    if value := await lv_text.process(checkbox_conf.get(CONF_TEXT)):
+        return var.set_property("text", value)
     return []
 
 
-async def label_to_code(var, label_conf):
+async def label_to_code(var: Widget, label_conf):
     """For a text object, create and set text"""
     init = []
     if value := await lv_text.process(label_conf.get(CONF_TEXT)):
-        init.append(f"lv_label_set_text({var}, {value})")
+        init.extend(var.set_property("text", value))
     if mode := label_conf.get(CONF_LONG_MODE):
-        init.append(f"lv_label_set_long_mode({var}, {mode})")
+        init.extend(var.set_property("long_mode", mode))
     if (recolor := label_conf.get(CONF_RECOLOR)) is not None:
-        init.append(f"lv_label_set_recolor({var}, {recolor})")
+        init.extend(var.set_property("recolor", recolor))
     return init
 
 
@@ -1075,9 +1062,9 @@ async def page_to_code(config, pconf, index):
     """Write object creation code for an object extending lv_obj_t"""
     init = []
     var = cg.new_Pvariable(pconf[CONF_ID])
-    page = f"{var}->page"
+    page = Widget(var, "page", config, f"{var}->page")
     init.append(f"{var}->index = {index}")
-    init.append(f"{page} = lv_obj_create(nullptr)")
+    init.append(f"{page.obj} = lv_obj_create(nullptr)")
     skip = pconf[CONF_SKIP]
     init.append(f"{var}->skip = {skip}")
     # Set outer config first
@@ -1085,7 +1072,8 @@ async def page_to_code(config, pconf, index):
     init.extend(await set_obj_properties(page, pconf))
     if CONF_WIDGETS in pconf:
         for widg in pconf[CONF_WIDGETS]:
-            (_, ext_init) = await widget_to_code(widg, page)
+            w_type, w_cnfig = next(iter(widg.items()))
+            ext_init = await widget_to_code(w_cnfig, w_type, page.obj)
             init.extend(ext_init)
     return var, init
 
@@ -1098,12 +1086,12 @@ async def btn_to_code(var, btn):
     return []
 
 
-async def led_to_code(var, config):
+async def led_to_code(var: Widget, config):
     init = []
     if color := config.get(CONF_COLOR):
-        init.append(f"lv_led_set_color({var}, {color})")
+        init.extend(var.set_property("color", color))
     if brightness := await lv_float.process(config.get(CONF_BRIGHTNESS)):
-        init.append(f"lv_led_set_brightness({var}, {brightness} * 255)")
+        init.extend(var.set_property("brightness", int(brightness * 255)))
     return init
 
 
@@ -1170,7 +1158,7 @@ async def page_show_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_LED),
 )
 async def led_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = await led_to_code(obj, config)
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
@@ -1180,11 +1168,11 @@ async def roller_to_code(var, config):
     mode = config[CONF_MODE]
     if options := config.get(CONF_OPTIONS):
         text = cg.safe_exp("\n".join(options))
-        init.append(f"lv_roller_set_options({var}, {text}, {mode})")
+        init.append(f"lv_roller_set_options({var.obj}, {text}, {mode})")
     animated = config.get(CONF_ANIMATED) or "LV_ANIM_OFF"
     if selected := config.get(CONF_SELECTED_INDEX):
         value = await lv_int.process(selected)
-        init.append(f"lv_roller_set_selected({var}, {value}, {animated})")
+        init.append(f"lv_roller_set_selected({var.obj}, {value}, {animated})")
     return init
 
 
@@ -1194,27 +1182,28 @@ async def roller_to_code(var, config):
     modify_schema(CONF_ROLLER),
 )
 async def roller_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = await roller_to_code(obj, config)
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
-async def dropdown_to_code(var, config):
+async def dropdown_to_code(dropdown: Widget, config):
+    obj = dropdown.obj
     init = []
     if options := config.get(CONF_OPTIONS):
         text = cg.safe_exp("\n".join(options))
-        init.append(f"lv_dropdown_set_options({var}, {text})")
+        init.extend(dropdown.set_property("options", text))
     if symbol := config.get(CONF_SYMBOL):
-        init.append(f"lv_dropdown_set_symbol({var}, {await lv_text.process(symbol)})")
+        init.extend(dropdown.set_property("symbol", await lv_text.process(symbol)))
     if selected := config.get(CONF_SELECTED_INDEX):
         value = await lv_int.process(selected)
-        init.append(f"lv_dropdown_set_selected({var}, {value})")
+        init.extend(dropdown.set_property("selected", value))
     if dir := config.get(CONF_DIR):
-        init.append(f"lv_dropdown_set_dir({var}, {dir})")
+        init.extend(dropdown.set_property("dir", dir))
     if list := config.get(CONF_DROPDOWN_LIST):
-        s = f"{var}__list"
-        init.extend(add_temp_var("lv_obj_t", s))
-        init.append(f"{s} = lv_dropdown_get_list({var});")
+        s = Widget(dropdown, "dropdown", list, f"{dropdown.obj}__list")
+        init.extend(add_temp_var("lv_obj_t", s.obj))
+        init.append(f"{s.obj} = lv_dropdown_get_list({obj});")
         init.extend(await set_obj_properties(s, list))
     return init
 
@@ -1225,38 +1214,12 @@ async def dropdown_to_code(var, config):
     modify_schema(CONF_DROPDOWN),
 )
 async def dropdown_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = await dropdown_to_code(obj, config)
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
-# Map of lv_obj_ts to their parent compound, if one exists
-compound_map = {}
-# Map of ids to button matrices
-btnm_comp_list = {}
-
-
-def get_btn_generator(id):
-    while True:
-        try:
-            return CONF_BTN, btnm_comp_list[id]
-        except KeyError:
-            try:
-                return CONF_OBJ, CORE.variables[id]
-            except KeyError:
-                yield
-
-
-async def get_matrix_button(id: ID):
-    # Fast path, check if already registered without awaiting
-    if obj := CORE.variables.get(id):
-        return CONF_OBJ, obj
-    if obj := btnm_comp_list.get(id):
-        return CONF_BTN, obj
-    return await FakeAwaitable(get_btn_generator(id))
-
-
-async def get_button_data(config, id, btnm):
+async def get_button_data(config, id, btnm: Widget):
     """
     Process a button matrix button list
     :param config: The row list
@@ -1271,7 +1234,8 @@ async def get_button_data(config, id, btnm):
     for row in config:
         for btn in row[CONF_BUTTONS]:
             bid = btn[CONF_ID]
-            btnm_comp_list[bid] = (btnm, len(width_list), btn)
+            widget = MatrixButton(btnm, btn, len(width_list))
+            widget_map[bid] = widget
             if text := btn.get(CONF_TEXT):
                 text_list.append(f"{cg.safe_exp(text)}")
             else:
@@ -1299,28 +1263,26 @@ async def get_button_data(config, id, btnm):
     return text_id, ctrl_list, width_list, key_list
 
 
-def set_btn_data(btnm, ctrl_list, width_list):
+def set_btn_data(btnm: Widget, ctrl_list, width_list):
     init = []
     for index, ctrl in enumerate(ctrl_list):
-        init.append(f"lv_btnmatrix_set_btn_ctrl({btnm}, {index}, {ctrl})")
+        init.append(f"lv_btnmatrix_set_btn_ctrl({btnm.obj}, {index}, {ctrl})")
     for index, width in enumerate(width_list):
-        init.append(f"lv_btnmatrix_set_btn_width({btnm}, {index}, {width})")
+        init.append(f"lv_btnmatrix_set_btn_width({btnm.obj}, {index}, {width})")
     return init
 
 
-async def btnmatrix_to_code(btnm, conf):
+async def btnmatrix_to_code(btnm: Widget, conf):
     id = conf[CONF_ID]
-
     text_id, ctrl_list, width_list, key_list = await get_button_data(
         conf[CONF_ROWS], id, btnm
     )
-    init = [f"lv_btnmatrix_set_map({btnm}, {text_id})"]
+    init = [f"lv_btnmatrix_set_map({btnm.obj}, {text_id})"]
     init.extend(set_btn_data(btnm, ctrl_list, width_list))
-    init.append(f"lv_btnmatrix_set_one_checked({btnm}, {conf[CONF_ONE_CHECKED]})")
-    var = compound_map[btnm]
+    init.append(f"lv_btnmatrix_set_one_checked({btnm.obj}, {conf[CONF_ONE_CHECKED]})")
     for index, key in enumerate(key_list):
         if key != 0:
-            init.append(f"{var}->set_key({index}, {key})")
+            init.append(f"{btnm.var}->set_key({index}, {key})")
     return init
 
 
@@ -1339,7 +1301,9 @@ async def msgbox_to_code(conf):
     btnm = cg.new_variable(
         ID(f"{id.id}_btnm", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
-    text_id, ctrl_list, width_list, _ = await get_button_data((conf,), id, btnm)
+    btnm_widg = Widget(btnm, "btnmatrix")
+    widget_map[id] = btnm_widg
+    text_id, ctrl_list, width_list, _ = await get_button_data((conf,), id, btnm_widg)
     msgbox = cg.new_variable(
         ID(f"{id.id}_msgbox", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
@@ -1373,35 +1337,35 @@ async def msgbox_to_code(conf):
         s = f"{msgbox}__tobj"
         init.extend(add_temp_var("lv_obj_t", s))
         init.append(f"{s} = lv_msgbox_get_btns({msgbox})")
-        init.extend(set_btn_data(s, ctrl_list, width_list))
+        init.extend(set_btn_data(Widget(s, "obj"), ctrl_list, width_list))
     return init
 
 
-async def img_to_code(var, img):
-    init = [f"lv_img_set_src({var}, lv_img_from({img[CONF_SRC]}))"]
+async def img_to_code(var: Widget, img):
+    init = [f"lv_img_set_src({var.obj}, lv_img_from({img[CONF_SRC]}))"]
     if angle := img.get(CONF_ANGLE):
         pivot_x = img[CONF_PIVOT_X]
         pivot_y = img[CONF_PIVOT_Y]
         init.extend(
             [
-                f"lv_img_set_pivot({var}, {pivot_x}, {pivot_y})",
-                f"lv_img_set_angle({var}, {angle})",
+                f"lv_img_set_pivot({var.obj}, {pivot_x}, {pivot_y})",
+                f"lv_img_set_angle({var.obj}, {angle})",
             ]
         )
     if zoom := img.get(CONF_ZOOM):
-        init.append(f"lv_img_set_zoom({var}, {zoom})")
+        init.append(f"lv_img_set_zoom({var.obj}, {zoom})")
     if offset_x := img.get(CONF_OFFSET_X):
-        init.append(f"lv_img_set_offset_x({var}, {offset_x})")
+        init.append(f"lv_img_set_offset_x({var.obj}, {offset_x})")
     if offset_y := img.get(CONF_OFFSET_Y):
-        init.append(f"lv_img_set_offset_y({var}, {offset_y})")
+        init.append(f"lv_img_set_offset_y({var.obj}, {offset_y})")
     if antialias := img.get(CONF_ANTIALIAS):
-        init.append(f"lv_img_set_antialias({var}, {antialias})")
+        init.append(f"lv_img_set_antialias({var.obj}, {antialias})")
     if mode := img.get(CONF_MODE):
-        init.append(f"lv_img_set_size_mode({var}, {mode})")
+        init.append(f"lv_img_set_size_mode({var.obj}, {mode})")
     return init
 
 
-async def line_to_code(var, line):
+async def line_to_code(var: Widget, line):
     """For a line object, create and add the points"""
     data = line[CONF_POINTS]
     point_list = data[CONF_POINTS]
@@ -1409,19 +1373,20 @@ async def line_to_code(var, line):
         "{" + ",".join(map(lambda p: "{" + f"{p[0]}, {p[1]}" + "}", point_list)) + "}"
     )
     points = cg.static_const_array(data[CONF_ID], initialiser)
-    return [f"lv_line_set_points({var}, {points}, {len(point_list)})"]
+    return [f"lv_line_set_points({var.obj}, {points}, {len(point_list)})"]
 
 
 meter_indicators = {}
 
 
-async def meter_to_code(var, meter):
+async def meter_to_code(meter: Widget, meter_conf):
     """For a meter object, create and set parameters"""
 
+    var = meter.obj
     init = []
     s = "meter_var"
     init.extend(add_temp_var("lv_meter_scale_t", s))
-    for scale in meter.get(CONF_SCALES) or ():
+    for scale in meter_conf.get(CONF_SCALES) or ():
         rotation = 90 + (360 - scale[CONF_ANGLE_RANGE]) / 2
         if CONF_ROTATION in scale:
             rotation = scale[CONF_ROTATION]
@@ -1481,7 +1446,8 @@ async def meter_to_code(var, meter):
     return init
 
 
-async def arc_to_code(var, config):
+async def arc_to_code(arc: Widget, config):
+    var = arc.obj
     init = [
         f"lv_arc_set_range({var}, {config[CONF_MIN_VALUE]}, {config[CONF_MAX_VALUE]})",
         f"lv_arc_set_bg_angles({var}, {config[CONF_START_ANGLE]}, {config[CONF_END_ANGLE]})",
@@ -1503,7 +1469,8 @@ async def arc_to_code(var, config):
     return init
 
 
-async def bar_to_code(var, conf):
+async def bar_to_code(baah: Widget, conf):
+    var = baah.obj
     init = [
         f"lv_bar_set_range({var}, {conf[CONF_MIN_VALUE]}, {conf[CONF_MAX_VALUE]})",
         f"lv_bar_set_mode({var}, {conf[CONF_MODE]})",
@@ -1565,63 +1532,42 @@ async def touchscreens_to_code(var, config):
 async def generate_triggers(lv_component):
     init = []
     for widget in widget_map.values():
-        obj = widget.get_obj()
-        for event, conf in {
-            event: conf
-            for event, conf in widget.config.items()
-            if event in LV_EVENT_TRIGGERS
-        }.items():
-            event = LV_EVENT[event[3:].upper()]
-            conf = conf[0]
-            trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
-            await automation.build_automation(trigger, [], conf)
-            init.append(
-                f"""
-            lv_obj_add_flag({obj}, LV_OBJ_FLAG_CLICKABLE);
-            lv_obj_add_event_cb({obj}, [](lv_event_t *ev) {{
-                {trigger}->trigger();
-            }}, LV_EVENT_{event.upper()}, nullptr)
-            """
-            )
-        if on_value := widget.config.get(CONF_ON_VALUE):
-            for conf in on_value:
-                trigger = cg.new_Pvariable(
-                    conf[CONF_TRIGGER_ID],
-                )
-                await automation.build_automation(trigger, [(cg.float_, "x")], conf)
+        if widget.config:
+            obj = widget.obj
+            for event, conf in {
+                event: conf
+                for event, conf in widget.config.items()
+                if event in LV_EVENT_TRIGGERS
+            }.items():
+                event = LV_EVENT[event[3:].upper()]
+                conf = conf[0]
+                trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
+                await automation.build_automation(trigger, [], conf)
+                init.extend(widget.add_flag("LV_OBJ_FLAG_CLICKABLE"))
                 init.extend(
-                    set_event_cb(
-                        obj,
-                        f"{trigger}->trigger(lv_{widget.type}_get_value({obj}))",
-                        "LV_EVENT_VALUE_CHANGED",
-                        f"{lv_component}->get_custom_change_event()",
+                    widget.set_event_cb(
+                        f"{trigger}->trigger();", f"LV_EVENT_{event.upper()}"
                     )
                 )
-        if align_to := widget.config.get(CONF_ALIGN_TO):
-            target = widget_map[align_to[CONF_ID]].get_obj()
-            align = align_to[CONF_ALIGN]
-            x = align_to[CONF_X]
-            y = align_to[CONF_Y]
-            init.append(f"lv_obj_align_to({obj}, {target}, {align}, {x}, {y})")
-    for obj, pair in btnm_comp_list.items():
-        bconf = pair[2]
-        index = pair[1]
-        btnm = pair[0]
-        for event, conf in {
-            event: conf for event, conf in bconf.items() if event in LV_EVENT_TRIGGERS
-        }.items():
-            event = LV_EVENT[event[3:].upper()]
-            conf = conf[0]
-            trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
-            await automation.build_automation(trigger, [], conf)
-            init.append(
-                f"""
-            lv_obj_add_event_cb({btnm}, [](lv_event_t *ev) {{
-                if (lv_btnmatrix_get_selected_btn({btnm}) == {index})
-                    {trigger}->trigger();
-            }}, LV_EVENT_{event.upper()}, nullptr)
-            """
-            )
+            if on_value := widget.config.get(CONF_ON_VALUE):
+                for conf in on_value:
+                    trigger = cg.new_Pvariable(
+                        conf[CONF_TRIGGER_ID],
+                    )
+                    await automation.build_automation(trigger, [(cg.float_, "x")], conf)
+                    init.extend(
+                        widget.set_event_cb(
+                            f"{trigger}->trigger(lv_{widget.type}_get_value({obj}))",
+                            "LV_EVENT_VALUE_CHANGED",
+                            f"{lv_component}->get_custom_change_event()",
+                        )
+                    )
+            if align_to := widget.config.get(CONF_ALIGN_TO):
+                target = widget_map[align_to[CONF_ID]].obj
+                align = align_to[CONF_ALIGN]
+                x = align_to[CONF_X]
+                y = align_to[CONF_Y]
+                init.append(f"lv_obj_align_to({obj}, {target}, {align}, {x}, {y})")
 
     return init
 
@@ -1698,20 +1644,23 @@ async def to_code(config):
         styles_to_code(style_defs)
     if theme := config.get(CONF_THEME):
         await theme_to_code(theme)
+    if msgboxes := config.get(CONF_MSGBOXES):
+        for msgbox in msgboxes:
+            init.extend(await msgbox_to_code(msgbox))
+    lv_scr_act = Widget("lv_scr_act()", "obj", config)
     if top_conf := config.get(CONF_TOP_LAYER):
-        init.extend(
-            await set_obj_properties("lv_disp_get_layer_top(lv_disp)", top_conf)
-        )
+        top_layer = Widget("lv_disp_get_layer_top(lv_disp)", "obj")
+        init.extend(await set_obj_properties(top_layer, top_conf))
         if widgets := top_conf.get(CONF_WIDGETS):
             for widg in widgets:
-                (_, ext_init) = await widget_to_code(
-                    widg, "lv_disp_get_layer_top(lv_disp)"
-                )
+                w_type, w_cnfig = next(iter(widg.items()))
+                ext_init = await widget_to_code(w_cnfig, w_type, top_layer.obj)
                 init.extend(ext_init)
     if widgets := config.get(CONF_WIDGETS):
-        init.extend(await set_obj_properties("lv_scr_act()", config))
+        init.extend(await set_obj_properties(lv_scr_act, config))
         for widg in widgets:
-            (_, ext_init) = await widget_to_code(widg, "lv_scr_act()")
+            w_type, w_cnfig = next(iter(widg.items()))
+            ext_init = await widget_to_code(w_cnfig, w_type, lv_scr_act)
             init.extend(ext_init)
     if pages := config.get(CONF_PAGES):
         for index, pconf in enumerate(pages):
@@ -1719,14 +1668,10 @@ async def to_code(config):
             init.append(f"{lv_component}->add_page({pvar})")
             init.extend(pinit)
 
-    if msgboxes := config.get(CONF_MSGBOXES):
-        for msgbox in msgboxes:
-            init.extend(await msgbox_to_code(msgbox))
     init.append(f"{lv_component}->set_page_wrap({config[CONF_PAGE_WRAP]})")
     init.extend(await generate_triggers(lv_component))
     init.extend(await touchscreens_to_code(lv_component, config))
     init.extend(await rotary_encoders_to_code(lv_component, config))
-    init.extend(await set_obj_properties("lv_scr_act()", config))
     if on_idle := config.get(CONF_ON_IDLE):
         for conf in on_idle:
             templ = await cg.templatable(conf[CONF_TIMEOUT], [], cg.uint32)
@@ -1750,16 +1695,20 @@ def indicator_update_schema(base):
 
 
 async def action_to_code(action, action_id, obj, template_arg, args):
+    if isinstance(obj, MatrixButton):
+        obj = obj.var.obj
+    elif isinstance(obj, Widget):
+        obj = obj.obj
     action.insert(0, f"if ({obj} == nullptr) return")
     lamb = await cg.process_lambda(Lambda(";\n".join([*action, ""])), args)
     var = cg.new_Pvariable(action_id, template_arg, lamb)
     return var
 
 
-async def update_to_code(config, action_id, obj, init, template_arg, args):
+async def update_to_code(config, action_id, widget: Widget, init, template_arg, args):
     if config is not None:
-        init.extend(await set_obj_properties(obj, config))
-    return await action_to_code(init, action_id, obj, template_arg, args)
+        init.extend(await set_obj_properties(widget, config))
+    return await action_to_code(init, action_id, widget.obj, template_arg, args)
 
 
 CONFIG_SCHEMA = (
@@ -1857,36 +1806,35 @@ CONFIG_SCHEMA = (
 )
 
 
-async def widget_to_code(widget, parent):
+async def widget_to_code(w_cnfig, w_type, parent):
     init = []
-    (w_type, w_cnfig) = next(iter(widget.items()))
     lv_uses.add(w_type)
     id = w_cnfig[CONF_ID]
     if id.type.inherits_from(LvCompound):
         var = cg.new_Pvariable(id)
         init.append(f"{var}->set_obj(lv_{w_type}_create({parent}))")
         obj = f"{var}->obj"
-        compound_map[obj] = var
     else:
         var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
         init.append(f"{var} = lv_{w_type}_create({parent})")
         obj = var
 
+    widget = Widget(var, w_type, w_cnfig, obj)
+    widget_map[id] = widget
     if theme := theme_widget_map.get(w_type):
         init.append(f"{theme}({obj})")
-    init.extend(await set_obj_properties(obj, w_cnfig))
+    init.extend(await set_obj_properties(widget, w_cnfig))
     if widgets := w_cnfig.get(CONF_WIDGETS):
         for widg in widgets:
-            (_, ext_init) = await widget_to_code(widg, obj)
+            sub_type, sub_config = next(iter(widg.items()))
+            ext_init = await widget_to_code(sub_config, sub_type, obj)
             init.extend(ext_init)
     fun = f"{w_type}_to_code"
-    if fun in globals():
-        fun = globals()[fun]
-        init.extend(await fun(obj, w_cnfig))
+    if fun := globals().get(fun):
+        init.extend(await fun(widget, w_cnfig))
     else:
         raise cv.Invalid(f"No handler for widget {w_type}")
-    widget_map[id] = Widget(var, w_type, w_cnfig, obj)
-    return var, init
+    return init
 
 
 ACTION_SCHEMA = cv.maybe_simple_value(
@@ -1899,69 +1847,42 @@ ACTION_SCHEMA = cv.maybe_simple_value(
 
 @automation.register_action("lvgl.widget.disable", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_disable_to_code(config, action_id, template_arg, args):
-    otype, obj = await get_matrix_button(config[CONF_ID])
-    if otype == CONF_OBJ:
-        action = [f"lv_obj_add_state({obj}, LV_STATE_DISABLED)"]
-    else:
-        idx = obj[1]
-        btnm = obj[0]
-        obj = btnm
-        action = [
-            f"lv_btnmatrix_add_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
-        ]
-    return await action_to_code(action, action_id, obj, template_arg, args)
+    obj_id = config[CONF_ID]
+    widget = await get_widget(obj_id)
+    action = widget.add_state("LV_STATE_DISABLED")
+    return await action_to_code(action, action_id, widget.obj, template_arg, args)
 
 
 @automation.register_action("lvgl.widget.enable", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_enable_to_code(config, action_id, template_arg, args):
-    otype, obj = await get_matrix_button(config[CONF_ID])
-    if otype == CONF_OBJ:
-        action = [f"lv_obj_clear_state({obj}, LV_STATE_DISABLED)"]
-    else:
-        idx = obj[1]
-        btnm = obj[0]
-        obj = btnm
-        action = [
-            f"lv_btnmatrix_clear_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_DISABLED)"
-        ]
-    return await action_to_code(action, action_id, obj, template_arg, args)
+    obj_id = config[CONF_ID]
+    widget = await get_widget(obj_id)
+    action = widget.clear_state("LV_STATE_DISABLED")
+    return await action_to_code(action, action_id, widget.obj, template_arg, args)
 
 
 @automation.register_action("lvgl.widget.show", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_show_to_code(config, action_id, template_arg, args):
-    otype, obj = await get_matrix_button(config[CONF_ID])
-    if otype == CONF_OBJ:
-        action = [f"lv_obj_clear_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
-    else:
-        idx = obj[1]
-        btnm = obj[0]
-        obj = btnm
-        action = [
-            f"lv_btnmatrix_clear_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"
-        ]
-    return await action_to_code(action, action_id, obj, template_arg, args)
+    obj_id = config[CONF_ID]
+    widget = await get_widget(obj_id)
+    action = widget.clear_flag("LV_OBJ_FLAG_HIDDEN")
+    return await action_to_code(action, action_id, widget.obj, template_arg, args)
 
 
 @automation.register_action("lvgl.widget.hide", ObjUpdateAction, ACTION_SCHEMA)
 async def obj_hide_to_code(config, action_id, template_arg, args):
-    otype, obj = await get_matrix_button(config[CONF_ID])
-    if otype == CONF_OBJ:
-        action = [f"lv_obj_add_flag({obj}, LV_OBJ_FLAG_HIDDEN)"]
-    else:
-        idx = obj[1]
-        btnm = obj[0]
-        obj = btnm
-        action = [f"lv_btnmatrix_set_btn_ctrl({btnm}, {idx}, LV_BTNMATRIX_CTRL_HIDDEN)"]
-    return await action_to_code(action, action_id, obj, template_arg, args)
+    obj_id = config[CONF_ID]
+    widget = await get_widget(obj_id)
+    action = widget.add_flag("LV_OBJ_FLAG_HIDDEN")
+    return await action_to_code(action, action_id, widget.obj, template_arg, args)
 
 
 @automation.register_action(
     "lvgl.widget.update", ObjUpdateAction, modify_schema(CONF_OBJ)
 )
 async def obj_update_to_code(config, action_id, template_arg, args):
-    obj_id = config[CONF_ID]
-    widget = await get_widget(obj_id)
-    return await update_to_code(config, action_id, widget.obj, [], template_arg, args)
+    obj = await get_widget(config[CONF_ID])
+    return await update_to_code(config, action_id, obj, [], template_arg, args)
 
 
 @automation.register_action(
@@ -1970,7 +1891,7 @@ async def obj_update_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_CHECKBOX),
 )
 async def checkbox_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = await checkbox_to_code(obj, config)
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
@@ -1981,7 +1902,7 @@ async def checkbox_update_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_LABEL),
 )
 async def label_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = await label_to_code(obj, config)
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
@@ -1992,7 +1913,7 @@ async def label_update_to_code(config, action_id, template_arg, args):
     indicator_update_schema(INDICATOR_LINE_SCHEMA),
 )
 async def indicator_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     meter = meter_indicators[config[CONF_ID]]
     init = []
     start_value = await get_start_value(config)
@@ -2000,10 +1921,10 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
     selector = "start_" if end_value is not None else ""
     if start_value is not None:
         init.append(
-            f"lv_meter_set_indicator_{selector}value({meter},{obj}, {start_value})"
+            f"lv_meter_set_indicator_{selector}value({meter},{obj.obj}, {start_value})"
         )
     if end_value is not None:
-        init.append(f"lv_meter_set_indicator_end_value({meter},{obj}, {end_value})")
+        init.append(f"lv_meter_set_indicator_end_value({meter},{obj.obj}, {end_value})")
     return await update_to_code(None, action_id, obj, init, template_arg, args)
 
 
@@ -2024,24 +1945,24 @@ async def indicator_update_to_code(config, action_id, template_arg, args):
     ),
 )
 async def button_update_to_code(config, action_id, template_arg, args):
-    _, obj = await get_matrix_button(config[CONF_ID])
-    index = obj[1]
-    btnm = obj[0]
+    widget = await get_widget(config[CONF_ID])
+    assert isinstance(widget, MatrixButton)
     init = []
     if (width := config.get(CONF_WIDTH)) is not None:
-        init.append(f"lv_btnmatrix_set_btn_width({btnm}, {index}, {width})")
+        init.extend(widget.set_width(width))
     if config.get(CONF_SELECTED):
-        init.append(f"lv_btnmatrix_set_selected_btn({btnm}, {index})")
+        init.extend(widget.set_selected())
     if controls := config.get(CONF_CONTROL):
-        ctrl = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
+        adds = []
+        clrs = []
         for item in controls:
-            ctrl.extend(
-                [f"(int)LV_BTNMATRIX_CTRL_{k.upper()}" for k, v in item.items() if v]
-            )
-        controls = "|".join(ctrl)
-        init.append(f"lv_btnmatrix_set_btn_ctrl({btnm}, {index}, {controls})")
-
-    return await action_to_code(init, action_id, btnm, template_arg, args)
+            adds.extend([k for k, v in item.items() if v])
+            clrs.extend([k for k, v in item.items() if not v])
+        if adds:
+            init.extend(widget.set_ctrls(*adds))
+        if clrs:
+            init.extend(widget.clear_ctrls(*clrs))
+    return await action_to_code(init, action_id, widget.var.obj, template_arg, args)
 
 
 @automation.register_action(
@@ -2050,19 +1971,20 @@ async def button_update_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_ARC),
 )
 async def arc_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = []
     value = await lv_int.process(config.get(CONF_VALUE))
     init.append(f"lv_arc_set_value({obj}, {value})")
     return await update_to_code(config, action_id, obj, init, template_arg, args)
 
 
-async def slider_to_code(var, slider):
+async def slider_to_code(slider: Widget, config):
+    var = slider.obj
     init = [
-        f"lv_slider_set_range({var}, {slider[CONF_MIN_VALUE]}, {slider[CONF_MAX_VALUE]})",
-        f"lv_slider_set_mode({var}, {slider[CONF_MODE]})",
+        f"lv_slider_set_range({var}, {config[CONF_MIN_VALUE]}, {config[CONF_MAX_VALUE]})",
+        f"lv_slider_set_mode({var}, {config[CONF_MODE]})",
     ]
-    value = await get_start_value(slider)
+    value = await get_start_value(config)
     if value is not None:
         init.append(f"lv_slider_set_value({var}, {value}, LV_ANIM_OFF)")
     return init
@@ -2074,7 +1996,7 @@ async def slider_to_code(var, slider):
     modify_schema(CONF_SLIDER),
 )
 async def slider_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = []
     animated = config[CONF_ANIMATED]
     value = await lv_int.process(config.get(CONF_VALUE))
@@ -2088,7 +2010,7 @@ async def slider_update_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_IMG),
 )
 async def img_update_to_code(config, action_id, template_arg, args):
-    obj = await cg.get_variable(config[CONF_ID])
+    obj = await get_widget(config[CONF_ID])
     init = []
     if src := config.get(CONF_SRC):
         init.append(f"lv_img_set_src({obj}, lv_img_from({src}))")

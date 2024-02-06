@@ -9,10 +9,10 @@ from . import (
     add_init_lambda,
     LVGL_SCHEMA,
     CONF_LVGL_ID,
-    get_matrix_button,
     lv_pseudo_button_t,
-    CONF_BTN,
     CONF_WIDGET,
+    get_widget,
+    Widget,
 )
 from .lv_validation import requires_component
 
@@ -30,23 +30,13 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     sensor = await new_binary_sensor(config)
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    type, obj = await get_matrix_button(config[CONF_WIDGET])
-    if type == CONF_BTN:
-        # map the button ID to the button matrix and an index
-        idx = obj[1]
-        obj = obj[0]
-        test = f"if (lv_btnmatrix_get_selected_btn({obj}) == {idx})"
-    else:
-        test = ""
-    await add_init_lambda(
-        paren,
-        [
-            f"{sensor}->publish_state((lv_obj_get_state({obj}) & LV_STATE_PRESSED) != 0)",
-            f"lv_obj_add_event_cb({obj}, [](lv_event_t *e) {{"
-            f"{test} {sensor}->publish_state(true);"
-            "}, LV_EVENT_PRESSING, nullptr)",
-            f"lv_obj_add_event_cb({obj}, [](lv_event_t *e) {{"
-            f"{test} {sensor}->publish_state(false);"
-            "}, LV_EVENT_RELEASED, nullptr)",
-        ],
+    widget = await get_widget(config[CONF_WIDGET])
+    assert isinstance(widget, Widget)
+    init = [f"{sensor}->publish_state({widget.is_pressed()})"]
+    init.extend(
+        widget.set_event_cb(f"{sensor}->publish_state(true);", "LV_EVENT_PRESSING")
     )
+    init.extend(
+        widget.set_event_cb(f"{sensor}->publish_state(false);", "LV_EVENT_RELEASED")
+    )
+    await add_init_lambda(paren, init)

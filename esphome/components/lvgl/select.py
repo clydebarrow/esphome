@@ -3,18 +3,16 @@ import esphome.config_validation as cv
 from esphome.components import select
 from esphome.const import (
     CONF_ID,
-    CONF_VALUE,
 )
 from . import (
     lvgl_ns,
     LVGL_SCHEMA,
     CONF_LVGL_ID,
     add_init_lambda,
-    set_event_cb,
     CONF_DROPDOWN,
-    lv_dropdown_t,
-    lv_roller_t,
-    CONF_ROLLER,
+    CONF_WIDGET,
+    get_widget,
+    lv_select_t,
 )
 from .lv_validation import requires_component
 
@@ -25,8 +23,7 @@ CONFIG_SCHEMA = cv.All(
     .extend(LVGL_SCHEMA)
     .extend(
         {
-            cv.Exclusive(CONF_DROPDOWN, CONF_VALUE): cv.use_id(lv_dropdown_t),
-            cv.Exclusive(CONF_ROLLER, CONF_VALUE): cv.use_id(lv_roller_t),
+            cv.Required(CONF_WIDGET): cv.use_id(lv_select_t),
         }
     ),
     requires_component("select"),
@@ -38,27 +35,23 @@ async def to_code(config):
     await select.register_select(var, config, options=[])
     paren = await cg.get_variable(config[CONF_LVGL_ID])
     init = []
-    if obj := config.get(CONF_DROPDOWN):
+    widget = await get_widget(config[CONF_WIDGET])
+    if widget.type == CONF_DROPDOWN:
         animated = ""
-        obj = await cg.get_variable(obj)
-        otype = "dropdown"
     else:
         animated = ", LV_ANIM_OFF"
-        otype = "roller"
-        obj = await cg.get_variable(config[CONF_ROLLER])
-    publish = f"{var}->publish_index(lv_{otype}_get_selected({obj}))"
+    publish = f"{var}->publish_index(lv_{widget.type}_get_selected({widget.obj}))"
     init.extend(
-        set_event_cb(
-            obj,
+        widget.set_event_cb(
             publish,
             "LV_EVENT_VALUE_CHANGED",
         )
     )
     init.extend(
         [
-            f"""{var}->set_options(lv_{otype}_get_options({obj}));
+            f"""{var}->set_options(lv_{widget.type}_get_options({widget.obj}));
             {var}->set_control_lambda([] (size_t v) {{
-                lv_{otype}_set_selected({obj}, v {animated});
+                lv_{widget.type}_set_selected({widget.obj}, v {animated});
                {publish};
             }})""",
             publish,

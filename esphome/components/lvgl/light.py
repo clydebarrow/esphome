@@ -13,6 +13,7 @@ from . import (
     CONF_LVGL_ID,
     lv_led_t,
     lvgl_ns,
+    get_widget,
 )
 
 from .lv_validation import requires_component
@@ -34,13 +35,13 @@ async def to_code(config):
     var = cg.new_Pvariable(config[CONF_OUTPUT_ID])
     await light.register_light(var, config)
     paren = await cg.get_variable(config[CONF_LVGL_ID])
-    obj = await cg.get_variable(config[CONF_LED])
+    widget = await get_widget(config[CONF_LED])
     await add_init_lambda(
         paren,
         [
             f"""{var}->set_control_lambda([] (lv_color_t v) {{
-                lv_led_set_color({obj}, v);
-                lv_led_on({obj});
+                lv_led_set_color({widget.obj}, v);
+                lv_led_on({widget.obj});
             }})"""
         ],
     )

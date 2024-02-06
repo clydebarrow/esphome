@@ -84,7 +84,7 @@ def lv_bool_validator(value):
 
 
 def lv_prefix(value, choices, prefix):
-    if value.startswith(prefix):
+    if isinstance(value, str) and value.startswith(prefix):
         return cv.one_of(*list(map(lambda v: prefix + v, choices)), upper=True)(value)
     return prefix + cv.one_of(*choices, upper=True)(value)
 
