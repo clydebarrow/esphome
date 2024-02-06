@@ -1972,11 +1972,11 @@ async def button_update_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_ARC),
 )
 async def arc_update_to_code(config, action_id, template_arg, args):
-    obj = await get_widget(config[CONF_ID])
+    widget = await get_widget(config[CONF_ID])
     init = []
     value = await lv_int.process(config.get(CONF_VALUE))
-    init.append(f"lv_arc_set_value({obj}, {value})")
-    return await update_to_code(config, action_id, obj, init, template_arg, args)
+    init.append(f"lv_arc_set_value({widget.obj}, {value})")
+    return await update_to_code(config, action_id, widget, init, template_arg, args)
 
 
 async def slider_to_code(slider: Widget, config):
@@ -1997,12 +1997,12 @@ async def slider_to_code(slider: Widget, config):
     modify_schema(CONF_SLIDER),
 )
 async def slider_update_to_code(config, action_id, template_arg, args):
-    obj = await get_widget(config[CONF_ID])
+    widget = await get_widget(config[CONF_ID])
     init = []
     animated = config[CONF_ANIMATED]
     value = await lv_int.process(config.get(CONF_VALUE))
-    init.append(f"lv_slider_set_value({obj}, {value}, {animated})")
-    return await update_to_code(config, action_id, obj, init, template_arg, args)
+    init.append(f"lv_slider_set_value({widget.obj}, {value}, {animated})")
+    return await update_to_code(config, action_id, widget, init, template_arg, args)
 
 
 @automation.register_action(
@@ -2011,11 +2011,11 @@ async def slider_update_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_IMG),
 )
 async def img_update_to_code(config, action_id, template_arg, args):
-    obj = await get_widget(config[CONF_ID])
+    widget = await get_widget(config[CONF_ID])
     init = []
     if src := config.get(CONF_SRC):
-        init.append(f"lv_img_set_src({obj}, lv_img_from({src}))")
-    return await update_to_code(config, action_id, obj, init, template_arg, args)
+        init.append(f"lv_img_set_src({widget.obj}, lv_img_from({src}))")
+    return await update_to_code(config, action_id, widget, init, template_arg, args)
 
 
 @automation.register_action(

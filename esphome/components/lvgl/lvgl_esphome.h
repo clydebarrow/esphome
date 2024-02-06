@@ -347,8 +347,10 @@ class LvglComponent : public PollingComponent {
   void set_paused(bool paused, bool show_snow) {
     this->paused_ = paused;
     this->show_snow_ = show_snow;
-    if (!paused)
+    if (!paused) {
       lv_disp_trig_activity(this->disp_);  // resets the inactivity time
+      lv_obj_invalidate(lv_scr_act());
+    }
   }
   bool is_paused() { return this->paused_; }
   void set_page_wrap(bool page_wrap) { this->page_wrap_ = page_wrap; }
