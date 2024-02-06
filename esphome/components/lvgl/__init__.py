@@ -882,14 +882,18 @@ def styles_to_code(styles):
 theme_widget_map = {}
 # Map of widgets to their config, used for trigger generation
 widget_map = {}
+widgets_completed = False  # will be set true when all widgets are available
 
 
 def get_widget_generator(id):
     while True:
-        try:
-            return widget_map[id]
-        except KeyError:
-            yield
+        if obj := widget_map.get(id):
+            return obj
+        if widgets_completed:
+            raise cv.Invalid(
+                f"Widget {id} not found, yet all widgets should be defined by now"
+            )
+        yield
 
 
 async def get_widget(id: ID) -> Widget:
@@ -1377,9 +1381,6 @@ async def line_to_code(var: Widget, line):
     return [f"lv_line_set_points({var.obj}, {points}, {len(point_list)})"]
 
 
-meter_indicators = {}
-
-
 async def meter_to_code(meter: Widget, meter_conf):
     """For a meter object, create and set parameters"""
 
@@ -1410,11 +1411,10 @@ async def meter_to_code(meter: Widget, meter_conf):
                 )
         for indicator in scale.get(CONF_INDICATORS) or ():
             (t, v) = next(iter(indicator.items()))
-            ivar = cg.new_variable(
-                v[CONF_ID], cg.nullptr, type_=lv_meter_indicator_t_ptr
-            )
+            iid = v[CONF_ID]
+            ivar = cg.new_variable(iid, cg.nullptr, type_=lv_meter_indicator_t_ptr)
             # Enable getting the meter to which this belongs.
-            meter_indicators[v[CONF_ID]] = var
+            widget_map[iid] = Widget(var, t, v, ivar)
             if t == CONF_LINE:
                 init.append(
                     f"{ivar} = lv_meter_add_needle_line({var}, {s}, {v[CONF_WIDTH]},"
@@ -1669,6 +1669,8 @@ async def to_code(config):
             init.append(f"{lv_component}->add_page({pvar})")
             init.extend(pinit)
 
+    global widgets_completed
+    widgets_completed = True
     init.append(f"{lv_component}->set_page_wrap({config[CONF_PAGE_WRAP]})")
     init.extend(await generate_triggers(lv_component))
     init.extend(await touchscreens_to_code(lv_component, config))
@@ -1914,19 +1916,20 @@ async def label_update_to_code(config, action_id, template_arg, args):
     indicator_update_schema(INDICATOR_LINE_SCHEMA),
 )
 async def indicator_update_to_code(config, action_id, template_arg, args):
-    obj = await get_widget(config[CONF_ID])
-    meter = meter_indicators[config[CONF_ID]]
+    ind = await get_widget(config[CONF_ID])
     init = []
     start_value = await get_start_value(config)
     end_value = await get_end_value(config)
     selector = "start_" if end_value is not None else ""
     if start_value is not None:
         init.append(
-            f"lv_meter_set_indicator_{selector}value({meter},{obj.obj}, {start_value})"
+            f"lv_meter_set_indicator_{selector}value({ind.var},{ind.obj}, {start_value})"
         )
     if end_value is not None:
-        init.append(f"lv_meter_set_indicator_end_value({meter},{obj.obj}, {end_value})")
-    return await update_to_code(None, action_id, obj, init, template_arg, args)
+        init.append(
+            f"lv_meter_set_indicator_end_value({ind.var},{ind.obj}, {end_value})"
+        )
+    return await update_to_code(None, action_id, ind, init, template_arg, args)
 
 
 @automation.register_action(
