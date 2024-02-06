@@ -1078,7 +1078,7 @@ async def page_to_code(config, pconf, index):
     if CONF_WIDGETS in pconf:
         for widg in pconf[CONF_WIDGETS]:
             w_type, w_cnfig = next(iter(widg.items()))
-            ext_init = await widget_to_code(w_cnfig, w_type, page.obj)
+            ext_init = await widget_to_code(w_cnfig, w_type, page)
             init.extend(ext_init)
     return var, init
 
@@ -1648,14 +1648,14 @@ async def to_code(config):
     if msgboxes := config.get(CONF_MSGBOXES):
         for msgbox in msgboxes:
             init.extend(await msgbox_to_code(msgbox))
-    lv_scr_act = Widget("lv_scr_act()", "obj", config)
+    lv_scr_act = Widget("lv_scr_act()", "obj", config, "lv_scr_act()")
     if top_conf := config.get(CONF_TOP_LAYER):
         top_layer = Widget("lv_disp_get_layer_top(lv_disp)", "obj")
         init.extend(await set_obj_properties(top_layer, top_conf))
         if widgets := top_conf.get(CONF_WIDGETS):
             for widg in widgets:
                 w_type, w_cnfig = next(iter(widg.items()))
-                ext_init = await widget_to_code(w_cnfig, w_type, top_layer.obj)
+                ext_init = await widget_to_code(w_cnfig, w_type, top_layer)
                 init.extend(ext_init)
     if widgets := config.get(CONF_WIDGETS):
         init.extend(await set_obj_properties(lv_scr_act, config))
@@ -1809,17 +1809,17 @@ CONFIG_SCHEMA = (
 )
 
 
-async def widget_to_code(w_cnfig, w_type, parent):
+async def widget_to_code(w_cnfig, w_type, parent: Widget):
     init = []
     lv_uses.add(w_type)
     id = w_cnfig[CONF_ID]
     if id.type.inherits_from(LvCompound):
         var = cg.new_Pvariable(id)
-        init.append(f"{var}->set_obj(lv_{w_type}_create({parent}))")
+        init.append(f"{var}->set_obj(lv_{w_type}_create({parent.obj}))")
         obj = f"{var}->obj"
     else:
         var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
-        init.append(f"{var} = lv_{w_type}_create({parent})")
+        init.append(f"{var} = lv_{w_type}_create({parent.obj})")
         obj = var
 
     widget = Widget(var, w_type, w_cnfig, obj)
@@ -1830,7 +1830,7 @@ async def widget_to_code(w_cnfig, w_type, parent):
     if widgets := w_cnfig.get(CONF_WIDGETS):
         for widg in widgets:
             sub_type, sub_config = next(iter(widg.items()))
-            ext_init = await widget_to_code(sub_config, sub_type, obj)
+            ext_init = await widget_to_code(sub_config, sub_type, widget)
             init.extend(ext_init)
     fun = f"{w_type}_to_code"
     if fun := globals().get(fun):
