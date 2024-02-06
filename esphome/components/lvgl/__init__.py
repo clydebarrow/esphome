@@ -228,6 +228,7 @@ CONF_DEFAULT = "default"
 CONF_DEFAULT_FONT = "default_font"
 CONF_DIR = "dir"
 CONF_DISPLAY_ID = "display_id"
+CONF_SHOW_SNOW = "show_snow"
 CONF_DISPLAYS = "displays"
 CONF_END_ANGLE = "end_angle"
 CONF_END_VALUE = "end_value"
@@ -2046,13 +2047,15 @@ async def obj_invalidate_to_code(config, action_id, template_arg, args):
     LvglAction,
     {
         cv.GenerateID(): cv.use_id(LvglComponent),
+        cv.Optional(CONF_SHOW_SNOW, default="false"): lv_bool,
     },
 )
 async def pause_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     lamb = await cg.process_lambda(
-        Lambda("lvgl_comp->set_paused(true);"), [(LvglComponentPtr, "lvgl_comp")]
+        Lambda(f"lvgl_comp->set_paused(true, {config[CONF_SHOW_SNOW]});"),
+        [(LvglComponentPtr, "lvgl_comp")],
     )
     cg.add(var.set_action(lamb))
     return var
@@ -2069,7 +2072,8 @@ async def resume_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
     lamb = await cg.process_lambda(
-        Lambda("lvgl_comp->set_paused(false);"), [(LvglComponentPtr, "lvgl_comp")]
+        Lambda("lvgl_comp->set_paused(false, false);"),
+        [(LvglComponentPtr, "lvgl_comp")],
     )
     cg.add(var.set_action(lamb))
     return var

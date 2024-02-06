@@ -109,7 +109,7 @@ void ILI9XXXDisplay::dump_config() {
 float ILI9XXXDisplay::get_setup_priority() const { return setup_priority::HARDWARE; }
 
 void ILI9XXXDisplay::fill(Color color) {
-  if (!this->check_buffer())
+  if (!this->check_buffer_())
     return;
   uint16_t new_color = 0;
   this->x_low_ = 0;
@@ -147,7 +147,7 @@ void HOT ILI9XXXDisplay::draw_absolute_pixel_internal(int x, int y, Color color)
   if (x >= this->get_width_internal() || x < 0 || y >= this->get_height_internal() || y < 0) {
     return;
   }
-  if (!this->check_buffer())
+  if (!this->check_buffer_())
     return;
   uint32_t pos = (y * width_) + x;
   uint16_t new_color;

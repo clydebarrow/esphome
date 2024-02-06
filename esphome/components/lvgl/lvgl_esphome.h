@@ -320,14 +320,18 @@ class LvglComponent : public PollingComponent {
 
   void update() override {
     // update indicators
-    if (this->paused_)
+    if (this->paused_) {
       return;
+    }
     this->idle_callbacks_.call(lv_disp_get_inactive_time(this->disp_));
   }
 
   void loop() override {
-    if (this->paused_)
+    if (this->paused_) {
+      if (this->show_snow_)
+        this->write_random();
       return;
+    }
     lv_timer_handler_run_in_period(5);
   }
 
@@ -340,8 +344,9 @@ class LvglComponent : public PollingComponent {
   void dump_config() override { esph_log_config(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
   void set_full_refresh(bool full_refresh) { this->full_refresh_ = full_refresh; }
-  void set_paused(bool paused) {
+  void set_paused(bool paused, bool show_snow) {
     this->paused_ = paused;
+    this->show_snow_ = show_snow;
     if (!paused)
       lv_disp_trig_activity(this->disp_);  // resets the inactivity time
   }
@@ -380,6 +385,23 @@ class LvglComponent : public PollingComponent {
   }
 
  protected:
+  void write_random() {
+    // line length in 32 bit units
+    size_t line_len = this->disp_drv_.hor_res * LV_COLOR_DEPTH / 8 / 4;
+    for (size_t i = 0; i != line_len; i++) {
+      ((uint32_t *) (this->draw_buf_.buf1))[i] = random_uint32();
+    }
+    lv_area_t area;
+    area.x1 = 0;
+    area.x2 = this->disp_drv_.hor_res - 1;
+    if (this->show_snow_ == this->disp_drv_.ver_res)
+      area.y1 = random_uint32() % this->disp_drv_.ver_res;
+    else
+      area.y1 = this->show_snow_++ % this->disp_drv_.ver_res;
+    area.y2 = area.y1;
+    flush_cb_(&this->disp_drv_, &area, (lv_color_t *) this->draw_buf_.buf1);
+  }
+
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
     for (auto display : this->displays_) {
@@ -404,6 +426,7 @@ class LvglComponent : public PollingComponent {
   size_t page_index_{0};
   size_t buffer_frac_{1};
   bool paused_{};
+  uint32_t show_snow_{};
   bool full_refresh_{};
 };
 

@@ -90,7 +90,7 @@ class ILI9XXXDisplay : public display::DisplayBuffer,
                       display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) override;
 
  protected:
-  inline bool check_buffer() {
+  inline bool check_buffer_() {
     if (this->buffer_ == nullptr) {
       this->alloc_buffer_();
       return !this->is_failed();
