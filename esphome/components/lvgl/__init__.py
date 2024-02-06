@@ -1391,7 +1391,7 @@ async def meter_to_code(meter: Widget, meter_conf):
     for scale in meter_conf.get(CONF_SCALES) or ():
         rotation = 90 + (360 - scale[CONF_ANGLE_RANGE]) / 2
         if CONF_ROTATION in scale:
-            rotation = scale[CONF_ROTATION]
+            rotation = scale[CONF_ROTATION] // 10
         init.append(f"{s} = lv_meter_add_scale({var})")
         init.append(
             f"lv_meter_set_scale_range({var}, {s}, {scale[CONF_RANGE_FROM]},"
@@ -1451,8 +1451,8 @@ async def arc_to_code(arc: Widget, config):
     var = arc.obj
     init = [
         f"lv_arc_set_range({var}, {config[CONF_MIN_VALUE]}, {config[CONF_MAX_VALUE]})",
-        f"lv_arc_set_bg_angles({var}, {config[CONF_START_ANGLE]}, {config[CONF_END_ANGLE]})",
-        f"lv_arc_set_rotation({var}, {config[CONF_ROTATION]})",
+        f"lv_arc_set_bg_angles({var}, {config[CONF_START_ANGLE] // 10}, {config[CONF_END_ANGLE] // 10})",
+        f"lv_arc_set_rotation({var}, {config[CONF_ROTATION] // 10})",
         f"lv_arc_set_mode({var}, {config[CONF_MODE]})",
         f"lv_arc_set_change_rate({var}, {config[CONF_CHANGE_RATE]})",
     ]
