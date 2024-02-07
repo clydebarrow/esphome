@@ -156,6 +156,11 @@ def lv_zoom(value):
 
 
 def lv_angle(value):
+    """
+    Validation for an angle in degrees, converted to an integer representing 0.1deg units
+    :param value: The input in the range 0..360
+    :return: An angle in 1/10 degree units.
+    """
     return int(cv.float_range(0.0, 360.0)(cv.angle(value)) * 10)
 
 

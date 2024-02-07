@@ -101,6 +101,7 @@ from .defines import (
     LV_EVENT_TRIGGERS,
     LV_LONG_MODES,
     LV_EVENT,
+    CONF_SPINNER,
 )
 
 from .lv_validation import (
@@ -202,6 +203,7 @@ lv_textarea_t = cg.MockObjClass("LvTextareaType", parents=[lv_obj_t])
 lv_btnmatrix_t = cg.MockObjClass(
     "LvBtnmatrixType", parents=[lv_obj_t, KeyProvider, LvCompound]
 )
+lv_spinner_t = lv_obj_t
 
 CONF_ACTION = "action"
 CONF_ADJUSTABLE = "adjustable"
@@ -212,6 +214,7 @@ CONF_ANGLE_RANGE = "angle_range"
 CONF_ANIMATED = "animated"
 CONF_ANIMATION = "animation"
 CONF_ANTIALIAS = "antialias"
+CONF_ARC_LENGTH = "arc_length"
 CONF_BACKGROUND_STYLE = "background_style"
 CONF_DISP_BG_COLOR = "disp_bg_color"
 CONF_DISP_BG_IMAGE = "disp_bg_image"
@@ -265,6 +268,7 @@ CONF_R_MOD = "r_mod"
 CONF_RECOLOR = "recolor"
 CONF_SCALES = "scales"
 CONF_SCALE_LINES = "scale_lines"
+CONF_SPIN_TIME = "spin_time"
 CONF_SRC = "src"
 CONF_START_ANGLE = "start_angle"
 CONF_START_VALUE = "start_value"
@@ -308,6 +312,7 @@ WIDGET_TYPES = {
     # CONF_PAGE: (CONF_MAIN,),
     CONF_ROLLER: (CONF_MAIN, CONF_SELECTED),
     CONF_SLIDER: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
+    CONF_SPINNER: (CONF_MAIN, CONF_INDICATOR),
     CONF_SWITCH: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
     CONF_TABLE: (CONF_MAIN, CONF_ITEMS),
     CONF_TEXTAREA: (
@@ -588,6 +593,13 @@ ARC_SCHEMA = cv.Schema(
                 )
             }
         ),
+    }
+)
+
+SPINNER_SCHEMA = cv.Schema(
+    {
+        cv.Required(CONF_ARC_LENGTH): lv_angle,
+        cv.Required(CONF_SPIN_TIME): cv.positive_time_period_milliseconds,
     }
 )
 
@@ -1118,7 +1130,7 @@ SHOW_SCHEMA = LVGL_SCHEMA.extend(
 async def page_next_to_code(config, action_id, template_arg, args):
     lv_comp = await cg.get_variable(config[CONF_LVGL_ID])
     animation = config[CONF_ANIMATION]
-    time = config[CONF_TIME].milliseconds
+    time = config[CONF_TIME].total_milliseconds
     init = [f"{lv_comp}->show_next_page(false, {animation}, {time})"]
     return await action_to_code(init, action_id, lv_comp, template_arg, args)
 
@@ -1131,7 +1143,7 @@ async def page_next_to_code(config, action_id, template_arg, args):
 async def page_previous_to_code(config, action_id, template_arg, args):
     lv_comp = await cg.get_variable(config[CONF_LVGL_ID])
     animation = config[CONF_ANIMATION]
-    time = config[CONF_TIME].milliseconds
+    time = config[CONF_TIME].total_milliseconds
     init = [f"{lv_comp}->show_next_page(true, {animation}, {time})"]
     return await action_to_code(init, action_id, lv_comp, template_arg, args)
 
@@ -1152,7 +1164,7 @@ async def page_show_to_code(config, action_id, template_arg, args):
     obj = await cg.get_variable(config[CONF_ID])
     lv_comp = await cg.get_variable(config[CONF_LVGL_ID])
     animation = config[CONF_ANIMATION]
-    time = config[CONF_TIME].milliseconds
+    time = config[CONF_TIME].total_milliseconds
     init = [f"{lv_comp}->show_page({obj}->index, {animation}, {time})"]
     return await action_to_code(init, action_id, obj, template_arg, args)
 
@@ -1447,6 +1459,10 @@ async def meter_to_code(meter: Widget, meter_conf):
     return init
 
 
+async def spinner_to_code(spinner: Widget, config):
+    return []
+
+
 async def arc_to_code(arc: Widget, config):
     var = arc.obj
     init = [
@@ -1489,8 +1505,8 @@ async def rotary_encoders_to_code(var, config):
     lv_uses.add("ROTARY_ENCODER")
     for enc_conf in config[CONF_ROTARY_ENCODERS]:
         sensor = await cg.get_variable(enc_conf[CONF_SENSOR])
-        lpt = enc_conf[CONF_LONG_PRESS_TIME].milliseconds
-        lprt = enc_conf[CONF_LONG_PRESS_REPEAT_TIME].milliseconds
+        lpt = enc_conf[CONF_LONG_PRESS_TIME].total_milliseconds
+        lprt = enc_conf[CONF_LONG_PRESS_REPEAT_TIME].total_milliseconds
         listener = cg.new_Pvariable(enc_conf[CONF_ID], lpt, lprt)
         await cg.register_parented(listener, var)
         if group := add_group(enc_conf.get(CONF_GROUP)):
@@ -1517,8 +1533,8 @@ async def touchscreens_to_code(var, config):
     lv_uses.add("TOUCHSCREEN")
     for touchconf in config[CONF_TOUCHSCREENS]:
         touchscreen = await cg.get_variable(touchconf[CONF_TOUCHSCREEN_ID])
-        lpt = touchconf[CONF_LONG_PRESS_TIME].milliseconds
-        lprt = touchconf[CONF_LONG_PRESS_REPEAT_TIME].milliseconds
+        lpt = touchconf[CONF_LONG_PRESS_TIME].total_milliseconds
+        lprt = touchconf[CONF_LONG_PRESS_REPEAT_TIME].total_milliseconds
         listener = cg.new_Pvariable(touchconf[CONF_ID], lpt, lprt)
         await cg.register_parented(listener, var)
         init.extend(
@@ -1809,17 +1825,26 @@ CONFIG_SCHEMA = (
 )
 
 
+def spinner_obj_creator(parent: Widget, config: dict):
+    return f"lv_spinner_create({parent.obj}, {config[CONF_SPIN_TIME].total_milliseconds}, {config[CONF_ARC_LENGTH] // 10})"
+
+
 async def widget_to_code(w_cnfig, w_type, parent: Widget):
     init = []
+    creator = f"{w_type}_obj_creator"
+    if creator := globals().get(creator):
+        creator = creator(parent, w_cnfig)
+    else:
+        creator = f"lv_{w_type}_create({parent.obj})"
     lv_uses.add(w_type)
     id = w_cnfig[CONF_ID]
     if id.type.inherits_from(LvCompound):
         var = cg.new_Pvariable(id)
-        init.append(f"{var}->set_obj(lv_{w_type}_create({parent.obj}))")
+        init.append(f"{var}->set_obj({creator})")
         obj = f"{var}->obj"
     else:
         var = cg.Pvariable(w_cnfig[CONF_ID], cg.nullptr, type_=lv_obj_t)
-        init.append(f"{var} = lv_{w_type}_create({parent.obj})")
+        init.append(f"{var} = {creator}")
         obj = var
 
     widget = Widget(var, w_type, w_cnfig, obj)
