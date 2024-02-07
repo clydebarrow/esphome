@@ -575,6 +575,8 @@ BTNMATRIX_SCHEMA = cv.Schema(
     }
 )
 
+BTNMATRIX_MODIFY_SCHEMA = cv.Schema({})
+
 ARC_SCHEMA = cv.Schema(
     {
         cv.Optional(CONF_VALUE): lv_float,
@@ -2008,6 +2010,17 @@ async def button_update_to_code(config, action_id, template_arg, args):
     modify_schema(CONF_SPINNER),
 )
 async def spinner_update_to_code(config, action_id, template_arg, args):
+    widget = await get_widget(config[CONF_ID])
+    init = []
+    return await update_to_code(config, action_id, widget, init, template_arg, args)
+
+
+@automation.register_action(
+    "lvgl.btnmatrix.update",
+    ObjUpdateAction,
+    modify_schema(CONF_BTNMATRIX),
+)
+async def btnmatrix_update_to_code(config, action_id, template_arg, args):
     widget = await get_widget(config[CONF_ID])
     init = []
     return await update_to_code(config, action_id, widget, init, template_arg, args)
