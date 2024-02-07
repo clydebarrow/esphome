@@ -596,12 +596,20 @@ ARC_SCHEMA = cv.Schema(
     }
 )
 
+ARC_MODIFY_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_VALUE): lv_float,
+    }
+)
+
 SPINNER_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_ARC_LENGTH): lv_angle,
         cv.Required(CONF_SPIN_TIME): cv.positive_time_period_milliseconds,
     }
 )
+
+SPINNER_MODIFY_SCHEMA = cv.Schema({})
 
 INDICATOR_LINE_SCHEMA = cv.Schema(
     {
@@ -1992,6 +2000,17 @@ async def button_update_to_code(config, action_id, template_arg, args):
         if clrs:
             init.extend(widget.clear_ctrls(*clrs))
     return await action_to_code(init, action_id, widget.var.obj, template_arg, args)
+
+
+@automation.register_action(
+    "lvgl.spinner.update",
+    ObjUpdateAction,
+    modify_schema(CONF_SPINNER),
+)
+async def spinner_update_to_code(config, action_id, template_arg, args):
+    widget = await get_widget(config[CONF_ID])
+    init = []
+    return await update_to_code(config, action_id, widget, init, template_arg, args)
 
 
 @automation.register_action(
