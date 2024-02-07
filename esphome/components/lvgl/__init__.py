@@ -1700,7 +1700,7 @@ async def to_code(config):
     if bg_color := config.get(CONF_DISP_BG_COLOR):
         init.append(f"lv_disp_set_bg_color(lv_disp, {bg_color})")
     if bg_image := config.get(CONF_DISP_BG_IMAGE):
-        init.append(f"lv_disp_set_bg_image(lv_disp, {bg_image})")
+        init.append(f"lv_disp_set_bg_image(lv_disp, lv_img_from({bg_image}))")
         # add_define("LV_COLOR_SCREEN_TRANSP", "1")
     await add_init_lambda(lv_component, init)
     for use in lv_uses:
