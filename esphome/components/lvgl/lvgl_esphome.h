@@ -347,6 +347,7 @@ class LvglComponent : public PollingComponent {
   void set_paused(bool paused, bool show_snow) {
     this->paused_ = paused;
     this->show_snow_ = show_snow;
+    this->snow_line_ = 0;
     if (!paused) {
       lv_disp_trig_activity(this->disp_);  // resets the inactivity time
       lv_obj_invalidate(lv_scr_act());
@@ -388,28 +389,35 @@ class LvglComponent : public PollingComponent {
 
  protected:
   void write_random() {
-    // line length in 32 bit units
-    size_t line_len = this->disp_drv_.hor_res * LV_COLOR_DEPTH / 8 / 4;
+    // length of 2 lines in 32 bit units
+    // we write 2 lines for the benefit of displays that won't write one line at a time.
+    size_t line_len = this->disp_drv_.hor_res * LV_COLOR_DEPTH / 8 / 4 * 2;
     for (size_t i = 0; i != line_len; i++) {
       ((uint32_t *) (this->draw_buf_.buf1))[i] = random_uint32();
     }
     lv_area_t area;
     area.x1 = 0;
     area.x2 = this->disp_drv_.hor_res - 1;
-    if (this->show_snow_ == this->disp_drv_.ver_res)
-      area.y1 = random_uint32() % this->disp_drv_.ver_res;
-    else
-      area.y1 = this->show_snow_++ % this->disp_drv_.ver_res;
-    area.y2 = area.y1;
-    flush_cb_(&this->disp_drv_, &area, (lv_color_t *) this->draw_buf_.buf1);
+    if (this->snow_line_ == this->disp_drv_.ver_res / 2) {
+      area.y1 = random_uint32() % (this->disp_drv_.ver_res / 2) * 2;
+    } else {
+      area.y1 = this->snow_line_++ * 2;
+    }
+    // write 2 lines
+    area.y2 = area.y1 + 1;
+    this->draw_buffer_(&area, (const uint8_t *) this->draw_buf_.buf1);
+  }
+
+  void draw_buffer_(const lv_area_t *area, const uint8_t *ptr) {
+    for (auto display : this->displays_) {
+      display->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area), ptr,
+                              display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
+    }
   }
 
   void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
     auto now = millis();
-    for (auto display : this->displays_) {
-      display->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area),
-                              (const uint8_t *) color_p, display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
-    }
+    this->draw_buffer_(area, (const uint8_t *) color_p);
     lv_disp_flush_ready(disp_drv);
     esph_log_v(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
                lv_area_get_height(area), (int) (millis() - now));
@@ -428,7 +436,8 @@ class LvglComponent : public PollingComponent {
   size_t page_index_{0};
   size_t buffer_frac_{1};
   bool paused_{};
-  uint32_t show_snow_{};
+  bool show_snow_{};
+  uint32_t snow_line_{};
   bool full_refresh_{};
 };
 
