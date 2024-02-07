@@ -1,10 +1,11 @@
+import esphome.codegen as cg
 from . import BTNMATRIX_CTRLS
 
 EVENT_LAMB = "event_lamb__"
 
 
 class Widget:
-    def __init__(self, var, type: str, config: dict = None, obj=None):
+    def __init__(self, var, type: cg.MockObjClass, config: dict = None, obj=None):
         self.var = var
         self.type = type
         self.config = config
@@ -39,7 +40,7 @@ class Widget:
         return [f"lv_obj_clear_flag({self.obj}, {flag})"]
 
     def set_property(self, prop, value, ltype=None):
-        ltype = ltype or self.type
+        ltype = ltype or self.type_base()
         return [f"lv_{ltype}_set_{prop}({self.obj}, {value})"]
 
     def set_style(self, prop, value, state):
@@ -56,6 +57,12 @@ class Widget:
             )
         return init
 
+    def type_base(self):
+        base = str(self.type)
+        if base.startswith("Lv"):
+            return f"{self.type}".removeprefix("Lv").removesuffix("Type").lower()
+        return f"{self.type}".removeprefix("lv_").removesuffix("_t")
+
     def __str__(self):
         return f"({self.var}, {self.type})"
 
@@ -65,8 +72,8 @@ class MatrixButton(Widget):
     Describes a button within a button matrix.
     """
 
-    def __init__(self, btnm, config, index):
-        super().__init__(btnm, "btnmatrix", config)
+    def __init__(self, btnm, type, config, index):
+        super().__init__(btnm, type, config)
         self.index = index
 
     def map_ctrls(self, ctrls):

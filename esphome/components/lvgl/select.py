@@ -36,11 +36,13 @@ async def to_code(config):
     paren = await cg.get_variable(config[CONF_LVGL_ID])
     init = []
     widget = await get_widget(config[CONF_WIDGET])
-    if widget.type == CONF_DROPDOWN:
+    if widget.type_base() == CONF_DROPDOWN:
         animated = ""
     else:
         animated = ", LV_ANIM_OFF"
-    publish = f"{var}->publish_index(lv_{widget.type}_get_selected({widget.obj}))"
+    publish = (
+        f"{var}->publish_index(lv_{widget.type_base()}_get_selected({widget.obj}))"
+    )
     init.extend(
         widget.set_event_cb(
             publish,
@@ -49,9 +51,9 @@ async def to_code(config):
     )
     init.extend(
         [
-            f"""{var}->set_options(lv_{widget.type}_get_options({widget.obj}));
+            f"""{var}->set_options(lv_{widget.type_base()}_get_options({widget.obj}));
             {var}->set_control_lambda([] (size_t v) {{
-                lv_{widget.type}_set_selected({widget.obj}, v {animated});
+                lv_{widget.type_base()}_set_selected({widget.obj}, v {animated});
                {publish};
             }})""",
             publish,

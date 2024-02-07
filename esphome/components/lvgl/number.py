@@ -44,21 +44,21 @@ async def to_code(config):
     animated = config[CONF_ANIMATED]
     paren = await cg.get_variable(config[CONF_LVGL_ID])
     widget = await get_widget(config[CONF_WIDGET])
-    if widget.type == CONF_ARC:
+    if widget.type_base() == CONF_ARC:
         animated = ""
     else:
         animated = f", {animated}"
-    publish = f"{var}->publish_state(lv_{widget.type}_get_value({widget.obj}))"
+    publish = f"{var}->publish_state(lv_{widget.type_base()}_get_value({widget.obj}))"
     init = widget.set_event_cb(publish, "LV_EVENT_VALUE_CHANGED")
     init.extend(
         [
             f"""{var}->set_control_lambda([] (float v) {{
-               lv_{widget.type}_set_value({widget.obj}, v{animated});
+               lv_{widget.type_base()}_set_value({widget.obj}, v{animated});
                lv_event_send({widget.obj}, {paren}->get_custom_change_event(), nullptr);
                {publish};
             }})""",
-            f"{var}->traits.set_max_value(lv_{widget.type}_get_max_value({widget.obj}))",
-            f"{var}->traits.set_min_value(lv_{widget.type}_get_min_value({widget.obj}))",
+            f"{var}->traits.set_max_value(lv_{widget.type_base()}_get_max_value({widget.obj}))",
+            f"{var}->traits.set_min_value(lv_{widget.type_base()}_get_min_value({widget.obj}))",
             publish,
         ]
     )

@@ -441,8 +441,12 @@ STYLE_PROPS = {
 }
 
 
+def get_widget_type(typestr: str) -> cg.MockObjClass:
+    return globals()[f"lv_{typestr}_t"]
+
+
 def modify_schema(widget_type):
-    lv_type = globals()[f"lv_{widget_type}_t"]
+    lv_type = get_widget_type(widget_type)
     schema = (
         part_schema(widget_type)
         .extend(
@@ -483,21 +487,28 @@ def cv_point_list(value):
 def part_schema(parts):
     if isinstance(parts, str) and parts in WIDGET_TYPES:
         parts = WIDGET_TYPES[parts]
+    else:
+        parts = (CONF_MAIN,)
     return cv.Schema({cv.Optional(part): STATE_SCHEMA for part in parts}).extend(
         STATE_SCHEMA
     )
 
 
-AUTOMATION_SCHEMA = {
-    cv.Optional(event): automation.validate_automation(
-        {
-            cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(
-                automation.Trigger.template()
-            ),
-        }
+def automation_schema(type: cg.MockObjClass = lv_obj_t):
+    template = (
+        automation.Trigger.template(cg.float_)
+        if type.inherits_from(lv_number_t)
+        else automation.Trigger.template()
     )
-    for event in LV_EVENT_TRIGGERS
-}
+    return {
+        cv.Optional(event): automation.validate_automation(
+            {
+                cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(template),
+            }
+        )
+        for event in LV_EVENT_TRIGGERS
+    }
+
 
 TEXT_SCHEMA = cv.Schema(
     {
@@ -564,7 +575,7 @@ BTNM_BTN_SCHEMA = cv.Schema(
             cv.Schema({cv.Optional(k.lower()): cv.boolean for k in BTNMATRIX_CTRLS})
         ),
     }
-).extend(AUTOMATION_SCHEMA)
+).extend(automation_schema())
 
 BTNMATRIX_SCHEMA = cv.Schema(
     {
@@ -804,11 +815,11 @@ ALIGN_TO_SCHEMA = {
 }
 
 
-def obj_schema(parts=(CONF_MAIN,)):
+def obj_schema(wtype: str):
     return (
-        part_schema(parts)
+        part_schema(wtype)
         .extend(FLAG_SCHEMA)
-        .extend(AUTOMATION_SCHEMA)
+        .extend(automation_schema(get_widget_type(wtype)))
         .extend(ALIGN_TO_SCHEMA)
         .extend(get_layout())
         .extend(
@@ -823,7 +834,7 @@ def obj_schema(parts=(CONF_MAIN,)):
 
 
 def container_schema(widget_type):
-    lv_type = globals()[f"lv_{widget_type}_t"]
+    lv_type = get_widget_type(widget_type)
     schema = obj_schema(widget_type)
     if extras := globals().get(f"{widget_type.upper()}_SCHEMA"):
         schema = schema.extend(extras).add_extra(validate_max_min)
@@ -934,7 +945,7 @@ async def theme_to_code(theme):
             continue
 
         init = []
-        ow = Widget("obj", widget)
+        ow = Widget("obj", get_widget_type(widget))
         init.extend(await set_obj_properties(ow, style))
         lamb = await cg.process_lambda(
             Lambda(";\n".join([*init, ""])),
@@ -1095,7 +1106,7 @@ async def page_to_code(config, pconf, index):
     """Write object creation code for an object extending lv_obj_t"""
     init = []
     var = cg.new_Pvariable(pconf[CONF_ID])
-    page = Widget(var, "page", config, f"{var}->page")
+    page = Widget(var, lv_page_t, config, f"{var}->page")
     init.append(f"{var}->index = {index}")
     init.append(f"{page.obj} = lv_obj_create(nullptr)")
     skip = pconf[CONF_SKIP]
@@ -1234,7 +1245,7 @@ async def dropdown_to_code(dropdown: Widget, config):
     if dir := config.get(CONF_DIR):
         init.extend(dropdown.set_property("dir", dir))
     if list := config.get(CONF_DROPDOWN_LIST):
-        s = Widget(dropdown, "dropdown", list, f"{dropdown.obj}__list")
+        s = Widget(dropdown, lv_dropdown_list_t, list, f"{dropdown.obj}__list")
         init.extend(add_temp_var("lv_obj_t", s.obj))
         init.append(f"{s.obj} = lv_dropdown_get_list({obj});")
         init.extend(await set_obj_properties(s, list))
@@ -1267,7 +1278,7 @@ async def get_button_data(config, id, btnm: Widget):
     for row in config:
         for btn in row[CONF_BUTTONS]:
             bid = btn[CONF_ID]
-            widget = MatrixButton(btnm, btn, len(width_list))
+            widget = MatrixButton(btnm, lv_btnmatrix_t, btn, len(width_list))
             widget_map[bid] = widget
             if text := btn.get(CONF_TEXT):
                 text_list.append(f"{cg.safe_exp(text)}")
@@ -1334,7 +1345,7 @@ async def msgbox_to_code(conf):
     btnm = cg.new_variable(
         ID(f"{id.id}_btnm", is_declaration=True, type=lv_obj_t_ptr), cg.nullptr
     )
-    btnm_widg = Widget(btnm, "btnmatrix")
+    btnm_widg = Widget(btnm, lv_btnmatrix_t)
     widget_map[id] = btnm_widg
     text_id, ctrl_list, width_list, _ = await get_button_data((conf,), id, btnm_widg)
     msgbox = cg.new_variable(
@@ -1370,7 +1381,7 @@ async def msgbox_to_code(conf):
         s = f"{msgbox}__tobj"
         init.extend(add_temp_var("lv_obj_t", s))
         init.append(f"{s} = lv_msgbox_get_btns({msgbox})")
-        init.extend(set_btn_data(Widget(s, "obj"), ctrl_list, width_list))
+        init.extend(set_btn_data(Widget(s, lv_obj_t), ctrl_list, width_list))
     return init
 
 
@@ -1442,7 +1453,7 @@ async def meter_to_code(meter: Widget, meter_conf):
             iid = v[CONF_ID]
             ivar = cg.new_variable(iid, cg.nullptr, type_=lv_meter_indicator_t_ptr)
             # Enable getting the meter to which this belongs.
-            widget_map[iid] = Widget(var, t, v, ivar)
+            widget_map[iid] = Widget(var, get_widget_type(t), v, ivar)
             if t == CONF_LINE:
                 init.append(
                     f"{ivar} = lv_meter_add_needle_line({var}, {s}, {v[CONF_WIDTH]},"
@@ -1575,11 +1586,19 @@ async def generate_triggers(lv_component):
                 event = LV_EVENT[event[3:].upper()]
                 conf = conf[0]
                 trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID])
-                await automation.build_automation(trigger, [], conf)
+                if isinstance(
+                    widget.type, cg.MockObjClass
+                ) and widget.type.inherits_from(lv_number_t):
+                    args = [(cg.float_, "x")]
+                    value = f"lv_{widget.type_base()}_get_value({obj})"
+                else:
+                    args = []
+                    value = ""
+                await automation.build_automation(trigger, args, conf)
                 init.extend(widget.add_flag("LV_OBJ_FLAG_CLICKABLE"))
                 init.extend(
                     widget.set_event_cb(
-                        f"{trigger}->trigger();", f"LV_EVENT_{event.upper()}"
+                        f"{trigger}->trigger({value});", f"LV_EVENT_{event.upper()}"
                     )
                 )
             if on_value := widget.config.get(CONF_ON_VALUE):
@@ -1590,7 +1609,7 @@ async def generate_triggers(lv_component):
                     await automation.build_automation(trigger, [(cg.float_, "x")], conf)
                     init.extend(
                         widget.set_event_cb(
-                            f"{trigger}->trigger(lv_{widget.type}_get_value({obj}))",
+                            f"{trigger}->trigger(lv_{widget.type_base()}_get_value({obj}))",
                             "LV_EVENT_VALUE_CHANGED",
                             f"{lv_component}->get_custom_change_event()",
                         )
@@ -1680,9 +1699,9 @@ async def to_code(config):
     if msgboxes := config.get(CONF_MSGBOXES):
         for msgbox in msgboxes:
             init.extend(await msgbox_to_code(msgbox))
-    lv_scr_act = Widget("lv_scr_act()", "obj", config, "lv_scr_act()")
+    lv_scr_act = Widget("lv_scr_act()", lv_obj_t, config, "lv_scr_act()")
     if top_conf := config.get(CONF_TOP_LAYER):
-        top_layer = Widget("lv_disp_get_layer_top(lv_disp)", "obj")
+        top_layer = Widget("lv_disp_get_layer_top(lv_disp)", lv_obj_t)
         init.extend(await set_obj_properties(top_layer, top_conf))
         if widgets := top_conf.get(CONF_WIDGETS):
             for widg in widgets:
@@ -1748,7 +1767,7 @@ async def update_to_code(config, action_id, widget: Widget, init, template_arg, 
 
 CONFIG_SCHEMA = (
     cv.polling_component_schema("1s")
-    .extend(obj_schema())
+    .extend(obj_schema("obj"))
     .extend(
         {
             cv.Optional(CONF_ID, default=CONF_LVGL_COMPONENT): cv.declare_id(
@@ -1847,6 +1866,7 @@ def spinner_obj_creator(parent: Widget, config: dict):
 
 async def widget_to_code(w_cnfig, w_type, parent: Widget):
     init = []
+
     creator = f"{w_type}_obj_creator"
     if creator := globals().get(creator):
         creator = creator(parent, w_cnfig)
@@ -1863,7 +1883,7 @@ async def widget_to_code(w_cnfig, w_type, parent: Widget):
         init.append(f"{var} = {creator}")
         obj = var
 
-    widget = Widget(var, w_type, w_cnfig, obj)
+    widget = Widget(var, get_widget_type(w_type), w_cnfig, obj)
     widget_map[id] = widget
     if theme := theme_widget_map.get(w_type):
         init.append(f"{theme}({obj})")
