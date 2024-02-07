@@ -929,12 +929,12 @@ async def get_widget(id: ID) -> Widget:
 
 
 async def theme_to_code(theme):
-    init = []
-    ow = Widget("obj", "obj")
     for widget, style in theme.items():
         if not isinstance(style, dict):
             continue
 
+        init = []
+        ow = Widget("obj", widget)
         init.extend(await set_obj_properties(ow, style))
         lamb = await cg.process_lambda(
             Lambda(";\n".join([*init, ""])),
