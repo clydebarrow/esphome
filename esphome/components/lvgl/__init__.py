@@ -268,6 +268,8 @@ CONF_R_MOD = "r_mod"
 CONF_RECOLOR = "recolor"
 CONF_SCALES = "scales"
 CONF_SCALE_LINES = "scale_lines"
+CONF_SCROLLBAR_MODE = "scrollbar_mode"
+CONF_SELECTED_INDEX = "selected_index"
 CONF_SPIN_TIME = "spin_time"
 CONF_SRC = "src"
 CONF_START_ANGLE = "start_angle"
@@ -278,9 +280,8 @@ CONF_STYLE = "style"
 CONF_STYLES = "styles"
 CONF_STYLE_DEFINITIONS = "style_definitions"
 CONF_STYLE_ID = "style_id"
-CONF_SYMBOL = "symbol"
-CONF_SELECTED_INDEX = "selected_index"
 CONF_SKIP = "skip"
+CONF_SYMBOL = "symbol"
 CONF_TEXT = "text"
 CONF_TITLE = "title"
 CONF_TOP_LAYER = "top_layer"
@@ -507,6 +508,9 @@ TEXT_SCHEMA = cv.Schema(
 STYLE_SCHEMA = cv.Schema({cv.Optional(k): v for k, v in STYLE_PROPS.items()}).extend(
     {
         cv.Optional(CONF_STYLES): cv.ensure_list(cv.use_id(lv_style_t)),
+        cv.Optional(CONF_SCROLLBAR_MODE): lv_one_of(
+            ("OFF", "ON", "ACTIVE", "AUTO"), prefix="LV_SCROLLBAR_MODE_"
+        ),
     }
 )
 STATE_SCHEMA = cv.Schema({cv.Optional(state): STYLE_SCHEMA for state in STATES}).extend(
@@ -1059,6 +1063,8 @@ async def set_obj_properties(widget: Widget, config):
                     lv_obj_clear_state({widget.obj}, LV_STATE_{key.upper()});
                 """
             )
+    if scrollbar_mode := config.get(CONF_SCROLLBAR_MODE):
+        init.append(f"lv_obj_set_scrollbar_mode({widget.obj}, {scrollbar_mode})")
     return init
 
 
