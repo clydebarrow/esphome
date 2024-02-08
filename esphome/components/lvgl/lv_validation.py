@@ -5,10 +5,6 @@ from esphome.schema_extractors import (
 )
 from esphome.components.font import Font
 from esphome.components.color import ColorStruct
-from esphome.const import (
-    CONF_MAX_VALUE,
-    CONF_MIN_VALUE,
-)
 from .defines import (
     LV_FONTS,
     CONF_IMG,
@@ -199,13 +195,6 @@ def optional_boolean(value):
     if value is None:
         return True
     return cv.boolean(value)
-
-
-def validate_max_min(config):
-    if CONF_MAX_VALUE in config and CONF_MIN_VALUE in config:
-        if config[CONF_MAX_VALUE] <= config[CONF_MIN_VALUE]:
-            raise cv.Invalid("max_value must be greater than min_value")
-    return config
 
 
 def cv_int_list(il):

@@ -102,6 +102,8 @@ from .defines import (
     LV_LONG_MODES,
     LV_EVENT,
     CONF_SPINNER,
+    LV_GRID_ALIGNMENTS,
+    LV_CELL_ALIGNMENTS,
 )
 
 from .lv_validation import (
@@ -121,7 +123,6 @@ from .lv_validation import (
     REQUIRED_COMPONENTS,
     lvgl_components_required,
     cv_int_list,
-    validate_max_min,
     lv_option_string,
     lv_id_name,
     requires_component,
@@ -148,6 +149,7 @@ CODEOWNERS = ("@clydebarrow",)
 LOGGER = logging.getLogger(__name__)
 
 char_ptr_const = cg.global_ns.namespace("char").operator("ptr")
+lv_coord_t = cg.global_ns.namespace("lv_coord_t")
 lv_event_code_t = cg.global_ns.enum("lv_event_code_t")
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
@@ -203,6 +205,7 @@ lv_textarea_t = cg.MockObjClass("LvTextareaType", parents=[lv_obj_t])
 lv_btnmatrix_t = cg.MockObjClass(
     "LvBtnmatrixType", parents=[lv_obj_t, KeyProvider, LvCompound]
 )
+# Provided for the benefit of get_widget_type
 lv_spinner_t = lv_obj_t
 lv_ticks_t = lv_obj_t
 
@@ -239,6 +242,14 @@ CONF_END_VALUE = "end_value"
 CONF_FLAGS = "flags"
 CONF_FLEX_FLOW = "flex_flow"
 CONF_FULL_REFRESH = "full_refresh"
+CONF_GRID_CELL_ROW_POS = "grid_cell_row_pos"
+CONF_GRID_CELL_COLUMN_POS = "grid_cell_column_pos"
+CONF_GRID_CELL_ROW_SPAN = "grid_cell_row_span"
+CONF_GRID_CELL_COLUMN_SPAN = "grid_cell_column_span"
+CONF_GRID_COLUMN_ALIGN = "grid_column_align"
+CONF_GRID_COLUMNS = "grid_columns"
+CONF_GRID_ROW_ALIGN = "grid_row_align"
+CONF_GRID_ROWS = "grid_rows"
 CONF_HOME = "home"
 CONF_INDICATORS = "indicators"
 CONF_KEY_CODE = "key_code"
@@ -364,6 +375,9 @@ lv_text = LValidator(
 lv_float = LValidator(cv.float_, cg.float_, Sensor, "get_state()")
 lv_int = LValidator(cv.int_, cg.int_, Sensor, "get_state()")
 
+cell_alignments = lv_one_of(LV_CELL_ALIGNMENTS, prefix="LV_GRID_ALIGNMENT_")
+grid_alignments = lv_one_of(LV_GRID_ALIGNMENTS, prefix="LV_GRID_ALIGNMENT_")
+
 # List the LVGL built-in fonts that are available
 
 STYLE_PROPS = {
@@ -390,6 +404,12 @@ STYLE_PROPS = {
     ),
     "border_width": cv.positive_int,
     "clip_corner": lv_bool,
+    "grid_cell_x_align": cell_alignments,
+    "grid_cell_y_align": cell_alignments,
+    "grid_cell_row_pos": cv.positive_int,
+    "grid_cell_column_pos": cv.positive_int,
+    "grid_cell_row_span": cv.positive_int,
+    "grid_cell_column_span": cv.positive_int,
     "height": lv_size,
     "img_recolor": lv_color,
     "img_recolor_opa": lv_opacity,
@@ -440,6 +460,27 @@ STYLE_PROPS = {
     "x": pixels_or_percent,
     "y": pixels_or_percent,
 }
+
+
+def validate_max_min(config):
+    if CONF_MAX_VALUE in config and CONF_MIN_VALUE in config:
+        if config[CONF_MAX_VALUE] <= config[CONF_MIN_VALUE]:
+            raise cv.Invalid("max_value must be greater than min_value")
+    return config
+
+
+def validate_grid(config):
+    if config.get(CONF_LAYOUT) == "LV_LAYOUT_GRID":
+        if CONF_GRID_ROWS not in config or CONF_GRID_COLUMNS not in config:
+            raise cv.Invalid("grid layout requires grid_rows and grid_columns")
+    elif any((key in config) for key in list(GRID_CONTAINER_SCHEMA.keys())):
+        raise cv.Invalid("grid items apply to grid layout only")
+    if CONF_GRID_CELL_COLUMN_POS in config or CONF_GRID_CELL_ROW_POS in config:
+        if CONF_GRID_CELL_ROW_SPAN not in config:
+            config[CONF_GRID_CELL_ROW_SPAN] = 1
+        if CONF_GRID_CELL_COLUMN_SPAN not in config:
+            config[CONF_GRID_CELL_COLUMN_SPAN] = 1
+    return config
 
 
 def get_widget_type(typestr: str) -> cg.MockObjClass:
@@ -816,10 +857,31 @@ ALIGN_TO_SCHEMA = {
 }
 
 
+def grid_free_space(value):
+    value = cv.Upper(value)
+    if value.startswith("FR(") and value.endswith(")"):
+        value = value.removesuffix(")").removeprefix("FR(")
+        return f"LV_GRID_FR({cv.positive_int(value)})"
+    raise cv.Invalid("must be a size in pixels, CONTENT or FR(nn)")
+
+
+grid_spec = cv.Schema(
+    [cv.Any(lv_size, lv_one_of(("CONTENT",), prefix="LV_GRID_"), grid_free_space)]
+)
+
+GRID_CONTAINER_SCHEMA = {
+    cv.Optional(CONF_GRID_ROWS): grid_spec,
+    cv.Optional(CONF_GRID_COLUMNS): grid_spec,
+    cv.Optional(CONF_GRID_COLUMN_ALIGN): grid_alignments,
+    cv.Optional(CONF_GRID_ROW_ALIGN): grid_alignments,
+}
+
+
 def obj_schema(wtype: str):
     return (
         part_schema(wtype)
         .extend(FLAG_SCHEMA)
+        .extend(GRID_CONTAINER_SCHEMA)
         .extend(automation_schema(get_widget_type(wtype)))
         .extend(ALIGN_TO_SCHEMA)
         .extend(get_layout())
@@ -857,7 +919,7 @@ def container_schema(widget_type):
 
 
 def widget_schema(name):
-    validator = container_schema(name)
+    validator = cv.All(container_schema(name), validate_grid)
     if required := REQUIRED_COMPONENTS.get(name):
         validator = cv.All(validator, requires_component(required))
     return cv.Exclusive(name, CONF_WIDGETS), validator
@@ -1077,6 +1139,19 @@ async def set_obj_properties(widget: Widget, config):
             )
     if scrollbar_mode := config.get(CONF_SCROLLBAR_MODE):
         init.append(f"lv_obj_set_scrollbar_mode({widget.obj}, {scrollbar_mode})")
+    if config.get(CONF_LAYOUT) == "LV_LAYOUT_GRID":
+        wid = config[CONF_ID]
+        for key in (CONF_GRID_COLUMN_ALIGN, CONF_GRID_COLUMN_ALIGN):
+            if value := config.get(key):
+                init.extend(widget.set_property(key, value))
+        rows = "{" + ",".join(config[CONF_GRID_ROWS]) + ", LV_GRID_TEMPLATE_LAST}"
+        row_id = ID(f"{wid}_row_dsc", is_declaration=True, type=lv_coord_t)
+        row_array = cg.static_const_array(row_id, cg.RawExpression(rows))
+        init.extend(widget.set_style("grid_row_dsc_array", row_array, 0))
+        columns = "{" + ",".join(config[CONF_GRID_COLUMNS]) + ", LV_GRID_TEMPLATE_LAST}"
+        column_id = ID(f"{wid}_column_dsc", is_declaration=True, type=lv_coord_t)
+        column_array = cg.static_const_array(column_id, cg.RawExpression(columns))
+        init.extend(widget.set_style("grid_column_dsc_array", column_array, 0))
     return init
 
 
