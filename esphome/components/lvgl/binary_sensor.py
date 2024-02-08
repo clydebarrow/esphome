@@ -32,7 +32,7 @@ async def to_code(config):
     paren = await cg.get_variable(config[CONF_LVGL_ID])
     widget = await get_widget(config[CONF_WIDGET])
     assert isinstance(widget, Widget)
-    init = [f"{sensor}->publish_state({widget.is_pressed()})"]
+    init = [f"{sensor}->publish_initial_state({widget.is_pressed()})"]
     init.extend(
         widget.set_event_cb(f"{sensor}->publish_state(true);", "LV_EVENT_PRESSING")
     )
