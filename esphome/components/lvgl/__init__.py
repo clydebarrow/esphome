@@ -204,6 +204,7 @@ lv_btnmatrix_t = cg.MockObjClass(
     "LvBtnmatrixType", parents=[lv_obj_t, KeyProvider, LvCompound]
 )
 lv_spinner_t = lv_obj_t
+lv_ticks_t = lv_obj_t
 
 CONF_ACTION = "action"
 CONF_ADJUSTABLE = "adjustable"
