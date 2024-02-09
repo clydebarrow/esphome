@@ -2258,6 +2258,8 @@ async def lvgl_is_idle(config, condition_id, template_arg, args):
     timeout = await cg.templatable(config[CONF_TIMEOUT], [], cg.uint32)
     if isinstance(timeout, LambdaExpression):
         timeout = f"({timeout}())"
+    else:
+        timeout = timeout.total_milliseconds
     await cg.register_parented(var, lvgl)
     lamb = await cg.process_lambda(
         Lambda(f"return lvgl_comp->is_idle({timeout});"),

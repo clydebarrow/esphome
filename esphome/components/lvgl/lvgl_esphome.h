@@ -315,6 +315,7 @@ class LvglComponent : public PollingComponent {
         lv_scr_load(this->pages_[0]->page);
     }
     // this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
+    lv_disp_trig_activity(this->disp_);
     esph_log_config(TAG, "LVGL Setup complete");
   }
 
