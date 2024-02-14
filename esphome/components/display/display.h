@@ -179,7 +179,7 @@ class Display : public PollingComponent {
   virtual int get_width() = 0;
   /// Get the height of the image in pixels with rotation applied.
   virtual int get_height() = 0;
-    /// Get the calculated width of the display in pixels with rotation applied.
+  /// Get the calculated width of the display in pixels with rotation applied.
   virtual int get_width() { return this->get_width_internal(); }
   /// Get the calculated height of the display in pixels with rotation applied.
   virtual int get_height() { return this->get_height_internal(); }
