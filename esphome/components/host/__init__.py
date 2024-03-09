@@ -19,8 +19,6 @@ from .gpio import host_pin_to_code  # noqa
 CODEOWNERS = ["@esphome/core"]
 AUTO_LOAD = ["network"]
 
-CONF_MAC_ADDR = "mac_addr"
-
 
 def set_core_data(config):
     CORE.data[KEY_HOST] = {}
