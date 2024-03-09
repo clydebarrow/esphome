@@ -398,6 +398,9 @@ class VNCDisplay : public display::Display {
   uint8_t tx_buf_[4096];
   size_t tx_buflen_{};
 
+  int get_height_internal() override { return this->get_height(); }
+  int get_width_internal() override { return this->get_width(); }
+
   inline size_t tx_rem_() { return sizeof(this->tx_buf_) - this->tx_buflen_; }
   inline void tx_16(uint16_t value) {
     put16_be(this->tx_buf_ + this->tx_buflen_, value);
