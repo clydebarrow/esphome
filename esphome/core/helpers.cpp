@@ -557,18 +557,10 @@ void HighFrequencyLoopRequester::stop() {
 bool HighFrequencyLoopRequester::is_high_frequency() { return num_requests > 0; }
 
 void get_mac_address_raw(uint8_t *mac) {  // NOLINT(readability-non-const-parameter)
-<<<<<<< HEAD
-#ifdef USE_HOST
-  static const uint8_t esphome_host_mac_addr[6] = {ESPHOME_HOST_MAC_ADDR};
-  memcpy(mac, esphome_host_mac_addr, sizeof(esphome_host_mac_addr));
-#endif
-#if defined(USE_ESP32)
-=======
 #if defined(USE_HOST)
   static const uint8_t esphome_host_mac_address[6] = USE_ESPHOME_HOST_MAC_ADDRESS;
   memcpy(mac, esphome_host_mac_address, sizeof(esphome_host_mac_address));
 #elif defined(USE_ESP32)
->>>>>>> dev
 #if defined(CONFIG_SOC_IEEE802154_SUPPORTED) || defined(USE_ESP32_IGNORE_EFUSE_MAC_CRC)
   // When CONFIG_SOC_IEEE802154_SUPPORTED is defined, esp_efuse_mac_get_default
   // returns the 802.15.4 EUI-64 address. Read directly from eFuse instead.
