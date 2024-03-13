@@ -4,7 +4,6 @@ from esphome.components import number
 from esphome.const import (
     DEVICE_CLASS_CURRENT,
     ENTITY_CATEGORY_CONFIG,
-    ICON_CURRENT_DC,
     UNIT_AMPERE,
     CONF_MAX_VALUE,
     CONF_MIN_VALUE,
@@ -18,6 +17,7 @@ from . import ParamNumber, CONF_CHARGER_ID, ChargerComponent
 CONF_MAX_CHARGE_CURRENT = "max_charge_current"
 CONF_MAX_DISCHARGE_CURRENT = "max_discharge_current"
 CONF_MAX_CHARGE_VOLTAGE = "max_charge_voltage"
+ICON_CURRENT_DC = "mdi:current-dc"
 
 
 def validate_min_max(config):
