@@ -8,7 +8,6 @@
 namespace esphome {
 namespace host {
 
-using json = nlohmann::json;
 
 class HostPreferenceBackend : public ESPPreferenceBackend {
  public:
@@ -32,13 +31,29 @@ class HostPreferences : public ESPPreferences {
     return make_preference(length, type, false);
   }
 
-  void save(uint32_t key, std::vector<uint8_t>& vec) {
+  bool save(uint32_t key, const uint8_t * data, size_t len) {
+    if (len > 255)
+      return false;
+    std::vector vec(data, data + len);
     this->data[key] = vec;
+    return true;
+  }
+
+  bool load(uint32_t key, uint8_t* data, size_t len) {
+    if (len > 255)
+      return false;
+    if (this->data.count(key) == 0)
+      return false;
+    auto vec = this->data[key];
+    if (vec.size() != len)
+      return false;
+    memcpy(data, vec.data(), len);
+    return true;
   }
 
  protected:
   std::string filename{};
-  json data{};
+  std::map<uint32_t, std::vector<uint8_t>> data{};
 };
 void setup_preferences();
 extern HostPreferences *host_preferences;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
