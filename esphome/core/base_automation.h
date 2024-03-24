@@ -4,7 +4,6 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
-#include "esphome/core/log.h"
 
 #include <vector>
 
@@ -124,7 +123,7 @@ class ShutdownTrigger : public Trigger<>, public Component {
 
 class LoopTrigger : public Trigger<>, public Component {
  public:
-  void loop() override;
+  void loop() override { this->trigger(); }
   float get_setup_priority() const override { return setup_priority::DATA; }
 };
 

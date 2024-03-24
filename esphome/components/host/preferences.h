@@ -3,11 +3,10 @@
 #ifdef USE_HOST
 
 #include "esphome/core/preferences.h"
-#include "json.hpp"
+#include <map>
 
 namespace esphome {
 namespace host {
-
 
 class HostPreferenceBackend : public ESPPreferenceBackend {
  public:
@@ -22,7 +21,6 @@ class HostPreferenceBackend : public ESPPreferenceBackend {
 
 class HostPreferences : public ESPPreferences {
  public:
-  HostPreferences();
   bool sync() override;
   bool reset() override;
 
@@ -31,17 +29,19 @@ class HostPreferences : public ESPPreferences {
     return make_preference(length, type, false);
   }
 
-  bool save(uint32_t key, const uint8_t * data, size_t len) {
+  bool save(uint32_t key, const uint8_t *data, size_t len) {
     if (len > 255)
       return false;
+    this->setup_();
     std::vector vec(data, data + len);
     this->data[key] = vec;
     return true;
   }
 
-  bool load(uint32_t key, uint8_t* data, size_t len) {
+  bool load(uint32_t key, uint8_t *data, size_t len) {
     if (len > 255)
       return false;
+    this->setup_();
     if (this->data.count(key) == 0)
       return false;
     auto vec = this->data[key];
@@ -52,7 +52,9 @@ class HostPreferences : public ESPPreferences {
   }
 
  protected:
-  std::string filename{};
+  void setup_();
+  bool setup_complete_{};
+  std::string filename_{};
   std::map<uint32_t, std::vector<uint8_t>> data{};
 };
 void setup_preferences();
