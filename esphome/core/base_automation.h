@@ -4,6 +4,7 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/preferences.h"
+#include "esphome/core/log.h"
 
 #include <vector>
 
@@ -123,7 +124,7 @@ class ShutdownTrigger : public Trigger<>, public Component {
 
 class LoopTrigger : public Trigger<>, public Component {
  public:
-  void loop() override { this->trigger(); }
+  void loop() override;
   float get_setup_priority() const override { return setup_priority::DATA; }
 };
 
@@ -131,15 +132,14 @@ class LoopTrigger : public Trigger<>, public Component {
 class ProjectUpdateTrigger : public Trigger<std::string>, public Component {
  public:
   void setup() override {
-    uint32_t hash = fnv1_hash(ESPHOME_PROJECT_NAME);
-    ESPPreferenceObject pref = global_preferences->make_preference<char[120]>(hash, true);
-    char previous_version[120];
-    char current_version[120] = ESPHOME_PROJECT_VERSION;
+    const uint8_t current_version[]{ESPHOME_PROJECT_VERSION_HASH};
+    const size_t VERSION_LENGTH = sizeof(current_version);
+    ESPPreferenceObject pref =
+        global_preferences->make_preference<char[VERSION_LENGTH]>(ESPHOME_PROJECT_NAME_HASH, true);
+    char previous_version[VERSION_LENGTH];
     if (pref.load(&previous_version)) {
-      int cmp = strcmp(previous_version, current_version);
-      if (cmp < 0) {
-        this->trigger(previous_version);
-      }
+      if (memcmp(previous_version, current_version, VERSION_LENGTH) != 0)
+        this->trigger(std::string(ESPHOME_PROJECT_VERSION));
     }
     pref.save(&current_version);
     global_preferences->sync();
