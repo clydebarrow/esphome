@@ -9,7 +9,7 @@ esphome:
   name: test1
   name_add_mac_suffix: true
   platform: ESP32
-  board: nodemcu-32s
+  board: nodemcu-32ssss
   platformio_options:
     board_build.partitions: huge_app.csv
   on_boot:
