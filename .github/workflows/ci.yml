@@ -480,5 +480,5 @@ jobs:
       - name: Failure
         if: ${{ contains(needs.*.result, 'failure') }}
         run: |
-          echo ${{ toJson(needs.*.result) }}
+          echo "${{ toJson(needs.*) }}"
           exit 1
