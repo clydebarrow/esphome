@@ -25,7 +25,8 @@ void ILI9XXXDisplay::set_madctl() {
     mad |= MADCTL_MX;
   if (this->mirror_y_)
     mad |= MADCTL_MY;
-  this->send_command(ILI9XXX_MADCTL, &mad, 1);
+
+  this->bus_->write_command(ILI9XXX_MADCTL, mad);
   ESP_LOGD(TAG, "Wrote MADCTL 0x%02X", mad);
 }
 
@@ -39,9 +40,12 @@ void ILI9XXXDisplay::setup() {
   delay(20);
   this->reset_pin_->digital_write(true);
   delay(20);
+
+  this->bus_->begin_transaction();
   this->init_lcd_();
   this->set_madctl();
-  this->send_command(this->pre_invertcolors_ ? ILI9XXX_INVON : ILI9XXX_INVOFF);
+  this->bus_->write_command(this->pre_invertcolors_ ? ILI9XXX_INVON : ILI9XXX_INVOFF);
+  this->bus_->end_transaction();
   this->x_low_ = this->width_;
   this->y_low_ = this->height_;
   this->x_high_ = 0;
@@ -211,15 +215,17 @@ void ILI9XXXDisplay::display_() {
            this->x_low_, this->y_low_, this->x_high_, this->y_high_, w, h, this->buffer_color_mode_,
            this->is_18bitdisplay_, sw_time, mw_time);
   auto now = millis();
+  this->bus_->begin_transaction();
   if (this->buffer_color_mode_ == BITS_16 && !this->is_18bitdisplay_ && sw_time < mw_time) {
     // 16 bit mode maps directly to display format
     ESP_LOGV(TAG, "Doing single write of %zu bytes", this->width_ * h * 2);
-    set_addr_window_(0, this->y_low_, this->width_ - 1, this->y_high_);
+
+    this->set_addr_window_(0, this->y_low_, this->width_ - 1, this->y_high_);
     this->bus_->write_array(this->buffer_ + this->y_low_ * this->width_ * 2, h * this->width_ * 2);
   } else {
     ESP_LOGV(TAG, "Doing multiple write");
     size_t rem = h * w;  // remaining number of pixels to write
-    set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
+    this->set_addr_window_(this->x_low_, this->y_low_, this->x_high_, this->y_high_);
     size_t idx = 0;    // index into transfer_buffer
     size_t pixel = 0;  // pixel number offset
     size_t pos = this->y_low_ * this->width_ + this->x_low_;
@@ -285,6 +291,7 @@ void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, cons
     return display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset,
                                             x_pad);
   }
+  this->bus_->begin_transaction();
   this->set_addr_window_(x_start, y_start, x_start + w - 1, y_start + h - 1);
   // x_ and y_offset are offsets into the source buffer, unrelated to our own offsets into the display.
   if (x_offset == 0 && x_pad == 0 && y_offset == 0) {
@@ -303,17 +310,13 @@ void ILI9XXXDisplay::draw_pixels_at(int x_start, int y_start, int w, int h, cons
 // values per bit is huge
 uint32_t ILI9XXXDisplay::get_buffer_length_() { return this->get_width_internal() * this->get_height_internal(); }
 
-void ILI9XXXDisplay::send_command(uint8_t command_byte, const uint8_t *data_bytes, uint8_t length) {
-  this->bus_->write_cmd_data(command_byte, data_bytes, length);  // Send the command byte
-}
-
 void ILI9XXXDisplay::init_lcd_() {
   uint8_t cmd, x, num_args;
   const uint8_t *addr = this->init_sequence_;
   while ((cmd = *addr++) > 0) {
     x = *addr++;
     num_args = x & 0x7F;
-    this->send_command(cmd, addr, num_args);
+    this->bus_->write_command(cmd, addr, num_args);
     addr += num_args;
     if (x & 0x80)
       delay(150);  // NOLINT
@@ -331,20 +334,21 @@ void ILI9XXXDisplay::set_addr_window_(uint16_t x1, uint16_t y1, uint16_t x2, uin
   buf[1] = x1;
   buf[2] = x2 >> 8;
   buf[3] = x2;
-  this->send_command(ILI9XXX_CASET, buf, sizeof buf);
+  this->bus_->begin_transaction();
+  this->bus_->write_command(ILI9XXX_CASET, buf, sizeof buf);
   buf[0] = y1 >> 8;
   buf[1] = y1;
   buf[2] = y2 >> 8;
   buf[3] = y2;
-  this->send_command(ILI9XXX_PASET, buf, sizeof buf);
-  this->send_command(ILI9XXX_RAMWR);
-  this->bus_->begin_transaction();
+  this->bus_->write_command(ILI9XXX_PASET, buf, sizeof buf);
+  this->bus_->write_command(ILI9XXX_RAMWR);
+  this->bus_->end_transaction();
 }
 
 void ILI9XXXDisplay::invert_colors(bool invert) {
   this->pre_invertcolors_ = invert;
   if (is_ready()) {
-    this->send_command(invert ? ILI9XXX_INVON : ILI9XXX_INVOFF);
+    this->bus_->write_command(invert ? ILI9XXX_INVON : ILI9XXX_INVOFF);
   }
 }
 

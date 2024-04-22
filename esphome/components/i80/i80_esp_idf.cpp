@@ -1,6 +1,6 @@
 #include "i80_component.h"
 #ifdef USE_I80
-#ifdef USE_ESP_IDF
+
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_io_interface.h"
 #include <vector>
@@ -46,7 +46,7 @@ class I80DelegateIdf : public I80Delegate {
     }
   }
 
-  void write_cmd_data(int cmd, const uint8_t *data, size_t length) override {
+  void write_command(int cmd, const uint8_t *data, size_t length) override {
     this->begin_transaction();
     if (length <= CONFIG_LCD_PANEL_IO_FORMAT_BUF_SIZE) {
       ESP_LOGV(TAG, "Send command %X, len %u", cmd, length);
@@ -119,40 +119,6 @@ class I80BusIdf : public I80Bus {
   esp_lcd_i80_bus_handle_t handle_{};
 };
 
-void I80Component::setup() {
-  auto *bus = new I80BusIdf(this->wr_pin_, this->dc_pin_, this->data_pins_);  // NOLINT
-  // write pin is unused, but pulled high (inactive) if present
-  if (this->rd_pin_ != nullptr) {
-    this->rd_pin_->setup();
-    this->rd_pin_->digital_write(true);
-  }
-  if (bus->is_failed())
-    this->mark_failed();
-  this->bus_ = bus;
-}
-I80Delegate *I80Component::register_device(I80Client *device, GPIOPin *cs_pin, unsigned int data_rate) {
-  if (this->devices_.count(device) != 0) {
-    ESP_LOGE(TAG, "i80 device already registered");
-    return this->devices_[device];
-  }
-  auto *delegate = this->bus_->get_delegate(cs_pin, data_rate);  // NOLINT
-  this->devices_[device] = delegate;
-  return delegate;
-}
-void I80Component::unregister_device(I80Client *device) {
-  if (this->devices_.count(device) == 0) {
-    esph_log_e(TAG, "i80 device not registered");
-    return;
-  }
-  delete this->devices_[device];  // NOLINT
-  this->devices_.erase(device);
-}
-
-void I80Client::dump_config() {
-  ESP_LOGCONFIG(TAG, "  Data rate: %dMHz", (unsigned) (this->data_rate_ / 1000000));
-  LOG_PIN("  CS Pin: ", this->cs_);
-}
 }  // namespace i80
 }  // namespace esphome
-#endif  // USE_ESP_IDF
 #endif  // USE_I80

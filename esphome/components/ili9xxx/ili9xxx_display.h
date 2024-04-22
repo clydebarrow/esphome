@@ -63,8 +63,6 @@ class ILI9XXXDisplay : public display::DisplayBuffer {
     this->offset_y_ = offset_y;
   }
   void invert_colors(bool invert);
-  virtual void send_command(uint8_t command_byte, const uint8_t *data_bytes, uint8_t length);
-  void send_command(uint8_t command_byte) { this->send_command(command_byte, nullptr, 0); }
   void set_color_order(display::ColorOrder color_order) { this->color_order_ = color_order; }
   void set_swap_xy(bool swap_xy) { this->swap_xy_ = swap_xy; }
   void set_mirror_x(bool mirror_x) { this->mirror_x_ = mirror_x; }
@@ -206,34 +204,14 @@ class ILI9XXXILI9488 : public ILI9XXXDisplay {
         dfun[1] = 0x62;
       }
     }
-    this->send_command(ILI9XXX_DFUNCTR, dfun, sizeof dfun);
-    this->send_command(ILI9XXX_MADCTL, &mad, 1);
+    this->bus_->write_command(ILI9XXX_DFUNCTR, dfun, sizeof dfun);
+    this->bus_->write_command(ILI9XXX_MADCTL, &mad, 1);
   }
 };
 //-----------   Waveshare 3.5 Res Touch - ILI9488 interfaced via 16 bit shift register to parallel */
 class WAVESHARERES35 : public ILI9XXXILI9488 {
  public:
   WAVESHARERES35() : ILI9XXXILI9488(INITCMD_WAVESHARE_RES_3_5) {}
-  /*
-   *  This board uses a 16 bit serial-parallel chip to implement SPI. It requires a CS transition between command
-   *  and data phases, and DC must be set before CS is enabled.
-   */
-  void send_command(uint8_t command_byte, const uint8_t *data_bytes, uint8_t length) override {
-    this->bus_->set_dc_data(false);
-    this->bus_->begin_transaction();
-    this->bus_->write_array(&command_byte, 1);
-    this->bus_->end_transaction();
-    this->bus_->set_dc_data(true);
-    uint8_t buf[2]{};
-    if (length != 0) {
-      this->bus_->begin_transaction();
-      for (size_t i = 0; i != length; i++) {
-        buf[1] = *data_bytes++;
-        this->bus_->write_array(buf, 2);
-      }
-      this->bus_->end_transaction();
-    }
-  }
 };
 
 //-----------   ILI9XXX_35_TFT origin colors rotated display --------------

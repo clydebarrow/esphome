@@ -63,7 +63,7 @@ void SPIComponent::setup() {
   }
 }
 
-void SPIByteBus::write_cmd_data(int cmd, const uint8_t *data, size_t length) {
+void SPIByteBus::write_command(int cmd, const uint8_t *data, size_t length) {
   ESP_LOGV(TAG, "Write cmd %X, length %d", cmd, (unsigned) length);
   this->begin_transaction();
   if (cmd != -1) {
@@ -72,7 +72,15 @@ void SPIByteBus::write_cmd_data(int cmd, const uint8_t *data, size_t length) {
   }
   this->dc_pin_->digital_write(true);
   if (length != 0) {
-    this->write_array(data, length);
+    if (this->is_16bit_data_) {
+      uint8_t buf[2]{};
+      for (size_t i = 0; i != length; i++) {
+        buf[1] = *data++;
+        this->write_array(buf, 2);
+      }
+    } else {
+      this->write_array(data, length);
+    }
   }
   this->end_transaction();
 }

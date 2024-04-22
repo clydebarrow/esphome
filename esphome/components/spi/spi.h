@@ -461,26 +461,31 @@ class SPIDevice : public SPIClient {
 
 class SPIByteBus : public byte_bus::ByteBus {
  public:
-  SPIByteBus(SPIClient *client) : client_(client) {}
   void bus_setup() override {
     this->dc_pin_->setup();  // OUTPUT
     this->dc_pin_->digital_write(false);
     this->client_->spi_setup();
   }
 
-  void begin_transaction() override { this->client_->enable(); }
-  void end_transaction() override { this->client_->disable(); }
   void write_array(const uint8_t *data, size_t length) override { this->client_->write_array(data, length); }
   void bus_teardown() override { this->client_->spi_teardown(); }
 
-  void write_cmd_data(int cmd, const uint8_t *data, size_t length) override;
+  void write_command(int cmd, const uint8_t *data, size_t length) override;
 
   void dump_config() override;
+
+  void set_spi_client(SPIClient *client) { this->client_ = client; }
+
   void set_dc_pin(GPIOPin *dc_pin) { this->dc_pin_ = dc_pin; }
+  void set_16bit_data(bool data) { this->is_16bit_data_ = data; }
 
  protected:
+  void do_begin_transaction() override { this->client_->enable(); }
+  void do_end_transaction() override { this->client_->disable(); }
+
   SPIClient *client_;
   GPIOPin *dc_pin_{byte_bus::NULL_PIN};
+  bool is_16bit_data_{false};
 };
 }  // namespace spi
 }  // namespace esphome
