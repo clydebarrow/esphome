@@ -62,6 +62,16 @@ async def dashboard() -> DashboardTestHelper:
     io_loop.close()
 
 
+@pytest.fixture(scope="session")
+def event_loop():
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
 @pytest.mark.asyncio
 async def test_main_page(dashboard: DashboardTestHelper) -> None:
     response = await dashboard.fetch("/")
