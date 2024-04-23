@@ -6,7 +6,6 @@ import os
 from unittest.mock import Mock
 
 import pytest
-import pytest_asyncio
 from tornado.httpclient import AsyncHTTPClient, HTTPResponse
 from tornado.httpserver import HTTPServer
 from tornado.ioloop import IOLoop
@@ -35,7 +34,7 @@ class DashboardTestHelper:
         return result
 
 
-@pytest_asyncio.fixture()
+@pytest.fixture
 async def dashboard() -> DashboardTestHelper:
     sock, port = bind_unused_port()
     args = Mock(
@@ -62,13 +61,11 @@ async def dashboard() -> DashboardTestHelper:
     io_loop.close()
 
 
-@pytest.mark.asyncio(scope="module")
 async def test_main_page(dashboard: DashboardTestHelper) -> None:
     response = await dashboard.fetch("/")
     assert response.code == 200
 
 
-@pytest.mark.asyncio(scope="module")
 async def test_devices_page(dashboard: DashboardTestHelper) -> None:
     response = await dashboard.fetch("/devices")
     assert response.code == 200
