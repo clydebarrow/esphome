@@ -20,7 +20,6 @@ permissions:
 env:
   DEFAULT_PYTHON: "3.9"
   PYUPGRADE_TARGET: "--py39-plus"
-  CLANG_FORMAT_VERSION: "13.0.1"
 
 concurrency:
   # yamllint disable-line rule:line-length
@@ -239,7 +238,7 @@ jobs:
       - name: Install clang-format
         run: |
           . venv/bin/activate
-          pip install clang-format==${{ env.CLANG_FORMAT_VERSION }}
+          pip install clang-format -c requirements_dev.txt
       - name: Run clang-format
         run: |
           . venv/bin/activate
@@ -472,6 +471,7 @@ jobs:
       - compile-tests
       - clang-tidy
       - test-build-components
+      - list-components
     if: always()
     steps:
       - name: Success
@@ -479,6 +479,8 @@ jobs:
         run: exit 0
       - name: Failure
         if: ${{ contains(needs.*.result, 'failure') }}
+        env:
+          JSON_DOC: ${{ toJSON(needs) }}
         run: |
-          echo "${{ toJson(needs.*) }}"
+          echo $JSON_DOC | jq
           exit 1
