@@ -51,14 +51,9 @@ class USBClient {
     auto *client = (USBClient *) ptr;
 
     ESP_LOGD(TAG, "Client task starts");
-    usb_host_client_config_t config{
-        .is_synchronous = false,
-        .max_num_event_msg = 5,
-        .async= {
-            .client_event_callback = client_event_cb,
-            .callback_arg = client
-        }
-    };
+    usb_host_client_config_t config{.is_synchronous = false,
+                                    .max_num_event_msg = 5,
+                                    .async = {.client_event_callback = client_event_cb, .callback_arg = client}};
     auto err = usb_host_client_register(&config, &client->handle_);
     if (err != ESP_OK) {
       ESP_LOGD(TAG, "client register failed: %s", esp_err_to_name(err));
@@ -83,22 +78,19 @@ class USBClient {
           }
           break;
         }
-        default:err = usb_host_client_handle_events(client->handle_, 1);
+        default:
+          err = usb_host_client_handle_events(client->handle_, 1);
           break;
       }
     } while (err == ESP_OK);
   }
+
  public:
   void setup() {
-    //xTaskCreate(client_task, "USBClient", 4096, this, 1, &this->task_handle_);
-    usb_host_client_config_t config{
-        .is_synchronous = false,
-        .max_num_event_msg = 5,
-        .async= {
-            .client_event_callback = client_event_cb,
-            .callback_arg = this
-        }
-    };
+    // xTaskCreate(client_task, "USBClient", 4096, this, 1, &this->task_handle_);
+    usb_host_client_config_t config{.is_synchronous = false,
+                                    .max_num_event_msg = 5,
+                                    .async = {.client_event_callback = client_event_cb, .callback_arg = this}};
     auto err = usb_host_client_register(&config, &this->handle_);
     if (err != ESP_OK) {
       ESP_LOGD(TAG, "client register failed: %s", esp_err_to_name(err));
@@ -126,7 +118,8 @@ class USBClient {
         }
         break;
       }
-      default:err = usb_host_client_handle_events(this->handle_, 0);
+      default:
+        err = usb_host_client_handle_events(this->handle_, 0);
         break;
     }
   }
@@ -139,7 +132,6 @@ class USBClient {
   int state_{USB_CLIENT_INIT};
 };
 class USBHost : public Component {
-
   static void daemon_task(void *ptr) {
     USBHost *host = (USBHost *) ptr;
 
@@ -167,7 +159,6 @@ class USBHost : public Component {
   }
 
   void setup() override {
-
     ESP_LOGCONFIG(TAG, "Setup starts");
     usb_host_config_t config{};
 
@@ -186,10 +177,11 @@ class USBHost : public Component {
     } */
     ESP_LOGCONFIG(TAG, "Setup complete");
   }
+
  protected:
   TaskHandle_t daemon_task_handle_{};
   std::vector<USBClient *> clients_{};
 };
 
-} // usb_host
-} // esphome
+}  // namespace usb_host
+}  // namespace esphome
