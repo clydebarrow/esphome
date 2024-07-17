@@ -5,7 +5,6 @@ import esphome.config_validation as cv
 from esphome import automation
 from esphome.components.binary_sensor import BinarySensor
 from esphome.components.display import Display
-from esphome.components.image import Image_
 from esphome.components.rotary_encoder.sensor import RotaryEncoderSensor
 from esphome.components.touchscreen import (
     Touchscreen,
@@ -136,7 +135,12 @@ for widg in (
 
 lv_scr_act_spec = LvScrActType()
 lv_scr_act = Widget.create(
-    None, "lv_scr_act()", lv_scr_act_spec, {}, obj="lv_scr_act()", parent=None
+    None,
+    "lv_screen_active()",
+    lv_scr_act_spec,
+    {},
+    obj="lv_screen_active()",
+    parent=None,
 )
 
 WIDGET_SCHEMA = any_widget_schema()
@@ -150,6 +154,17 @@ LAYOUT_SCHEMAS[df.TYPE_FLEX] = {
 LAYOUT_SCHEMAS[df.TYPE_NONE] = {
     cv.Optional(df.CONF_WIDGETS): cv.ensure_list(any_widget_schema())
 }
+
+top_layer = Widget(
+    "lv_display_get_layer_top(lv_disp)",
+    obj_spec,
+    obj="lv_display_get_layer_top(lv_disp)",
+)
+bottom_layer = Widget(
+    "lv_display_get_layer_bottom(lv_disp)",
+    obj_spec,
+    obj="lv_display_get_layer_bottom(lv_disp)",
+)
 
 
 async def widget_update_to_code(config, action_id, template_arg, args):
@@ -269,7 +284,7 @@ async def msgbox_to_code(conf):
         title = await lv.lv_text.process(title.get(df.CONF_TEXT))
     close_button = conf[df.CONF_CLOSE_BUTTON]
     init.append(
-        f"""{outer} = lv_obj_create(lv_disp_get_layer_top(lv_disp));
+        f"""{outer} = lv_obj_create(lv_display_get_layer_top(lv_disp));
                     lv_obj_set_width({outer}, lv_pct(100));
                     lv_obj_set_height({outer}, lv_pct(100));
                     lv_obj_set_style_bg_opa({outer}, 128, 0);
@@ -311,12 +326,9 @@ async def keypads_to_code(var, config):
             enc_conf[CONF_ID], ty.lv_indev_type_t.LV_INDEV_TYPE_KEYPAD, lpt, lprt
         )
         await cg.register_parented(listener, var)
+        init.append(f"{listener}->setup()")
         if group := add_group(enc_conf.get(CONF_GROUP)):
-            init.append(
-                f"lv_indev_set_group(lv_indev_drv_register(&{listener}->drv), {group})"
-            )
-        else:
-            init.append(f"lv_indev_drv_register(&{listener}->drv)")
+            init.append(f"lv_indev_set_group({listener}->drv, {group})")
         for key in df.LV_KEYS.choices:
             if sensor := enc_conf.get(key.lower()):
                 b_sensor = await cg.get_variable(sensor)
@@ -340,12 +352,9 @@ async def rotary_encoders_to_code(var, config):
             enc_conf[CONF_ID], ty.lv_indev_type_t.LV_INDEV_TYPE_ENCODER, lpt, lprt
         )
         await cg.register_parented(listener, var)
+        init.append(f"{listener}->setup()")
         if group := add_group(enc_conf.get(CONF_GROUP)):
-            init.append(
-                f"lv_indev_set_group(lv_indev_drv_register(&{listener}->drv), {group})"
-            )
-        else:
-            init.append(f"lv_indev_drv_register(&{listener}->drv)")
+            init.append(f"lv_indev_set_group({listener}->drv, {group})")
         if sensor := enc_conf.get(CONF_SENSOR):
             if isinstance(sensor, dict):
                 b_sensor = await cg.get_variable(sensor[df.CONF_LEFT_BUTTON])
@@ -383,7 +392,7 @@ async def touchscreens_to_code(var, config):
         await cg.register_parented(listener, var)
         init.extend(
             [
-                f"lv_indev_drv_register(&{listener}->drv)",
+                f"{touchscreen}->setup()",
                 f"{touchscreen}->register_listener({listener})",
             ]
         )
@@ -444,15 +453,22 @@ async def generate_triggers(lv_component):
             await add_init_lambda(lv_component, init)
 
 
-async def disp_update(disp, config: dict):
+async def disp_update(config: dict):
     init = []
-    if bg_color := config.get(df.CONF_DISP_BG_COLOR):
-        init.append(
-            f"lv_disp_set_bg_color({disp}, {await lv.lv_color.process(bg_color)})"
-        )
-    if bg_image := config.get(df.CONF_DISP_BG_IMAGE):
-        helpers.lvgl_components_required.add("image")
-        init.append(f"lv_disp_set_bg_image({disp}, lv_img_from({bg_image}))")
+    if top_conf := config.get(df.CONF_TOP_LAYER):
+        init.extend(await set_obj_properties(top_layer, top_conf))
+        if widgets := top_conf.get(df.CONF_WIDGETS):
+            for w in widgets:
+                lv_w_type, w_cnfig = next(iter(w.items()))
+                ext_init = await widget_to_code(w_cnfig, lv_w_type, top_layer.obj)
+                init.extend(ext_init)
+    if bottom_conf := config.get(df.CONF_BOTTOM_LAYER):
+        init.extend(await set_obj_properties(bottom_layer, bottom_conf))
+        if widgets := bottom_conf.get(df.CONF_WIDGETS):
+            for w in widgets:
+                lv_w_type, w_cnfig = next(iter(w.items()))
+                ext_init = await widget_to_code(w_cnfig, lv_w_type, bottom_layer.obj)
+                init.extend(ext_init)
     return init
 
 
@@ -490,20 +506,17 @@ def warning_checks(config):
 
 async def to_code(config):
     warning_checks(config)
-    cg.add_library("lvgl/lvgl", "8.4.0")
+    cg.add_library("lvgl/lvgl", "9.1")
     CORE.add_define("USE_LVGL")
     # suppress default enabling of extra widgets
     add_define("LV_CONF_SKIP", "1")
+    add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")
+    add_define("LV_API_MAP_V8_H", "1")
     add_define("_LV_KCONFIG_PRESENT")
     # Always enable - lots of things use it.
     add_define("LV_DRAW_COMPLEX", "1")
     add_define("_STRINGIFY(x)", "_STRINGIFY_(x)")
     add_define("_STRINGIFY_(x)", "#x")
-    add_define("LV_TICK_CUSTOM", "1")
-    add_define(
-        "LV_TICK_CUSTOM_INCLUDE", "_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)"
-    )
-    add_define("LV_TICK_CUSTOM_SYS_TIME_EXPR", "(lv_millis())")
     add_define("LV_MEM_CUSTOM", "1")
     add_define("LV_MEM_CUSTOM_ALLOC", "lv_custom_mem_alloc")
     add_define("LV_MEM_CUSTOM_FREE", "lv_custom_mem_free")
@@ -512,6 +525,9 @@ async def to_code(config):
         "LV_MEM_CUSTOM_INCLUDE", "_STRINGIFY(esphome/components/lvgl/lvgl_hal.h)"
     )
 
+    add_define("LV_LOG_TRACE_TIMER", "1")
+    add_define("LV_LOG_TRACE_DISP_REFR", "1")
+    add_define("LV_USE_LOG", "1")
     add_define("LV_LOG_LEVEL", f"LV_LOG_LEVEL_{config[df.CONF_LOG_LEVEL]}")
     for font in helpers.lv_fonts_used:
         add_define(f"LV_FONT_{font.upper()}")
@@ -521,11 +537,6 @@ async def to_code(config):
     if lv.is_esphome_font(default_font):
         add_define("LV_FONT_CUSTOM_DECLARE", f"LV_FONT_DECLARE(*{default_font})")
 
-    if config[df.CONF_COLOR_DEPTH] == 16:
-        add_define(
-            "LV_COLOR_16_SWAP",
-            "1" if config[df.CONF_BYTE_ORDER] == "big_endian" else "0",
-        )
     add_define(
         "LV_COLOR_CHROMA_KEY",
         await lv.lv_color.process(config[df.CONF_TRANSPARENCY_KEY]),
@@ -548,6 +559,9 @@ async def to_code(config):
         frac = 4
     else:
         frac = 8
+    if config[df.CONF_COLOR_DEPTH] == 16:
+        add_define("LV_USE_DRAW_SW", "1")
+        cg.add(lv_component.set_big_endian(config[df.CONF_BYTE_ORDER] == "big_endian"))
     cg.add(lv_component.set_buffer_frac(int(frac)))
     cg.add(lv_component.set_full_refresh(config[df.CONF_FULL_REFRESH]))
     cgen("lv_init()")
@@ -568,18 +582,6 @@ async def to_code(config):
     if msgboxes := config.get(df.CONF_MSGBOXES):
         for msgbox in msgboxes:
             init.extend(await msgbox_to_code(msgbox))
-    if top_conf := config.get(df.CONF_TOP_LAYER):
-        top_layer = Widget(
-            "lv_disp_get_layer_top(lv_disp)",
-            obj_spec,
-            obj="lv_disp_get_layer_top(lv_disp)",
-        )
-        init.extend(await set_obj_properties(top_layer, top_conf))
-        if widgets := top_conf.get(df.CONF_WIDGETS):
-            for w in widgets:
-                lv_w_type, w_cnfig = next(iter(w.items()))
-                ext_init = await widget_to_code(w_cnfig, lv_w_type, top_layer.obj)
-                init.extend(ext_init)
     if widgets := config.get(df.CONF_WIDGETS):
         init.extend(await set_obj_properties(lv_scr_act, config))
         for w in widgets:
@@ -603,7 +605,7 @@ async def to_code(config):
             trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], lv_component, templ)
             await automation.build_automation(trigger, [], conf)
 
-    init.extend(await disp_update("lv_disp", config))
+    init.extend(await disp_update(config))
     await add_init_lambda(lv_component, init)
     await generate_triggers(lv_component)
     for comp in helpers.lvgl_components_required:
@@ -618,13 +620,6 @@ async def to_code(config):
 def indicator_update_schema(base):
     return base.extend({cv.Required(CONF_ID): cv.use_id(ty.lv_meter_indicator_t)})
 
-
-DISP_BG_SCHEMA = cv.Schema(
-    {
-        cv.Optional(df.CONF_DISP_BG_IMAGE): cv.use_id(Image_),
-        cv.Optional(df.CONF_DISP_BG_COLOR): lv.lv_color,
-    }
-)
 
 CONFIG_SCHEMA = (
     cv.polling_component_schema("1s")
@@ -723,13 +718,13 @@ CONFIG_SCHEMA = (
             cv.Optional(df.CONF_MSGBOXES): cv.ensure_list(MSGBOX_SCHEMA),
             cv.Optional(df.CONF_PAGE_WRAP, default=True): lv.lv_bool,
             cv.Optional(df.CONF_TOP_LAYER): container_schema(df.CONF_OBJ),
+            cv.Optional(df.CONF_BOTTOM_LAYER): container_schema(df.CONF_OBJ),
             cv.Optional(df.CONF_TRANSPARENCY_KEY, default=0x000400): lv.lv_color,
             cv.Optional(df.CONF_THEME): cv.Schema(
                 {cv.Optional(w): obj_schema(w) for w in df.WIDGET_PARTS}
             ),
         }
     )
-    .extend(DISP_BG_SCHEMA)
 ).add_extra(cv.has_at_least_one_key(CONF_PAGES, df.CONF_WIDGETS))
 
 
@@ -740,16 +735,18 @@ def tab_obj_creator(parent: Widget, config: dict):
 @automation.register_action(
     "lvgl.update",
     ty.LvglAction,
-    DISP_BG_SCHEMA.extend(
+    cv.Schema(
         {
             cv.GenerateID(): cv.use_id(ty.LvglComponent),
+            cv.Optional(df.CONF_TOP_LAYER): container_schema(df.CONF_OBJ),
+            cv.Optional(df.CONF_BOTTOM_LAYER): container_schema(df.CONF_OBJ),
         }
     ),
 )
 async def lvgl_update_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg)
     await cg.register_parented(var, config[CONF_ID])
-    action = await disp_update("lvgl_comp->get_disp()", config)
+    action = await disp_update(config)
     lamb = await cg.process_lambda(
         Lambda(join_lines(action, action_id)),
         [(ty.LvglComponentPtr, "lvgl_comp")],

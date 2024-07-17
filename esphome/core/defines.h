@@ -42,6 +42,9 @@
 #define LVGL_USES_COLOR
 #define LVGL_USES_FONT
 #define LVGL_USES_IMAGE
+#define LV_USE_TOUCHSCREEN 1
+#define LV_USE_KEY_LISTENER 1
+#define LV_USE_LOG 1
 #define USE_MDNS
 #define USE_MEDIA_PLAYER
 #define USE_MQTT

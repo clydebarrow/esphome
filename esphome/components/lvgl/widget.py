@@ -71,7 +71,7 @@ class WidgetType:
 
 class LvScrActType(WidgetType):
     def __init__(self):
-        super().__init__("lv_scr_act()")
+        super().__init__("lv_screen_active()")
 
     def obj_creator(self, parent: MockObjClass, config: dict):
         return []

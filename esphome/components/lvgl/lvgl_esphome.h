@@ -27,7 +27,7 @@
 #ifdef LVGL_USES_FONT
 #include "esphome/components/font/font.h"
 #endif
-#if LV_USE_TOUCHSCREEN
+#ifdef LV_USE_TOUCHSCREEN
 #include "esphome/components/touchscreen/touchscreen.h"
 #endif
 namespace esphome {
@@ -49,38 +49,39 @@ static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BIT
 static lv_img_dsc_t *lv_img_from(image::Image *src, lv_img_dsc_t *img_dsc = nullptr) {
   if (img_dsc == nullptr)
     img_dsc = new lv_img_dsc_t();  // NOLINT
-  img_dsc->header.always_zero = 0;
-  img_dsc->header.reserved = 0;
+  img_dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
   img_dsc->header.w = src->get_width();
   img_dsc->header.h = src->get_height();
   img_dsc->data = src->get_data_start();
   img_dsc->data_size = image::image_type_to_width_stride(img_dsc->header.w * img_dsc->header.h, src->get_type());
   switch (src->get_type()) {
     case image::IMAGE_TYPE_BINARY:
-      img_dsc->header.cf = LV_IMG_CF_ALPHA_1BIT;
+      img_dsc->header.cf = LV_COLOR_FORMAT_A1;
       break;
 
     case image::IMAGE_TYPE_GRAYSCALE:
-      img_dsc->header.cf = LV_IMG_CF_ALPHA_8BIT;
+      img_dsc->header.cf = LV_COLOR_FORMAT_A8;
       break;
 
     case image::IMAGE_TYPE_RGB24:
-      img_dsc->header.cf = LV_IMG_CF_RGB888;
+      img_dsc->header.cf = LV_COLOR_FORMAT_RGB888;
       break;
 
     case image::IMAGE_TYPE_RGB565:
+      if (src->has_transparency())
+        esph_log_e(TAG, "Chroma keyed image not supported");
 #if LV_COLOR_DEPTH == 16
-      img_dsc->header.cf = src->has_transparency() ? LV_IMG_CF_TRUE_COLOR_CHROMA_KEYED : LV_IMG_CF_TRUE_COLOR;
+      img_dsc->header.cf = LV_COLOR_FORMAT_NATIVE;
 #else
-      img_dsc->header.cf = LV_IMG_CF_RGB565;
+      img_dsc->header.cf = LV_COLOR_FORMAT_RGB565;
 #endif
       break;
 
     case image::IMAGE_TYPE_RGBA:
 #if LV_COLOR_DEPTH == 32
-      img_dsc->header.cf = LV_IMG_CF_TRUE_COLOR;
+      img_dsc->header.cf = LV_COLOR_FORMAT_NATIVE;
 #else
-      img_dsc->header.cf = LV_IMG_CF_RGBA8888;
+      img_dsc->header.cf = LV_COLOR_FORMAT_ARGB8888;
 #endif
       break;
   }
@@ -233,12 +234,12 @@ class FontEngine {
     dsc->box_w = gd->width;
     dsc->box_h = gd->height;
     dsc->is_placeholder = 0;
-    dsc->bpp = fe->bpp_;
+    dsc->format = fe->bpp_;
     return true;
   }
 
-  static const uint8_t *get_glyph_bitmap(const lv_font_t *font, uint32_t unicode_letter) {
-    FontEngine *fe = (FontEngine *) font->dsc;
+  static const void *get_glyph_bitmap(lv_font_glyph_dsc_t *dsc, uint32_t unicode_letter, lv_draw_buf_t *) {
+    FontEngine *fe = (FontEngine *) dsc->resolved_font->dsc;
     const font::GlyphData *gd = fe->get_glyph_data(unicode_letter);
     if (gd == nullptr)
       return nullptr;
@@ -291,7 +292,7 @@ class FontEngine {
 
 static void lv_animimg_stop(lv_obj_t *obj) {
   lv_animimg_t *animg = (lv_animimg_t *) obj;
-  int32_t duration = animg->anim.time;
+  int32_t duration = animg->anim.duration;
   lv_animimg_set_duration(obj, 0);
   lv_animimg_start(obj);
   lv_animimg_set_duration(obj, duration);
@@ -300,15 +301,20 @@ static void lv_animimg_stop(lv_obj_t *obj) {
 
 class LvglComponent : public PollingComponent {
  public:
-  static void static_flush_cb(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
-    reinterpret_cast<LvglComponent *>(disp_drv->user_data)->flush_cb_(disp_drv, area, color_p);
+  static void static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *px_map) {
+    reinterpret_cast<LvglComponent *>(lv_display_get_user_data(disp_drv))->flush_cb_(disp_drv, area, px_map);
   }
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
-  static void log_cb(const char *buf) {
-    esp_log_printf_(ESPHOME_LOG_LEVEL_INFO, TAG, 0, "%.*s", (int) strlen(buf) - 1, buf);
+  constexpr const static uint8_t log_levels[] = {
+      ESPHOME_LOG_LEVEL_VERBOSE, ESPHOME_LOG_LEVEL_INFO,   ESPHOME_LOG_LEVEL_WARN,
+      ESPHOME_LOG_LEVEL_ERROR,   ESPHOME_LOG_LEVEL_CONFIG, ESPHOME_LOG_LEVEL_NONE,
+  };
+  static void log_cb(lv_log_level_t level, const char *buf) {
+    esp_log_printf_(ESPHOME_LOG_LEVEL_DEBUG /*log_levels[level]*/, TAG, 0, "%.*s", (int) strlen(buf) - 1, buf);
   }
-  static void rounder_cb(lv_disp_drv_t *disp_drv, lv_area_t *area) {
+  static void rounder_cb(lv_event_t *e) {
+    lv_area_t *area = (lv_area_t *) lv_event_get_param(e);
     // make sure all coordinates are even
     if (area->x1 & 1)
       area->x1--;
@@ -318,57 +324,57 @@ class LvglComponent : public PollingComponent {
       area->y1--;
     if (!(area->y2 & 1))
       area->y2++;
+    esph_log_v(TAG, "Rounder returns");
   }
 
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
+    lv_tick_set_cb([] {
+      esph_log_d(TAG, "tick cb millis=%u", millis());
+      return millis();
+    });
 #if LV_USE_LOG
     lv_log_register_print_cb(log_cb);
 #endif
     auto display = this->displays_[0];
-    size_t buffer_pixels = display->get_width() * display->get_height() / this->buffer_frac_;
+    this->hor_res_ = display->get_native_width();
+    this->ver_res_ = display->get_native_height();
+    size_t buffer_pixels = this->hor_res_ * this->ver_res_ / this->buffer_frac_;
     auto buf_bytes = buffer_pixels * LV_COLOR_DEPTH / 8;
-    auto buf = lv_custom_mem_alloc(buf_bytes);
-    if (buf == nullptr) {
+    this->draw_buf_ = (uint8_t *) lv_custom_mem_alloc(buf_bytes);
+    if (this->draw_buf_ == nullptr) {
       esph_log_e(TAG, "Malloc failed to allocate %zu bytes", buf_bytes);
       this->mark_failed();
       this->status_set_error("Memory allocation failure");
       return;
     }
-    lv_disp_draw_buf_init(&this->draw_buf_, buf, nullptr, buffer_pixels);
-    lv_disp_drv_init(&this->disp_drv_);
-    this->disp_drv_.draw_buf = &this->draw_buf_;
-    this->disp_drv_.user_data = this;
-    this->disp_drv_.full_refresh = this->full_refresh_;
-    this->disp_drv_.flush_cb = static_flush_cb;
-    this->disp_drv_.rounder_cb = rounder_cb;
+    this->disp_ = lv_display_create(this->hor_res_, this->ver_res_);
+    lv_display_set_color_format(this->disp_, LV_COLOR_FORMAT_RGB565);
     switch (display->get_rotation()) {
       case display::DISPLAY_ROTATION_0_DEGREES:
         break;
       case display::DISPLAY_ROTATION_90_DEGREES:
-        this->disp_drv_.sw_rotate = true;
-        this->disp_drv_.rotated = LV_DISP_ROT_90;
-        break;
-      case display::DISPLAY_ROTATION_180_DEGREES:
-        this->disp_drv_.sw_rotate = true;
-        this->disp_drv_.rotated = LV_DISP_ROT_180;
+        lv_display_set_rotation(this->disp_, LV_DISPLAY_ROTATION_90);
         break;
       case display::DISPLAY_ROTATION_270_DEGREES:
-        this->disp_drv_.sw_rotate = true;
-        this->disp_drv_.rotated = LV_DISP_ROT_270;
+        lv_display_set_rotation(this->disp_, LV_DISPLAY_ROTATION_270);
+        break;
+      case display::DISPLAY_ROTATION_180_DEGREES:
+        lv_display_set_rotation(this->disp_, LV_DISPLAY_ROTATION_180);
         break;
     }
     display->set_rotation(display::DISPLAY_ROTATION_0_DEGREES);
-    this->disp_drv_.hor_res = display->get_width();
-    this->disp_drv_.ver_res = display->get_height();
-    esph_log_d(TAG, "sw_rotate = %d, rotated=%d", this->disp_drv_.sw_rotate, this->disp_drv_.rotated);
-    this->disp_ = lv_disp_drv_register(&this->disp_drv_);
+    lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, buf_bytes,
+                           this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
+    lv_display_set_flush_cb(this->disp_, static_flush_cb);
+    lv_display_set_user_data(this->disp_, this);
+    lv_display_add_event_cb(this->disp_, rounder_cb, LV_EVENT_INVALIDATE_AREA, nullptr);
     this->custom_change_event_ = (lv_event_code_t) lv_event_register_id();
     for (auto v : this->init_lambdas_)
       v(this->disp_);
     this->show_page(0, LV_SCR_LOAD_ANIM_NONE, 0);
     // this->display_->set_writer([](display::Display &d) { lv_timer_handler(); });
-    lv_disp_trig_activity(this->disp_);
+    lv_display_trigger_activity(this->disp_);
     esph_log_config(TAG, "LVGL Setup complete");
   }
 
@@ -377,7 +383,7 @@ class LvglComponent : public PollingComponent {
     if (this->paused_) {
       return;
     }
-    this->idle_callbacks_.call(lv_disp_get_inactive_time(this->disp_));
+    this->idle_callbacks_.call(lv_display_get_inactive_time(this->disp_));
   }
 
   void loop() override {
@@ -385,7 +391,9 @@ class LvglComponent : public PollingComponent {
       if (this->show_snow_)
         this->write_random();
     }
+    esph_log_v(TAG, "running handler");
     lv_timer_handler_run_in_period(5);
+    esph_log_v(TAG, "timer handler returns");
   }
 
   void add_on_idle_callback(std::function<void(uint32_t)> &&callback) {
@@ -393,7 +401,7 @@ class LvglComponent : public PollingComponent {
   }
 
   void add_display(display::Display *display) { this->displays_.push_back(display); }
-  void add_init_lambda(std::function<void(lv_disp_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
+  void add_init_lambda(std::function<void(lv_display_t *)> lamb) { this->init_lambdas_.push_back(lamb); }
   void dump_config() override { esph_log_config(TAG, "LVGL:"); }
   lv_event_code_t get_custom_change_event() { return this->custom_change_event_; }
   void set_full_refresh(bool full_refresh) { this->full_refresh_ = full_refresh; }
@@ -401,23 +409,24 @@ class LvglComponent : public PollingComponent {
     this->paused_ = paused;
     this->show_snow_ = show_snow;
     this->snow_line_ = 0;
-    if (!paused && lv_scr_act() != nullptr) {
-      lv_disp_trig_activity(this->disp_);  // resets the inactivity time
-      lv_obj_invalidate(lv_scr_act());
+    if (!paused && lv_screen_active() != nullptr) {
+      lv_display_trigger_activity(this->disp_);  // resets the inactivity time
+      lv_obj_invalidate(lv_screen_active());
     }
   }
+  void set_big_endian(bool endian) { this->big_endian_ = endian; }
   bool is_paused() { return this->paused_; }
   void set_page_wrap(bool page_wrap) { this->page_wrap_ = page_wrap; }
-  bool is_idle(uint32_t idle_ms) { return lv_disp_get_inactive_time(this->disp_) > idle_ms; }
+  bool is_idle(uint32_t idle_ms) { return lv_display_get_inactive_time(this->disp_) > idle_ms; }
   void set_buffer_frac(size_t frac) { this->buffer_frac_ = frac; }
   void add_page(LvPageType *page) { this->pages_.push_back(page); }
-  void show_page(size_t index, lv_scr_load_anim_t anim, uint32_t time) {
+  void show_page(size_t index, lv_screen_load_anim_t anim, uint32_t time) {
     if (index >= this->pages_.size())
       return;
     this->page_index_ = index;
-    lv_scr_load_anim(this->pages_[index]->page, anim, time, 0, false);
+    lv_screen_load_anim(this->pages_[index]->page, anim, time, 0, false);
   }
-  void show_next_page(bool reverse, lv_scr_load_anim_t anim, uint32_t time) {
+  void show_next_page(bool reverse, lv_screen_load_anim_t anim, uint32_t time) {
     if (this->pages_.empty())
       return;
     int next = this->page_index_;
@@ -441,62 +450,68 @@ class LvglComponent : public PollingComponent {
   }
 
   ssize_t get_page_index() { return this->page_index_; }
-  lv_disp_t *get_disp() { return this->disp_; }
+  lv_display_t *get_disp() { return this->disp_; }
 
  protected:
   void write_random() {
     // length of 2 lines in 32 bit units
     // we write 2 lines for the benefit of displays that won't write one line at a time.
-    size_t line_len = this->disp_drv_.hor_res * LV_COLOR_DEPTH / 8 / 4 * 2;
+    size_t line_len = this->hor_res_ * LV_COLOR_DEPTH / 8 / 4 * 2;
     for (size_t i = 0; i != line_len; i++) {
-      ((uint32_t *) (this->draw_buf_.buf1))[i] = random_uint32();
+      ((uint32_t *) (this->draw_buf_))[i] = random_uint32();
     }
     lv_area_t area;
     area.x1 = 0;
-    area.x2 = this->disp_drv_.hor_res - 1;
-    if (this->snow_line_ == this->disp_drv_.ver_res / 2) {
-      area.y1 = random_uint32() % (this->disp_drv_.ver_res / 2) * 2;
+    area.x2 = this->hor_res_ - 1;
+    if (this->snow_line_ == this->ver_res_ / 2) {
+      area.y1 = random_uint32() % (this->ver_res_ / 2) * 2;
     } else {
       area.y1 = this->snow_line_++ * 2;
     }
     // write 2 lines
     area.y2 = area.y1 + 1;
-    this->draw_buffer_(&area, (const uint8_t *) this->draw_buf_.buf1);
+    this->draw_buffer_(&area, this->draw_buf_);
   }
 
-  void draw_buffer_(const lv_area_t *area, const uint8_t *ptr) {
+  void draw_buffer_(const lv_area_t *area, uint8_t *ptr) {
+#if LV_COLOR_DEPTH == 16
+    if (this->big_endian_)
+      lv_draw_sw_rgb565_swap(ptr, lv_area_get_size(area));
+#endif
     for (auto display : this->displays_) {
       display->draw_pixels_at(area->x1, area->y1, lv_area_get_width(area), lv_area_get_height(area), ptr,
-                              display::COLOR_ORDER_RGB, LV_BITNESS, LV_COLOR_16_SWAP);
+                              display::COLOR_ORDER_RGB, LV_BITNESS, this->big_endian_);
     }
   }
 
-  void flush_cb_(lv_disp_drv_t *disp_drv, const lv_area_t *area, lv_color_t *color_p) {
+  void flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *px_map) {
     if (!this->paused_) {
       auto now = millis();
-      this->draw_buffer_(area, (const uint8_t *) color_p);
-      esph_log_v(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
+      this->draw_buffer_(area, px_map);
+      esph_log_d(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
                  lv_area_get_height(area), (int) (millis() - now));
     }
-    lv_disp_flush_ready(disp_drv);
+    lv_display_flush_ready(disp_drv);
   }
 
   std::vector<display::Display *> displays_{};
-  lv_disp_draw_buf_t draw_buf_{};
-  lv_disp_drv_t disp_drv_{};
-  lv_disp_t *disp_{};
+  lv_display_t *disp_{};
   lv_event_code_t custom_change_event_{};
 
   CallbackManager<void(uint32_t)> idle_callbacks_{};
-  std::vector<std::function<void(lv_disp_t *)>> init_lambdas_;
+  std::vector<std::function<void(lv_display_t *)>> init_lambdas_;
   std::vector<LvPageType *> pages_{};
   bool page_wrap_{true};
   ssize_t page_index_{-1};
   size_t buffer_frac_{1};
   bool paused_{};
   bool show_snow_{};
+  bool big_endian_{};
   uint32_t snow_line_{};
   bool full_refresh_{};
+  uint8_t *draw_buf_{};
+  uint32_t hor_res_{};
+  uint32_t ver_res_{};
 };
 
 class IdleTrigger : public Trigger<> {
@@ -538,17 +553,29 @@ template<typename... Ts> class LvglCondition : public Condition<Ts...>, public P
   std::function<bool(LvglComponent *)> condition_lambda_{};
 };
 
-#if LV_USE_TOUCHSCREEN
-class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglComponent> {
+class LVKeyListener {
  public:
-  LVTouchListener(uint32_t long_press_time, uint32_t long_press_repeat_time) {
-    lv_indev_drv_init(&this->drv);
-    this->drv.long_press_repeat_time = long_press_repeat_time;
-    this->drv.long_press_time = long_press_time;
-    this->drv.type = LV_INDEV_TYPE_POINTER;
-    this->drv.user_data = this;
-    this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {
-      LVTouchListener *l = (LVTouchListener *) d->user_data;
+  LVKeyListener(uint32_t long_press_time, uint32_t long_press_repeat_time)
+      : long_press_time_(long_press_time), long_press_repeat_time_(long_press_repeat_time) {}
+
+ protected:
+  uint32_t long_press_time_;
+  uint32_t long_press_repeat_time_;
+};
+
+#ifdef LV_USE_TOUCHSCREEN
+class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglComponent>, public LVKeyListener {
+ public:
+  LVTouchListener(uint32_t long_press_time, uint32_t long_press_repeat_time)
+      : LVKeyListener(long_press_time, long_press_repeat_time) {}
+  void setup() {
+    this->drv = lv_indev_create();
+    lv_indev_set_type(this->drv, LV_INDEV_TYPE_POINTER);
+    lv_indev_set_user_data(this->drv, this);
+    // this->drv->long_press_repeat_time = long_press_repeat_time;
+    // this->drv.long_press_time = long_press_time;
+    lv_indev_set_read_cb(this->drv, [](lv_indev_t *d, lv_indev_data_t *data) {
+      LVTouchListener *l = (LVTouchListener *) lv_indev_get_user_data(d);
       if (l->touch_pressed_) {
         data->point.x = l->touch_point_.x;
         data->point.y = l->touch_point_.y;
@@ -556,7 +583,7 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
       } else {
         data->state = LV_INDEV_STATE_RELEASED;
       }
-    };
+    });
   }
   void update(const touchscreen::TouchPoints_t &tpoints) override {
     this->touch_pressed_ = !this->parent_->is_paused() && !tpoints.empty();
@@ -564,9 +591,7 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
       this->touch_point_ = tpoints[0];
   }
   void release() override { touch_pressed_ = false; }
-  void touch_cb(lv_indev_data_t *data) {}
-
-  lv_indev_drv_t drv{};
+  lv_indev_t *drv{};
 
  protected:
   touchscreen::TouchPoint touch_point_{};
@@ -574,17 +599,19 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
 };
 #endif
 
-#if LV_USE_KEY_LISTENER
-class LVEncoderListener : public Parented<LvglComponent> {
+#ifdef LV_USE_KEY_LISTENER
+class LVEncoderListener : public Parented<LvglComponent>, public LVKeyListener {
  public:
-  LVEncoderListener(lv_indev_type_t type, uint16_t lpt, uint16_t lprt) {
-    lv_indev_drv_init(&this->drv);
-    this->drv.type = type;
-    this->drv.user_data = this;
-    this->drv.long_press_time = lpt;
-    this->drv.long_press_repeat_time = lprt;
-    this->drv.read_cb = [](lv_indev_drv_t *d, lv_indev_data_t *data) {
-      auto *l = (LVEncoderListener *) d->user_data;
+  LVEncoderListener(lv_indev_type_t type, uint32_t long_press_time, uint32_t long_press_repeat_time)
+      : LVKeyListener(long_press_time, long_press_repeat_time), type_(type) {}
+  void setup() {
+    this->drv = lv_indev_create();
+    lv_indev_set_type(this->drv, this->type_);
+    lv_indev_set_user_data(this->drv, this);
+    // this->drv.long_press_time = lpt;
+    // this->drv.long_press_repeat_time = lprt;
+    this->drv.read_cb = [](lv_indev_t *d, lv_indev_data_t *data) {
+      auto *l = (LVEncoderListener *) lv_indev_get_user_data(d);
       data->state = l->pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
       data->key = l->key_;
       data->enc_diff = l->count_ - l->last_count_;
@@ -605,9 +632,10 @@ class LVEncoderListener : public Parented<LvglComponent> {
       this->count_ = count;
   }
 
-  lv_indev_drv_t drv{};
+  lv_indev_t *drv{};
 
  protected:
+  lv_indev_type_t type_;
   bool pressed_{};
   int32_t count_{};
   int32_t last_count_{};
