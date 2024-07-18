@@ -18,6 +18,7 @@
 #include "esphome/core/helpers.h"
 #include "lvgl_hal.h"
 #include <lvgl.h>
+#include <src/indev/lv_indev_private.h>
 #include <vector>
 #include <map>
 
@@ -552,6 +553,15 @@ class LVKeyListener {
  public:
   LVKeyListener(uint32_t long_press_time, uint32_t long_press_repeat_time)
       : long_press_time_(long_press_time), long_press_repeat_time_(long_press_repeat_time) {}
+  virtual void setup(lv_display_t *lv_disp) {
+    this->drv = lv_indev_create();
+    lv_indev_set_user_data(this->drv, this);
+    lv_indev_set_display(this->drv, lv_disp);
+    this->drv->long_press_repeat_time = this->long_press_repeat_time_;
+    this->drv->long_press_time = this->long_press_time_;
+  }
+
+  lv_indev_t *drv{};
 
  protected:
   uint32_t long_press_time_;
@@ -563,13 +573,9 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
  public:
   LVTouchListener(uint32_t long_press_time, uint32_t long_press_repeat_time)
       : LVKeyListener(long_press_time, long_press_repeat_time) {}
-  void setup(lv_display_t *lv_disp) {
-    this->drv = lv_indev_create();
+  void setup(lv_display_t *lv_disp) override {
+    LVKeyListener::setup(lv_disp);
     lv_indev_set_type(this->drv, LV_INDEV_TYPE_POINTER);
-    lv_indev_set_user_data(this->drv, this);
-    lv_indev_set_display(this->drv, lv_disp);
-    // this->drv->long_press_repeat_time = long_press_repeat_time;
-    // this->drv.long_press_time = long_press_time;
     lv_indev_set_read_cb(this->drv, [](lv_indev_t *d, lv_indev_data_t *data) {
       LVTouchListener *l = (LVTouchListener *) lv_indev_get_user_data(d);
       if (l->touch_pressed_) {
@@ -587,7 +593,6 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
       this->touch_point_ = tpoints[0];
   }
   void release() override { touch_pressed_ = false; }
-  lv_indev_t *drv{};
 
  protected:
   touchscreen::TouchPoint touch_point_{};
@@ -601,12 +606,8 @@ class LVEncoderListener : public Parented<LvglComponent>, public LVKeyListener {
   LVEncoderListener(lv_indev_type_t type, uint32_t long_press_time, uint32_t long_press_repeat_time)
       : LVKeyListener(long_press_time, long_press_repeat_time), type_(type) {}
   void setup(lv_display_t *lv_disp) {
-    this->drv = lv_indev_create();
+    LVKeyListener::setup(lv_disp);
     lv_indev_set_type(this->drv, this->type_);
-    lv_indev_set_user_data(this->drv, this);
-    lv_indev_set_display(this->drv, lv_disp);
-    // this->drv.long_press_time = lpt;
-    // this->drv.long_press_repeat_time = lprt;
     lv_indev_set_read_cb(this->drv, [](lv_indev_t *d, lv_indev_data_t *data) {
       auto *l = (LVEncoderListener *) lv_indev_get_user_data(d);
       data->state = l->pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
@@ -628,8 +629,6 @@ class LVEncoderListener : public Parented<LvglComponent>, public LVKeyListener {
     if (!this->parent_->is_paused())
       this->count_ = count;
   }
-
-  lv_indev_t *drv{};
 
  protected:
   lv_indev_type_t type_;

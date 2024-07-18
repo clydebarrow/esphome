@@ -313,12 +313,18 @@ async def msgbox_to_code(conf):
                     lv_obj_set_style_pad_all({outer}, 0, 0);
                     lv_obj_set_style_radius({outer}, 0, 0);
                     lv_obj_add_flag({outer}, LV_OBJ_FLAG_HIDDEN);
-                    {msgbox} = lv_msgbox_create({outer}, {title}, {text}, {text_id}, {close_button});
+                    {msgbox} = lv_msgbox_create({outer});
+                    {text}, {text_id}
                     lv_obj_set_style_align({msgbox}, LV_ALIGN_CENTER, 0);
                     {btnm} = lv_msgbox_get_btns({msgbox});
                 """
     )
+    if title:
+        init.append(f"lv_msgbox_add_title({msgbox}, {title})")
+    if text:
+        init.append(f"lv_msgbox_add_text({msgbox}, {text})")
     if close_button:
+        init.append(f"lv_msgbox_add_close_button({msgbox}, {close_button})")
         init.append(
             f"""lv_obj_remove_event_cb(lv_msgbox_get_close_btn({msgbox}), nullptr);
                         lv_obj_add_event_cb(lv_msgbox_get_close_btn({msgbox}), [] (lv_event_t *ev) {{
