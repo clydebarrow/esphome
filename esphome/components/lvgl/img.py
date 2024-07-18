@@ -2,7 +2,7 @@ import esphome.config_validation as cv
 from esphome.components.image import Image_
 from esphome.const import CONF_MODE, CONF_ANGLE
 from .defines import (
-    CONF_IMG,
+    CONF_IMAGE,
     CONF_SRC,
     CONF_PIVOT_X,
     CONF_OFFSET_X,
@@ -32,7 +32,7 @@ IMG_SCHEMA = {
 
 class ImgType(WidgetType):
     def __init__(self):
-        super().__init__(CONF_IMG, IMG_SCHEMA)
+        super().__init__(CONF_IMAGE, IMG_SCHEMA)
 
     @property
     def w_type(self):

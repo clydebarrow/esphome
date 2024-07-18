@@ -7,12 +7,12 @@ from .defines import (
     CONF_OBJ,
     CONF_ANIMIMG,
     CONF_ARC,
-    CONF_BTN,
+    CONF_BUTTON,
     CONF_BAR,
-    CONF_BTNMATRIX,
+    CONF_BUTTONMATRIX,
     CONF_CHECKBOX,
     CONF_DROPDOWN,
-    CONF_IMG,
+    CONF_IMAGE,
     CONF_KEYBOARD,
     CONF_LABEL,
     CONF_LINE,
@@ -33,7 +33,7 @@ uint16_t_ptr = cg.uint16.operator("ptr")
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
 char_ptr = cg.global_ns.namespace("char").operator("ptr")
 void_ptr = cg.void.operator("ptr")
-lv_coord_t = cg.global_ns.namespace("lv_coord_t")
+lv_coord_t = cg.int32
 lv_event_code_t = cg.global_ns.enum("lv_event_code_t")
 lv_indev_type_t = cg.global_ns.enum("lv_indev_type_t")
 LvglComponent = lvgl_ns.class_("LvglComponent", cg.PollingComponent)
@@ -129,7 +129,7 @@ lv_dropdown_list_t = LvType("lv_dropdown_list_t")
 lv_menu_t = LvType("lv_menu_t")
 lv_menu_entry_t = LvType("lv_obj_t")
 lv_meter_t = LvType("lv_meter_t")
-lv_btn_t = LvBoolean("lv_btn_t")
+lv_button_t = LvBoolean("lv_btn_t")
 lv_checkbox_t = LvBoolean("lv_checkbox_t")
 lv_line_t = LvType("lv_line_t")
 lv_animimg_t = LvType("lv_animimg_t")
@@ -146,7 +146,7 @@ lv_roller_t = LvSelect("lv_roller_t")
 lv_switch_t = LvBoolean("lv_switch_t")
 lv_table_t = LvType("lv_table_t")
 lv_chart_t = LvType("lv_chart_t")
-lv_img_dsc_t = LvType("lv_img_dsc_t")
+lv_img_dsc_t = LvType("lv_image_dsc_t")
 lv_img_t = LvType("LvImgType", parents=(LvCompound,))
 lv_btnmatrix_t = LvType(
     "LvBtnmatrixType",
@@ -194,12 +194,12 @@ lv_tick_style_t = lv_obj_t
 LV_TYPES = {
     CONF_ANIMIMG: lv_animimg_t,
     CONF_ARC: lv_arc_t,
-    CONF_BTN: lv_btn_t,
+    CONF_BUTTON: lv_button_t,
     CONF_BAR: lv_bar_t,
-    CONF_BTNMATRIX: lv_btnmatrix_t,
+    CONF_BUTTONMATRIX: lv_btnmatrix_t,
     CONF_CHECKBOX: lv_checkbox_t,
     CONF_DROPDOWN: lv_dropdown_t,
-    CONF_IMG: lv_img_t,
+    CONF_IMAGE: lv_img_t,
     CONF_KEYBOARD: lv_keyboard_t,
     CONF_LABEL: lv_label_t,
     CONF_LED: lv_led_t,

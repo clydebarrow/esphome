@@ -20,7 +20,7 @@ from .defines import (
     CONF_ANIMATED,
     CONF_TAB_ID,
     TYPE_FLEX,
-    CONF_BTNMATRIX,
+    CONF_BUTTONMATRIX,
 )
 from .lv_validation import size, lv_int, animated
 from .schemas import container_schema
@@ -59,7 +59,7 @@ class TabviewType(WidgetType):
         return lv_tabview_t
 
     def get_uses(self):
-        return CONF_BTNMATRIX, TYPE_FLEX
+        return CONF_BUTTONMATRIX, TYPE_FLEX
 
     async def to_code(self, w: Widget, config: dict):
         init = []

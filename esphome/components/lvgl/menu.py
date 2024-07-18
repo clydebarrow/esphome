@@ -7,10 +7,10 @@ from .defines import (
     CONF_HEADER_MODE,
     LV_MENU_MODES,
     LvConstant,
-    CONF_BTNMATRIX,
-    CONF_IMG,
+    CONF_BUTTONMATRIX,
+    CONF_IMAGE,
     CONF_LABEL,
-    CONF_BTN,
+    CONF_BUTTON,
 )
 from .schemas import container_schema
 from .types import lv_menu_t
@@ -44,7 +44,7 @@ class MenuType(WidgetType):
         return init
 
     def get_uses(self):
-        return (CONF_BTNMATRIX, CONF_IMG, CONF_LABEL, CONF_BTN)
+        return (CONF_BUTTONMATRIX, CONF_IMAGE, CONF_LABEL, CONF_BUTTON)
 
 
 menu_spec = MenuType()

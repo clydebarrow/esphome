@@ -280,7 +280,7 @@ async def msgbox_to_code(conf):
     :return: code to add to the init lambda
     """
     helpers.add_lv_use(
-        df.TYPE_FLEX, df.CONF_BTNMATRIX, df.CONF_BTN, df.CONF_LABEL, "MSGBOX"
+        df.TYPE_FLEX, df.CONF_BUTTONMATRIX, df.CONF_BUTTON, df.CONF_LABEL, "MSGBOX"
     )
     init = []
     mbid = conf[CONF_ID]
@@ -346,7 +346,7 @@ async def keypads_to_code(var, config):
             enc_conf[CONF_ID], ty.lv_indev_type_t.LV_INDEV_TYPE_KEYPAD, lpt, lprt
         )
         await cg.register_parented(listener, var)
-        init.append(f"{listener}->setup()")
+        init.append(f"{listener}->setup(lv_disp)")
         if group := add_group(enc_conf.get(CONF_GROUP)):
             init.append(f"lv_indev_set_group({listener}->drv, {group})")
         for key in df.LV_KEYS.choices:
@@ -372,7 +372,7 @@ async def rotary_encoders_to_code(var, config):
             enc_conf[CONF_ID], ty.lv_indev_type_t.LV_INDEV_TYPE_ENCODER, lpt, lprt
         )
         await cg.register_parented(listener, var)
-        init.append(f"{listener}->setup()")
+        init.append(f"{listener}->setup(lv_disp)")
         if group := add_group(enc_conf.get(CONF_GROUP)):
             init.append(f"lv_indev_set_group({listener}->drv, {group})")
         if sensor := enc_conf.get(CONF_SENSOR):
@@ -412,7 +412,7 @@ async def touchscreens_to_code(var, config):
         await cg.register_parented(listener, var)
         init.extend(
             [
-                f"{touchscreen}->setup()",
+                f"{listener}->setup(lv_disp)",
                 f"{touchscreen}->register_listener({listener})",
             ]
         )
@@ -528,9 +528,15 @@ async def to_code(config):
     warning_checks(config)
     cg.add_library("lvgl/lvgl", "9.1")
     CORE.add_define("USE_LVGL")
-    # suppress default enabling of extra widgets
     add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")
+    add_define("LV_USE_OS", "LV_OS_NONE")
+    add_define("LV_USE_DRAW_SW")
+    add_define("LV_DRAW_SW_DRAW_UNIT_CNT", "1")
+    add_define("LV_LOG_USE_FILE_LINE")
+
+    # suppress default enabling of extra widgets
     add_define("_LV_KCONFIG_PRESENT")
+    add_define("LV_API_MAP_V8_H", "1")
     # Always enable - lots of things use it.
     add_define("LV_DRAW_COMPLEX", "1")
     add_define("LV_MEM_CUSTOM", "1")
@@ -539,8 +545,9 @@ async def to_code(config):
     add_define("LV_MEM_CUSTOM_REALLOC", "lv_custom_mem_realloc")
     add_define("LV_MEM_CUSTOM_INCLUDE", '"esphome/components/lvgl/lvgl_hal.h"')
 
-    add_define("LV_LOG_TRACE_TIMER", "1")
-    add_define("LV_LOG_TRACE_DISP_REFR", "1")
+    if trace := config.get(df.CONF_TRACE):
+        for key in trace:
+            add_define(key, "1")
     add_define("LV_USE_LOG", "1")
     add_define("LV_LOG_LEVEL", f"LV_LOG_LEVEL_{config[df.CONF_LOG_LEVEL]}")
     for font in helpers.lv_fonts_used:
@@ -556,6 +563,7 @@ async def to_code(config):
         await lv.lv_color.process(config[df.CONF_TRANSPARENCY_KEY]),
     )
     CORE.add_build_flag("-Isrc")
+    CORE.add_build_flag("-g3")
 
     cg.add_global(ty.lvgl_ns.using)
     lv_component = cg.new_Pvariable(config[CONF_ID])
@@ -699,6 +707,7 @@ CONFIG_SCHEMA = (
                     }
                 )
             ),
+            cv.Optional(df.CONF_TRACE): df.LV_TRACE.several_of,
             cv.Optional(df.CONF_COLOR_DEPTH, default=16): cv.one_of(16),
             cv.Optional(df.CONF_DEFAULT_FONT, default="montserrat_14"): lv.font,
             cv.Optional(df.CONF_FULL_REFRESH, default=False): cv.boolean,

@@ -11,7 +11,7 @@ from .defines import (
     CONF_AUTO_START,
     CONF_SRC,
     CONF_LABEL,
-    CONF_IMG,
+    CONF_IMAGE,
 )
 from .lv_validation import lv_repeat_count, lv_milliseconds
 from .types import ObjUpdateAction, lv_animimg_t, void_ptr
@@ -67,7 +67,7 @@ class AnimimgType(WidgetType):
         return init
 
     def get_uses(self):
-        return CONF_IMG, CONF_LABEL
+        return CONF_IMAGE, CONF_LABEL
 
 
 animimg_spec = AnimimgType()

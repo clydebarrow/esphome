@@ -43,7 +43,7 @@ STYLE_PROPS = {
     "arc_color": lv.lv_color,
     "arc_rounded": lv.lv_bool,
     "arc_width": cv.positive_int,
-    "anim_time": lv.lv_milliseconds,
+    "anim_duration": lv.lv_milliseconds,
     "bg_color": lv.lv_color,
     "bg_grad_color": lv.lv_color,
     "bg_dither_mode": df.LvConstant("LV_DITHER_", "NONE", "ORDERED", "ERR_DIFF").one_of,

@@ -5,7 +5,7 @@ from esphome.const import CONF_WIDTH, CONF_ID
 from esphome.core import ID
 from .codegen import action_to_code
 from .defines import (
-    CONF_BTNMATRIX,
+    CONF_BUTTONMATRIX,
     CONF_ONE_CHECKED,
     CONF_ROWS,
     CONF_BUTTONS,
@@ -17,7 +17,7 @@ from .defines import (
 )
 from .lv_validation import lv_bool, key_code
 from .schemas import automation_schema
-from .types import LvBtnmBtn, lv_btn_t, char_ptr, ObjUpdateAction, lv_btnmatrix_t
+from .types import LvBtnmBtn, lv_button_t, char_ptr, ObjUpdateAction, lv_btnmatrix_t
 from .widget import get_widget, MatrixButton, Widget, WidgetType
 
 BTNM_BTN_SCHEMA = cv.Schema(
@@ -30,7 +30,7 @@ BTNM_BTN_SCHEMA = cv.Schema(
             cv.Schema({cv.Optional(k.lower()): cv.boolean for k in BTNMATRIX_CTRLS})
         ),
     }
-).extend(automation_schema(lv_btn_t))
+).extend(automation_schema(lv_button_t))
 
 BTNMATRIX_SCHEMA = cv.Schema(
     {
@@ -58,7 +58,7 @@ class BtnmatrixBtnType(WidgetType):
         return []
 
 
-btn_btn_spec = BtnmatrixBtnType()
+btn_button_spec = BtnmatrixBtnType()
 
 
 async def get_button_data(config, text_id, btnm: Widget):
@@ -78,7 +78,7 @@ async def get_button_data(config, text_id, btnm: Widget):
         for btnconf in row.get(CONF_BUTTONS) or ():
             bid = btnconf[CONF_ID]
             index = len(width_list)
-            MatrixButton.create_button(bid, btnm, btn_btn_spec, btnconf, index)
+            MatrixButton.create_button(bid, btnm, btn_button_spec, btnconf, index)
             btn_id_list.append(cg.new_Pvariable(bid, index))
             if text := btnconf.get(CONF_TEXT):
                 text_list.append(f"{cg.safe_exp(text)}")
@@ -86,12 +86,12 @@ async def get_button_data(config, text_id, btnm: Widget):
                 text_list.append("")
             key_list.append(btnconf.get(CONF_KEY_CODE) or 0)
             width_list.append(btnconf[CONF_WIDTH])
-            ctrl = ["(int)LV_BTNMATRIX_CTRL_CLICK_TRIG"]
+            ctrl = ["(int)LV_BUTTONMATRIX_CTRL_CLICK_TRIG"]
             if controls := btnconf.get(CONF_CONTROL):
                 for item in controls:
                     ctrl.extend(
                         [
-                            f"(int)LV_BTNMATRIX_CTRL_{k.upper()}"
+                            f"(int)LV_BUTTONMATRIX_CTRL_{k.upper()}"
                             for k, v in item.items()
                             if v
                         ]
@@ -110,15 +110,15 @@ async def get_button_data(config, text_id, btnm: Widget):
 def set_btn_data(btnm: Widget, ctrl_list, width_list):
     init = []
     for index, ctrl in enumerate(ctrl_list):
-        init.append(f"lv_btnmatrix_set_btn_ctrl({btnm.obj}, {index}, {ctrl})")
+        init.append(f"lv_buttonmatrix_set_button_ctrl({btnm.obj}, {index}, {ctrl})")
     for index, width in enumerate(width_list):
-        init.append(f"lv_btnmatrix_set_btn_width({btnm.obj}, {index}, {width})")
+        init.append(f"lv_buttonmatrix_set_button_width({btnm.obj}, {index}, {width})")
     return init
 
 
 class BtnmatrixType(WidgetType):
     def __init__(self):
-        super().__init__(CONF_BTNMATRIX, BTNMATRIX_SCHEMA, {})
+        super().__init__(CONF_BUTTONMATRIX, BTNMATRIX_SCHEMA, {})
 
     @property
     def w_type(self):
@@ -131,10 +131,10 @@ class BtnmatrixType(WidgetType):
         text_id, ctrl_list, width_list, key_list, btn_id_list = await get_button_data(
             config[CONF_ROWS], cid, w
         )
-        init = [f"lv_btnmatrix_set_map({w.obj}, {text_id})"]
+        init = [f"lv_buttonmatrix_set_map({w.obj}, {text_id})"]
         init.extend(set_btn_data(w, ctrl_list, width_list))
         init.append(
-            f"lv_btnmatrix_set_one_checked({w.obj}, {config[CONF_ONE_CHECKED]})"
+            f"lv_buttonmatrix_set_one_checked({w.obj}, {config[CONF_ONE_CHECKED]})"
         )
         for index, key in enumerate(key_list):
             if key != 0:

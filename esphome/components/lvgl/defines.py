@@ -46,13 +46,13 @@ class LvConstant:
 CONF_ANIMIMG = "animimg"
 CONF_ARC = "arc"
 CONF_BAR = "bar"
-CONF_BTN = "btn"
-CONF_BTNMATRIX = "btnmatrix"
+CONF_BUTTON = "button"
+CONF_BUTTONMATRIX = "buttonmatrix"
 CONF_CANVAS = "canvas"
 CONF_CHART = "chart"
 CONF_CHECKBOX = "checkbox"
 CONF_DROPDOWN = "dropdown"
-CONF_IMG = "img"
+CONF_IMAGE = "image"
 CONF_KEYBOARD = "keyboard"
 CONF_LABEL = "label"
 CONF_LINE = "line"
@@ -70,6 +70,7 @@ CONF_TABLE = "table"
 CONF_TABVIEW = "tabview"
 CONF_TEXTAREA = "textarea"
 CONF_TILEVIEW = "tileview"
+CONF_TRACE = "trace"
 
 # Input devices
 CONF_ROTARY_ENCODERS = "rotary_encoders"
@@ -467,14 +468,27 @@ LV_KEYS = LvConstant(
     "END",
 )
 
+LV_TRACE = LvConstant(
+    "LV_LOG_TRACE_",
+    "MEM",
+    "TIMER",
+    "INDEV",
+    "DISP_REFR",
+    "EVENT",
+    "OBJ_CREATE",
+    "LAYOUT",
+    "ANIM",
+    "CACHE",
+)
+
 
 # list of widgets and the parts allowed
 WIDGET_PARTS = {
     CONF_ANIMIMG: (CONF_MAIN,),
     CONF_ARC: (CONF_MAIN, CONF_INDICATOR, CONF_KNOB),
-    CONF_BTN: (CONF_MAIN,),
+    CONF_BUTTON: (CONF_MAIN,),
     CONF_BAR: (CONF_MAIN, CONF_INDICATOR),
-    CONF_BTNMATRIX: (CONF_MAIN, CONF_ITEMS),
+    CONF_BUTTONMATRIX: (CONF_MAIN, CONF_ITEMS),
     # CONF_CANVAS: (CONF_MAIN,),
     #    CONF_CHART: (
     #        CONF_MAIN,
@@ -487,7 +501,7 @@ WIDGET_PARTS = {
     #    ),
     CONF_CHECKBOX: (CONF_MAIN, CONF_INDICATOR),
     CONF_DROPDOWN: (CONF_MAIN, CONF_INDICATOR),
-    CONF_IMG: (CONF_MAIN,),
+    CONF_IMAGE: (CONF_MAIN,),
     # CONF_INDICATOR: (),
     CONF_KEYBOARD: (CONF_MAIN, CONF_ITEMS),
     CONF_LABEL: (CONF_MAIN, CONF_SCROLLBAR, CONF_SELECTED),

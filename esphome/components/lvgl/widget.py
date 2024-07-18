@@ -111,11 +111,11 @@ class Widget:
         return [f"lv_obj_add_state({self.obj}, {state})"]
 
     def clear_state(self, state):
-        return [f"lv_obj_clear_state({self.obj}, {state})"]
+        return [f"lv_obj_remove_state({self.obj}, {state})"]
 
     def set_state(self, state, cond):
         return [
-            f" if({cond}) lv_obj_add_state({self.obj}, {state}); else lv_obj_clear_state({self.obj}, {state})"
+            f" if({cond}) lv_obj_add_state({self.obj}, {state}); else lv_obj_remove_state({self.obj}, {state})"
         ]
 
     def has_state(self, state):
@@ -136,7 +136,7 @@ class Widget:
         return [f"lv_obj_add_flag({self.obj}, {flag})"]
 
     def clear_flag(self, flag):
-        return [f"lv_obj_clear_flag({self.obj}, {flag})"]
+        return [f"lv_obj_remove_flag({self.obj}, {flag})"]
 
     def set_property(self, prop, value, animated: bool = None, ltype=None):
         if isinstance(value, dict):
@@ -251,19 +251,19 @@ class MatrixButton(Widget):
     def map_ctrls(ctrls):
         clist = []
         for item in ctrls:
-            item = item.upper().removeprefix("LV_BTNMATRIX_CTRL_")
+            item = item.upper().removeprefix("LV_BUTTONMATRIX_CTRL_")
             assert item in BTNMATRIX_CTRLS
-            clist.append(f"(int)LV_BTNMATRIX_CTRL_{item}")
+            clist.append(f"(int)LV_BUTTONMATRIX_CTRL_{item}")
         return "|".join(clist)
 
     def set_ctrls(self, *ctrls):
         return [
-            f"lv_btnmatrix_set_btn_ctrl({self.var.obj}, {self.index}, {self.map_ctrls(ctrls)})"
+            f"lv_buttonmatrix_set_button_ctrl({self.var.obj}, {self.index}, {self.map_ctrls(ctrls)})"
         ]
 
     def clear_ctrls(self, *ctrls):
         return [
-            f"lv_btnmatrix_clear_btn_ctrl({self.var.obj}, {self.index}, {self.map_ctrls(ctrls)})"
+            f"lv_buttonmatrix_remove_button_ctrl({self.var.obj}, {self.index}, {self.map_ctrls(ctrls)})"
         ]
 
     def add_flag(self, flag):
@@ -284,16 +284,18 @@ class MatrixButton(Widget):
     def set_state(self, state, cond):
         state = self.map_ctrls([state.removeprefix("LV_STATE_")])
         return [
-            f"""if({cond}) lv_btnmatrix_set_btn_ctrl({self.var.obj}, {self.index}, {state}); else
-        lv_btnmatrix_clear_btn_ctrl({self.var.obj}, {self.index}, {state})"""
+            f"""if({cond}) lv_buttonmatrix_set_button_ctrl({self.var.obj}, {self.index}, {state}); else
+        lv_buttonmatrix_remove_button_ctrl({self.var.obj}, {self.index}, {state})"""
         ]
 
     def index_check(self):
-        return f"(lv_btnmatrix_get_selected_btn({self.var.obj}) == {self.index})"
+        return f"(lv_buttonmatrix_get_selected_button({self.var.obj}) == {self.index})"
 
     def has_state(self, state):
         state = self.map_ctrls([state.upper().removeprefix("LV_STATE_")])
-        return f"(lv_btnmatrix_has_btn_ctrl({self.var.obj}, {self.index}, {state}))"
+        return (
+            f"(lv_buttonmatrix_has_button_ctrl({self.var.obj}, {self.index}, {state}))"
+        )
 
     def is_pressed(self):
         return f'({self.index_check()} && {self.var.has_state("LV_STATE_PRESSED")})'
@@ -317,10 +319,12 @@ class MatrixButton(Widget):
         return init
 
     def set_selected(self):
-        return [f"lv_btnmatrix_set_selected_btn({self.var.obj}, {self.index})"]
+        return [f"lv_buttonmatrix_set_selected_button({self.var.obj}, {self.index})"]
 
     def set_width(self, width):
-        return [f"lv_btnmatrix_set_btn_width({self.var.obj}, {self.index}, {width})"]
+        return [
+            f"lv_buttonmatrix_set_button_width({self.var.obj}, {self.index}, {width})"
+        ]
 
 
 lv_temp_vars = set()  # Temporary variables

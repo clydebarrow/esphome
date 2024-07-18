@@ -6,7 +6,7 @@ from esphome.const import CONF_FORMAT, CONF_ARGS
 from esphome.core import ID, CORE
 from esphome.yaml_util import ESPHomeDataBase
 from .defines import (
-    CONF_IMG,
+    CONF_IMAGE,
     CONF_ROTARY_ENCODERS,
     CONF_TOUCHSCREENS,
 )
@@ -28,7 +28,7 @@ def add_lv_use(*names):
 lv_fonts_used = set()
 esphome_fonts_used = set()
 REQUIRED_COMPONENTS = {
-    CONF_IMG: "image",
+    CONF_IMAGE: "image",
     CONF_ROTARY_ENCODERS: "rotary_encoder",
     CONF_TOUCHSCREENS: "touchscreen",
 }

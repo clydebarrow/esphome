@@ -46,9 +46,9 @@ static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BIT
 #endif
 
 #ifdef LVGL_USES_IMAGE
-static lv_img_dsc_t *lv_img_from(image::Image *src, lv_img_dsc_t *img_dsc = nullptr) {
+static lv_image_dsc_t *lv_img_from(image::Image *src, lv_image_dsc_t *img_dsc = nullptr) {
   if (img_dsc == nullptr)
-    img_dsc = new lv_img_dsc_t();  // NOLINT
+    img_dsc = new lv_image_dsc_t();  // NOLINT
   img_dsc->header.magic = LV_IMAGE_HEADER_MAGIC;
   img_dsc->header.w = src->get_width();
   img_dsc->header.h = src->get_height();
@@ -112,8 +112,8 @@ class LvKeyboardType : public key_provider::KeyProvider, public LvCompound {
           if (self->key_callback_.size() == 0)
             return;
 
-          auto key_idx = lv_btnmatrix_get_selected_btn(self->obj);
-          if (key_idx == LV_BTNMATRIX_BTN_NONE)
+          auto key_idx = lv_buttonmatrix_get_selected_button(self->obj);
+          if (key_idx == LV_BUTTONMATRIX_BUTTON_NONE)
             return;
           const char *txt = lv_btnmatrix_get_btn_text(self->obj, key_idx);
           if (txt == NULL)
@@ -129,7 +129,7 @@ class LvKeyboardType : public key_provider::KeyProvider, public LvCompound {
   }
 };
 #endif
-#if LV_USE_IMG
+#if LV_USE_IMAGE
 class LvImgType : public LvCompound {
  public:
   void set_src(image::Image *src) {
@@ -138,10 +138,10 @@ class LvImgType : public LvCompound {
   }
 
  protected:
-  lv_img_dsc_t img_{};
+  lv_image_dsc_t img_{};
 };
 #endif
-#if LV_USE_BTNMATRIX
+#if LV_USE_BUTTONMATRIX
 class LvBtnmatrixType : public key_provider::KeyProvider, public LvCompound {
  public:
   void set_obj(lv_obj_t *lv_obj) override {
@@ -153,13 +153,13 @@ class LvBtnmatrixType : public key_provider::KeyProvider, public LvCompound {
           if (self->key_callback_.size() == 0)
             return;
           auto key_idx = lv_btnmatrix_get_selected_btn(self->obj);
-          if (key_idx == LV_BTNMATRIX_BTN_NONE)
+          if (key_idx == LV_BUTTONMATRIX_BUTTON_NONE)
             return;
           if (self->key_map_.count(key_idx) != 0) {
             self->send_key_(self->key_map_[key_idx]);
             return;
           }
-          auto str = lv_btnmatrix_get_btn_text(self->obj, key_idx);
+          auto str = lv_buttonmatrix_get_button_text(self->obj, key_idx);
           auto len = strlen(str);
           while (len--)
             self->send_key_(*str++);
@@ -167,7 +167,7 @@ class LvBtnmatrixType : public key_provider::KeyProvider, public LvCompound {
         LV_EVENT_PRESSED, this);
   }
 
-  uint16_t *get_selected() { return this->get_btn(lv_btnmatrix_get_selected_btn(this->obj)); }
+  uint16_t *get_selected() { return this->get_btn(lv_buttonmatrix_get_selected_button(this->obj)); }
 
   uint16_t *get_btn(uint16_t index) {
     if (index >= this->btn_ids_.size())
@@ -329,10 +329,7 @@ class LvglComponent : public PollingComponent {
 
   void setup() override {
     esph_log_config(TAG, "LVGL Setup starts");
-    lv_tick_set_cb([] {
-      esph_log_d(TAG, "tick cb millis=%u", millis());
-      return millis();
-    });
+    lv_tick_set_cb([] { return millis(); });
 #if LV_USE_LOG
     lv_log_register_print_cb(log_cb);
 #endif
@@ -391,9 +388,7 @@ class LvglComponent : public PollingComponent {
       if (this->show_snow_)
         this->write_random();
     }
-    esph_log_v(TAG, "running handler");
     lv_timer_handler_run_in_period(5);
-    esph_log_v(TAG, "timer handler returns");
   }
 
   void add_on_idle_callback(std::function<void(uint32_t)> &&callback) {
@@ -488,7 +483,7 @@ class LvglComponent : public PollingComponent {
     if (!this->paused_) {
       auto now = millis();
       this->draw_buffer_(area, px_map);
-      esph_log_d(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
+      esph_log_v(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
                  lv_area_get_height(area), (int) (millis() - now));
     }
     lv_display_flush_ready(disp_drv);
@@ -568,10 +563,11 @@ class LVTouchListener : public touchscreen::TouchListener, public Parented<LvglC
  public:
   LVTouchListener(uint32_t long_press_time, uint32_t long_press_repeat_time)
       : LVKeyListener(long_press_time, long_press_repeat_time) {}
-  void setup() {
+  void setup(lv_display_t *lv_disp) {
     this->drv = lv_indev_create();
     lv_indev_set_type(this->drv, LV_INDEV_TYPE_POINTER);
     lv_indev_set_user_data(this->drv, this);
+    lv_indev_set_display(this->drv, lv_disp);
     // this->drv->long_press_repeat_time = long_press_repeat_time;
     // this->drv.long_press_time = long_press_time;
     lv_indev_set_read_cb(this->drv, [](lv_indev_t *d, lv_indev_data_t *data) {
@@ -604,20 +600,21 @@ class LVEncoderListener : public Parented<LvglComponent>, public LVKeyListener {
  public:
   LVEncoderListener(lv_indev_type_t type, uint32_t long_press_time, uint32_t long_press_repeat_time)
       : LVKeyListener(long_press_time, long_press_repeat_time), type_(type) {}
-  void setup() {
+  void setup(lv_display_t *lv_disp) {
     this->drv = lv_indev_create();
     lv_indev_set_type(this->drv, this->type_);
     lv_indev_set_user_data(this->drv, this);
+    lv_indev_set_display(this->drv, lv_disp);
     // this->drv.long_press_time = lpt;
     // this->drv.long_press_repeat_time = lprt;
-    this->drv.read_cb = [](lv_indev_t *d, lv_indev_data_t *data) {
+    lv_indev_set_read_cb(this->drv, [](lv_indev_t *d, lv_indev_data_t *data) {
       auto *l = (LVEncoderListener *) lv_indev_get_user_data(d);
       data->state = l->pressed_ ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
       data->key = l->key_;
       data->enc_diff = l->count_ - l->last_count_;
       l->last_count_ = l->count_;
       data->continue_reading = false;
-    };
+    });
   }
 
   void event(int key, bool pressed) {
