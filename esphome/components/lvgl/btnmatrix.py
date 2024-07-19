@@ -148,7 +148,7 @@ btnmatrix_spec = BtnmatrixType()
 
 
 @automation.register_action(
-    "lvgl.button.update",
+    "lvgl.buttonmatrix.update",
     ObjUpdateAction,
     cv.Schema(
         {
