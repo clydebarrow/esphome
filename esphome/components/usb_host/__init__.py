@@ -40,7 +40,7 @@ CONFIG_SCHEMA = cv.COMPONENT_SCHEMA.extend(
 
 
 async def register_usb_client(config):
-    var = cg.new_Pvariable(config[CONF_VID], config[CONF_PID])
+    var = cg.new_Pvariable(config[CONF_ID], config[CONF_VID], config[CONF_PID])
     await cg.register_component(var, config)
     return var
 

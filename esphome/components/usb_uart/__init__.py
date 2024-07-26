@@ -1,5 +1,6 @@
 import esphome.codegen as cg
 from esphome.components.uart import (
+    CONF_DATA_BITS,
     CONF_PARITY,
     CONF_STOP_BITS,
     UART_PARITY_OPTIONS,
@@ -7,7 +8,13 @@ from esphome.components.uart import (
 )
 from esphome.components.usb_host import register_usb_client, usb_device_schema
 import esphome.config_validation as cv
-from esphome.const import CONF_BAUD_RATE, CONF_CHANNELS, CONF_ID, CONF_INDEX
+from esphome.const import (
+    CONF_BAUD_RATE,
+    CONF_CHANNELS,
+    CONF_ID,
+    CONF_INDEX,
+    CONF_RX_BUFFER_SIZE,
+)
 from esphome.cpp_types import Component
 
 REQUIRED_COMPONENTS = ["usb_host"]
@@ -49,6 +56,9 @@ def channel_schema(channels):
                     cv.Schema(
                         {
                             cv.GenerateID(): cv.declare_id(USBUartChannel),
+                            cv.Optional(
+                                CONF_RX_BUFFER_SIZE, default=256
+                            ): cv.validate_bytes,
                             cv.Optional(CONF_INDEX, default=0): cv.int_range(
                                 min=0, max=channels - 1
                             ),
@@ -58,6 +68,9 @@ def channel_schema(channels):
                             ),
                             cv.Optional(CONF_PARITY, default="NONE"): cv.enum(
                                 UART_PARITY_OPTIONS, upper=True
+                            ),
+                            cv.Optional(CONF_DATA_BITS, default=8): cv.int_range(
+                                min=5, max=8
                             ),
                         }
                     )
@@ -87,3 +100,7 @@ async def to_code(config):
         for channel in device[CONF_CHANNELS]:
             chvar = cg.new_Pvariable(channel[CONF_ID], channel[CONF_INDEX])
             await cg.register_parented(chvar, var)
+            cg.add(chvar.set_rx_buffer_size(channel[CONF_RX_BUFFER_SIZE]))
+            cg.add(chvar.set_stop_bits(channel[CONF_STOP_BITS]))
+            cg.add(chvar.set_data_bits(channel[CONF_DATA_BITS]))
+            cg.add(chvar.set_parity(channel[CONF_PARITY]))
