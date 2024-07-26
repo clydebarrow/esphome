@@ -5,8 +5,6 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 #include "usb/usb_host.h"
-#include <freertos/FreeRTOS.h>
-#include <freertos/task.h>
 #include <map>
 #include <vector>
 
@@ -15,11 +13,24 @@ namespace usb_host {
 
 static const char *TAG = "usb_host";
 
+static std::string get_descriptor_string(const usb_str_desc_t *desc) {
+  char buffer[256];
+  char *p = buffer;
+  for (size_t i = 0; i != desc->bLength / 2; i++) {
+    auto c = desc->wData[i];
+    if (c < 0x100)
+      *p++ = c;
+  }
+  *p = '\0';
+  return std::string(buffer);
+}
+
 enum ClientState {
   USB_CLIENT_INIT = 0,
   USB_CLIENT_OPEN,
   USB_CLIENT_CLOSE,
   USB_CLIENT_GET_DESC,
+  USB_CLIENT_GET_INFO,
   USB_CLIENT_CONNECTED,
 };
 class USBClient : public Component {
@@ -51,6 +62,7 @@ class USBClient : public Component {
  public:
   USBClient(uint16_t vid, uint16_t pid) : vid_(vid), pid_(pid) {}
 
+  // setup must happen after the host bus has been setup
   float get_setup_priority() const override { return setup_priority::IO; }
   void setup() override {
     usb_host_client_config_t config{.is_synchronous = false,
@@ -64,7 +76,6 @@ class USBClient : public Component {
     } else {
       ESP_LOGD(TAG, "client setup complete");
       usb_host_transfer_alloc(1024, 0, &this->transfer_);
-      this->transfer->
     }
   }
 
@@ -82,15 +93,26 @@ class USBClient : public Component {
         const usb_device_desc_t *desc;
         if ((err = usb_host_get_device_descriptor(this->device_handle_, &desc)) != ESP_OK) {
           ESP_LOGD(TAG, "Device get_desc failed: %s", esp_err_to_name(err));
+          this->disconnect_();
         } else {
           ESP_LOGD(TAG, "Device descriptor: vid %X pid %X", desc->idVendor, desc->idProduct);
           if (desc->idVendor == this->vid_ && desc->idProduct == this->pid_) {
+            ESP_LOGD(TAG, "Getting info");
+            usb_device_info_t dev_info;
+            if ((err = usb_host_device_info(this->device_handle_, &dev_info)) != ESP_OK) {
+              ESP_LOGD(TAG, "Device info failed: %s", esp_err_to_name(err));
+              this->disconnect_();
+              break;
+            }
+            ESP_LOGD(TAG, "Manuf: %s; Prod: %s; Serial: %s",
+                     get_descriptor_string(dev_info.str_desc_manufacturer).c_str(),
+                     get_descriptor_string(dev_info.str_desc_product).c_str(),
+                     get_descriptor_string(dev_info.str_desc_serial_num).c_str());
             this->state_ = USB_CLIENT_CONNECTED;
-            ESP_LOGD(TAG, "Connected to device");
+            this->on_connected_();
           } else {
             ESP_LOGD(TAG, "Not our device, closing");
-            usb_host_device_close(this->handle_, this->device_handle_);
-            this->state_ = USB_CLIENT_INIT;
+            this->disconnect_();
           }
         }
         break;
@@ -103,7 +125,13 @@ class USBClient : public Component {
   }
 
  protected:
-  TaskHandle_t task_handle_{};
+  void disconnect_() {
+    usb_host_device_close(this->handle_, this->device_handle_);
+    this->state_ = USB_CLIENT_INIT;
+    this->on_disconnected_();
+  }
+  virtual void on_connected_() {}
+  virtual void on_disconnected_() {}
   usb_host_client_handle_t handle_{};
   usb_device_handle_t device_handle_{};
   int device_addr_{-1};
@@ -134,18 +162,10 @@ class USBHost : public Component {
       this->mark_failed();
       return;
     }
-    /*int err = xTaskCreate(daemon_task, "usbDaemon", 4096, this, 1, &this->daemon_task_handle_);
-    if (err != pdPASS) {
-      ESP_LOGE(TAG, "daemon task start failed: %d", err);
-      this->status_set_error("daemon task start failed");
-      this->mark_failed();
-      return;
-    } */
     ESP_LOGCONFIG(TAG, "Setup complete");
   }
 
  protected:
-  TaskHandle_t daemon_task_handle_{};
   std::vector<USBClient *> clients_{};
 };
 
