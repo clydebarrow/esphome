@@ -6,6 +6,8 @@
 #include "esphome/components/usb_host/usb_host.h"
 namespace esphome {
 namespace usb_uart {
+class USBUartTypeCdcAcm;
+class USBUartComponent;
 
 static const char *TAG = "usb_uart";
 
@@ -13,7 +15,28 @@ typedef struct {
   const usb_ep_desc_t *notify_ep;
   const usb_ep_desc_t *in_ep;
   const usb_ep_desc_t *out_ep;
+  const usb_intf_desc_t *intf;
 } cdc_eps_t;
+
+class USBUartChannel : public uart::UARTComponent, public Parented<USBUartComponent> {
+  friend class USBUartComponent;
+  friend class USBUartTypeCdcAcm;
+
+ public:
+  USBUartChannel(uint8_t index) : index_(index) {}
+  void write_array(const uint8_t *data, size_t len) override{};
+  bool peek_byte(uint8_t *data) override { return false; };
+  bool read_array(uint8_t *data, size_t len) override { return false; }
+  int available() override { return 0; }
+  void flush() override {}
+  void check_logger_conflict() override {}
+  void start_input();
+
+ protected:
+  const uint8_t index_;
+  bool input_started_{true};
+  cdc_eps_t cdc_dev_{};
+};
 
 class USBUartComponent : public usb_host::USBClient {
  public:
@@ -24,8 +47,7 @@ class USBUartComponent : public usb_host::USBClient {
   void add_channel(uart::UARTComponent *channel) { this->channels_.push_back(channel); }
 
  protected:
-  std::vector<uart::UARTComponent *> channels_{};
-  std::vector<cdc_eps_t> cdc_devs{};
+  std::vector<USBUartChannel *> channels_{};
 };
 
 class USBUartTypeCdcAcm : public USBUartComponent {
@@ -35,20 +57,7 @@ class USBUartTypeCdcAcm : public USBUartComponent {
  protected:
   void on_connected_() override;
   void on_disconnected_() override;
-};
-
-class USBUartChannel : public uart::UARTComponent, public Parented<USBUartComponent> {
- public:
-  USBUartChannel(uint8_t index) : index_(index) {}
-  void write_array(const uint8_t *data, size_t len) override{};
-  bool peek_byte(uint8_t *data) override { return false; };
-  bool read_array(uint8_t *data, size_t len) override { return false; }
-  int available() override { return 0; }
-  void flush() override {}
-  void check_logger_conflict() override {}
-
- protected:
-  const uint8_t index_;
+  void start_input_(USBUartChannel *channel);
 };
 
 }  // namespace usb_uart

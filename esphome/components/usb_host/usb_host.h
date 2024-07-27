@@ -57,6 +57,7 @@ class USBClient : public Component {
   void on_opened(uint8_t addr);
   void on_closed(usb_device_handle_t handle);
   void control_transfer_callback(const usb_transfer_t *xfer) const;
+  void transfer_in(uint8_t ep_address, const transfer_cb_t &callback, uint16_t length) const;
 
  protected:
   void disconnect_() {
@@ -73,7 +74,6 @@ class USBClient : public Component {
                             const transfer_cb_t &callback, uint16_t length);
   void control_transfer_out_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
                              const transfer_cb_t &callback, uint16_t length = 0, const uint8_t *data = nullptr);
-  void transfer_in_(uint8_t ep_address, transfer_cb_t const &callback, uint16_t length);
 
   virtual void on_connected_() {}
   virtual void on_disconnected_() {}

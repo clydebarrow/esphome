@@ -126,6 +126,7 @@ static void control_callback(const usb_transfer_t *xfer) {
   auto client = static_cast<USBClient *>(xfer->context);
   client->control_transfer_callback(xfer);
 }
+
 void USBClient::control_transfer_callback(const usb_transfer_t *xfer) const {
   transfer_status_t status;
   status.error_code = xfer->status;
@@ -190,6 +191,22 @@ void USBClient::control_transfer_out_(uint8_t type, uint8_t request, uint16_t va
     ESP_LOGE(TAG, "Failed to submit control transfer, err=%d", err);
 }
 
+typedef struct {
+  transfer_cb_t callback{};
+} ep_transfer_data_t;
+
+static void transfer_callback(usb_transfer_t *xfer) {
+  auto *ep_td = static_cast<ep_transfer_data_t *>(xfer->context);
+  transfer_status_t status;
+  status.error_code = xfer->status;
+  status.success = xfer->status == USB_TRANSFER_STATUS_COMPLETED;
+  status.endpoint = xfer->bEndpointAddress;
+  status.data = xfer->data_buffer;
+  status.data_len = xfer->actual_num_bytes;
+  ep_td->callback(status);
+  delete ep_td;
+  usb_host_transfer_free(xfer);
+}
 /**
  * Performs a transfer input operation.
  *
@@ -199,7 +216,23 @@ void USBClient::control_transfer_out_(uint8_t type, uint8_t request, uint16_t va
  *
  * @throws None.
  */
-void USBClient::transfer_in_(uint8_t ep_address, transfer_cb_t const &callback, uint16_t length) {}
+void USBClient::transfer_in(uint8_t ep_address, const transfer_cb_t &callback, uint16_t length) const {
+  usb_transfer_t *transfer;
+  usb_host_transfer_alloc(length, 0, &transfer);
+  auto *ep_td = new ep_transfer_data_t{};
+  ep_td->callback = callback;
+  transfer->callback = transfer_callback;
+  transfer->context = ep_td;
+  transfer->bEndpointAddress = ep_address | USB_DIR_IN;
+  transfer->num_bytes = length;
+  transfer->device_handle = this->device_handle_;
+  auto err = usb_host_transfer_submit(transfer);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to submit transfer, address=%x, length=%d, err=%x", transfer->bEndpointAddress, length, err);
+    delete ep_td;
+    usb_host_transfer_free(transfer);
+  }
+}
 
 }  // namespace usb_host
 }  // namespace esphome

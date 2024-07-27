@@ -50,8 +50,8 @@ static optional<cdc_eps_t> get_cdc(const usb_config_desc_t *config_desc, uint8_t
     return nullopt;
   }
   if (in_ep->bEndpointAddress & usb_host::USB_DIR_IN)
-    return cdc_eps_t{notify_ep, in_ep, out_ep};
-  return cdc_eps_t{notify_ep, out_ep, in_ep};
+    return cdc_eps_t{notify_ep, in_ep, out_ep, data_desc};
+  return cdc_eps_t{notify_ep, out_ep, in_ep, data_desc};
 }
 static std::vector<cdc_eps_t> find_cdc_acm(usb_device_handle_t dev_hdl) {
   const usb_config_desc_t *config_desc;
@@ -103,22 +103,51 @@ static std::vector<cdc_eps_t> find_cdc_acm(usb_device_handle_t dev_hdl) {
 void USBUartComponent::setup() { USBClient::setup(); }
 void USBUartComponent::loop() { USBClient::loop(); }
 void USBUartTypeCdcAcm::on_disconnected_() {}
+
+void USBUartTypeCdcAcm::start_input_(USBUartChannel *channel) {
+  if (channel->input_started_)
+    return;
+  auto ep = channel->cdc_dev_.in_ep;
+  auto callback = [=](const usb_host::transfer_status_t &status) {
+    char buf[65]{};
+    memcpy(buf, status.data, status.data_len);
+    ESP_LOGD(TAG, "Transfer result: length: %u; data %X %X", status.data_len, status.data[0], status.data[1]);
+    ESP_LOGD(TAG, "Received: %s", buf);
+    channel->input_started_ = false;
+    this->defer([=] { this->start_input_(channel); });
+  };
+  this->transfer_in(ep->bEndpointAddress, callback, ep->wMaxPacketSize);
+}
 void USBUartTypeCdcAcm::on_connected_() {
   ESP_LOGD(TAG, "on_connected");
-  this->cdc_devs = find_cdc_acm(this->device_handle_);
-  if (this->cdc_devs.empty()) {
+  auto cdc_devs = find_cdc_acm(this->device_handle_);
+  if (cdc_devs.empty()) {
     this->status_set_error("No CDC-ACM device found");
     this->mark_failed();
+    this->disconnect_();
     return;
   }
-  ESP_LOGD(TAG, "Found %u CDC-ACM devices", this->cdc_devs.size());
+  ESP_LOGD(TAG, "Found %u CDC-ACM devices", cdc_devs.size());
+  auto i = 0;
+  for (auto channel : this->channels_) {
+    channel->cdc_dev_ = cdc_devs[i++];
+    channel->input_started_ = false;
+  }
   this->control_transfer_in_(
       usb_host::USB_RECIP_DEVICE | usb_host::USB_TYPE_VENDOR, 0x5F, 0, 0,
       [=](const usb_host::transfer_status_t &status) {
         ESP_LOGD(TAG, "Transfer result: length: %u; data %X %X", status.data_len, status.data[0], status.data[1]);
       },
       2);
+  auto err = usb_host_interface_claim(this->handle_, this->device_handle_, this->cdc_devs[0].intf->bInterfaceNumber, 0);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "usb_host_interface_claim failed: %x", err);
+    this->status_set_error("usb_host_interface_claim failed");
+    this->mark_failed();
+    this->disconnect_();
+    return;
+  }
+  this->start_input_(0);
 }
-
 }  // namespace usb_uart
 }  // namespace esphome
