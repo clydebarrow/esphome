@@ -8,21 +8,29 @@ namespace esphome {
 namespace usb_uart {
 
 static const char *TAG = "usb_uart";
+
+typedef struct {
+  const usb_ep_desc_t *notify_ep;
+  const usb_ep_desc_t *in_ep;
+  const usb_ep_desc_t *out_ep;
+} cdc_eps_t;
+
 class USBUartComponent : public usb_host::USBClient {
  public:
   USBUartComponent(uint16_t vid, uint16_t pid) : usb_host::USBClient(vid, pid) {}
   void setup() override;
   void loop() override;
 
-  void add_channel(uint8_t index, uart::UARTComponent *channel) { this->channels_[index] = channel; }
+  void add_channel(uart::UARTComponent *channel) { this->channels_.push_back(channel); }
 
  protected:
-  std::map<uint8_t, uart::UARTComponent *> channels_{};
+  std::vector<uart::UARTComponent *> channels_{};
+  std::vector<cdc_eps_t> cdc_devs{};
 };
 
-class USBUartTypeCH344 : public USBUartComponent {
+class USBUartTypeCdcAcm : public USBUartComponent {
  public:
-  USBUartTypeCH344(uint16_t vid, uint16_t pid) : USBUartComponent(vid, pid) {}
+  USBUartTypeCdcAcm(uint16_t vid, uint16_t pid) : USBUartComponent(vid, pid) {}
 
  protected:
   void on_connected_() override;

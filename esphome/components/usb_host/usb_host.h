@@ -13,9 +13,16 @@ namespace usb_host {
 
 static const char *TAG = "usb_host";
 
+// constants for setup packet type
 static const uint8_t USB_RECIP_DEVICE = 0;
-static const uint8_t USB_TYPE_VENDOR = 0x02 << 5;
-static const uint8_t USB_DIR_IN = 0x01 << 7;
+static const uint8_t USB_RECIP_INTERFACE = 1;
+static const uint8_t USB_RECIP_ENDPOINT = 2;
+static const uint8_t USB_TYPE_STANDARD = 0 << 5;
+static const uint8_t USB_TYPE_CLASS = 1 << 5;
+static const uint8_t USB_TYPE_VENDOR = 2 << 5;
+static const uint8_t USB_DIR_MASK = 1 << 7;
+static const uint8_t USB_DIR_IN = 1 << 7;
+static const uint8_t USB_DIR_OUT = 0;
 
 // used to report a transfer status
 typedef struct {
@@ -27,7 +34,7 @@ typedef struct {
 } transfer_status_t;
 
 // callback function type.
-typedef std::function<void(transfer_status_t &)> transfer_cb_t;
+typedef std::function<void(const transfer_status_t &)> transfer_cb_t;
 
 enum ClientState {
   USB_CLIENT_INIT = 0,
@@ -49,7 +56,7 @@ class USBClient : public Component {
   float get_setup_priority() const override { return setup_priority::IO; }
   void on_opened(uint8_t addr);
   void on_closed(usb_device_handle_t handle);
-  void control_transfer_callback(usb_transfer_t *xfer);
+  void control_transfer_callback(const usb_transfer_t *xfer) const;
 
  protected:
   void disconnect_() {
@@ -59,8 +66,14 @@ class USBClient : public Component {
   }
   transfer_cb_t ctrl_transfer_client_callback_{};
 
-  void control_transfer_(uint8_t type, bool data_in, uint8_t request, uint16_t value, uint16_t index,
-                         transfer_cb_t callback, uint16_t length = 0, uint8_t *data = nullptr);
+  bool setup_control_transfer_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
+                               const transfer_cb_t &callback, uint16_t length, uint8_t dir,
+                               usb_setup_packet_t &setup_packet);
+  void control_transfer_in_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
+                            const transfer_cb_t &callback, uint16_t length);
+  void control_transfer_out_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
+                             const transfer_cb_t &callback, uint16_t length = 0, const uint8_t *data = nullptr);
+  void transfer_in_(uint8_t ep_address, transfer_cb_t const &callback, uint16_t length);
 
   virtual void on_connected_() {}
   virtual void on_disconnected_() {}

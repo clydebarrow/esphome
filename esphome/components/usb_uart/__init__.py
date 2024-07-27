@@ -8,13 +8,7 @@ from esphome.components.uart import (
 )
 from esphome.components.usb_host import register_usb_client, usb_device_schema
 import esphome.config_validation as cv
-from esphome.const import (
-    CONF_BAUD_RATE,
-    CONF_CHANNELS,
-    CONF_ID,
-    CONF_INDEX,
-    CONF_RX_BUFFER_SIZE,
-)
+from esphome.const import CONF_BAUD_RATE, CONF_CHANNELS, CONF_ID, CONF_RX_BUFFER_SIZE
 from esphome.cpp_types import Component
 
 REQUIRED_COMPONENTS = ["usb_host"]
@@ -27,25 +21,28 @@ AUTO_LOAD = ["uart"]
 
 
 class Type:
-    def __init__(self, name, vid, pid, max_channels=1):
+    def __init__(self, name, vid, pid, max_channels=1, cls=None):
         self.name = name
+        cls = cls or name
         self.vid = vid
         self.pid = pid
         self.max_channels = max_channels
-        self.cls = usb_uart_ns.class_(f"USBUartType{name}", USBUartComponent)
+        self.cls = usb_uart_ns.class_(f"USBUartType{cls}", USBUartComponent)
 
 
-uart_types = (Type("CH344", 0x1A86, 0x55D5, 4),)
+uart_types = (
+    Type("CH344", 0x1A86, 0x55D5, 4, "CdcAcm"),
+    Type("ESP_JTAG", 0x303A, 0x1001, 1, "CdcAcm"),
+)
 
 
-def validate_channels(config):
-    used = set()
-    for channel in config:
-        index = channel[CONF_INDEX]
-        if index in set():
-            raise cv.Invalid("Index must be unique")
-        used.add(index)
-    return config
+def max_length(length):
+    def validator(value):
+        if len(value) > length:
+            raise cv.Invalid(f"Too many list entries: {len(value)} > {length}")
+        return value
+
+    return validator
 
 
 def channel_schema(channels):
@@ -59,9 +56,6 @@ def channel_schema(channels):
                             cv.Optional(
                                 CONF_RX_BUFFER_SIZE, default=256
                             ): cv.validate_bytes,
-                            cv.Optional(CONF_INDEX, default=0): cv.int_range(
-                                min=0, max=channels - 1
-                            ),
                             cv.Required(CONF_BAUD_RATE): cv.int_range(min=1),
                             cv.Optional(CONF_STOP_BITS, default=1): cv.one_of(
                                 1, 2, int=True
@@ -75,7 +69,7 @@ def channel_schema(channels):
                         }
                     )
                 ),
-                validate_channels,
+                max_length(channels),
             )
         }
     )
@@ -97,10 +91,11 @@ CONFIG_SCHEMA = cv.ensure_list(
 async def to_code(config):
     for device in config:
         var = await register_usb_client(device)
-        for channel in device[CONF_CHANNELS]:
-            chvar = cg.new_Pvariable(channel[CONF_ID], channel[CONF_INDEX])
+        for index, channel in enumerate(device[CONF_CHANNELS]):
+            chvar = cg.new_Pvariable(channel[CONF_ID], index)
             await cg.register_parented(chvar, var)
             cg.add(chvar.set_rx_buffer_size(channel[CONF_RX_BUFFER_SIZE]))
             cg.add(chvar.set_stop_bits(channel[CONF_STOP_BITS]))
             cg.add(chvar.set_data_bits(channel[CONF_DATA_BITS]))
             cg.add(chvar.set_parity(channel[CONF_PARITY]))
+            cg.add(var.add_channel(chvar))
