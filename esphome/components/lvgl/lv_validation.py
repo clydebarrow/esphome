@@ -31,7 +31,7 @@ from .helpers import (
     requires_component,
 )
 from .lvcode import lv_expr
-from .types import lv_font_t, lv_img_t
+from .types import lv_font_t, lv_gradient_t, lv_img_t
 
 opacity_consts = LvConstant("LV_OPA_", "TRANSP", "COVER")
 
@@ -129,7 +129,7 @@ radius_consts = LvConstant("LV_RADIUS_", "CIRCLE")
 
 
 @schema_extractor("one_of")
-def radius_validator(value):
+def fraction_validator(value):
     if value == SCHEMA_EXTRACT:
         return radius_consts.choices
     value = cv.Any(size, cv.percentage, radius_consts.one_of)(value)
@@ -138,7 +138,7 @@ def radius_validator(value):
     return value
 
 
-radius = LValidator(radius_validator, uint32, retmapper=literal)
+lv_fraction = LValidator(fraction_validator, uint32, retmapper=literal)
 
 
 def id_name(value):
@@ -277,3 +277,18 @@ async def get_start_value(config):
     else:
         value = config.get(CONF_VALUE)
     return await lv_int.process(value)
+
+
+def gradient_mapper(value):
+    return MockObj(value)
+
+
+def gradient_validator(value):
+    return cv.use_id(lv_gradient_t)(value)
+
+
+lv_gradient = LValidator(
+    validator=gradient_validator,
+    rtype=lv_gradient_t,
+    retmapper=gradient_mapper,
+)

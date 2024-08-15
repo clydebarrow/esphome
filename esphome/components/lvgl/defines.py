@@ -4,6 +4,8 @@ Constants already defined in esphome.const are not duplicated here and must be i
 
 """
 
+import logging
+
 from esphome import codegen as cg, config_validation as cv
 from esphome.const import CONF_ITEMS
 from esphome.core import ID, Lambda
@@ -13,7 +15,18 @@ from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
 
 from .helpers import requires_component
 
+LOGGER = logging.getLogger(__name__)
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
+
+lv_defines = {}  # Dict of #defines to provide as build flags
+
+
+def add_define(macro, value="1"):
+    if macro in lv_defines and lv_defines[macro] != value:
+        LOGGER.error(
+            "Redefinition of %s - was %s now %s", macro, lv_defines[macro], value
+        )
+    lv_defines[macro] = value
 
 
 def literal(arg):
@@ -362,6 +375,7 @@ LV_CHART_AXES = (
     "SECONDARY_X",
 )
 
+
 CONF_ACCEPTED_CHARS = "accepted_chars"
 CONF_ADJUSTABLE = "adjustable"
 CONF_ALIGN = "align"
@@ -401,6 +415,7 @@ CONF_FLEX_ALIGN_CROSS = "flex_align_cross"
 CONF_FLEX_ALIGN_TRACK = "flex_align_track"
 CONF_FLEX_GROW = "flex_grow"
 CONF_FULL_REFRESH = "full_refresh"
+CONF_GRADIENTS = "gradients"
 CONF_GRID_CELL_ROW_POS = "grid_cell_row_pos"
 CONF_GRID_CELL_COLUMN_POS = "grid_cell_column_pos"
 CONF_GRID_CELL_ROW_SPAN = "grid_cell_row_span"
@@ -496,6 +511,8 @@ LV_KEYS = LvConstant(
     "END",
 )
 
+LV_DITHER = LvConstant("LV_DITHER_", "NONE", "ORDERED", "ERR_DIFF")
+LV_GRAD_DIR = LvConstant("LV_GRAD_DIR_", "NONE", "HOR", "VER")
 
 DEFAULT_ESPHOME_FONT = "esphome_lv_default_font"
 
