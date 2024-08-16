@@ -120,6 +120,7 @@ class WidgetType:
         :param parts: What parts this widget supports
         :param schema: The config schema for defining a widget
         :param modify_schema: A schema to update the widget
+        :param lv_name: The name of the widget in lvgl
         """
         self.name = name
         self.lv_name = lv_name or name
