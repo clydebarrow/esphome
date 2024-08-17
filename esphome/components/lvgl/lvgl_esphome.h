@@ -13,6 +13,10 @@
 #define LV_CONF_SKIP 1  // NOLINT
 #endif                  // LV_CONF_H
 
+#ifndef LV_GRADIENT_MAX_STOPS
+#define LV_GRADIENT_MAX_STOPS 7
+#endif
+
 #include "esphome/components/display/display.h"
 #include "esphome/components/display/display_color_utils.h"
 #include "esphome/core/component.h"
@@ -54,6 +58,7 @@ static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BIT
 // Parent class for things that wrap an LVGL object
 class LvCompound {
  public:
+  virtual ~LvCompound() = default;
   virtual void set_obj(lv_obj_t *lv_obj) { this->obj = lv_obj; }
   lv_obj_t *obj{};
 };

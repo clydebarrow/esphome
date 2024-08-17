@@ -58,6 +58,7 @@ from .widgets.arc import arc_spec
 from .widgets.button import button_spec
 from .widgets.buttonmatrix import buttonmatrix_spec
 from .widgets.checkbox import checkbox_spec
+from .widgets.color_picker import color_picker_spec
 from .widgets.dropdown import dropdown_spec
 from .widgets.img import img_spec
 from .widgets.keyboard import keyboard_spec
@@ -107,6 +108,7 @@ for w_type in (
     spinbox_spec,
     keyboard_spec,
     tileview_spec,
+    color_picker_spec,
 ):
     WIDGET_TYPES[w_type.name] = w_type
 
