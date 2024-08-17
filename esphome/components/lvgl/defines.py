@@ -36,6 +36,12 @@ def literal(arg):
 
 
 def call_lambda(lamb: LambdaExpression):
+    """
+    If a lambda is a simple return expression, just use that expression.
+    Otherwise, use the lambda as a function call.
+    :param lamb: The lambda Expression
+    :return: A string that represents the lambda evaluated as a function call, or equivalent
+    """
     if len(lamb.parts) == 1:
         expr = lamb.parts[0].strip()
         if expr.startswith("return") and expr.endswith(";"):
