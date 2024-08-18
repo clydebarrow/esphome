@@ -8,7 +8,7 @@ import logging
 
 from esphome import codegen as cg, config_validation as cv
 from esphome.const import CONF_ITEMS
-from esphome.core import ID, Lambda
+from esphome.core import Lambda
 from esphome.cpp_generator import LambdaExpression, MockObj
 from esphome.cpp_types import uint32
 from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
@@ -42,10 +42,9 @@ def call_lambda(lamb: LambdaExpression):
     :param lamb: The lambda Expression
     :return: A string that represents the lambda evaluated as a function call, or equivalent
     """
-    if len(lamb.parts) == 1:
-        expr = lamb.parts[0].strip()
-        if expr.startswith("return") and expr.endswith(";"):
-            return expr[7:][:-1]
+    expr = lamb.content.strip()
+    if expr.startswith("return") and expr.endswith(";"):
+        return expr[7:][:-1]
     return f"{lamb}()"
 
 
@@ -55,13 +54,9 @@ class LValidator:
     has `process()` to convert a value during code generation
     """
 
-    def __init__(
-        self, validator, rtype, idtype=None, idexpr=None, retmapper=None, requires=None
-    ):
+    def __init__(self, validator, rtype, retmapper=None, requires=None):
         self.validator = validator
         self.rtype = rtype
-        self.idtype = idtype
-        self.idexpr = idexpr
         self.retmapper = retmapper
         self.requires = requires
 
@@ -70,8 +65,6 @@ class LValidator:
             value = requires_component(self.requires)(value)
         if isinstance(value, cv.Lambda):
             return cv.returning_lambda(value)
-        if self.idtype is not None and isinstance(value, ID):
-            return cv.use_id(self.idtype)(value)
         return self.validator(value)
 
     async def process(self, value, args=()):
@@ -83,8 +76,6 @@ class LValidator:
                     await cg.process_lambda(value, args, return_type=self.rtype)
                 )
             )
-        if self.idtype is not None and isinstance(value, ID):
-            return cg.RawExpression(f"{value}->{self.idexpr}")
         if self.retmapper is not None:
             return self.retmapper(value)
         return cg.safe_exp(value)
@@ -118,7 +109,7 @@ class LvConstant(LValidator):
             cv.ensure_list(self.one_of), uint32, retmapper=self.mapper
         )
 
-    def mapper(self, value, args=()):
+    def mapper(self, value):
         if not isinstance(value, list):
             value = [value]
         return literal(
@@ -132,7 +123,7 @@ class LvConstant(LValidator):
 
     def extend(self, *choices):
         """
-        Extend an LVCconstant with additional choices.
+        Extend an LVconstant with additional choices.
         :param choices: The extra choices
         :return: A new LVConstant instance
         """
