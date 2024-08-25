@@ -1,8 +1,6 @@
-//
-// Created by Clyde Stubbs on 26/7/2024.
-//
 #include "usb_host.h"
 #include "usb/usb_host.h"
+#include "esphome/core/log.h"
 
 namespace esphome {
 namespace usb_host {

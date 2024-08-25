@@ -1,8 +1,9 @@
-//
-// Created by Clyde Stubbs on 26/7/2024.
-//
 #include "usb_host.h"
+#include "esphome/core/log.h"
+#include "esphome/core/hal.h"
+#include "esphome/core/bytebuffer.h"
 
+#include <cinttypes>
 #include <cstring>
 namespace esphome {
 namespace usb_host {
@@ -45,9 +46,12 @@ void USBClient::setup() {
     ESP_LOGD(TAG, "client register failed: %s", esp_err_to_name(err));
     this->status_set_error("Client register failed");
     this->mark_failed();
-  } else {
-    ESP_LOGD(TAG, "client setup complete");
-    usb_host_transfer_alloc(64, 0, &this->ctrl_transfer_data_);
+    return;
+  }
+  ESP_LOGD(TAG, "client setup complete");
+  for (auto trq : this->trq_pool_) {
+    usb_host_transfer_alloc(64, 0, &trq->transfer);
+    trq->client = this;
   }
 }
 
@@ -123,89 +127,93 @@ void USBClient::on_closed(usb_device_handle_t handle) {
 }
 
 static void control_callback(const usb_transfer_t *xfer) {
-  auto client = static_cast<USBClient *>(xfer->context);
-  client->control_transfer_callback(xfer);
+  auto trq = static_cast<transfer_request_t *>(xfer->context);
+  trq->status.error_code = xfer->status;
+  trq->status.success = xfer->status == USB_TRANSFER_STATUS_COMPLETED;
+  trq->status.endpoint = xfer->bEndpointAddress;
+  trq->status.data = xfer->data_buffer;
+  trq->status.data_len = xfer->actual_num_bytes;
+  if (trq->callback != nullptr)
+    trq->callback(trq->status);
+  trq->client->release_trq(trq);
 }
 
-void USBClient::control_transfer_callback(const usb_transfer_t *xfer) const {
-  transfer_status_t status;
-  status.error_code = xfer->status;
-  status.success = xfer->status == USB_TRANSFER_STATUS_COMPLETED;
-  status.endpoint = xfer->bEndpointAddress;
-  status.data = xfer->data_buffer;
-  status.data_len = xfer->actual_num_bytes;
-  this->ctrl_transfer_client_callback_(status);
-}
-
-bool USBClient::setup_control_transfer_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
-                                        const transfer_cb_t &callback, uint16_t length, uint8_t dir,
-                                        usb_setup_packet_t &setup_packet) {
-  if (this->ctrl_transfer_busy_) {
-    ESP_LOGE(TAG, "Control transfer busy");
-    return false;
+transfer_request_t *USBClient::get_trq_() {
+  if (this->trq_pool_.empty()) {
+    ESP_LOGE(TAG, "Too many requests queued");
+    return nullptr;
   }
-  if (length > sizeof(this->ctrl_transfer_data_->data_buffer_size) - sizeof(usb_setup_packet_t)) {
+  auto trq = this->trq_pool_.front();
+  this->trq_pool_.pop_front();
+  trq->client = this;
+  trq->transfer->context = trq;
+  trq->transfer->device_handle = this->device_handle_;
+  return trq;
+}
+transfer_request_t *USBClient::setup_control_transfer_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
+                                                       const transfer_cb_t &callback, uint16_t length, uint8_t dir) {
+  auto trq = this->get_trq_();
+  if (trq == nullptr)
+    return nullptr;
+  if (length > sizeof(trq->transfer->data_buffer_size) - sizeof(usb_setup_packet_t)) {
     ESP_LOGE(TAG, "Control transfer data size too large: %u > %u", length,
-             sizeof(this->ctrl_transfer_data_->data_buffer_size) - sizeof(usb_setup_packet_t));
-    return false;
+             sizeof(trq->transfer->data_buffer_size) - sizeof(usb_setup_packet_t));
+    this->release_trq(trq);
+    return nullptr;
   }
-  setup_packet.bRequest = request;
-  setup_packet.bmRequestType = type;
-  setup_packet.wLength = length;
-  setup_packet.wIndex = index;
-  setup_packet.wValue = value;
-  this->ctrl_transfer_busy_ = true;
-  this->ctrl_transfer_client_callback_ = callback;
-  this->ctrl_transfer_data_->bEndpointAddress = dir;
-  this->ctrl_transfer_data_->num_bytes = static_cast<int>(length + sizeof(usb_setup_packet_t));
-  this->ctrl_transfer_data_->callback = reinterpret_cast<usb_transfer_cb_t>(control_callback);
-  this->ctrl_transfer_data_->context = this;
-  this->ctrl_transfer_data_->device_handle = this->device_handle_;
-  return true;
+  auto control_packet = ByteBuffer(8, LITTLE);
+  control_packet.put_uint8(type);
+  control_packet.put_uint8(request);
+  control_packet.put_uint16(value);
+  control_packet.put_uint16(index);
+  control_packet.put_uint16(length);
+  memcpy(trq->transfer->data_buffer, control_packet.get_data().data(), 8);
+  trq->callback = callback;
+  trq->transfer->bEndpointAddress = dir;
+  trq->transfer->num_bytes = static_cast<int>(length + sizeof(usb_setup_packet_t));
+  trq->transfer->callback = reinterpret_cast<usb_transfer_cb_t>(control_callback);
+  return trq;
 }
 
 void USBClient::control_transfer_in_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
                                      transfer_cb_t const &callback, uint16_t length) {
-  auto dir = USB_DIR_IN;
-  type |= dir;
+  type |= USB_DIR_IN;
   usb_setup_packet_t setup_packet = {};
-  if (!setup_control_transfer_(type, request, value, index, callback, length, dir, setup_packet))
+  auto *trq = setup_control_transfer_(type, request, value, index, callback, length, USB_DIR_IN);
+  if (trq == nullptr)
     return;
-  memcpy(this->ctrl_transfer_data_->data_buffer, &setup_packet, sizeof(setup_packet));
-  auto err = usb_host_transfer_submit_control(this->handle_, this->ctrl_transfer_data_);
-  if (err != ESP_OK)
+  memcpy(trq->transfer->data_buffer, &setup_packet, sizeof(setup_packet));
+  auto err = usb_host_transfer_submit_control(this->handle_, trq->transfer);
+  if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to submit control transfer, err=%d", err);
+    this->release_trq(trq);
+  }
 }
 
 void USBClient::control_transfer_out_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
                                       const transfer_cb_t &callback, uint16_t length, const uint8_t *data) {
-  auto dir = USB_DIR_OUT;
-  type &= USB_DIR_MASK;
-  usb_setup_packet_t setup_packet = {};
-  if (!setup_control_transfer_(type, request, value, index, callback, length, dir, setup_packet))
+  type &= ~USB_DIR_MASK;
+  auto *trq = setup_control_transfer_(type, request, value, index, callback, length, USB_DIR_OUT);
+  if (trq == nullptr)
     return;
-  memcpy(this->ctrl_transfer_data_->data_buffer, &setup_packet, sizeof(setup_packet));
-  memcpy(this->ctrl_transfer_data_->data_buffer + sizeof(setup_packet), data, length);
-  auto err = usb_host_transfer_submit_control(this->handle_, this->ctrl_transfer_data_);
-  if (err != ESP_OK)
+  memcpy(trq->transfer->data_buffer + sizeof(usb_setup_packet_t), data, length);
+  auto err = usb_host_transfer_submit_control(this->handle_, trq->transfer);
+  if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to submit control transfer, err=%d", err);
+    this->release_trq(trq);
+  }
 }
 
-typedef struct {
-  transfer_cb_t callback{};
-} ep_transfer_data_t;
-
 static void transfer_callback(usb_transfer_t *xfer) {
-  auto *ep_td = static_cast<ep_transfer_data_t *>(xfer->context);
-  transfer_status_t status;
-  status.error_code = xfer->status;
-  status.success = xfer->status == USB_TRANSFER_STATUS_COMPLETED;
-  status.endpoint = xfer->bEndpointAddress;
-  status.data = xfer->data_buffer;
-  status.data_len = xfer->actual_num_bytes;
-  ep_td->callback(status);
-  delete ep_td;
-  usb_host_transfer_free(xfer);
+  auto *trq = static_cast<transfer_request_t *>(xfer->context);
+  trq->status.error_code = xfer->status;
+  trq->status.success = xfer->status == USB_TRANSFER_STATUS_COMPLETED;
+  trq->status.endpoint = xfer->bEndpointAddress;
+  trq->status.data = xfer->data_buffer;
+  trq->status.data_len = xfer->actual_num_bytes;
+  if (trq->callback != nullptr)
+    trq->callback(trq->status);
+  trq->client->release_trq(trq);
 }
 /**
  * Performs a transfer input operation.
@@ -216,23 +224,56 @@ static void transfer_callback(usb_transfer_t *xfer) {
  *
  * @throws None.
  */
-void USBClient::transfer_in(uint8_t ep_address, const transfer_cb_t &callback, uint16_t length) const {
-  usb_transfer_t *transfer;
-  usb_host_transfer_alloc(length, 0, &transfer);
-  auto *ep_td = new ep_transfer_data_t{};
-  ep_td->callback = callback;
-  transfer->callback = transfer_callback;
-  transfer->context = ep_td;
-  transfer->bEndpointAddress = ep_address | USB_DIR_IN;
-  transfer->num_bytes = length;
-  transfer->device_handle = this->device_handle_;
-  auto err = usb_host_transfer_submit(transfer);
+void USBClient::transfer_in(uint8_t ep_address, const transfer_cb_t &callback, uint16_t length) {
+  auto trq = this->get_trq_();
+  if (trq == nullptr) {
+    ESP_LOGE(TAG, "Too many requests queued");
+    return;
+  }
+  trq->callback = callback;
+  trq->transfer->callback = transfer_callback;
+  trq->transfer->bEndpointAddress = ep_address | USB_DIR_IN;
+  trq->transfer->num_bytes = length;
+  auto err = usb_host_transfer_submit(trq->transfer);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to submit transfer, address=%x, length=%d, err=%x", transfer->bEndpointAddress, length, err);
-    delete ep_td;
-    usb_host_transfer_free(transfer);
+    ESP_LOGE(TAG, "Failed to submit transfer, address=%x, length=%d, err=%x", ep_address, length, err);
+    this->release_trq(trq);
   }
 }
+
+/**
+ * Performs an output transfer operation.
+ *
+ * @param ep_address The endpoint address.
+ * @param callback The callback function to be called when the transfer is complete.
+ * @param data The data to be transferred.
+ * @param length The length of the data to be transferred.
+ *
+ * @throws None.
+ */
+void USBClient::transfer_out(uint8_t ep_address, const transfer_cb_t &callback, const uint8_t *data, uint16_t length) {
+  auto trq = this->get_trq_();
+  if (trq == nullptr) {
+    ESP_LOGE(TAG, "Too many requests queued");
+    return;
+  }
+  trq->callback = callback;
+  trq->transfer->callback = transfer_callback;
+  trq->transfer->bEndpointAddress = ep_address | USB_DIR_OUT;
+  trq->transfer->num_bytes = length;
+  memcpy(trq->transfer->data_buffer, data, length);
+  auto err = usb_host_transfer_submit(trq->transfer);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to submit transfer, address=%x, length=%d, err=%x", ep_address, length, err);
+    this->release_trq(trq);
+  }
+}
+void USBClient::dump_config() {
+  ESP_LOGCONFIG(TAG, "USBClient");
+  ESP_LOGCONFIG(TAG, "  Vendor id %04X", this->vid_);
+  ESP_LOGCONFIG(TAG, "  Product id %04X", this->pid_);
+}
+void USBClient::release_trq(transfer_request_t *trq) { this->trq_pool_.push_back(trq); }
 
 }  // namespace usb_host
 }  // namespace esphome

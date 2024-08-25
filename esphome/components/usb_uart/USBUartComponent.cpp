@@ -1,14 +1,12 @@
 #include "USBUartComponent.h"
 #include "usb/usb_host.h"
+#include "esphome/core/log.h"
+#include "esphome/components/uart/uart_debugger.h"
+
+#include <cinttypes>
 
 namespace esphome {
 namespace usb_uart {
-
-static constexpr uint8_t USB_CDC_SUBCLASS_ACM = 0x02;
-static constexpr uint8_t USB_SUBCLASS_COMMON = 0x02;
-static constexpr uint8_t USB_SUBCLASS_NULL = 0x00;
-static constexpr uint8_t USB_PROTOCOL_NULL = 0x00;
-static constexpr uint8_t USB_DEVICE_PROTOCOL_IAD = 0x01;
 
 static optional<cdc_eps_t> get_cdc(const usb_config_desc_t *config_desc, uint8_t intf_idx) {
   int conf_offset, ep_offset;
@@ -53,7 +51,8 @@ static optional<cdc_eps_t> get_cdc(const usb_config_desc_t *config_desc, uint8_t
     return cdc_eps_t{notify_ep, in_ep, out_ep, data_desc};
   return cdc_eps_t{notify_ep, out_ep, in_ep, data_desc};
 }
-static std::vector<cdc_eps_t> find_cdc_acm(usb_device_handle_t dev_hdl) {
+
+std::vector<cdc_eps_t> USBUartTypeCdcAcm::parse_descriptors_(usb_device_handle_t dev_hdl) {
   const usb_config_desc_t *config_desc;
   const usb_device_desc_t *device_desc;
   int desc_offset = 0;
@@ -100,27 +99,134 @@ static std::vector<cdc_eps_t> find_cdc_acm(usb_device_handle_t dev_hdl) {
   return cdc_devs;
 }
 
+void RingBuffer::push(uint8_t item) {
+  this->buffer_[this->insert_pos_] = item;
+  this->insert_pos_ = (this->insert_pos_ + 1) % this->buffer_size;
+}
+void RingBuffer::push(const uint8_t *data, size_t len) {
+  for (size_t i = 0; i != len; i++) {
+    this->buffer_[this->insert_pos_] = *data++;
+    this->insert_pos_ = (this->insert_pos_ + 1) % this->buffer_size;
+  }
+}
+
+uint8_t RingBuffer::pop() {
+  uint8_t item = this->buffer_[this->read_pos_];
+  this->read_pos_ = (this->read_pos_ + 1) % this->buffer_size;
+  return item;
+}
+size_t RingBuffer::pop(uint8_t *data, size_t len) {
+  len = std::min(len, this->get_available());
+  for (size_t i = 0; i != len; i++) {
+    *data++ = this->buffer_[this->read_pos_];
+    this->read_pos_ = (this->read_pos_ + 1) % this->buffer_size;
+  }
+  return len;
+}
+void USBUartChannel::write_array(const uint8_t *data, size_t len) {
+  if (!this->initialised_) {
+    ESP_LOGW(TAG, "Channel not initialised - write ignored");
+    return;
+  }
+  while (this->output_buffer_.get_free_space() != 0 && len-- != 0) {
+    this->output_buffer_.push(*data++);
+  }
+  len++;
+  if (len > 0) {
+    ESP_LOGE(TAG, "Buffer full - failed to write %d bytes", len);
+  }
+  this->parent_->start_output(this);
+}
+
+bool USBUartChannel::peek_byte(uint8_t *data) {
+  if (this->input_buffer_.is_empty()) {
+    return false;
+  }
+  *data = this->input_buffer_.peek();
+  return true;
+}
+bool USBUartChannel::read_array(uint8_t *data, size_t len) {
+  if (!this->initialised_) {
+    ESP_LOGW(TAG, "Channel not initialised - read ignored");
+    return false;
+  }
+  auto available = this->available();
+  bool status = true;
+  if (len > available) {
+    ESP_LOGD(TAG, "underflow: requested %zu but returned %d, bytes", len, available);
+    len = available;
+    status = false;
+  }
+  for (size_t i = 0; i != len; i++) {
+    *data++ = this->input_buffer_.pop();
+  }
+  if (this->input_buffer_.get_free_space() == 0) {
+    this->parent_->start_input(this);
+  }
+  return status;
+}
 void USBUartComponent::setup() { USBClient::setup(); }
 void USBUartComponent::loop() { USBClient::loop(); }
+void USBUartComponent::dump_config() {
+  USBClient::dump_config();
+  for (auto &channel : this->channels_) {
+    ESP_LOGCONFIG(TAG, "  UART Channel %d", channel->index_);
+    ESP_LOGCONFIG(TAG, "    Baud Rate: %" PRIu32 " baud", channel->baud_rate_);
+    ESP_LOGCONFIG(TAG, "    Data Bits: %u", channel->data_bits_);
+    ESP_LOGCONFIG(TAG, "    Parity: %s", parity_names[channel->parity_]);
+    ESP_LOGCONFIG(TAG, "    Stop bits: %u", channel->stop_bits_);
+  }
+}
 void USBUartTypeCdcAcm::on_disconnected_() {}
 
-void USBUartTypeCdcAcm::start_input_(USBUartChannel *channel) {
-  if (channel->input_started_)
+void USBUartComponent::start_input(USBUartChannel *channel) {
+  if (!channel->initialised_ || channel->input_started_)
     return;
   auto ep = channel->cdc_dev_.in_ep;
   auto callback = [=](const usb_host::transfer_status_t &status) {
-    char buf[65]{};
-    memcpy(buf, status.data, status.data_len);
-    ESP_LOGD(TAG, "Transfer result: length: %u; data %X %X", status.data_len, status.data[0], status.data[1]);
-    ESP_LOGD(TAG, "Received: %s", buf);
+    ESP_LOGD(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
+    if (this->debug_) {
+      uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX,
+                               std::vector<uint8_t>(status.data, status.data + status.data_len), ',');  // NOLINT()
+    }
     channel->input_started_ = false;
-    this->defer([=] { this->start_input_(channel); });
+    if (status.data_len != 0 && !this->dummy_receiver_) {
+      for (size_t i = 0; i != status.data_len; i++) {
+        channel->input_buffer_.push(status.data[i]);
+      }
+    }
+    if (channel->input_buffer_.get_free_space() >= channel->cdc_dev_.in_ep->wMaxPacketSize) {
+      this->defer([=] { this->start_input(channel); });
+    }
   };
+  channel->input_started_ = true;
   this->transfer_in(ep->bEndpointAddress, callback, ep->wMaxPacketSize);
+}
+
+void USBUartComponent::start_output(USBUartChannel *channel) {
+  if (channel->output_started_)
+    return;
+  if (channel->output_buffer_.is_empty()) {
+    return;
+  }
+  auto ep = channel->cdc_dev_.out_ep;
+  auto callback = [=](const usb_host::transfer_status_t &status) {
+    ESP_LOGD(TAG, "Output Transfer result: length: %u; status %X", status.data_len, status.error_code);
+    channel->output_started_ = false;
+    this->defer([=] { this->start_output(channel); });
+  };
+  channel->output_started_ = true;
+  uint8_t data[ep->wMaxPacketSize];
+  auto len = channel->output_buffer_.pop(data, ep->wMaxPacketSize);
+  this->transfer_out(ep->bEndpointAddress, callback, data, len);
+  if (this->debug_) {
+    uart::UARTDebug::log_hex(uart::UART_DIRECTION_TX, std::vector<uint8_t>(data, data + len), ',');  // NOLINT()
+  }
+  ESP_LOGD(TAG, "Output %d bytes started", len);
 }
 void USBUartTypeCdcAcm::on_connected_() {
   ESP_LOGD(TAG, "on_connected");
-  auto cdc_devs = find_cdc_acm(this->device_handle_);
+  auto cdc_devs = this->parse_descriptors_(this->device_handle_);
   if (cdc_devs.empty()) {
     this->status_set_error("No CDC-ACM device found");
     this->mark_failed();
@@ -130,24 +236,35 @@ void USBUartTypeCdcAcm::on_connected_() {
   ESP_LOGD(TAG, "Found %u CDC-ACM devices", cdc_devs.size());
   auto i = 0;
   for (auto channel : this->channels_) {
+    if (i == cdc_devs.size()) {
+      ESP_LOGE(TAG, "No configuration found for channel %d", channel->index_);
+      this->status_set_warning("No configuration found for channel");
+      break;
+    }
     channel->cdc_dev_ = cdc_devs[i++];
-    channel->input_started_ = false;
+    channel->initialised_ = true;
+    auto err =
+        usb_host_interface_claim(this->handle_, this->device_handle_, channel->cdc_dev_.intf->bInterfaceNumber, 0);
+    if (err != ESP_OK) {
+      ESP_LOGE(TAG, "usb_host_interface_claim failed: %x", err);
+      this->status_set_error("usb_host_interface_claim failed");
+      this->mark_failed();
+      this->disconnect_();
+      return;
+    }
   }
-  this->control_transfer_in_(
-      usb_host::USB_RECIP_DEVICE | usb_host::USB_TYPE_VENDOR, 0x5F, 0, 0,
-      [=](const usb_host::transfer_status_t &status) {
-        ESP_LOGD(TAG, "Transfer result: length: %u; data %X %X", status.data_len, status.data[0], status.data[1]);
-      },
-      2);
-  auto err = usb_host_interface_claim(this->handle_, this->device_handle_, this->cdc_devs[0].intf->bInterfaceNumber, 0);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "usb_host_interface_claim failed: %x", err);
-    this->status_set_error("usb_host_interface_claim failed");
-    this->mark_failed();
-    this->disconnect_();
-    return;
-  }
-  this->start_input_(0);
+  this->enable_channels_();
 }
+
+void USBUartTypeCdcAcm::enable_channels_() {
+  for (auto channel : this->channels_) {
+    if (!channel->initialised_)
+      continue;
+    channel->input_started_ = false;
+    channel->output_started_ = false;
+    this->start_input(channel);
+  }
+}
+
 }  // namespace usb_uart
 }  // namespace esphome
