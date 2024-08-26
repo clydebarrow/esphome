@@ -9,6 +9,8 @@ namespace esphome {
 namespace usb_host {
 static std::string get_descriptor_string(const usb_str_desc_t *desc) {
   char buffer[256];
+  if (desc == nullptr)
+    return "(unknown)";
   char *p = buffer;
   for (size_t i = 0; i != desc->bLength / 2; i++) {
     auto c = desc->wData[i];
@@ -29,7 +31,8 @@ static void client_event_cb(const usb_host_client_event_msg_t *event_msg, void *
       break;
     }
     case USB_HOST_CLIENT_EVENT_DEV_GONE: {
-      client->on_closed(event_msg->dev_gone.dev_hdl);
+      client->on_removed(event_msg->dev_gone.dev_hdl);
+      ESP_LOGD(TAG, "Device gone %d", event_msg->new_dev.address);
       break;
     }
     default:
@@ -43,16 +46,16 @@ void USBClient::setup() {
                                   .async = {.client_event_callback = client_event_cb, .callback_arg = this}};
   auto err = usb_host_client_register(&config, &this->handle_);
   if (err != ESP_OK) {
-    ESP_LOGD(TAG, "client register failed: %s", esp_err_to_name(err));
+    ESP_LOGE(TAG, "client register failed: %s", esp_err_to_name(err));
     this->status_set_error("Client register failed");
     this->mark_failed();
     return;
   }
-  ESP_LOGD(TAG, "client setup complete");
   for (auto trq : this->trq_pool_) {
     usb_host_transfer_alloc(64, 0, &trq->transfer);
     trq->client = this;
   }
+  ESP_LOGCONFIG(TAG, "client setup complete");
 }
 
 void USBClient::loop() {
@@ -61,27 +64,26 @@ void USBClient::loop() {
       int err;
       ESP_LOGD(TAG, "Open device %d", this->device_addr_);
       if ((err = usb_host_device_open(this->handle_, this->device_addr_, &this->device_handle_)) != ESP_OK) {
-        ESP_LOGD(TAG, "Device open failed: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "Device open failed: %s", esp_err_to_name(err));
         this->state_ = USB_CLIENT_INIT;
         break;
       }
       ESP_LOGD(TAG, "Get descriptor device %d", this->device_addr_);
       const usb_device_desc_t *desc;
       if ((err = usb_host_get_device_descriptor(this->device_handle_, &desc)) != ESP_OK) {
-        ESP_LOGD(TAG, "Device get_desc failed: %s", esp_err_to_name(err));
+        ESP_LOGW(TAG, "Device get_desc failed: %s", esp_err_to_name(err));
         this->disconnect_();
       } else {
         ESP_LOGD(TAG, "Device descriptor: vid %X pid %X", desc->idVendor, desc->idProduct);
         if (desc->idVendor == this->vid_ && desc->idProduct == this->pid_) {
-          ESP_LOGD(TAG, "Getting info");
           usb_device_info_t dev_info;
           if ((err = usb_host_device_info(this->device_handle_, &dev_info)) != ESP_OK) {
-            ESP_LOGD(TAG, "Device info failed: %s", esp_err_to_name(err));
+            ESP_LOGW(TAG, "Device info failed: %s", esp_err_to_name(err));
             this->disconnect_();
             break;
           }
           this->state_ = USB_CLIENT_CONNECTED;
-          ESP_LOGD(TAG, "Manuf: %s; Prod: %s; Serial: %s",
+          ESP_LOGD(TAG, "Device connected: Manuf: %s; Prod: %s; Serial: %s",
                    get_descriptor_string(dev_info.str_desc_manufacturer).c_str(),
                    get_descriptor_string(dev_info.str_desc_product).c_str(),
                    get_descriptor_string(dev_info.str_desc_serial_num).c_str());
@@ -112,17 +114,14 @@ void USBClient::loop() {
 }
 
 void USBClient::on_opened(uint8_t addr) {
-  ESP_LOGD(TAG, "Opened device %d", addr);
   if (this->state_ == USB_CLIENT_INIT) {
     this->device_addr_ = addr;
     this->state_ = USB_CLIENT_OPEN;
   }
 }
-void USBClient::on_closed(usb_device_handle_t handle) {
+void USBClient::on_removed(usb_device_handle_t handle) {
   if (this->device_handle_ == handle) {
-    this->device_handle_ = nullptr;
-    this->state_ = USB_CLIENT_INIT;
-    this->device_addr_ = -1;
+    this->disconnect_();
   }
 }
 
@@ -150,58 +149,50 @@ transfer_request_t *USBClient::get_trq_() {
   trq->transfer->device_handle = this->device_handle_;
   return trq;
 }
-transfer_request_t *USBClient::setup_control_transfer_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
-                                                       const transfer_cb_t &callback, uint16_t length, uint8_t dir) {
+void USBClient::disconnect_() {
+  this->on_disconnected_();
+  auto err = usb_host_device_close(this->handle_, this->device_handle_);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Device close failed: %s", esp_err_to_name(err));
+  }
+  this->state_ = USB_CLIENT_INIT;
+  this->device_handle_ = nullptr;
+  this->device_addr_ = -1;
+}
+
+bool USBClient::control_transfer(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
+                                 const transfer_cb_t &callback, const std::vector<uint8_t> &data) {
   auto trq = this->get_trq_();
   if (trq == nullptr)
-    return nullptr;
-  if (length > sizeof(trq->transfer->data_buffer_size) - sizeof(usb_setup_packet_t)) {
+    return false;
+  auto length = data.size();
+  if (length > sizeof(trq->transfer->data_buffer_size) - SETUP_PACKET_SIZE) {
     ESP_LOGE(TAG, "Control transfer data size too large: %u > %u", length,
              sizeof(trq->transfer->data_buffer_size) - sizeof(usb_setup_packet_t));
     this->release_trq(trq);
-    return nullptr;
+    return false;
   }
-  auto control_packet = ByteBuffer(8, LITTLE);
+  auto control_packet = ByteBuffer(SETUP_PACKET_SIZE, LITTLE);
   control_packet.put_uint8(type);
   control_packet.put_uint8(request);
   control_packet.put_uint16(value);
   control_packet.put_uint16(index);
   control_packet.put_uint16(length);
-  memcpy(trq->transfer->data_buffer, control_packet.get_data().data(), 8);
+  memcpy(trq->transfer->data_buffer, control_packet.get_data().data(), SETUP_PACKET_SIZE);
+  if (length != 0 && !(type & USB_DIR_IN)) {
+    memcpy(trq->transfer->data_buffer + SETUP_PACKET_SIZE, data.data(), length);
+  }
   trq->callback = callback;
-  trq->transfer->bEndpointAddress = dir;
-  trq->transfer->num_bytes = static_cast<int>(length + sizeof(usb_setup_packet_t));
+  trq->transfer->bEndpointAddress = type & USB_DIR_MASK;
+  trq->transfer->num_bytes = static_cast<int>(length + SETUP_PACKET_SIZE);
   trq->transfer->callback = reinterpret_cast<usb_transfer_cb_t>(control_callback);
-  return trq;
-}
-
-void USBClient::control_transfer_in_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
-                                     transfer_cb_t const &callback, uint16_t length) {
-  type |= USB_DIR_IN;
-  usb_setup_packet_t setup_packet = {};
-  auto *trq = setup_control_transfer_(type, request, value, index, callback, length, USB_DIR_IN);
-  if (trq == nullptr)
-    return;
-  memcpy(trq->transfer->data_buffer, &setup_packet, sizeof(setup_packet));
   auto err = usb_host_transfer_submit_control(this->handle_, trq->transfer);
   if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to submit control transfer, err=%d", err);
+    ESP_LOGE(TAG, "Failed to submit control transfer, err=%s", esp_err_to_name(err));
     this->release_trq(trq);
+    return false;
   }
-}
-
-void USBClient::control_transfer_out_(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
-                                      const transfer_cb_t &callback, uint16_t length, const uint8_t *data) {
-  type &= ~USB_DIR_MASK;
-  auto *trq = setup_control_transfer_(type, request, value, index, callback, length, USB_DIR_OUT);
-  if (trq == nullptr)
-    return;
-  memcpy(trq->transfer->data_buffer + sizeof(usb_setup_packet_t), data, length);
-  auto err = usb_host_transfer_submit_control(this->handle_, trq->transfer);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to submit control transfer, err=%d", err);
-    this->release_trq(trq);
-  }
+  return true;
 }
 
 static void transfer_callback(usb_transfer_t *xfer) {
@@ -238,6 +229,7 @@ void USBClient::transfer_in(uint8_t ep_address, const transfer_cb_t &callback, u
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to submit transfer, address=%x, length=%d, err=%x", ep_address, length, err);
     this->release_trq(trq);
+    this->disconnect_();
   }
 }
 

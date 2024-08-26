@@ -53,7 +53,8 @@ class Type:
 
 
 uart_types = (
-    Type("CH344", 0x1A86, 0x55D5, 4, "CdcAcm"),
+    Type("CH34X", 0x1A86, 0x55D5, 4, "CH34X"),
+    Type("CH340", 0x1A86, 0x7523, 1, "CH34X"),
     Type("ESP_JTAG", 0x303A, 0x1001, 1, "CdcAcm"),
     Type("CP210X", 0x10C4, 0xEA60, 4, "CP210X"),
 )

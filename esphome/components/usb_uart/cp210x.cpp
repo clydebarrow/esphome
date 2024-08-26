@@ -102,18 +102,20 @@ void USBUartTypeCP210X::enable_channels_() {
       continue;
     usb_host::transfer_cb_t callback = [=](const usb_host::transfer_status_t &status) {
       if (!status.success) {
-        ESP_LOGE(TAG, "Control transfer failed, status=%d", status.error_code);
+        ESP_LOGE(TAG, "Control transfer failed, status=%s", esp_err_to_name(status.error_code));
         channel->initialised_ = false;
       }
     };
-    this->control_transfer_out_(USB_VENDOR_IFC, IFC_ENABLE, 1, channel->index_, callback);
+    this->control_transfer(USB_VENDOR_IFC | usb_host::USB_DIR_OUT, IFC_ENABLE, 1, channel->index_, callback);
     uint16_t line_control = channel->stop_bits_;
     line_control |= static_cast<uint8_t>(channel->parity_) << 4;
     line_control |= channel->data_bits_ << 8;
     ESP_LOGD(TAG, "Line control value 0x%X", line_control);
-    this->control_transfer_out_(USB_VENDOR_IFC, SET_LINE_CTL, line_control, channel->index_, callback);
+    this->control_transfer(USB_VENDOR_IFC | usb_host::USB_DIR_OUT, SET_LINE_CTL, line_control, channel->index_,
+                           callback);
     auto baud = ByteBuffer::wrap(channel->baud_rate_, LITTLE);
-    this->control_transfer_out_(USB_VENDOR_IFC, SET_BAUDRATE, 0, channel->index_, callback, 4, baud.get_data().data());
+    this->control_transfer(USB_VENDOR_IFC | usb_host::USB_DIR_OUT, SET_BAUDRATE, 0, channel->index_, callback,
+                           baud.get_data());
   }
   USBUartTypeCdcAcm::enable_channels_();
 }

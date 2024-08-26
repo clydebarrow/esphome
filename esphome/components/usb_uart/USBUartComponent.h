@@ -18,6 +18,7 @@ static constexpr uint8_t USB_SUBCLASS_NULL = 0x00;
 static constexpr uint8_t USB_PROTOCOL_NULL = 0x00;
 static constexpr uint8_t USB_DEVICE_PROTOCOL_IAD = 0x01;
 static constexpr uint8_t USB_VENDOR_IFC = usb_host::USB_TYPE_VENDOR | usb_host::USB_RECIP_INTERFACE;
+static constexpr uint8_t USB_VENDOR_DEV = usb_host::USB_TYPE_VENDOR | usb_host::USB_RECIP_DEVICE;
 
 typedef struct {
   const usb_ep_desc_t *notify_ep;
@@ -55,6 +56,7 @@ class RingBuffer {
   void push(const uint8_t *data, size_t len);
   uint8_t pop();
   size_t pop(uint8_t *data, size_t len);
+  void clear() { this->read_pos_ = this->insert_pos_ = 0; }
 
  protected:
   uint16_t insert_pos_ = 0;
@@ -67,6 +69,7 @@ class USBUartChannel : public uart::UARTComponent, public Parented<USBUartCompon
   friend class USBUartComponent;
   friend class USBUartTypeCdcAcm;
   friend class USBUartTypeCP210X;
+  friend class USBUartTypeCH34X;
 
  public:
   USBUartChannel(uint8_t index, uint16_t buffer_size)
@@ -130,6 +133,13 @@ class USBUartTypeCP210X : public USBUartTypeCdcAcm {
 
  protected:
   std::vector<cdc_eps_t> parse_descriptors_(usb_device_handle_t dev_hdl) override;
+  void enable_channels_() override;
+};
+class USBUartTypeCH34X : public USBUartTypeCdcAcm {
+ public:
+  USBUartTypeCH34X(uint16_t vid, uint16_t pid) : USBUartTypeCdcAcm(vid, pid) {}
+
+ protected:
   void enable_channels_() override;
 };
 

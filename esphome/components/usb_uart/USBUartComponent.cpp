@@ -125,7 +125,7 @@ size_t RingBuffer::pop(uint8_t *data, size_t len) {
 }
 void USBUartChannel::write_array(const uint8_t *data, size_t len) {
   if (!this->initialised_) {
-    ESP_LOGW(TAG, "Channel not initialised - write ignored");
+    ESP_LOGD(TAG, "Channel not initialised - write ignored");
     return;
   }
   while (this->output_buffer_.get_free_space() != 0 && len-- != 0) {
@@ -177,14 +177,16 @@ void USBUartComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "    Stop bits: %u", channel->stop_bits_);
   }
 }
-void USBUartTypeCdcAcm::on_disconnected_() {}
-
 void USBUartComponent::start_input(USBUartChannel *channel) {
   if (!channel->initialised_ || channel->input_started_)
     return;
   auto ep = channel->cdc_dev_.in_ep;
   auto callback = [=](const usb_host::transfer_status_t &status) {
     ESP_LOGD(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
+    if (!status.success) {
+      ESP_LOGE(TAG, "Control transfer failed, status=%d", status.error_code);
+      return;
+    }
     if (this->debug_) {
       uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX,
                                std::vector<uint8_t>(status.data, status.data + status.data_len), ',');  // NOLINT()
@@ -246,7 +248,8 @@ void USBUartTypeCdcAcm::on_connected_() {
     auto err =
         usb_host_interface_claim(this->handle_, this->device_handle_, channel->cdc_dev_.intf->bInterfaceNumber, 0);
     if (err != ESP_OK) {
-      ESP_LOGE(TAG, "usb_host_interface_claim failed: %x", err);
+      ESP_LOGE(TAG, "usb_host_interface_claim failed: %s, channel=%d, intf=%d", esp_err_to_name(err), channel->index_,
+               channel->cdc_dev_.intf->bInterfaceNumber);
       this->status_set_error("usb_host_interface_claim failed");
       this->mark_failed();
       this->disconnect_();
@@ -254,6 +257,33 @@ void USBUartTypeCdcAcm::on_connected_() {
     }
   }
   this->enable_channels_();
+}
+
+void USBUartTypeCdcAcm::on_disconnected_() {
+  for (auto channel : this->channels_) {
+    if (channel->cdc_dev_.in_ep != nullptr) {
+      usb_host_endpoint_halt(this->device_handle_, channel->cdc_dev_.in_ep->bEndpointAddress);
+      usb_host_endpoint_flush(this->device_handle_, channel->cdc_dev_.in_ep->bEndpointAddress);
+    }
+    if (channel->cdc_dev_.out_ep != nullptr) {
+      usb_host_endpoint_halt(this->device_handle_, channel->cdc_dev_.out_ep->bEndpointAddress);
+      usb_host_endpoint_flush(this->device_handle_, channel->cdc_dev_.out_ep->bEndpointAddress);
+    }
+    if (channel->cdc_dev_.notify_ep != nullptr) {
+      usb_host_endpoint_halt(this->device_handle_, channel->cdc_dev_.notify_ep->bEndpointAddress);
+      usb_host_endpoint_flush(this->device_handle_, channel->cdc_dev_.notify_ep->bEndpointAddress);
+    }
+    if (channel->cdc_dev_.intf != nullptr) {
+      usb_host_interface_release(this->handle_, this->device_handle_, channel->cdc_dev_.intf->bInterfaceNumber);
+      channel->cdc_dev_.intf = nullptr;
+    }
+    channel->initialised_ = false;
+    channel->input_started_ = false;
+    channel->output_started_ = false;
+    channel->input_buffer_.clear();
+    channel->output_buffer_.clear();
+  }
+  USBClient::on_disconnected_();
 }
 
 void USBUartTypeCdcAcm::enable_channels_() {
