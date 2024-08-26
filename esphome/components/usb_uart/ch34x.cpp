@@ -42,7 +42,7 @@ void USBUartTypeCH34X::enable_channels_() {
         clk = 11719;
       }
     }
-    ESP_LOGD(TAG, "baud_rate: %d, divisor: %d, clk: %d", baud_rate, divisor, clk);
+    ESP_LOGV(TAG, "baud_rate: %" PRIu32 ", divisor: %d, clk: %" PRIu32, baud_rate, divisor, clk);
     auto factor = static_cast<uint8_t>(clk / baud_rate);
     if (factor == 0 || factor == 0xFF) {
       ESP_LOGE(TAG, "Invalid baud rate %" PRIu32, baud_rate);

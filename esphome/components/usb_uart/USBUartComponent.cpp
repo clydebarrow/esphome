@@ -125,7 +125,7 @@ size_t RingBuffer::pop(uint8_t *data, size_t len) {
 }
 void USBUartChannel::write_array(const uint8_t *data, size_t len) {
   if (!this->initialised_) {
-    ESP_LOGD(TAG, "Channel not initialised - write ignored");
+    ESP_LOGV(TAG, "Channel not initialised - write ignored");
     return;
   }
   while (this->output_buffer_.get_free_space() != 0 && len-- != 0) {
@@ -147,13 +147,13 @@ bool USBUartChannel::peek_byte(uint8_t *data) {
 }
 bool USBUartChannel::read_array(uint8_t *data, size_t len) {
   if (!this->initialised_) {
-    ESP_LOGW(TAG, "Channel not initialised - read ignored");
+    ESP_LOGV(TAG, "Channel not initialised - read ignored");
     return false;
   }
   auto available = this->available();
   bool status = true;
   if (len > available) {
-    ESP_LOGD(TAG, "underflow: requested %zu but returned %d, bytes", len, available);
+    ESP_LOGV(TAG, "underflow: requested %zu but returned %d, bytes", len, available);
     len = available;
     status = false;
   }
@@ -181,16 +181,18 @@ void USBUartComponent::start_input(USBUartChannel *channel) {
   if (!channel->initialised_ || channel->input_started_)
     return;
   auto ep = channel->cdc_dev_.in_ep;
-  auto callback = [=](const usb_host::transfer_status_t &status) {
-    ESP_LOGD(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
+  auto callback = [this, channel](const usb_host::transfer_status_t &status) {
+    ESP_LOGV(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
     if (!status.success) {
-      ESP_LOGE(TAG, "Control transfer failed, status=%d", status.error_code);
+      ESP_LOGE(TAG, "Control transfer failed, status=%s", esp_err_to_name(status.error_code));
       return;
     }
+#ifdef USE_UART_DEBUGGER
     if (this->debug_) {
       uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX,
                                std::vector<uint8_t>(status.data, status.data + status.data_len), ',');  // NOLINT()
     }
+#endif
     channel->input_started_ = false;
     if (status.data_len != 0 && !this->dummy_receiver_) {
       for (size_t i = 0; i != status.data_len; i++) {
@@ -198,7 +200,7 @@ void USBUartComponent::start_input(USBUartChannel *channel) {
       }
     }
     if (channel->input_buffer_.get_free_space() >= channel->cdc_dev_.in_ep->wMaxPacketSize) {
-      this->defer([=] { this->start_input(channel); });
+      this->defer([this, channel] { this->start_input(channel); });
     }
   };
   channel->input_started_ = true;
@@ -212,22 +214,23 @@ void USBUartComponent::start_output(USBUartChannel *channel) {
     return;
   }
   auto ep = channel->cdc_dev_.out_ep;
-  auto callback = [=](const usb_host::transfer_status_t &status) {
-    ESP_LOGD(TAG, "Output Transfer result: length: %u; status %X", status.data_len, status.error_code);
+  auto callback = [this, channel](const usb_host::transfer_status_t &status) {
+    ESP_LOGV(TAG, "Output Transfer result: length: %u; status %X", status.data_len, status.error_code);
     channel->output_started_ = false;
-    this->defer([=] { this->start_output(channel); });
+    this->defer([this, channel] { this->start_output(channel); });
   };
   channel->output_started_ = true;
   uint8_t data[ep->wMaxPacketSize];
   auto len = channel->output_buffer_.pop(data, ep->wMaxPacketSize);
   this->transfer_out(ep->bEndpointAddress, callback, data, len);
+#ifdef USE_UART_DEBUGGER
   if (this->debug_) {
     uart::UARTDebug::log_hex(uart::UART_DIRECTION_TX, std::vector<uint8_t>(data, data + len), ',');  // NOLINT()
   }
-  ESP_LOGD(TAG, "Output %d bytes started", len);
+#endif
+  ESP_LOGV(TAG, "Output %d bytes started", len);
 }
 void USBUartTypeCdcAcm::on_connected_() {
-  ESP_LOGD(TAG, "on_connected");
   auto cdc_devs = this->parse_descriptors_(this->device_handle_);
   if (cdc_devs.empty()) {
     this->status_set_error("No CDC-ACM device found");
@@ -235,7 +238,7 @@ void USBUartTypeCdcAcm::on_connected_() {
     this->disconnect_();
     return;
   }
-  ESP_LOGD(TAG, "Found %u CDC-ACM devices", cdc_devs.size());
+  ESP_LOGD(TAG, "Found %zu CDC-ACM devices", cdc_devs.size());
   auto i = 0;
   for (auto channel : this->channels_) {
     if (i == cdc_devs.size()) {

@@ -1,4 +1,5 @@
 #include "usb_host.h"
+#include <cinttypes>
 #include "usb/usb_host.h"
 #include "esphome/core/log.h"
 
@@ -17,12 +18,14 @@ void USBHost::setup() {
 }
 void USBHost::loop() {
   int err;
-  unsigned event_flags;
+  uint32_t event_flags;
   err = usb_host_lib_handle_events(0, &event_flags);
-  if (err != ESP_OK && err != ESP_ERR_TIMEOUT)
+  if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
     ESP_LOGD(TAG, "lib_handle_events failed failed: %s", esp_err_to_name(err));
-  if (event_flags != 0)
-    ESP_LOGD(TAG, "Event flags %X", event_flags);
+  }
+  if (event_flags != 0) {
+    ESP_LOGD(TAG, "Event flags %" PRIu32 "X", event_flags);
+  }
 }
 
 }  // namespace usb_host

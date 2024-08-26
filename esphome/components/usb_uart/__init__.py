@@ -17,13 +17,13 @@ from esphome.const import (
 )
 from esphome.cpp_types import Component
 
-REQUIRED_COMPONENTS = ["usb_host"]
+# DEPENDENCIES = ["usb_host"]
 
 usb_uart_ns = cg.esphome_ns.namespace("usb_uart")
 USBUartComponent = usb_uart_ns.class_("USBUartComponent", Component)
 USBUartChannel = usb_uart_ns.class_("USBUartChannel", UARTComponent)
 
-AUTO_LOAD = ["uart"]
+AUTO_LOAD = ["uart", "usb_host"]
 
 UARTParityOptions = usb_uart_ns.enum("UARTParityOptions")
 UART_PARITY_OPTIONS = {
@@ -53,10 +53,10 @@ class Type:
 
 
 uart_types = (
-    Type("CH34X", 0x1A86, 0x55D5, 4, "CH34X"),
+    Type("CH34X", 0x1A86, 0x55D5, 3, "CH34X"),
     Type("CH340", 0x1A86, 0x7523, 1, "CH34X"),
     Type("ESP_JTAG", 0x303A, 0x1001, 1, "CdcAcm"),
-    Type("CP210X", 0x10C4, 0xEA60, 4, "CP210X"),
+    Type("CP210X", 0x10C4, 0xEA60, 3, "CP210X"),
 )
 
 
