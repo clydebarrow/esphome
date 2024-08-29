@@ -113,8 +113,8 @@ void ModbusController::on_modbus_error(uint8_t function_code, uint8_t exception_
 void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t start_address,
                                                 uint16_t number_of_registers) {
   ESP_LOGV(TAG,
-           "Received read holding/input registers for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of registers: "
-           "0x%X.",
+           "Rx read registers for device 0x%X. FC: 0x%X. Start: 0x%X. Number: "
+           "%d.",
            this->address_, function_code, start_address, number_of_registers);
 
   std::vector<uint16_t> sixteen_bit_response;
