@@ -160,9 +160,7 @@ bool USBUartChannel::read_array(uint8_t *data, size_t len) {
   for (size_t i = 0; i != len; i++) {
     *data++ = this->input_buffer_.pop();
   }
-  if (this->input_buffer_.get_free_space() == 0) {
-    this->parent_->start_input(this);
-  }
+  this->parent_->start_input(this);
   return status;
 }
 void USBUartComponent::setup() { USBClient::setup(); }
@@ -175,14 +173,17 @@ void USBUartComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "    Data Bits: %u", channel->data_bits_);
     ESP_LOGCONFIG(TAG, "    Parity: %s", parity_names[channel->parity_]);
     ESP_LOGCONFIG(TAG, "    Stop bits: %u", channel->stop_bits_);
+    if (this->debug_)
+      ESP_LOGCONFIG(TAG, "    Debug: true");
   }
 }
 void USBUartComponent::start_input(USBUartChannel *channel) {
-  if (!channel->initialised_ || channel->input_started_)
+  if (!channel->initialised_ || channel->input_started_ ||
+      channel->input_buffer_.get_free_space() < channel->cdc_dev_.in_ep->wMaxPacketSize)
     return;
   auto ep = channel->cdc_dev_.in_ep;
   auto callback = [this, channel](const usb_host::transfer_status_t &status) {
-    ESP_LOGV(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
+    ESP_LOGD(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
     if (!status.success) {
       ESP_LOGE(TAG, "Control transfer failed, status=%s", esp_err_to_name(status.error_code));
       return;
@@ -194,14 +195,14 @@ void USBUartComponent::start_input(USBUartChannel *channel) {
     }
 #endif
     channel->input_started_ = false;
-    if (status.data_len != 0 && !this->dummy_receiver_) {
+    if (!this->dummy_receiver_) {
       for (size_t i = 0; i != status.data_len; i++) {
         channel->input_buffer_.push(status.data[i]);
       }
     }
-    if (channel->input_buffer_.get_free_space() >= channel->cdc_dev_.in_ep->wMaxPacketSize) {
-      this->defer([this, channel] { this->start_input(channel); });
-    }
+    // if (channel->input_buffer_.get_free_space() >= channel->cdc_dev_.in_ep->wMaxPacketSize) {
+    this->defer([this, channel] { this->start_input(channel); });
+    //}
   };
   channel->input_started_ = true;
   this->transfer_in(ep->bEndpointAddress, callback, ep->wMaxPacketSize);
