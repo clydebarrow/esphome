@@ -169,8 +169,8 @@ async def to_code(config):
         cg.add(var.set_reset_pin(reset))
 
     if enable_pin := config.get(CONF_ENABLE_PIN):
-        reset = await cg.gpio_pin_expression(enable_pin)
-        cg.add(var.set_enable_pin(enable_pin))
+        enable = await cg.gpio_pin_expression(enable_pin)
+        cg.add(var.set_enable_pin(enable))
 
     if CONF_DIMENSIONS in config:
         dimensions = config[CONF_DIMENSIONS]

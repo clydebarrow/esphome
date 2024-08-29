@@ -14,6 +14,7 @@ void RpiDpiRgb::setup() {
   this->reset_display_();
   esp_lcd_rgb_panel_config_t config{};
   config.flags.fb_in_psram = 1;
+  config.num_fbs = 1;
   config.timings.h_res = this->width_;
   config.timings.v_res = this->height_;
   config.timings.hsync_pulse_width = this->hsync_pulse_width_;
