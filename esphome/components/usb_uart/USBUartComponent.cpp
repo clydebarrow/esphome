@@ -173,8 +173,10 @@ void USBUartComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "    Data Bits: %u", channel->data_bits_);
     ESP_LOGCONFIG(TAG, "    Parity: %s", parity_names[channel->parity_]);
     ESP_LOGCONFIG(TAG, "    Stop bits: %u", channel->stop_bits_);
-    if (this->debug_)
+    if (channel->debug_)
       ESP_LOGCONFIG(TAG, "    Debug: true");
+    if (channel->dummy_receiver_)
+      ESP_LOGCONFIG(TAG, "    Dummy receiver: true");
   }
 }
 void USBUartComponent::start_input(USBUartChannel *channel) {
@@ -183,26 +185,26 @@ void USBUartComponent::start_input(USBUartChannel *channel) {
     return;
   auto ep = channel->cdc_dev_.in_ep;
   auto callback = [this, channel](const usb_host::transfer_status_t &status) {
-    ESP_LOGD(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
+    ESP_LOGV(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
     if (!status.success) {
       ESP_LOGE(TAG, "Control transfer failed, status=%s", esp_err_to_name(status.error_code));
       return;
     }
 #ifdef USE_UART_DEBUGGER
-    if (this->debug_) {
+    if (channel->debug_) {
       uart::UARTDebug::log_hex(uart::UART_DIRECTION_RX,
                                std::vector<uint8_t>(status.data, status.data + status.data_len), ',');  // NOLINT()
     }
 #endif
     channel->input_started_ = false;
-    if (!this->dummy_receiver_) {
+    if (!channel->dummy_receiver_) {
       for (size_t i = 0; i != status.data_len; i++) {
         channel->input_buffer_.push(status.data[i]);
       }
     }
-    // if (channel->input_buffer_.get_free_space() >= channel->cdc_dev_.in_ep->wMaxPacketSize) {
-    this->defer([this, channel] { this->start_input(channel); });
-    //}
+    if (channel->input_buffer_.get_free_space() >= channel->cdc_dev_.in_ep->wMaxPacketSize) {
+      this->defer([this, channel] { this->start_input(channel); });
+    }
   };
   channel->input_started_ = true;
   this->transfer_in(ep->bEndpointAddress, callback, ep->wMaxPacketSize);
@@ -225,7 +227,7 @@ void USBUartComponent::start_output(USBUartChannel *channel) {
   auto len = channel->output_buffer_.pop(data, ep->wMaxPacketSize);
   this->transfer_out(ep->bEndpointAddress, callback, data, len);
 #ifdef USE_UART_DEBUGGER
-  if (this->debug_) {
+  if (channel->debug_) {
     uart::UARTDebug::log_hex(uart::UART_DIRECTION_TX, std::vector<uint8_t>(data, data + len), ',');  // NOLINT()
   }
 #endif

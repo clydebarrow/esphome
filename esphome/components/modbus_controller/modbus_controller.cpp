@@ -6,6 +6,12 @@ namespace esphome {
 namespace modbus_controller {
 
 static const char *const TAG = "modbus_controller";
+static std::string pkt_to_hex(std::vector<uint8_t> data) {
+  char buf[256]{};
+  for (int i = 0; i != data.size(); i++)
+    snprintf(&buf[i * 2], 256 - i * 2, "%02x", data[i]);
+  return {buf};
+}
 
 void ModbusController::setup() { this->create_register_ranges_(); }
 
@@ -34,7 +40,7 @@ bool ModbusController::send_next_command_() {
         }
       }
       this->module_offline_ = true;
-      ESP_LOGD(
+      ESP_LOGV(
           TAG,
           "Modbus command to device=%d register=0x%02X countdown=%d no response received - removed from send queue",
           this->address_, command->register_address, command->send_countdown);
@@ -85,6 +91,7 @@ void ModbusController::on_modbus_data(const std::vector<uint8_t> &data) {
 void ModbusController::process_modbus_data_(const ModbusCommandItem *response) {
   ESP_LOGV(TAG, "Process modbus response for address 0x%X size: %zu", response->register_address,
            response->payload.size());
+  ESP_LOGV(TAG, "%s", pkt_to_hex(response->payload).c_str());
   response->on_data_func(response->register_type, response->register_address, response->payload);
 }
 
@@ -105,7 +112,7 @@ void ModbusController::on_modbus_error(uint8_t function_code, uint8_t exception_
 
 void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t start_address,
                                                 uint16_t number_of_registers) {
-  ESP_LOGD(TAG,
+  ESP_LOGV(TAG,
            "Received read holding/input registers for device 0x%X. FC: 0x%X. Start address: 0x%X. Number of registers: "
            "0x%X.",
            this->address_, function_code, start_address, number_of_registers);
@@ -117,11 +124,13 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
       if (server_register->address == current_address) {
         float value = server_register->read_lambda();
 
-        ESP_LOGD(TAG, "Matched register. Address: 0x%02X. Value type: %zu. Register count: %u. Value: %0.1f.",
+        ESP_LOGV(TAG, "Matched register. Address: 0x%02X. Value type: %zu. Register count: %u. Value: %0.1f.",
                  server_register->address, static_cast<uint8_t>(server_register->value_type),
                  server_register->register_count, value);
         std::vector<uint16_t> payload = float_to_payload(value, server_register->value_type);
-        sixteen_bit_response.insert(sixteen_bit_response.end(), payload.cbegin(), payload.cend());
+        for (auto p : payload) {
+          sixteen_bit_response.push_back(p);
+        }
         current_address += server_register->register_count;
         found = true;
         break;
@@ -146,6 +155,7 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
     response.push_back(decoded_value[1]);
   }
 
+  ESP_LOGV(TAG, "Sending packet %s", pkt_to_hex(response).c_str());
   this->send(function_code, start_address, number_of_registers, response.size(), response.data());
 }
 

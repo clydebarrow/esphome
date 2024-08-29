@@ -83,6 +83,8 @@ class USBUartChannel : public uart::UARTComponent, public Parented<USBUartCompon
   void flush() override {}
   void check_logger_conflict() override {}
   void set_parity(UARTParityOptions parity) { this->parity_ = parity; }
+  void set_debug(bool debug) { this->debug_ = debug; }
+  void set_dummy_receiver(bool dummy_receiver) { this->dummy_receiver_ = dummy_receiver; }
 
  protected:
   const uint8_t index_;
@@ -92,6 +94,8 @@ class USBUartChannel : public uart::UARTComponent, public Parented<USBUartCompon
   bool input_started_{true};
   bool output_started_{true};
   cdc_eps_t cdc_dev_{};
+  bool debug_{};
+  bool dummy_receiver_{};
   bool initialised_{};
 };
 
@@ -107,13 +111,9 @@ class USBUartComponent : public usb_host::USBClient {
 
   void start_input(USBUartChannel *channel);
   void start_output(USBUartChannel *channel);
-  void set_debug(bool debug) { this->debug_ = debug; }
-  void set_dummy_receiver(bool dummy_receiver) { this->dummy_receiver_ = dummy_receiver; }
 
  protected:
   std::vector<USBUartChannel *> channels_{};
-  bool debug_{};
-  bool dummy_receiver_{};
 };
 
 class USBUartTypeCdcAcm : public USBUartComponent {
