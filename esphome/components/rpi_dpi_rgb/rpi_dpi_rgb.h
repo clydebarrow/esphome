@@ -23,7 +23,6 @@ class RpiDpiRgb : public display::Display {
  public:
   void update() override { this->do_update_(); }
   void setup() override;
-  void loop() override;
   void draw_pixels_at(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorOrder order,
                       display::ColorBitness bitness, bool big_endian, int x_offset, int y_offset, int x_pad) override;
   void draw_pixel_at(int x, int y, Color color) override;
@@ -37,8 +36,8 @@ class RpiDpiRgb : public display::Display {
   void set_pclk_pin(InternalGPIOPin *pclk_pin) { this->pclk_pin_ = pclk_pin; }
   void set_vsync_pin(InternalGPIOPin *vsync_pin) { this->vsync_pin_ = vsync_pin; }
   void set_hsync_pin(InternalGPIOPin *hsync_pin) { this->hsync_pin_ = hsync_pin; }
-  void set_reset_pin(GPIOPin *reset_pin) { this->reset_pin_ = reset_pin; }
   void set_enable_pin(GPIOPin *enable_pin) { this->enable_pin_ = enable_pin; }
+  void set_reset_pin(GPIOPin *reset_pin) { this->reset_pin_ = reset_pin; }
   void set_width(uint16_t width) { this->width_ = width; }
   void set_dimensions(uint16_t width, uint16_t height) {
     this->width_ = width;
@@ -69,8 +68,8 @@ class RpiDpiRgb : public display::Display {
   InternalGPIOPin *pclk_pin_{nullptr};
   InternalGPIOPin *hsync_pin_{nullptr};
   InternalGPIOPin *vsync_pin_{nullptr};
-  GPIOPin *reset_pin_{nullptr};
   GPIOPin *enable_pin_{nullptr};
+  GPIOPin *reset_pin_{nullptr};
   InternalGPIOPin *data_pins_[16] = {};
   uint16_t hsync_front_porch_ = 8;
   uint16_t hsync_pulse_width_ = 4;
