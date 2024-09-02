@@ -129,6 +129,7 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config):
     var = cg.new_Pvariable(config[CONF_ID])
     await display.register_display(var, config)
+    cg.add_define("USE_OTA_STATE_CALLBACK")  # To be notified when an OTA update starts
 
     cg.add(var.set_color_mode(COLOR_ORDERS[config[CONF_COLOR_ORDER]]))
     cg.add(var.set_invert_colors(config[CONF_INVERT_COLORS]))
