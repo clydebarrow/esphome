@@ -138,7 +138,8 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
     }
 
     if (!found) {
-      ESP_LOGW(TAG, "Could not match any register to address %02X. Sending exception response.", current_address);
+      ESP_LOGW(TAG, "Could not match any register to address %02X; request was %02X/%u. Sending exception response.",
+               current_address, start_address, number_of_registers);
       std::vector<uint8_t> error_response;
       error_response.push_back(this->address_);
       error_response.push_back(0x81);
