@@ -2,10 +2,6 @@
 #include "rpi_dpi_rgb.h"
 #include "esphome/core/log.h"
 
-#ifdef USE_OTA
-#include "esphome/components/ota/ota_backend.h"
-#endif
-
 namespace esphome {
 namespace rpi_dpi_rgb {
 
@@ -14,6 +10,7 @@ void RpiDpiRgb::setup() {
   this->reset_display_();
   esp_lcd_rgb_panel_config_t config{};
   config.flags.fb_in_psram = 1;
+  config.bounce_buffer_size_px = this->width_ * 10;
   config.num_fbs = 1;
   config.timings.h_res = this->width_;
   config.timings.v_res = this->height_;
@@ -45,19 +42,6 @@ void RpiDpiRgb::setup() {
   }
   ESP_ERROR_CHECK(esp_lcd_panel_reset(this->handle_));
   ESP_ERROR_CHECK(esp_lcd_panel_init(this->handle_));
-#ifdef USE_OTA
-  ota::get_global_ota_callback()->add_on_state_callback(
-      [this](ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
-        auto pclk = this->pclk_frequency_;
-        ESP_LOGD(TAG, "OTA state changed: %d, progress: %f, error: %d", state, progress, error);
-        if (state == ota::OTA_ERROR || state == ota::OTA_ABORT) {
-          this->reset_display_();
-          ESP_ERROR_CHECK(esp_lcd_rgb_panel_set_pclk(this->handle_, pclk));
-        } else if (state == ota::OTA_STARTED) {
-          ESP_ERROR_CHECK(esp_lcd_rgb_panel_set_pclk(this->handle_, pclk / 4));
-        }
-      });
-#endif
   ESP_LOGCONFIG(TAG, "RPI_DPI_RGB setup complete");
 }
 void RpiDpiRgb::loop() {
@@ -77,7 +61,7 @@ void RpiDpiRgb::draw_pixels_at(int x_start, int y_start, int w, int h, const uin
   }
   x_start += this->offset_x_;
   y_start += this->offset_y_;
-  esp_err_t err;
+  esp_err_t err = ESP_OK;
   // x_ and y_offset are offsets into the source buffer, unrelated to our own offsets into the display.
   if (x_offset == 0 && x_pad == 0 && y_offset == 0) {
     // we could deal here with a non-zero y_offset, but if x_offset is zero, y_offset probably will be so don't bother
@@ -88,12 +72,12 @@ void RpiDpiRgb::draw_pixels_at(int x_start, int y_start, int w, int h, const uin
     for (int y = 0; y != h; y++) {
       err = esp_lcd_panel_draw_bitmap(this->handle_, x_start, y + y_start, x_start + w, y + y_start + 1,
                                       ptr + ((y + y_offset) * stride + x_offset) * 2);
-      if (err != ESP_OK) {
-        ESP_LOGE(TAG, "lcd_lcd_panel_draw_bitmap failed: %s", esp_err_to_name(err));
+      if (err != ESP_OK)
         break;
-      }
     }
   }
+  if (err != ESP_OK)
+    ESP_LOGE(TAG, "lcd_lcd_panel_draw_bitmap failed: %s", esp_err_to_name(err));
 }
 
 void RpiDpiRgb::draw_pixel_at(int x, int y, Color color) {
