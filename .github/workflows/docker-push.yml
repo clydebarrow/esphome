@@ -114,7 +114,7 @@ jobs:
     needs:
       - init
       - deploy-docker
-    if: github.repository == 'esphome/esphome'
+    if: github.repository == 'clydebarrow/esphome'
     permissions:
       contents: read
       packages: write

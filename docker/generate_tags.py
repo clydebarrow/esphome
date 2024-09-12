@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-import re
 import argparse
+import re
 
 CHANNEL_DEV = "dev"
 CHANNEL_BETA = "beta"
@@ -64,7 +64,7 @@ def main():
 
     suffix = f"-{args.suffix}" if args.suffix else ""
 
-    image_name = f"esphome/esphome{suffix}"
+    image_name = f"clydebarrow/esphome{suffix}"
 
     print(f"channel={channel}")
 
