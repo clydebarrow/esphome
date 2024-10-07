@@ -46,7 +46,7 @@ runs:
 
     - name: Build and push to ghcr by digest
       id: build-ghcr
-      uses: docker/build-push-action@v6.7.0
+      uses: docker/build-push-action@v6.9.0
       env:
         DOCKER_BUILD_SUMMARY: false
         DOCKER_BUILD_RECORD_UPLOAD: false
@@ -70,3 +70,28 @@ runs:
         digest="${{ steps.build-ghcr.outputs.digest }}"
         touch "/tmp/digests/${{ inputs.target }}/ghcr/${digest#sha256:}"
 
+    - name: Build and push to dockerhub by digest
+      id: build-dockerhub
+      uses: docker/build-push-action@v6.9.0
+      env:
+        DOCKER_BUILD_SUMMARY: false
+        DOCKER_BUILD_RECORD_UPLOAD: false
+      with:
+        context: .
+        file: ./docker/Dockerfile
+        platforms: ${{ inputs.platform }}
+        target: ${{ inputs.target }}
+        cache-from: type=gha
+        cache-to: ${{ steps.cache-to.outputs.value }}
+        build-args: |
+          BASEIMGTYPE=${{ inputs.baseimg }}
+          BUILD_VERSION=${{ inputs.version }}
+        outputs: |
+          type=image,name=docker.io/${{ steps.tags.outputs.image_name }},push-by-digest=true,name-canonical=true,push=true
+
+    - name: Export dockerhub digests
+      shell: bash
+      run: |
+        mkdir -p /tmp/digests/${{ inputs.target }}/dockerhub
+        digest="${{ steps.build-dockerhub.outputs.digest }}"
+        touch "/tmp/digests/${{ inputs.target }}/dockerhub/${digest#sha256:}"
