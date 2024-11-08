@@ -77,9 +77,22 @@ struct Timer {
   }
 };
 
+struct WakeWord {
+  std::string id;
+  std::string wake_word;
+  std::vector<std::string> trained_languages;
+};
+
+struct Configuration {
+  std::vector<WakeWord> available_wake_words;
+  std::vector<std::string> active_wake_words;
+  uint32_t max_active_wake_words;
+};
+
 class VoiceAssistant : public Component {
  public:
-  void setup() override;
+  VoiceAssistant();
+
   void loop() override;
   float get_setup_priority() const override;
   void start_streaming();
@@ -133,6 +146,8 @@ class VoiceAssistant : public Component {
   void on_audio(const api::VoiceAssistantAudio &msg);
   void on_timer_event(const api::VoiceAssistantTimerEventResponse &msg);
   void on_announce(const api::VoiceAssistantAnnounceRequest &msg);
+  void on_set_configuration(const std::vector<std::string> &active_wake_words){};
+  const Configuration &get_configuration() { return this->config_; };
 
   bool is_running() const { return this->state_ != State::IDLE; }
   void set_continuous(bool continuous) { this->continuous_ = continuous; }
@@ -235,7 +250,7 @@ class VoiceAssistant : public Component {
 #ifdef USE_SPEAKER
   void write_speaker_();
   speaker::Speaker *speaker_{nullptr};
-  uint8_t *speaker_buffer_;
+  uint8_t *speaker_buffer_{nullptr};
   size_t speaker_buffer_index_{0};
   size_t speaker_buffer_size_{0};
   size_t speaker_bytes_received_{0};
@@ -267,8 +282,8 @@ class VoiceAssistant : public Component {
   float volume_multiplier_;
   uint32_t conversation_timeout_;
 
-  uint8_t *send_buffer_;
-  int16_t *input_buffer_;
+  uint8_t *send_buffer_{nullptr};
+  int16_t *input_buffer_{nullptr};
 
   bool continuous_{false};
   bool silence_detection_;
@@ -279,6 +294,8 @@ class VoiceAssistant : public Component {
   AudioMode audio_mode_{AUDIO_MODE_UDP};
   bool udp_socket_running_{false};
   bool start_udp_socket_();
+
+  Configuration config_{};
 };
 
 template<typename... Ts> class StartAction : public Action<Ts...>, public Parented<VoiceAssistant> {

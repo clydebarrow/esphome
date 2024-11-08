@@ -130,12 +130,11 @@ void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, voi
 }
 
 void WiFiComponent::wifi_pre_setup_() {
-#ifdef USE_ESP32_IGNORE_EFUSE_MAC_CRC
   uint8_t mac[6];
-  get_mac_address_raw(mac);
-  set_mac_address(mac);
-  ESP_LOGV(TAG, "Use EFuse MAC without checking CRC: %s", get_mac_address_pretty().c_str());
-#endif
+  if (has_custom_mac_address()) {
+    get_mac_address_raw(mac);
+    set_mac_address(mac);
+  }
   esp_err_t err = esp_netif_init();
   if (err != ERR_OK) {
     ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
@@ -290,8 +289,8 @@ bool WiFiComponent::wifi_sta_connect_(const WiFiAP &ap) {
   // https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_wifi.html#_CPPv417wifi_sta_config_t
   wifi_config_t conf;
   memset(&conf, 0, sizeof(conf));
-  strncpy(reinterpret_cast<char *>(conf.sta.ssid), ap.get_ssid().c_str(), sizeof(conf.sta.ssid));
-  strncpy(reinterpret_cast<char *>(conf.sta.password), ap.get_password().c_str(), sizeof(conf.sta.password));
+  snprintf(reinterpret_cast<char *>(conf.sta.ssid), sizeof(conf.sta.ssid), "%s", ap.get_ssid().c_str());
+  snprintf(reinterpret_cast<char *>(conf.sta.password), sizeof(conf.sta.password), "%s", ap.get_password().c_str());
 
   // The weakest authmode to accept in the fast scan mode
   if (ap.get_password().empty()) {

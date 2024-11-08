@@ -1,10 +1,13 @@
 esphome:
   on_boot:
     then:
+      - speaker.mute_on:
+      - speaker.mute_off:
       - if:
           condition: speaker.is_stopped
           then:
             - speaker.play: [0, 1, 2, 3]
+      - speaker.volume_set: 0.9
       - if:
           condition: speaker.is_playing
           then:
@@ -21,4 +24,3 @@ speaker:
     id: speaker_id
     dac_type: external
     i2s_dout_pin: 3
-    mode: mono

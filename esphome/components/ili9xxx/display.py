@@ -10,6 +10,7 @@ from esphome.const import (
     CONF_DIMENSIONS,
     CONF_HEIGHT,
     CONF_ID,
+    CONF_INIT_SEQUENCE,
     CONF_INVERT_COLORS,
     CONF_LAMBDA,
     CONF_MIRROR_X,
@@ -89,7 +90,6 @@ CONF_LED_PIN = "led_pin"
 CONF_COLOR_PALETTE_IMAGES = "color_palette_images"
 CONF_INVERT_DISPLAY = "invert_display"
 CONF_PIXEL_MODE = "pixel_mode"
-CONF_INIT_SEQUENCE = "init_sequence"
 
 
 def cmd(c, *args):
@@ -194,6 +194,10 @@ CONFIG_SCHEMA = cv.All(
     .extend(spi.spi_device_schema(False, "40MHz")),
     cv.has_at_most_one_key(CONF_PAGES, CONF_LAMBDA),
     _validate,
+)
+
+FINAL_VALIDATE_SCHEMA = spi.final_validate_device_schema(
+    "ili9xxx", require_miso=False, require_mosi=True
 )
 
 
