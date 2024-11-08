@@ -1,12 +1,15 @@
 #include "usb_host.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
-#include "esphome/core/bytebuffer.h"
+#include "esphome/components/bytebuffer/bytebuffer.h"
 
 #include <cinttypes>
 #include <cstring>
 namespace esphome {
 namespace usb_host {
+
+using namespace bytebuffer;
+
 static std::string get_descriptor_string(const usb_str_desc_t *desc) {
   char buffer[256];
   if (desc == nullptr)

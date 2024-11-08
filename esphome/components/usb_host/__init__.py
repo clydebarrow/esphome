@@ -4,6 +4,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.cpp_types import Component
 
+AUTO_LOAD = ["bytebuffer"]
 CODEOWNERS = ["@clydebarrow"]
 usb_host_ns = cg.esphome_ns.namespace("usb_host")
 USBHost = usb_host_ns.class_("USBHost", Component)

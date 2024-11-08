@@ -2,11 +2,12 @@
 #include "usb/usb_host.h"
 #include "esphome/core/log.h"
 
-#include "esphome/core/bytebuffer.h"
+#include "esphome/components/bytebuffer/bytebuffer.h"
 
 namespace esphome {
 namespace usb_uart {
 
+using namespace bytebuffer;
 /**
  * Silabs CP210x Commands
  */
