@@ -36,7 +36,7 @@ from esphome.const import (
     CONF_TYPE,
     CONF_UNIT_OF_MEASUREMENT,
     CONF_VALUE,
-    CONF_WEB_SERVER_ID,
+    CONF_WEB_SERVER,
     CONF_WINDOW_SIZE,
     DEVICE_CLASS_APPARENT_POWER,
     DEVICE_CLASS_AQI,
@@ -335,19 +335,28 @@ def sensor_schema(
     return SENSOR_SCHEMA.extend(schema)
 
 
-@FILTER_REGISTRY.register("offset", OffsetFilter, cv.float_)
+@FILTER_REGISTRY.register("offset", OffsetFilter, cv.templatable(cv.float_))
 async def offset_filter_to_code(config, filter_id):
-    return cg.new_Pvariable(filter_id, config)
+    template_ = await cg.templatable(config, [], float)
+    return cg.new_Pvariable(filter_id, template_)
 
 
-@FILTER_REGISTRY.register("multiply", MultiplyFilter, cv.float_)
+@FILTER_REGISTRY.register("multiply", MultiplyFilter, cv.templatable(cv.float_))
 async def multiply_filter_to_code(config, filter_id):
-    return cg.new_Pvariable(filter_id, config)
+    template_ = await cg.templatable(config, [], float)
+    return cg.new_Pvariable(filter_id, template_)
 
 
-@FILTER_REGISTRY.register("filter_out", FilterOutValueFilter, cv.float_)
+@FILTER_REGISTRY.register(
+    "filter_out",
+    FilterOutValueFilter,
+    cv.Any(cv.templatable(cv.float_), [cv.templatable(cv.float_)]),
+)
 async def filter_out_filter_to_code(config, filter_id):
-    return cg.new_Pvariable(filter_id, config)
+    if not isinstance(config, list):
+        config = [config]
+    template_ = [await cg.templatable(x, [], float) for x in config]
+    return cg.new_Pvariable(filter_id, template_)
 
 
 QUANTILE_SCHEMA = cv.All(
@@ -573,7 +582,7 @@ async def heartbeat_filter_to_code(config, filter_id):
 TIMEOUT_SCHEMA = cv.maybe_simple_value(
     {
         cv.Required(CONF_TIMEOUT): cv.positive_time_period_milliseconds,
-        cv.Optional(CONF_VALUE, default="nan"): cv.float_,
+        cv.Optional(CONF_VALUE, default="nan"): cv.templatable(cv.float_),
     },
     key=CONF_TIMEOUT,
 )
@@ -581,7 +590,8 @@ TIMEOUT_SCHEMA = cv.maybe_simple_value(
 
 @FILTER_REGISTRY.register("timeout", TimeoutFilter, TIMEOUT_SCHEMA)
 async def timeout_filter_to_code(config, filter_id):
-    var = cg.new_Pvariable(filter_id, config[CONF_TIMEOUT], config[CONF_VALUE])
+    template_ = await cg.templatable(config[CONF_VALUE], [], float)
+    var = cg.new_Pvariable(filter_id, config[CONF_TIMEOUT], template_)
     await cg.register_component(var, {})
     return var
 
@@ -800,9 +810,8 @@ async def setup_sensor_core_(var, config):
             else:
                 cg.add(mqtt_.set_expire_after(expire_after))
 
-    if (webserver_id := config.get(CONF_WEB_SERVER_ID)) is not None:
-        web_server_ = await cg.get_variable(webserver_id)
-        web_server.add_entity_to_sorting_list(web_server_, var, config)
+    if web_server_config := config.get(CONF_WEB_SERVER):
+        await web_server.add_entity_config(var, web_server_config)
 
 
 async def register_sensor(var, config):
