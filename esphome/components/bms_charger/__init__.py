@@ -1,28 +1,21 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome.components import number
-from esphome.components.canbus import (
-    CONF_CANBUS_ID,
-    CanbusComponent,
-)
-from esphome.components.canbus_bms import (
-    CONF_BMS_ID,
-    BmsComponent,
-    BmsTrigger,
-)
+from esphome.components.canbus import CONF_CANBUS_ID, CanbusComponent
+from esphome.components.canbus_bms import CONF_BMS_ID, BmsComponent, BmsTrigger
+import esphome.config_validation as cv
 from esphome.const import (
-    CONF_ID,
-    CONF_NAME,
-    CONF_TRIGGER_ID,
     CONF_DEBUG,
+    CONF_ID,
     CONF_INTERVAL,
-    CONF_TIMEOUT,
+    CONF_NAME,
     CONF_PROTOCOL,
+    CONF_TIMEOUT,
+    CONF_TRIGGER_ID,
 )
 
 CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["canbus", "canbus_bms"]
-AUTO_LOAD = ["text_sensor", "binary_sensor", "switch"]
+AUTO_LOAD = ["text_sensor", "binary_sensor", "switch", "bytebuffer"]
 MULTI_CONF = True
 
 CONF_SCALE = "scale"

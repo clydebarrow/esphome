@@ -57,12 +57,12 @@ void CanbusBmsComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Name: %s", this->name_);
   ESP_LOGCONFIG(TAG, "  Throttle: %dms", this->throttle_);
   ESP_LOGCONFIG(TAG, "  Timeout: %dms", this->timeout_);
-  ESP_LOGCONFIG(TAG, "  Sensors: %d", this->sensors_.size());
+  ESP_LOGCONFIG(TAG, "  Sensors: %zu", this->sensors_.size());
   for (SensorDesc *sensor : this->sensors_) {
     ESP_LOGCONFIG(TAG, "    %s: 0x%X: %d", sensor->key_, sensor->msg_id_, sensor->offset_);
   }
-  ESP_LOGCONFIG(TAG, "  Binary Sensors: %d", this->binary_sensors_.size());
-  ESP_LOGCONFIG(TAG, "  Text Sensors: %d", this->text_sensors_.size());
+  ESP_LOGCONFIG(TAG, "  Binary Sensors: %zu", this->binary_sensors_.size());
+  ESP_LOGCONFIG(TAG, "  Text Sensors: %zu", this->text_sensors_.size());
 }
 
 float CanbusBmsComponent::get_setup_priority() const { return setup_priority::DATA; }
@@ -121,7 +121,7 @@ void CanbusBmsComponent::update_alarms_() {
 void CanbusBmsComponent::play(std::vector<uint8_t> data, uint32_t can_id, bool remote_transmission_request) {
   bool handled = false;
   if (this->debug_)
-    ESP_LOGI(TAG, "%s: Received id 0x%02X, len %d", this->name_, can_id, data.size());
+    ESP_LOGI(TAG, "%s: Received id 0x%02X, len %zu", this->name_, can_id, data.size());
 
   // extract alarm and warning flags if this message contains them
   if (this->flag_map_.count(can_id) != 0) {
@@ -171,7 +171,7 @@ void CanbusBmsComponent::play(std::vector<uint8_t> data, uint32_t can_id, bool r
     }
   }
   if (!handled && (this->debug_ || this->received_ids_.count((int) can_id) == 0)) {
-    ESP_LOGW(TAG, "%s: Received unhandled id 0x%02X, len %d", this->name_, can_id, data.size());
+    ESP_LOGW(TAG, "%s: Received unhandled id 0x%02X, len %zu", this->name_, can_id, data.size());
     this->received_ids_.insert((int) can_id);
   }
 }

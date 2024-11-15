@@ -6,7 +6,7 @@
 #include "esphome/components/canbus/canbus.h"
 #include "esphome/components/canbus_bms/canbus_bms.h"
 #include "esphome/components/number/number.h"
-#include <set>
+#include "esphome/components/bytebuffer/bytebuffer.h"
 #include <vector>
 #include <map>
 
@@ -85,13 +85,16 @@ class BatteryDesc {
   friend class BmsChargerComponent;
 
  public:
-  BatteryDesc(canbus_bms::CanbusBmsComponent *battery, uint32_t heartbeat_id, const char *heartbeat_text)
-      : battery_{battery}, heartbeat_id_{heartbeat_id}, heartbeat_text_{heartbeat_text} {}
+  BatteryDesc(canbus_bms::CanbusBmsComponent *battery, uint32_t heartbeat_id, std::string heartbeat_text)
+      : battery_{battery},
+        heartbeat_id_{heartbeat_id},
+        heartbeat_text_{
+            bytebuffer::ByteBuffer::wrap((uint8_t *) heartbeat_text.data(), heartbeat_text.size()).get_data()} {}
 
  protected:
   canbus_bms::CanbusBmsComponent *battery_;
   uint32_t heartbeat_id_;
-  const char *heartbeat_text_;
+  std::vector<uint8_t> heartbeat_text_;
 };
 
 class BmsChargerComponent : public PollingComponent, public Action<std::vector<uint8_t>, uint32_t, bool> {
@@ -108,6 +111,7 @@ class BmsChargerComponent : public PollingComponent, public Action<std::vector<u
   // called when a CAN Bus message is received
   void play(std::vector<uint8_t> data, uint32_t can_id, bool remote_transmission_request) override;
 
+  void send_status(std::vector<float> &voltages, std::vector<float> &currents, std::vector<float> &temperatures) const;
   void update() override;
 
   void add_connectivity_sensor(binary_sensor::BinarySensor *binary_sensor) {
