@@ -1,6 +1,7 @@
 #include "wifi_component.h"
 #include "esphome/core/defines.h"
 
+#ifdef USE_WIFI
 #ifdef USE_ESP8266
 
 #include <user_interface.h>
@@ -235,8 +236,16 @@ bool WiFiComponent::wifi_sta_connect_(const WiFiAP &ap) {
 
   struct station_config conf {};
   memset(&conf, 0, sizeof(conf));
-  strncpy(reinterpret_cast<char *>(conf.ssid), ap.get_ssid().c_str(), sizeof(conf.ssid));
-  strncpy(reinterpret_cast<char *>(conf.password), ap.get_password().c_str(), sizeof(conf.password));
+  if (ap.get_ssid().size() > sizeof(conf.ssid)) {
+    ESP_LOGE(TAG, "SSID is too long");
+    return false;
+  }
+  if (ap.get_password().size() > sizeof(conf.password)) {
+    ESP_LOGE(TAG, "password is too long");
+    return false;
+  }
+  memcpy(reinterpret_cast<char *>(conf.ssid), ap.get_ssid().c_str(), ap.get_ssid().size());
+  memcpy(reinterpret_cast<char *>(conf.password), ap.get_password().c_str(), ap.get_password().size());
 
   if (ap.get_bssid().has_value()) {
     conf.bssid_set = 1;
@@ -716,12 +725,12 @@ bool WiFiComponent::wifi_ap_ip_config_(optional<ManualIP> manual_ip) {
 
   if (wifi_softap_dhcps_status() == DHCP_STARTED) {
     if (!wifi_softap_dhcps_stop()) {
-      ESP_LOGV(TAG, "Stopping DHCP server failed!");
+      ESP_LOGW(TAG, "Stopping DHCP server failed!");
     }
   }
 
   if (!wifi_set_ip_info(SOFTAP_IF, &info)) {
-    ESP_LOGV(TAG, "Setting SoftAP info failed!");
+    ESP_LOGE(TAG, "Setting SoftAP info failed!");
     return false;
   }
 
@@ -735,17 +744,17 @@ bool WiFiComponent::wifi_ap_ip_config_(optional<ManualIP> manual_ip) {
   start_address += 99;
   lease.start_ip = start_address;
   ESP_LOGV(TAG, "DHCP server IP lease start: %s", start_address.str().c_str());
-  start_address += 100;
+  start_address += 10;
   lease.end_ip = start_address;
   ESP_LOGV(TAG, "DHCP server IP lease end: %s", start_address.str().c_str());
   if (!wifi_softap_set_dhcps_lease(&lease)) {
-    ESP_LOGV(TAG, "Setting SoftAP DHCP lease failed!");
+    ESP_LOGE(TAG, "Setting SoftAP DHCP lease failed!");
     return false;
   }
 
   // lease time 1440 minutes (=24 hours)
   if (!wifi_softap_set_dhcps_lease_time(1440)) {
-    ESP_LOGV(TAG, "Setting SoftAP DHCP lease time failed!");
+    ESP_LOGE(TAG, "Setting SoftAP DHCP lease time failed!");
     return false;
   }
 
@@ -755,13 +764,13 @@ bool WiFiComponent::wifi_ap_ip_config_(optional<ManualIP> manual_ip) {
   uint8_t mode = 1;
   // bit0, 1 enables router information from ESP8266 SoftAP DHCP server.
   if (!wifi_softap_set_dhcps_offer_option(OFFER_ROUTER, &mode)) {
-    ESP_LOGV(TAG, "wifi_softap_set_dhcps_offer_option failed!");
+    ESP_LOGE(TAG, "wifi_softap_set_dhcps_offer_option failed!");
     return false;
   }
 #endif
 
   if (!wifi_softap_dhcps_start()) {
-    ESP_LOGV(TAG, "Starting SoftAP DHCPS failed!");
+    ESP_LOGE(TAG, "Starting SoftAP DHCPS failed!");
     return false;
   }
 
@@ -774,7 +783,11 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
     return false;
 
   struct softap_config conf {};
-  strncpy(reinterpret_cast<char *>(conf.ssid), ap.get_ssid().c_str(), sizeof(conf.ssid));
+  if (ap.get_ssid().size() > sizeof(conf.ssid)) {
+    ESP_LOGE(TAG, "AP SSID is too long");
+    return false;
+  }
+  memcpy(reinterpret_cast<char *>(conf.ssid), ap.get_ssid().c_str(), ap.get_ssid().size());
   conf.ssid_len = static_cast<uint8>(ap.get_ssid().size());
   conf.channel = ap.get_channel().value_or(1);
   conf.ssid_hidden = ap.get_hidden();
@@ -786,7 +799,11 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
     *conf.password = 0;
   } else {
     conf.authmode = AUTH_WPA2_PSK;
-    strncpy(reinterpret_cast<char *>(conf.password), ap.get_password().c_str(), sizeof(conf.password));
+    if (ap.get_password().size() > sizeof(conf.password)) {
+      ESP_LOGE(TAG, "AP password is too long");
+      return false;
+    }
+    memcpy(reinterpret_cast<char *>(conf.password), ap.get_password().c_str(), ap.get_password().size());
   }
 
   ETS_UART_INTR_DISABLE();
@@ -824,7 +841,7 @@ bssid_t WiFiComponent::wifi_bssid() {
 }
 std::string WiFiComponent::wifi_ssid() { return WiFi.SSID().c_str(); }
 int8_t WiFiComponent::wifi_rssi() { return WiFi.RSSI(); }
-int32_t WiFiComponent::wifi_channel_() { return WiFi.channel(); }
+int32_t WiFiComponent::get_wifi_channel() { return WiFi.channel(); }
 network::IPAddress WiFiComponent::wifi_subnet_mask_() { return {(const ip_addr_t *) WiFi.subnetMask()}; }
 network::IPAddress WiFiComponent::wifi_gateway_ip_() { return {(const ip_addr_t *) WiFi.gatewayIP()}; }
 network::IPAddress WiFiComponent::wifi_dns_ip_(int num) { return {(const ip_addr_t *) WiFi.dnsIP(num)}; }
@@ -833,4 +850,5 @@ void WiFiComponent::wifi_loop_() {}
 }  // namespace wifi
 }  // namespace esphome
 
+#endif
 #endif

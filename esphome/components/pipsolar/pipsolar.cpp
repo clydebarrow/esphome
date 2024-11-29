@@ -136,6 +136,9 @@ void Pipsolar::loop() {
         if (this->output_source_priority_battery_switch_) {
           this->output_source_priority_battery_switch_->publish_state(value_output_source_priority_ == 2);
         }
+        if (this->output_source_priority_hybrid_switch_) {
+          this->output_source_priority_hybrid_switch_->publish_state(value_output_source_priority_ == 3);
+        }
         if (this->charger_source_priority_) {
           this->charger_source_priority_->publish_state(value_charger_source_priority_);
         }
@@ -787,7 +790,7 @@ uint8_t Pipsolar::check_incoming_crc_() {
 // send next command used
 uint8_t Pipsolar::send_next_command_() {
   uint16_t crc16;
-  if (this->command_queue_[this->command_queue_position_].length() != 0) {
+  if (!this->command_queue_[this->command_queue_position_].empty()) {
     const char *command = this->command_queue_[this->command_queue_position_].c_str();
     uint8_t byte_command[16];
     uint8_t length = this->command_queue_[this->command_queue_position_].length();
@@ -843,7 +846,7 @@ void Pipsolar::queue_command_(const char *command, uint8_t length) {
   uint8_t next_position = command_queue_position_;
   for (uint8_t i = 0; i < COMMAND_QUEUE_LENGTH; i++) {
     uint8_t testposition = (next_position + i) % COMMAND_QUEUE_LENGTH;
-    if (command_queue_[testposition].length() == 0) {
+    if (command_queue_[testposition].empty()) {
       command_queue_[testposition] = command;
       ESP_LOGD(TAG, "Command queued successfully: %s with length %u at position %d", command,
                command_queue_[testposition].length(), testposition);

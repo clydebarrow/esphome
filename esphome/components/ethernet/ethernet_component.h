@@ -10,6 +10,7 @@
 #include "esp_eth.h"
 #include "esp_eth_mac.h"
 #include "esp_netif.h"
+#include "esp_mac.h"
 
 namespace esphome {
 namespace ethernet {
@@ -24,6 +25,7 @@ enum EthernetType {
   ETHERNET_TYPE_KSZ8081,
   ETHERNET_TYPE_KSZ8081RNA,
   ETHERNET_TYPE_W5500,
+  ETHERNET_TYPE_OPENETH,
 };
 
 struct ManualIP {
@@ -32,6 +34,12 @@ struct ManualIP {
   network::IPAddress subnet;
   network::IPAddress dns1;  ///< The first DNS server. 0.0.0.0 for default.
   network::IPAddress dns2;  ///< The second DNS server. 0.0.0.0 for default.
+};
+
+struct PHYRegister {
+  uint32_t address;
+  uint32_t value;
+  uint32_t page;
 };
 
 enum class EthernetComponentState {
@@ -59,12 +67,16 @@ class EthernetComponent : public Component {
   void set_interrupt_pin(uint8_t interrupt_pin);
   void set_reset_pin(uint8_t reset_pin);
   void set_clock_speed(int clock_speed);
+#ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
+  void set_polling_interval(uint32_t polling_interval);
+#endif
 #else
   void set_phy_addr(uint8_t phy_addr);
   void set_power_pin(int power_pin);
   void set_mdc_pin(uint8_t mdc_pin);
   void set_mdio_pin(uint8_t mdio_pin);
   void set_clk_mode(emac_rmii_clock_mode_t clk_mode, emac_rmii_clock_gpio_t clk_gpio);
+  void add_phy_register(PHYRegister register_value);
 #endif
   void set_type(EthernetType type);
   void set_manual_ip(const ManualIP &manual_ip);
@@ -73,6 +85,10 @@ class EthernetComponent : public Component {
   network::IPAddress get_dns_address(uint8_t num);
   std::string get_use_address() const;
   void set_use_address(const std::string &use_address);
+  void get_eth_mac_address_raw(uint8_t *mac);
+  std::string get_eth_mac_address_pretty();
+  eth_duplex_t get_duplex_mode();
+  eth_speed_t get_link_speed();
   bool powerdown();
 
  protected:
@@ -86,6 +102,8 @@ class EthernetComponent : public Component {
   void dump_connect_params_();
   /// @brief Set `RMII Reference Clock Select` bit for KSZ8081.
   void ksz8081_set_clock_reference_(esp_eth_mac_t *mac);
+  /// @brief Set arbitratry PHY registers from config.
+  void write_phy_register_(esp_eth_mac_t *mac, PHYRegister register_data);
 
   std::string use_address_;
 #ifdef USE_ETHERNET_SPI
@@ -93,10 +111,13 @@ class EthernetComponent : public Component {
   uint8_t miso_pin_;
   uint8_t mosi_pin_;
   uint8_t cs_pin_;
-  uint8_t interrupt_pin_;
+  int interrupt_pin_{-1};
   int reset_pin_{-1};
   int phy_addr_spi_{-1};
   int clock_speed_;
+#ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
+  uint32_t polling_interval_{0};
+#endif
 #else
   uint8_t phy_addr_{0};
   int power_pin_{-1};
@@ -104,6 +125,7 @@ class EthernetComponent : public Component {
   uint8_t mdio_pin_{18};
   emac_rmii_clock_mode_t clk_mode_{EMAC_CLK_EXT_IN};
   emac_rmii_clock_gpio_t clk_gpio_{EMAC_CLK_IN_GPIO};
+  std::vector<PHYRegister> phy_registers_{};
 #endif
   EthernetType type_{ETHERNET_TYPE_UNKNOWN};
   optional<ManualIP> manual_ip_{};

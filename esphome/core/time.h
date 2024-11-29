@@ -9,8 +9,6 @@ namespace esphome {
 
 template<typename T> bool increment_time_value(T &current, uint16_t begin, uint16_t end);
 
-bool is_leap_year(uint32_t year);
-
 uint8_t days_in_month(uint8_t month, uint16_t year);
 
 /// A more user-friendly version of struct tm from time.h
@@ -98,6 +96,9 @@ struct ESPTime {
 
   /// Recalculate the timestamp field from the other fields of this ESPTime instance (must be UTC).
   void recalc_timestamp_utc(bool use_day_of_year = true);
+
+  /// Recalculate the timestamp field from the other fields of this ESPTime instance assuming local fields.
+  void recalc_timestamp_local();
 
   /// Convert this ESPTime instance back to a tm struct.
   struct tm to_c_tm();

@@ -1,4 +1,6 @@
 #pragma once
+#include "esphome/core/defines.h"
+#ifdef USE_NETWORK
 #include <cstdint>
 #include <string>
 #include <cstdio>
@@ -114,7 +116,7 @@ struct IPAddress {
   operator arduino_ns::IPAddress() const { return ip_addr_get_ip4_u32(&ip_addr_); }
 #endif
 
-  bool is_set() { return !ip_addr_isany(&ip_addr_); }
+  bool is_set() { return !ip_addr_isany(&ip_addr_); }  // NOLINT(readability-simplify-boolean-expr)
   bool is_ip4() { return IP_IS_V4(&ip_addr_); }
   bool is_ip6() { return IP_IS_V6(&ip_addr_); }
   std::string str() const { return str_lower_case(ipaddr_ntoa(&ip_addr_)); }
@@ -140,3 +142,4 @@ using IPAddresses = std::array<IPAddress, 5>;
 
 }  // namespace network
 }  // namespace esphome
+#endif

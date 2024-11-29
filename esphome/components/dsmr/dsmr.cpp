@@ -256,6 +256,7 @@ bool Dsmr::parse_telegram() {
   MyData data;
   ESP_LOGV(TAG, "Trying to parse telegram");
   this->stop_requesting_data_();
+
   ::dsmr::ParseResult<void> res =
       ::dsmr::P1Parser::parse(&data, this->telegram_, this->bytes_read_, false,
                               this->crc_check_);  // Parse telegram according to data definition. Ignore unknown values.
@@ -267,6 +268,11 @@ bool Dsmr::parse_telegram() {
   } else {
     this->status_clear_warning();
     this->publish_sensors(data);
+
+    // publish the telegram, after publishing the sensors so it can also trigger action based on latest values
+    if (this->s_telegram_ != nullptr) {
+      this->s_telegram_->publish_state(std::string(this->telegram_, this->bytes_read_));
+    }
     return true;
   }
 }
@@ -290,7 +296,7 @@ void Dsmr::dump_config() {
 }
 
 void Dsmr::set_decryption_key(const std::string &decryption_key) {
-  if (decryption_key.length() == 0) {
+  if (decryption_key.empty()) {
     ESP_LOGI(TAG, "Disabling decryption");
     this->decryption_key_.clear();
     if (this->crypt_telegram_ != nullptr) {

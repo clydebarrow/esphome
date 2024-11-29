@@ -1,7 +1,7 @@
 #include "display.h"
-
+#include "display_color_utils.h"
 #include <utility>
-
+#include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
 namespace esphome {
@@ -155,6 +155,148 @@ void Display::filled_circle(int center_x, int center_y, int radius, Color color)
       err += ++dx * 2 + 1;
     }
   } while (dx <= 0);
+}
+void Display::filled_ring(int center_x, int center_y, int radius1, int radius2, Color color) {
+  int rmax = radius1 > radius2 ? radius1 : radius2;
+  int rmin = radius1 < radius2 ? radius1 : radius2;
+  int dxmax = -int32_t(rmax), dxmin = -int32_t(rmin);
+  int dymax = 0, dymin = 0;
+  int errmax = 2 - 2 * rmax, errmin = 2 - 2 * rmin;
+  int e2max, e2min;
+  do {
+    // 8 dots for borders
+    this->draw_pixel_at(center_x - dxmax, center_y + dymax, color);
+    this->draw_pixel_at(center_x + dxmax, center_y + dymax, color);
+    this->draw_pixel_at(center_x - dxmin, center_y + dymin, color);
+    this->draw_pixel_at(center_x + dxmin, center_y + dymin, color);
+    this->draw_pixel_at(center_x + dxmax, center_y - dymax, color);
+    this->draw_pixel_at(center_x - dxmax, center_y - dymax, color);
+    this->draw_pixel_at(center_x + dxmin, center_y - dymin, color);
+    this->draw_pixel_at(center_x - dxmin, center_y - dymin, color);
+    if (dymin < rmin) {
+      // two parts - four lines
+      int hline_width = -(dxmax - dxmin) + 1;
+      this->horizontal_line(center_x + dxmax, center_y + dymax, hline_width, color);
+      this->horizontal_line(center_x - dxmin, center_y + dymax, hline_width, color);
+      this->horizontal_line(center_x + dxmax, center_y - dymax, hline_width, color);
+      this->horizontal_line(center_x - dxmin, center_y - dymax, hline_width, color);
+    } else {
+      // one part - top and bottom
+      int hline_width = 2 * (-dxmax) + 1;
+      this->horizontal_line(center_x + dxmax, center_y + dymax, hline_width, color);
+      this->horizontal_line(center_x + dxmax, center_y - dymax, hline_width, color);
+    }
+    e2max = errmax;
+    // tune external
+    if (e2max < dymax) {
+      errmax += ++dymax * 2 + 1;
+      if (-dxmax == dymax && e2max <= dxmax) {
+        e2max = 0;
+      }
+    }
+    if (e2max > dxmax) {
+      errmax += ++dxmax * 2 + 1;
+    }
+    // tune internal
+    while (dymin < dymax && dymin < rmin) {
+      e2min = errmin;
+      if (e2min < dymin) {
+        errmin += ++dymin * 2 + 1;
+        if (-dxmin == dymin && e2min <= dxmin) {
+          e2min = 0;
+        }
+      }
+      if (e2min > dxmin) {
+        errmin += ++dxmin * 2 + 1;
+      }
+    }
+  } while (dxmax <= 0);
+}
+void Display::filled_gauge(int center_x, int center_y, int radius1, int radius2, int progress, Color color) {
+  int rmax = radius1 > radius2 ? radius1 : radius2;
+  int rmin = radius1 < radius2 ? radius1 : radius2;
+  int dxmax = -int32_t(rmax), dxmin = -int32_t(rmin), upd_dxmax, upd_dxmin;
+  int dymax = 0, dymin = 0;
+  int errmax = 2 - 2 * rmax, errmin = 2 - 2 * rmin;
+  int e2max, e2min;
+  progress = std::max(0, std::min(progress, 100));  // 0..100
+  int draw_progress = progress > 50 ? (100 - progress) : progress;
+  float tan_a = (progress == 50) ? 65535 : tan(float(draw_progress) * M_PI / 100);  // slope
+
+  do {
+    // outer dots
+    this->draw_pixel_at(center_x + dxmax, center_y - dymax, color);
+    this->draw_pixel_at(center_x - dxmax, center_y - dymax, color);
+    if (dymin < rmin) {  // side parts
+      int lhline_width = -(dxmax - dxmin) + 1;
+      if (progress >= 50) {
+        if (float(dymax) < float(-dxmax) * tan_a) {
+          upd_dxmax = ceil(float(dymax) / tan_a);
+        } else {
+          upd_dxmax = -dxmax;
+        }
+        this->horizontal_line(center_x + dxmax, center_y - dymax, lhline_width, color);  // left
+        if (!dymax)
+          this->horizontal_line(center_x - dxmin, center_y, lhline_width, color);  // right horizontal border
+        if (upd_dxmax > -dxmin) {                                                  // right
+          int rhline_width = (upd_dxmax + dxmin) + 1;
+          this->horizontal_line(center_x - dxmin, center_y - dymax,
+                                rhline_width > lhline_width ? lhline_width : rhline_width, color);
+        }
+      } else {
+        if (float(dymin) > float(-dxmin) * tan_a) {
+          upd_dxmin = ceil(float(dymin) / tan_a);
+        } else {
+          upd_dxmin = -dxmin;
+        }
+        lhline_width = -(dxmax + upd_dxmin) + 1;
+        if (!dymax)
+          this->horizontal_line(center_x - dxmin, center_y, lhline_width, color);  // right horizontal border
+        if (lhline_width > 0)
+          this->horizontal_line(center_x + dxmax, center_y - dymax, lhline_width, color);
+      }
+    } else {  // top part
+      int hline_width = 2 * (-dxmax) + 1;
+      if (progress >= 50) {
+        if (dymax < float(-dxmax) * tan_a) {
+          upd_dxmax = ceil(float(dymax) / tan_a);
+          hline_width = -dxmax + upd_dxmax + 1;
+        }
+      } else {
+        if (dymax < float(-dxmax) * tan_a) {
+          upd_dxmax = ceil(float(dymax) / tan_a);
+          hline_width = -dxmax - upd_dxmax + 1;
+        } else
+          hline_width = 0;
+      }
+      if (hline_width > 0)
+        this->horizontal_line(center_x + dxmax, center_y - dymax, hline_width, color);
+    }
+    e2max = errmax;
+    if (e2max < dymax) {
+      errmax += ++dymax * 2 + 1;
+      if (-dxmax == dymax && e2max <= dxmax) {
+        e2max = 0;
+      }
+    }
+    if (e2max > dxmax) {
+      errmax += ++dxmax * 2 + 1;
+    }
+    while (dymin <= dymax && dymin <= rmin && dxmin <= 0) {
+      this->draw_pixel_at(center_x + dxmin, center_y - dymin, color);
+      this->draw_pixel_at(center_x - dxmin, center_y - dymin, color);
+      e2min = errmin;
+      if (e2min < dymin) {
+        errmin += ++dymin * 2 + 1;
+        if (-dxmin == dymin && e2min <= dxmin) {
+          e2min = 0;
+        }
+      }
+      if (e2min > dxmin) {
+        errmin += ++dxmin * 2 + 1;
+      }
+    }
+  } while (dxmax <= 0);
 }
 void HOT Display::triangle(int x1, int y1, int x2, int y2, int x3, int y3, Color color) {
   this->line(x1, y1, x2, y2, color);
@@ -507,7 +649,9 @@ void Display::do_update_() {
   if (this->auto_clear_enabled_) {
     this->clear();
   }
-  if (this->page_ != nullptr) {
+  if (this->show_test_card_) {
+    this->test_card();
+  } else if (this->page_ != nullptr) {
     this->page_->get_writer()(*this);
   } else if (this->writer_.has_value()) {
     (*this->writer_)(*this);
@@ -608,6 +752,62 @@ bool Display::clamp_y_(int y, int h, int &min_y, int &max_y) {
   return min_y < max_y;
 }
 
+const uint8_t TESTCARD_FONT[3][8] PROGMEM = {{0x41, 0x7F, 0x7F, 0x09, 0x19, 0x7F, 0x66, 0x00},   // 'R'
+                                             {0x1C, 0x3E, 0x63, 0x41, 0x51, 0x73, 0x72, 0x00},   // 'G'
+                                             {0x41, 0x7F, 0x7F, 0x49, 0x49, 0x7F, 0x36, 0x00}};  // 'B'
+
+void Display::test_card() {
+  int w = get_width(), h = get_height(), image_w, image_h;
+  this->clear();
+  this->show_test_card_ = false;
+  if (this->get_display_type() == DISPLAY_TYPE_COLOR) {
+    Color r(255, 0, 0), g(0, 255, 0), b(0, 0, 255);
+    image_w = std::min(w - 20, 310);
+    image_h = std::min(h - 20, 255);
+
+    int shift_x = (w - image_w) / 2;
+    int shift_y = (h - image_h) / 2;
+    int line_w = (image_w - 6) / 6;
+    int image_c = image_w / 2;
+    for (auto i = 0; i <= image_h; i++) {
+      int c = esp_scale(i, image_h);
+      this->horizontal_line(shift_x + 0, shift_y + i, line_w, r.fade_to_white(c));
+      this->horizontal_line(shift_x + line_w, shift_y + i, line_w, r.fade_to_black(c));  //
+
+      this->horizontal_line(shift_x + image_c - line_w, shift_y + i, line_w, g.fade_to_white(c));
+      this->horizontal_line(shift_x + image_c, shift_y + i, line_w, g.fade_to_black(c));
+
+      this->horizontal_line(shift_x + image_w - (line_w * 2), shift_y + i, line_w, b.fade_to_white(c));
+      this->horizontal_line(shift_x + image_w - line_w, shift_y + i, line_w, b.fade_to_black(c));
+    }
+    this->rectangle(shift_x, shift_y, image_w, image_h, Color(127, 127, 0));
+
+    uint16_t shift_r = shift_x + line_w - (8 * 3);
+    uint16_t shift_g = shift_x + image_c - (8 * 3);
+    uint16_t shift_b = shift_x + image_w - line_w - (8 * 3);
+    shift_y = h / 2 - (8 * 3);
+    for (auto i = 0; i < 8; i++) {
+      uint8_t ftr = progmem_read_byte(&TESTCARD_FONT[0][i]);
+      uint8_t ftg = progmem_read_byte(&TESTCARD_FONT[1][i]);
+      uint8_t ftb = progmem_read_byte(&TESTCARD_FONT[2][i]);
+      for (auto k = 0; k < 8; k++) {
+        if ((ftr & (1 << k)) != 0) {
+          this->filled_rectangle(shift_r + (i * 6), shift_y + (k * 6), 6, 6, COLOR_OFF);
+        }
+        if ((ftg & (1 << k)) != 0) {
+          this->filled_rectangle(shift_g + (i * 6), shift_y + (k * 6), 6, 6, COLOR_OFF);
+        }
+        if ((ftb & (1 << k)) != 0) {
+          this->filled_rectangle(shift_b + (i * 6), shift_y + (k * 6), 6, 6, COLOR_OFF);
+        }
+      }
+    }
+  }
+  this->rectangle(0, 0, w, h, Color(127, 0, 127));
+  this->filled_rectangle(0, 0, 10, 10, Color(255, 0, 255));
+  this->stop_poller();
+}
+
 DisplayPage::DisplayPage(display_writer_t writer) : writer_(std::move(writer)) {}
 void DisplayPage::show() { this->parent_->show_page(this); }
 void DisplayPage::show_next() { this->next_->show(); }
@@ -616,6 +816,37 @@ void DisplayPage::set_parent(Display *parent) { this->parent_ = parent; }
 void DisplayPage::set_prev(DisplayPage *prev) { this->prev_ = prev; }
 void DisplayPage::set_next(DisplayPage *next) { this->next_ = next; }
 const display_writer_t &DisplayPage::get_writer() const { return this->writer_; }
+
+const LogString *text_align_to_string(TextAlign textalign) {
+  switch (textalign) {
+    case TextAlign::TOP_LEFT:
+      return LOG_STR("TOP_LEFT");
+    case TextAlign::TOP_CENTER:
+      return LOG_STR("TOP_CENTER");
+    case TextAlign::TOP_RIGHT:
+      return LOG_STR("TOP_RIGHT");
+    case TextAlign::CENTER_LEFT:
+      return LOG_STR("CENTER_LEFT");
+    case TextAlign::CENTER:
+      return LOG_STR("CENTER");
+    case TextAlign::CENTER_RIGHT:
+      return LOG_STR("CENTER_RIGHT");
+    case TextAlign::BASELINE_LEFT:
+      return LOG_STR("BASELINE_LEFT");
+    case TextAlign::BASELINE_CENTER:
+      return LOG_STR("BASELINE_CENTER");
+    case TextAlign::BASELINE_RIGHT:
+      return LOG_STR("BASELINE_RIGHT");
+    case TextAlign::BOTTOM_LEFT:
+      return LOG_STR("BOTTOM_LEFT");
+    case TextAlign::BOTTOM_CENTER:
+      return LOG_STR("BOTTOM_CENTER");
+    case TextAlign::BOTTOM_RIGHT:
+      return LOG_STR("BOTTOM_RIGHT");
+    default:
+      return LOG_STR("UNKNOWN");
+  }
+}
 
 }  // namespace display
 }  // namespace esphome

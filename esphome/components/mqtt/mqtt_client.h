@@ -51,6 +51,7 @@ struct MQTTCredentials {
   std::string username;
   std::string password;
   std::string client_id;  ///< The client ID. Will automatically be truncated to 23 characters.
+  bool clean_session;     ///< Whether the session will be cleaned or remembered between connects.
 };
 
 /// Simple data struct for Home Assistant component availability.
@@ -79,13 +80,15 @@ enum MQTTDiscoveryObjectIdGenerator {
 struct MQTTDiscoveryInfo {
   std::string prefix;  ///< The Home Assistant discovery prefix. Empty means disabled.
   bool retain;         ///< Whether to retain discovery messages.
+  bool discover_ip;    ///< Enable the Home Assistant device discovery.
   bool clean;
   MQTTDiscoveryUniqueIdGenerator unique_id_generator;
   MQTTDiscoveryObjectIdGenerator object_id_generator;
 };
 
 enum MQTTClientState {
-  MQTT_CLIENT_DISCONNECTED = 0,
+  MQTT_CLIENT_DISABLED = 0,
+  MQTT_CLIENT_DISCONNECTED,
   MQTT_CLIENT_RESOLVING_ADDRESS,
   MQTT_CLIENT_CONNECTING,
   MQTT_CLIENT_CONNECTED,
@@ -122,12 +125,14 @@ class MQTTClientComponent : public Component {
    * @param retain Whether to retain discovery messages.
    */
   void set_discovery_info(std::string &&prefix, MQTTDiscoveryUniqueIdGenerator unique_id_generator,
-                          MQTTDiscoveryObjectIdGenerator object_id_generator, bool retain, bool clean = false);
+                          MQTTDiscoveryObjectIdGenerator object_id_generator, bool retain, bool discover_ip,
+                          bool clean = false);
   /// Get Home Assistant discovery info.
   const MQTTDiscoveryInfo &get_discovery_info() const;
   /// Globally disable Home Assistant discovery.
   void disable_discovery();
   bool is_discovery_enabled() const;
+  bool is_discovery_ip_enabled() const;
 
 #if ASYNC_TCP_SSL_ENABLED
   /** Add a SSL fingerprint to use for TCP SSL connections to the MQTT broker.
@@ -243,6 +248,9 @@ class MQTTClientComponent : public Component {
   void register_mqtt_component(MQTTComponent *component);
 
   bool is_connected();
+  void set_enable_on_boot(bool enable_on_boot) { this->enable_on_boot_ = enable_on_boot; }
+  void enable();
+  void disable();
 
   void on_shutdown() override;
 
@@ -251,6 +259,7 @@ class MQTTClientComponent : public Component {
   void set_username(const std::string &username) { this->credentials_.username = username; }
   void set_password(const std::string &password) { this->credentials_.password = password; }
   void set_client_id(const std::string &client_id) { this->credentials_.client_id = client_id; }
+  void set_clean_session(const bool &clean_session) { this->credentials_.clean_session = clean_session; }
   void set_on_connect(mqtt_on_connect_callback_t &&callback);
   void set_on_disconnect(mqtt_on_disconnect_callback_t &&callback);
 
@@ -290,6 +299,7 @@ class MQTTClientComponent : public Component {
   MQTTDiscoveryInfo discovery_info_{
       .prefix = "homeassistant",
       .retain = true,
+      .discover_ip = true,
       .clean = false,
       .unique_id_generator = MQTT_LEGACY_UNIQUE_ID_GENERATOR,
       .object_id_generator = MQTT_NONE_OBJECT_ID_GENERATOR,
@@ -308,10 +318,11 @@ class MQTTClientComponent : public Component {
   MQTTBackendLibreTiny mqtt_backend_;
 #endif
 
-  MQTTClientState state_{MQTT_CLIENT_DISCONNECTED};
+  MQTTClientState state_{MQTT_CLIENT_DISABLED};
   network::IPAddress ip_;
   bool dns_resolved_{false};
   bool dns_resolve_error_{false};
+  bool enable_on_boot_{true};
   std::vector<MQTTComponent *> children_;
   uint32_t reboot_timeout_{300000};
   uint32_t connect_begin_;
@@ -403,6 +414,26 @@ template<typename... Ts> class MQTTConnectedCondition : public Condition<Ts...> 
  public:
   MQTTConnectedCondition(MQTTClientComponent *parent) : parent_(parent) {}
   bool check(Ts... x) override { return this->parent_->is_connected(); }
+
+ protected:
+  MQTTClientComponent *parent_;
+};
+
+template<typename... Ts> class MQTTEnableAction : public Action<Ts...> {
+ public:
+  MQTTEnableAction(MQTTClientComponent *parent) : parent_(parent) {}
+
+  void play(Ts... x) override { this->parent_->enable(); }
+
+ protected:
+  MQTTClientComponent *parent_;
+};
+
+template<typename... Ts> class MQTTDisableAction : public Action<Ts...> {
+ public:
+  MQTTDisableAction(MQTTClientComponent *parent) : parent_(parent) {}
+
+  void play(Ts... x) override { this->parent_->disable(); }
 
  protected:
   MQTTClientComponent *parent_;

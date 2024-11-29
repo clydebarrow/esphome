@@ -12,3 +12,8 @@ modbus_controller:
   - id: modbus_controller1
     address: 0x2
     modbus_id: mod_bus1
+    allow_duplicate_commands: true
+    on_offline:
+      then:
+        logger.log: "Module Offline"
+    max_cmd_retries: 10

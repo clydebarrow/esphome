@@ -1,59 +1,59 @@
-from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
+from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome import automation
-
 from esphome.const import (
-    CONF_NAME,
-    CONF_LAMBDA,
-    CONF_UPDATE_INTERVAL,
-    CONF_TRANSITION_LENGTH,
-    CONF_COLORS,
-    CONF_STATE,
-    CONF_DURATION,
-    CONF_BRIGHTNESS,
-    CONF_COLOR_MODE,
-    CONF_COLOR_BRIGHTNESS,
-    CONF_RED,
-    CONF_GREEN,
-    CONF_BLUE,
-    CONF_WHITE,
-    CONF_COLOR_TEMPERATURE,
-    CONF_COLD_WHITE,
-    CONF_WARM_WHITE,
     CONF_ALPHA,
+    CONF_BLUE,
+    CONF_BRIGHTNESS,
+    CONF_COLD_WHITE,
+    CONF_COLOR_BRIGHTNESS,
+    CONF_COLOR_MODE,
+    CONF_COLOR_TEMPERATURE,
+    CONF_COLORS,
+    CONF_DURATION,
+    CONF_GREEN,
     CONF_INTENSITY,
-    CONF_SPEED,
-    CONF_WIDTH,
-    CONF_NUM_LEDS,
-    CONF_RANDOM,
-    CONF_SEQUENCE,
+    CONF_LAMBDA,
     CONF_MAX_BRIGHTNESS,
     CONF_MIN_BRIGHTNESS,
+    CONF_NAME,
+    CONF_NUM_LEDS,
+    CONF_RANDOM,
+    CONF_RED,
+    CONF_SEQUENCE,
+    CONF_SPEED,
+    CONF_STATE,
+    CONF_TRANSITION_LENGTH,
+    CONF_UPDATE_INTERVAL,
+    CONF_WARM_WHITE,
+    CONF_WHITE,
+    CONF_WIDTH,
 )
+from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
 from esphome.util import Registry
+
 from .types import (
-    ColorMode,
     COLOR_MODES,
+    AddressableColorWipeEffect,
+    AddressableColorWipeEffectColor,
+    AddressableFireworksEffect,
+    AddressableFlickerEffect,
+    AddressableLambdaLightEffect,
+    AddressableLightRef,
+    AddressableRainbowLightEffect,
+    AddressableRandomTwinkleEffect,
+    AddressableScanEffect,
+    AddressableTwinkleEffect,
+    AutomationLightEffect,
+    Color,
+    ColorMode,
+    FlickerLightEffect,
     LambdaLightEffect,
+    LightColorValues,
     PulseLightEffect,
     RandomLightEffect,
     StrobeLightEffect,
     StrobeLightEffectColor,
-    LightColorValues,
-    AddressableLightRef,
-    AddressableLambdaLightEffect,
-    FlickerLightEffect,
-    AddressableRainbowLightEffect,
-    AddressableColorWipeEffect,
-    AddressableColorWipeEffectColor,
-    AddressableScanEffect,
-    AddressableTwinkleEffect,
-    AddressableRandomTwinkleEffect,
-    AddressableFireworksEffect,
-    AddressableFlickerEffect,
-    AutomationLightEffect,
-    Color,
 )
 
 CONF_ADD_LED_INTERVAL = "add_led_interval"
@@ -266,6 +266,9 @@ async def random_effect_to_code(config, effect_id):
                         cv.Required(
                             CONF_DURATION
                         ): cv.positive_time_period_milliseconds,
+                        cv.Optional(
+                            CONF_TRANSITION_LENGTH, default="0s"
+                        ): cv.positive_time_period_milliseconds,
                     }
                 ),
                 cv.has_at_least_one_key(
@@ -310,6 +313,7 @@ async def strobe_effect_to_code(config, effect_id):
                     ),
                 ),
                 ("duration", color[CONF_DURATION]),
+                ("transition_length", color[CONF_TRANSITION_LENGTH]),
             )
         )
     cg.add(var.set_colors(colors))

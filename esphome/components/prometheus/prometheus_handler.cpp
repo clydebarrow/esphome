@@ -1,4 +1,5 @@
 #include "prometheus_handler.h"
+#ifdef USE_NETWORK
 #include "esphome/core/application.h"
 
 namespace esphome {
@@ -6,47 +7,56 @@ namespace prometheus {
 
 void PrometheusHandler::handleRequest(AsyncWebServerRequest *req) {
   AsyncResponseStream *stream = req->beginResponseStream("text/plain; version=0.0.4; charset=utf-8");
+  std::string area = App.get_area();
+  std::string node = App.get_name();
+  std::string friendly_name = App.get_friendly_name();
 
 #ifdef USE_SENSOR
   this->sensor_type_(stream);
   for (auto *obj : App.get_sensors())
-    this->sensor_row_(stream, obj);
+    this->sensor_row_(stream, obj, area, node, friendly_name);
 #endif
 
 #ifdef USE_BINARY_SENSOR
   this->binary_sensor_type_(stream);
   for (auto *obj : App.get_binary_sensors())
-    this->binary_sensor_row_(stream, obj);
+    this->binary_sensor_row_(stream, obj, area, node, friendly_name);
 #endif
 
 #ifdef USE_FAN
   this->fan_type_(stream);
   for (auto *obj : App.get_fans())
-    this->fan_row_(stream, obj);
+    this->fan_row_(stream, obj, area, node, friendly_name);
 #endif
 
 #ifdef USE_LIGHT
   this->light_type_(stream);
   for (auto *obj : App.get_lights())
-    this->light_row_(stream, obj);
+    this->light_row_(stream, obj, area, node, friendly_name);
 #endif
 
 #ifdef USE_COVER
   this->cover_type_(stream);
   for (auto *obj : App.get_covers())
-    this->cover_row_(stream, obj);
+    this->cover_row_(stream, obj, area, node, friendly_name);
 #endif
 
 #ifdef USE_SWITCH
   this->switch_type_(stream);
   for (auto *obj : App.get_switches())
-    this->switch_row_(stream, obj);
+    this->switch_row_(stream, obj, area, node, friendly_name);
 #endif
 
 #ifdef USE_LOCK
   this->lock_type_(stream);
   for (auto *obj : App.get_locks())
-    this->lock_row_(stream, obj);
+    this->lock_row_(stream, obj, area, node, friendly_name);
+#endif
+
+#ifdef USE_TEXT_SENSOR
+  this->text_sensor_type_(stream);
+  for (auto *obj : App.get_text_sensors())
+    this->text_sensor_row_(stream, obj, area, node, friendly_name);
 #endif
 
   req->send(stream);
@@ -62,25 +72,53 @@ std::string PrometheusHandler::relabel_name_(EntityBase *obj) {
   return item == relabel_map_name_.end() ? obj->get_name() : item->second;
 }
 
+void PrometheusHandler::add_area_label_(AsyncResponseStream *stream, std::string &area) {
+  if (!area.empty()) {
+    stream->print(F("\",area=\""));
+    stream->print(area.c_str());
+  }
+}
+
+void PrometheusHandler::add_node_label_(AsyncResponseStream *stream, std::string &node) {
+  if (!node.empty()) {
+    stream->print(F("\",node=\""));
+    stream->print(node.c_str());
+  }
+}
+
+void PrometheusHandler::add_friendly_name_label_(AsyncResponseStream *stream, std::string &friendly_name) {
+  if (!friendly_name.empty()) {
+    stream->print(F("\",friendly_name=\""));
+    stream->print(friendly_name.c_str());
+  }
+}
+
 // Type-specific implementation
 #ifdef USE_SENSOR
 void PrometheusHandler::sensor_type_(AsyncResponseStream *stream) {
-  stream->print(F("#TYPE esphome_sensor_value GAUGE\n"));
-  stream->print(F("#TYPE esphome_sensor_failed GAUGE\n"));
+  stream->print(F("#TYPE esphome_sensor_value gauge\n"));
+  stream->print(F("#TYPE esphome_sensor_failed gauge\n"));
 }
-void PrometheusHandler::sensor_row_(AsyncResponseStream *stream, sensor::Sensor *obj) {
+void PrometheusHandler::sensor_row_(AsyncResponseStream *stream, sensor::Sensor *obj, std::string &area,
+                                    std::string &node, std::string &friendly_name) {
   if (obj->is_internal() && !this->include_internal_)
     return;
   if (!std::isnan(obj->state)) {
     // We have a valid value, output this value
     stream->print(F("esphome_sensor_failed{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} 0\n"));
     // Data itself
     stream->print(F("esphome_sensor_value{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\",unit=\""));
@@ -92,6 +130,9 @@ void PrometheusHandler::sensor_row_(AsyncResponseStream *stream, sensor::Sensor 
     // Invalid state
     stream->print(F("esphome_sensor_failed{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} 1\n"));
@@ -102,22 +143,29 @@ void PrometheusHandler::sensor_row_(AsyncResponseStream *stream, sensor::Sensor 
 // Type-specific implementation
 #ifdef USE_BINARY_SENSOR
 void PrometheusHandler::binary_sensor_type_(AsyncResponseStream *stream) {
-  stream->print(F("#TYPE esphome_binary_sensor_value GAUGE\n"));
-  stream->print(F("#TYPE esphome_binary_sensor_failed GAUGE\n"));
+  stream->print(F("#TYPE esphome_binary_sensor_value gauge\n"));
+  stream->print(F("#TYPE esphome_binary_sensor_failed gauge\n"));
 }
-void PrometheusHandler::binary_sensor_row_(AsyncResponseStream *stream, binary_sensor::BinarySensor *obj) {
+void PrometheusHandler::binary_sensor_row_(AsyncResponseStream *stream, binary_sensor::BinarySensor *obj,
+                                           std::string &area, std::string &node, std::string &friendly_name) {
   if (obj->is_internal() && !this->include_internal_)
     return;
   if (obj->has_state()) {
     // We have a valid value, output this value
     stream->print(F("esphome_binary_sensor_failed{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} 0\n"));
     // Data itself
     stream->print(F("esphome_binary_sensor_value{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} "));
@@ -127,6 +175,9 @@ void PrometheusHandler::binary_sensor_row_(AsyncResponseStream *stream, binary_s
     // Invalid state
     stream->print(F("esphome_binary_sensor_failed{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} 1\n"));
@@ -136,22 +187,29 @@ void PrometheusHandler::binary_sensor_row_(AsyncResponseStream *stream, binary_s
 
 #ifdef USE_FAN
 void PrometheusHandler::fan_type_(AsyncResponseStream *stream) {
-  stream->print(F("#TYPE esphome_fan_value GAUGE\n"));
-  stream->print(F("#TYPE esphome_fan_failed GAUGE\n"));
-  stream->print(F("#TYPE esphome_fan_speed GAUGE\n"));
-  stream->print(F("#TYPE esphome_fan_oscillation GAUGE\n"));
+  stream->print(F("#TYPE esphome_fan_value gauge\n"));
+  stream->print(F("#TYPE esphome_fan_failed gauge\n"));
+  stream->print(F("#TYPE esphome_fan_speed gauge\n"));
+  stream->print(F("#TYPE esphome_fan_oscillation gauge\n"));
 }
-void PrometheusHandler::fan_row_(AsyncResponseStream *stream, fan::Fan *obj) {
+void PrometheusHandler::fan_row_(AsyncResponseStream *stream, fan::Fan *obj, std::string &area, std::string &node,
+                                 std::string &friendly_name) {
   if (obj->is_internal() && !this->include_internal_)
     return;
   stream->print(F("esphome_fan_failed{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\"} 0\n"));
   // Data itself
   stream->print(F("esphome_fan_value{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\"} "));
@@ -161,6 +219,9 @@ void PrometheusHandler::fan_row_(AsyncResponseStream *stream, fan::Fan *obj) {
   if (obj->get_traits().supports_speed()) {
     stream->print(F("esphome_fan_speed{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} "));
@@ -171,6 +232,9 @@ void PrometheusHandler::fan_row_(AsyncResponseStream *stream, fan::Fan *obj) {
   if (obj->get_traits().supports_oscillation()) {
     stream->print(F("esphome_fan_oscillation{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} "));
@@ -182,16 +246,20 @@ void PrometheusHandler::fan_row_(AsyncResponseStream *stream, fan::Fan *obj) {
 
 #ifdef USE_LIGHT
 void PrometheusHandler::light_type_(AsyncResponseStream *stream) {
-  stream->print(F("#TYPE esphome_light_state GAUGE\n"));
-  stream->print(F("#TYPE esphome_light_color GAUGE\n"));
-  stream->print(F("#TYPE esphome_light_effect_active GAUGE\n"));
+  stream->print(F("#TYPE esphome_light_state gauge\n"));
+  stream->print(F("#TYPE esphome_light_color gauge\n"));
+  stream->print(F("#TYPE esphome_light_effect_active gauge\n"));
 }
-void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightState *obj) {
+void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightState *obj, std::string &area,
+                                   std::string &node, std::string &friendly_name) {
   if (obj->is_internal() && !this->include_internal_)
     return;
   // State
   stream->print(F("esphome_light_state{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\"} "));
@@ -204,6 +272,9 @@ void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightStat
   color.as_rgbw(&r, &g, &b, &w);
   stream->print(F("esphome_light_color{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\",channel=\"brightness\"} "));
@@ -211,6 +282,9 @@ void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightStat
   stream->print(F("\n"));
   stream->print(F("esphome_light_color{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\",channel=\"r\"} "));
@@ -218,6 +292,9 @@ void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightStat
   stream->print(F("\n"));
   stream->print(F("esphome_light_color{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\",channel=\"g\"} "));
@@ -225,6 +302,9 @@ void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightStat
   stream->print(F("\n"));
   stream->print(F("esphome_light_color{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\",channel=\"b\"} "));
@@ -232,6 +312,9 @@ void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightStat
   stream->print(F("\n"));
   stream->print(F("esphome_light_color{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\",channel=\"w\"} "));
@@ -242,12 +325,18 @@ void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightStat
   if (effect == "None") {
     stream->print(F("esphome_light_effect_active{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\",effect=\"None\"} 0\n"));
   } else {
     stream->print(F("esphome_light_effect_active{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\",effect=\""));
@@ -259,22 +348,29 @@ void PrometheusHandler::light_row_(AsyncResponseStream *stream, light::LightStat
 
 #ifdef USE_COVER
 void PrometheusHandler::cover_type_(AsyncResponseStream *stream) {
-  stream->print(F("#TYPE esphome_cover_value GAUGE\n"));
-  stream->print(F("#TYPE esphome_cover_failed GAUGE\n"));
+  stream->print(F("#TYPE esphome_cover_value gauge\n"));
+  stream->print(F("#TYPE esphome_cover_failed gauge\n"));
 }
-void PrometheusHandler::cover_row_(AsyncResponseStream *stream, cover::Cover *obj) {
+void PrometheusHandler::cover_row_(AsyncResponseStream *stream, cover::Cover *obj, std::string &area, std::string &node,
+                                   std::string &friendly_name) {
   if (obj->is_internal() && !this->include_internal_)
     return;
   if (!std::isnan(obj->position)) {
     // We have a valid value, output this value
     stream->print(F("esphome_cover_failed{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} 0\n"));
     // Data itself
     stream->print(F("esphome_cover_value{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} "));
@@ -283,6 +379,9 @@ void PrometheusHandler::cover_row_(AsyncResponseStream *stream, cover::Cover *ob
     if (obj->get_traits().get_supports_tilt()) {
       stream->print(F("esphome_cover_tilt{id=\""));
       stream->print(relabel_id_(obj).c_str());
+      add_area_label_(stream, area);
+      add_node_label_(stream, node);
+      add_friendly_name_label_(stream, friendly_name);
       stream->print(F("\",name=\""));
       stream->print(relabel_name_(obj).c_str());
       stream->print(F("\"} "));
@@ -293,6 +392,9 @@ void PrometheusHandler::cover_row_(AsyncResponseStream *stream, cover::Cover *ob
     // Invalid state
     stream->print(F("esphome_cover_failed{id=\""));
     stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} 1\n"));
@@ -302,20 +404,27 @@ void PrometheusHandler::cover_row_(AsyncResponseStream *stream, cover::Cover *ob
 
 #ifdef USE_SWITCH
 void PrometheusHandler::switch_type_(AsyncResponseStream *stream) {
-  stream->print(F("#TYPE esphome_switch_value GAUGE\n"));
-  stream->print(F("#TYPE esphome_switch_failed GAUGE\n"));
+  stream->print(F("#TYPE esphome_switch_value gauge\n"));
+  stream->print(F("#TYPE esphome_switch_failed gauge\n"));
 }
-void PrometheusHandler::switch_row_(AsyncResponseStream *stream, switch_::Switch *obj) {
+void PrometheusHandler::switch_row_(AsyncResponseStream *stream, switch_::Switch *obj, std::string &area,
+                                    std::string &node, std::string &friendly_name) {
   if (obj->is_internal() && !this->include_internal_)
     return;
   stream->print(F("esphome_switch_failed{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\"} 0\n"));
   // Data itself
   stream->print(F("esphome_switch_value{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\"} "));
@@ -326,20 +435,27 @@ void PrometheusHandler::switch_row_(AsyncResponseStream *stream, switch_::Switch
 
 #ifdef USE_LOCK
 void PrometheusHandler::lock_type_(AsyncResponseStream *stream) {
-  stream->print(F("#TYPE esphome_lock_value GAUGE\n"));
-  stream->print(F("#TYPE esphome_lock_failed GAUGE\n"));
+  stream->print(F("#TYPE esphome_lock_value gauge\n"));
+  stream->print(F("#TYPE esphome_lock_failed gauge\n"));
 }
-void PrometheusHandler::lock_row_(AsyncResponseStream *stream, lock::Lock *obj) {
+void PrometheusHandler::lock_row_(AsyncResponseStream *stream, lock::Lock *obj, std::string &area, std::string &node,
+                                  std::string &friendly_name) {
   if (obj->is_internal() && !this->include_internal_)
     return;
   stream->print(F("esphome_lock_failed{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\"} 0\n"));
   // Data itself
   stream->print(F("esphome_lock_value{id=\""));
   stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
   stream->print(F("\",name=\""));
   stream->print(relabel_name_(obj).c_str());
   stream->print(F("\"} "));
@@ -348,5 +464,53 @@ void PrometheusHandler::lock_row_(AsyncResponseStream *stream, lock::Lock *obj) 
 }
 #endif
 
+// Type-specific implementation
+#ifdef USE_TEXT_SENSOR
+void PrometheusHandler::text_sensor_type_(AsyncResponseStream *stream) {
+  stream->print(F("#TYPE esphome_text_sensor_value gauge\n"));
+  stream->print(F("#TYPE esphome_text_sensor_failed gauge\n"));
+}
+void PrometheusHandler::text_sensor_row_(AsyncResponseStream *stream, text_sensor::TextSensor *obj, std::string &area,
+                                         std::string &node, std::string &friendly_name) {
+  if (obj->is_internal() && !this->include_internal_)
+    return;
+  if (obj->has_state()) {
+    // We have a valid value, output this value
+    stream->print(F("esphome_text_sensor_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 0\n"));
+    // Data itself
+    stream->print(F("esphome_text_sensor_value{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\",value=\""));
+    stream->print(obj->state.c_str());
+    stream->print(F("\"} "));
+    stream->print(F("1.0"));
+    stream->print(F("\n"));
+  } else {
+    // Invalid state
+    stream->print(F("esphome_text_sensor_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 1\n"));
+  }
+}
+#endif
+
 }  // namespace prometheus
 }  // namespace esphome
+#endif

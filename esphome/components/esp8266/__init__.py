@@ -1,10 +1,13 @@
 import logging
 import os
 
+import esphome.codegen as cg
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_BOARD,
     CONF_BOARD_FLASH_MODE,
     CONF_FRAMEWORK,
+    CONF_PLATFORM_VERSION,
     CONF_SOURCE,
     CONF_VERSION,
     KEY_CORE,
@@ -14,23 +17,19 @@ from esphome.const import (
     PLATFORM_ESP8266,
 )
 from esphome.core import CORE, coroutine_with_priority
-import esphome.config_validation as cv
-import esphome.codegen as cg
 from esphome.helpers import copy_file_if_changed
 
+from .boards import BOARDS, ESP8266_LD_SCRIPTS
 from .const import (
-    CONF_RESTORE_FROM_FLASH,
     CONF_EARLY_PIN_INIT,
+    CONF_RESTORE_FROM_FLASH,
     KEY_BOARD,
     KEY_ESP8266,
     KEY_FLASH_SIZE,
     KEY_PIN_INITIAL_STATES,
     esp8266_ns,
 )
-from .boards import BOARDS, ESP8266_LD_SCRIPTS
-
 from .gpio import PinInitialState, add_pin_initial_states_array
-
 
 CODEOWNERS = ["@esphome/core"]
 _LOGGER = logging.getLogger(__name__)
@@ -146,7 +145,6 @@ def _parse_platform_version(value):
         return value
 
 
-CONF_PLATFORM_VERSION = "platform_version"
 ARDUINO_FRAMEWORK_SCHEMA = cv.All(
     cv.Schema(
         {

@@ -1,7 +1,9 @@
+#include "mqtt_backend_esp32.h"
+
+#ifdef USE_MQTT
 #ifdef USE_ESP32
 
 #include <string>
-#include "mqtt_backend_esp32.h"
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
 
@@ -149,11 +151,11 @@ void MQTTBackendESP32::mqtt_event_handler_(const Event &event) {
       break;
     case MQTT_EVENT_DATA: {
       static std::string topic;
-      if (event.topic.length() > 0) {
+      if (!event.topic.empty()) {
         topic = event.topic;
       }
       ESP_LOGV(TAG, "MQTT_EVENT_DATA %s", topic.c_str());
-      this->on_message_.call(event.topic.length() > 0 ? topic.c_str() : nullptr, event.data.data(), event.data.size(),
+      this->on_message_.call(!event.topic.empty() ? topic.c_str() : nullptr, event.data.data(), event.data.size(),
                              event.current_data_offset, event.total_data_len);
     } break;
     case MQTT_EVENT_ERROR:
@@ -182,10 +184,11 @@ void MQTTBackendESP32::mqtt_event_handler(void *handler_args, esp_event_base_t b
   // queue event to decouple processing
   if (instance) {
     auto event = *static_cast<esp_mqtt_event_t *>(event_data);
-    instance->mqtt_events_.push(Event(event));
+    instance->mqtt_events_.emplace(event);
   }
 }
 
 }  // namespace mqtt
 }  // namespace esphome
 #endif  // USE_ESP32
+#endif
