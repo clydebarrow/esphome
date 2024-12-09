@@ -8,10 +8,9 @@
 #pragma once
 
 #include <string>
-#include <sstream>
-#include <iomanip>
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
+#include "esphome/core/helpers.h"
 
 #if defined(ESP32) || defined(USE_ESP_IDF)
 #include "driver/timer.h"
@@ -99,6 +98,8 @@ enum MessageId {
   EXHAUST_TEMP = 33,
   FAN_SPEED = 35,
   FLAME_CURRENT = 36,
+  ROOM_TEMP_CH2 = 37,
+  REL_HUMIDITY = 38,
   DHW_BOUNDS = 48,
   CH_BOUNDS = 49,
   OTC_CURVE_BOUNDS = 50,
@@ -110,15 +111,46 @@ enum MessageId {
   HVAC_STATUS = 70,
   REL_VENT_SETPOINT = 71,
   DEVICE_VENT = 74,
+  HVAC_VER_ID = 75,
   REL_VENTILATION = 77,
   REL_HUMID_EXHAUST = 78,
+  EXHAUST_CO2 = 79,
   SUPPLY_INLET_TEMP = 80,
   SUPPLY_OUTLET_TEMP = 81,
   EXHAUST_INLET_TEMP = 82,
   EXHAUST_OUTLET_TEMP = 83,
+  EXHAUST_FAN_SPEED = 84,
+  SUPPLY_FAN_SPEED = 85,
+  REMOTE_VENTILATION_PARAM = 86,
   NOM_REL_VENTILATION = 87,
+  HVAC_NUM_TSP = 88,
+  HVAC_IDX_TSP = 89,
+  HVAC_FHB_SIZE = 90,
+  HVAC_FHB_IDX = 91,
 
+  RF_SIGNAL = 98,
+  DHW_MODE = 99,
   OVERRIDE_FUNC = 100,
+
+  // Solar Specific Message IDs
+  SOLAR_MODE_FLAGS = 101,  // hb0-2 Controller storage mode
+                           // lb0   Device fault
+                           // lb1-3 Device mode status
+                           // lb4-5 Device status
+  SOLAR_ASF = 102,
+  SOLAR_VERSION_ID = 103,
+  SOLAR_PRODUCT_ID = 104,
+  SOLAR_NUM_TSP = 105,
+  SOLAR_IDX_TSP = 106,
+  SOLAR_FHB_SIZE = 107,
+  SOLAR_FHB_IDX = 108,
+  SOLAR_STARTS = 109,
+  SOLAR_HOURS = 110,
+  SOLAR_ENERGY = 111,
+  SOLAR_TOTAL_ENERGY = 112,
+
+  FAILED_BURNER_STARTS = 113,
+  BURNER_FLAME_LOW = 114,
   OEM_DIAGNOSTIC = 115,
   BURNER_STARTS = 116,
   CH_PUMP_STARTS = 117,
@@ -285,8 +317,8 @@ class OpenTherm {
 
   OperationMode get_mode() { return mode_; }
 
-  std::string debug_data(OpenthermData &data);
-  std::string debug_error(OpenThermError &error);
+  void debug_data(OpenthermData &data);
+  void debug_error(OpenThermError &error) const;
 
   const char *protocol_error_to_to_str(ProtocolErrorType error_type);
   const char *message_type_to_str(MessageType message_type);
@@ -338,7 +370,7 @@ class OpenTherm {
 
 #ifdef ESP8266
   // ESP8266 timer can accept callback with no parameters, so we have this hack to save a static instance of OpenTherm
-  static OpenTherm *instance_;
+  static OpenTherm *instance;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 #endif
 };
 

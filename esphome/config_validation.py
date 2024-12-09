@@ -1839,8 +1839,6 @@ def validate_registry_entry(name, registry):
 def none(value):
     if value in ("none", "None"):
         return None
-    if boolean(value) is False:
-        return None
     raise Invalid("Must be none")
 
 
@@ -1912,17 +1910,23 @@ MQTT_COMMAND_COMPONENT_SCHEMA = MQTT_COMPONENT_SCHEMA.extend(
     }
 )
 
+
+def _validate_entity_name(value):
+    value = string(value)
+    try:
+        value = none(value)  # pylint: disable=assignment-from-none
+    except Invalid:
+        pass
+    else:
+        requires_friendly_name(
+            "Name cannot be None when esphome->friendly_name is not set!"
+        )(value)
+    return value
+
+
 ENTITY_BASE_SCHEMA = Schema(
     {
-        Optional(CONF_NAME): Any(
-            All(
-                none,
-                requires_friendly_name(
-                    "Name cannot be None when esphome->friendly_name is not set!"
-                ),
-            ),
-            string,
-        ),
+        Optional(CONF_NAME): _validate_entity_name,
         Optional(CONF_INTERNAL): boolean,
         Optional(CONF_DISABLED_BY_DEFAULT, default=False): boolean,
         Optional(CONF_ICON): icon,

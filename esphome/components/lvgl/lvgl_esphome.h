@@ -56,7 +56,26 @@ static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BIT
 inline void lv_img_set_src(lv_obj_t *obj, esphome::image::Image *image) {
   lv_img_set_src(obj, image->get_lv_img_dsc());
 }
+inline void lv_disp_set_bg_image(lv_disp_t *disp, esphome::image::Image *image) {
+  lv_disp_set_bg_image(disp, image->get_lv_img_dsc());
+}
 #endif  // USE_LVGL_IMAGE
+#ifdef USE_LVGL_ANIMIMG
+inline void lv_animimg_set_src(lv_obj_t *img, std::vector<image::Image *> images) {
+  auto *dsc = static_cast<std::vector<lv_img_dsc_t *> *>(lv_obj_get_user_data(img));
+  if (dsc == nullptr) {
+    // object will be lazily allocated but never freed.
+    dsc = new std::vector<lv_img_dsc_t *>(images.size());  // NOLINT
+    lv_obj_set_user_data(img, dsc);
+  }
+  dsc->clear();
+  for (auto &image : images) {
+    dsc->push_back(image->get_lv_img_dsc());
+  }
+  lv_animimg_set_src(img, (const void **) dsc->data(), dsc->size());
+}
+
+#endif  // USE_LVGL_ANIMIMG
 
 // Parent class for things that wrap an LVGL object
 class LvCompound {
@@ -256,15 +275,8 @@ class LVEncoderListener : public Parented<LvglComponent> {
   LVEncoderListener(lv_indev_type_t type, uint16_t lpt, uint16_t lprt);
 
 #ifdef USE_BINARY_SENSOR
-  void set_left_button(binary_sensor::BinarySensor *left_button) {
-    left_button->add_on_state_callback([this](bool state) { this->event(LV_KEY_LEFT, state); });
-  }
-  void set_right_button(binary_sensor::BinarySensor *right_button) {
-    right_button->add_on_state_callback([this](bool state) { this->event(LV_KEY_RIGHT, state); });
-  }
-
-  void set_enter_button(binary_sensor::BinarySensor *enter_button) {
-    enter_button->add_on_state_callback([this](bool state) { this->event(LV_KEY_ENTER, state); });
+  void add_button(binary_sensor::BinarySensor *button, lv_key_t key) {
+    button->add_on_state_callback([this, key](bool state) { this->event(key, state); });
   }
 #endif
 

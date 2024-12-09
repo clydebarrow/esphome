@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import pins
+import esphome.codegen as cg
 from esphome.components import esp32_rmt, light
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_CHIPSET,
     CONF_IS_RGBW,
@@ -103,7 +103,7 @@ CONFIG_SCHEMA = cv.All(
                 default="0 us",
             ): cv.positive_time_period_nanoseconds,
         }
-    ),
+    ).extend(cv.COMPONENT_SCHEMA),
     cv.has_exactly_one_key(CONF_CHIPSET, CONF_BIT0_HIGH),
 )
 

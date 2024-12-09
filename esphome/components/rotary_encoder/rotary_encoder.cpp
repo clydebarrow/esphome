@@ -162,7 +162,7 @@ void RotaryEncoderSensor::dump_config() {
   LOG_PIN("  Pin B: ", this->pin_b_);
   LOG_PIN("  Pin I: ", this->pin_i_);
 
-  const LogString *restore_mode = LOG_STR("");
+  const LogString *restore_mode;
   switch (this->restore_mode_) {
     case ROTARY_ENCODER_RESTORE_DEFAULT_ZERO:
       restore_mode = LOG_STR("Restore (Defaults to zero)");
@@ -170,6 +170,8 @@ void RotaryEncoderSensor::dump_config() {
     case ROTARY_ENCODER_ALWAYS_ZERO:
       restore_mode = LOG_STR("Always zero");
       break;
+    default:
+      restore_mode = LOG_STR("");
   }
   ESP_LOGCONFIG(TAG, "  Restore Mode: %s", LOG_STR_ARG(restore_mode));
 

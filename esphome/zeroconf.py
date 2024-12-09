@@ -176,7 +176,7 @@ def _make_host_resolver(host: str) -> HostResolver:
 
 
 class EsphomeZeroconf(Zeroconf):
-    def resolve_host(self, host: str, timeout: float = 3.0) -> str | None:
+    def resolve_host(self, host: str, timeout: float = 3.0) -> list[str] | None:
         """Resolve a host name to an IP address."""
         info = _make_host_resolver(host)
         if (
@@ -188,7 +188,9 @@ class EsphomeZeroconf(Zeroconf):
 
 
 class AsyncEsphomeZeroconf(AsyncZeroconf):
-    async def async_resolve_host(self, host: str, timeout: float = 3.0) -> str | None:
+    async def async_resolve_host(
+        self, host: str, timeout: float = 3.0
+    ) -> list[str] | None:
         """Resolve a host name to an IP address."""
         info = _make_host_resolver(host)
         if (

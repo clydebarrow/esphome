@@ -111,7 +111,6 @@ void QspiDbi::reset_params_(bool ready) {
     mad |= MADCTL_MY;
   this->write_command_(MADCTL_CMD, mad);
   this->write_command_(BRIGHTNESS, this->brightness_);
-  this->write_command_(NORON);
   this->write_command_(DISPLAY_ON);
 }
 
@@ -147,7 +146,8 @@ void QspiDbi::draw_pixels_at(int x_start, int y_start, int w, int h, const uint8
     return;
   if (bitness != display::COLOR_BITNESS_565 || order != this->color_mode_ ||
       big_endian != (this->bit_order_ == spi::BIT_ORDER_MSB_FIRST)) {
-    return Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset, x_pad);
+    Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset, x_pad);
+    return;
   } else if (this->draw_from_origin_) {
     auto stride = x_offset + w + x_pad;
     for (int y = 0; y != h; y++) {

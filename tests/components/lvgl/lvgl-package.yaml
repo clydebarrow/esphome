@@ -11,6 +11,12 @@ substitutions:
   check: "\U000F012C"
   arrow_down: "\U000F004B"
 
+binary_sensor:
+  - id: enter_sensor
+    platform: template
+  - id: left_sensor
+    platform: template
+
 lvgl:
   log_level: debug
   resume_on_input: true
@@ -93,12 +99,20 @@ lvgl:
     - touchscreen_id: tft_touch
       long_press_repeat_time: 200ms
       long_press_time: 500ms
+  keypads:
+    - initial_focus: button_button
+      enter: enter_sensor
+      next: left_sensor
 
   msgboxes:
     - id: message_box
       close_button: true
       title: Messagebox
       bg_color: 0xffff
+      widgets:
+        - label:
+            text: Hello Msgbox
+            id: msgbox_label
       body:
         text: This is a sample messagebox
         bg_color: 0x808080
@@ -127,6 +141,9 @@ lvgl:
         - lvgl.widget.focus: mark
         - lvgl.widget.redraw: hello_label
         - lvgl.widget.redraw:
+        - lvgl.label.update:
+            id: msgbox_label
+            text: Unloaded
       on_all_events:
         logger.log:
           format: "Event %s"
@@ -161,9 +178,13 @@ lvgl:
             duration: 1s
             auto_start: true
             on_all_events:
-              logger.log:
-                format: "Event %s"
-                args: ['lv_event_code_name_for(event->code).c_str()']
+              - logger.log:
+                  format: "Event %s"
+                  args: ['lv_event_code_name_for(event->code).c_str()']
+              - lvgl.animimg.update:
+                  id: anim_img
+                  src: !lambda "return {dog_image, cat_image};"
+                  duration: 2s
         - label:
             id: hello_label
             text: Hello world
@@ -323,7 +344,7 @@ lvgl:
             id: button_button
             width: 20%
             height: 10%
-            transform_angle: !lambda return 180*100;
+            transform_angle: !lambda return(180*100);
             arc_width: !lambda return 4;
             border_width: !lambda return 6;
             shadow_ofs_x: !lambda return 6;
@@ -567,7 +588,7 @@ lvgl:
               - 180, 60
               - 240, 10
             on_click:
-              - lvgl.widget.update:
+              - lvgl.line.update:
                   id: lv_line_id
                   line_color: 0xFFFF
               - lvgl.page.next:
@@ -625,7 +646,7 @@ lvgl:
                   - image:
                       grid_cell_row_pos: 0
                       grid_cell_column_pos: 0
-                      src: dog_image
+                      src: !lambda return dog_image;
                       on_click:
                         then:
                           - lvgl.tabview.select:

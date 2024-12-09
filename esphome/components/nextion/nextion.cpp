@@ -190,6 +190,10 @@ void Nextion::add_touch_event_callback(std::function<void(uint8_t, uint8_t, bool
   this->touch_callback_.add(std::move(callback));
 }
 
+void Nextion::add_buffer_overflow_event_callback(std::function<void()> &&callback) {
+  this->buffer_overflow_callback_.add(std::move(callback));
+}
+
 void Nextion::update_all_components() {
   if ((!this->is_setup() && !this->ignore_is_setup_) || this->is_sleeping())
     return;
@@ -339,7 +343,7 @@ void Nextion::process_serial_() {
 }
 // nextion.tech/instruction-set/
 void Nextion::process_nextion_commands_() {
-  if (this->command_data_.length() == 0) {
+  if (this->command_data_.empty()) {
     return;
   }
 
@@ -458,7 +462,9 @@ void Nextion::process_nextion_commands_() {
         this->remove_from_q_();
         break;
       case 0x24:  //  Serial Buffer overflow occurs
-        ESP_LOGW(TAG, "Nextion reported Serial Buffer overflow!");
+        // Buffer will continue to receive the current instruction, all previous instructions are lost.
+        ESP_LOGE(TAG, "Nextion reported Serial Buffer overflow!");
+        this->buffer_overflow_callback_.call();
         break;
       case 0x65: {  // touch event return data
         if (to_process_length != 3) {
@@ -557,13 +563,10 @@ void Nextion::process_nextion_commands_() {
           break;
         }
 
-        int dataindex = 0;
-
         int value = 0;
 
         for (int i = 0; i < 4; ++i) {
           value += to_process[i] << (8 * i);
-          ++dataindex;
         }
 
         NextionQueue *nb = this->nextion_queue_.front();

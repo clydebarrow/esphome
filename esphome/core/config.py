@@ -21,6 +21,7 @@ from esphome.const import (
     CONF_LIBRARIES,
     CONF_MIN_VERSION,
     CONF_NAME,
+    CONF_NAME_ADD_MAC_SUFFIX,
     CONF_ON_BOOT,
     CONF_ON_LOOP,
     CONF_ON_SHUTDOWN,
@@ -58,8 +59,6 @@ ProjectUpdateTrigger = cg.esphome_ns.class_(
 )
 
 VERSION_REGEX = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[ab]\d+)?$")
-
-CONF_NAME_ADD_MAC_SUFFIX = "name_add_mac_suffix"
 
 
 VALID_INCLUDE_EXTS = {".h", ".hpp", ".tcc", ".ino", ".cpp", ".c"}
@@ -184,6 +183,9 @@ PRELOAD_CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_ESP8266_RESTORE_FROM_FLASH): cv.valid,
         cv.Optional(CONF_BOARD_FLASH_MODE): cv.valid,
         cv.Optional(CONF_ARDUINO_VERSION): cv.valid,
+        cv.Optional(CONF_MIN_VERSION, default=ESPHOME_VERSION): cv.All(
+            cv.version_number, cv.validate_esphome_version
+        ),
     },
     extra=cv.ALLOW_EXTRA,
 )
