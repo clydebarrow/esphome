@@ -237,7 +237,6 @@ void USBUartTypeCdcAcm::on_connected_() {
   auto cdc_devs = this->parse_descriptors_(this->device_handle_);
   if (cdc_devs.empty()) {
     this->status_set_error("No CDC-ACM device found");
-    this->mark_failed();
     this->disconnect_();
     return;
   }
@@ -257,7 +256,6 @@ void USBUartTypeCdcAcm::on_connected_() {
       ESP_LOGE(TAG, "usb_host_interface_claim failed: %s, channel=%d, intf=%d", esp_err_to_name(err), channel->index_,
                channel->cdc_dev_.intf->bInterfaceNumber);
       this->status_set_error("usb_host_interface_claim failed");
-      this->mark_failed();
       this->disconnect_();
       return;
     }
