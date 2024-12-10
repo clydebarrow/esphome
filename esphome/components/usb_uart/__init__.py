@@ -56,6 +56,7 @@ uart_types = (
     Type("CH34X", 0x1A86, 0x55D5, 3, "CH34X"),
     Type("CH340", 0x1A86, 0x7523, 1, "CH34X"),
     Type("ESP_JTAG", 0x303A, 0x1001, 1, "CdcAcm"),
+    Type("STM32_VCP", 0x0483, 0x5740, 1, "CdcAcm"),
     Type("CP210X", 0x10C4, 0xEA60, 3, "CP210X"),
 )
 
