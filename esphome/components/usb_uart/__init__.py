@@ -41,23 +41,26 @@ UART_STOP_BITS_OPTIONS = {
     "2": UARTStopBitsOptions.UART_CONFIG_STOP_BITS_2,
 }
 
+DEFAULT_BAUD_RATE = 9600
+
 
 class Type:
-    def __init__(self, name, vid, pid, max_channels=1, cls=None):
+    def __init__(self, name, vid, pid, cls, max_channels=1, baud_rate_required=True):
         self.name = name
         cls = cls or name
         self.vid = vid
         self.pid = pid
-        self.max_channels = max_channels
         self.cls = usb_uart_ns.class_(f"USBUartType{cls}", USBUartComponent)
+        self.max_channels = max_channels
+        self.baud_rate_required = baud_rate_required
 
 
 uart_types = (
-    Type("CH34X", 0x1A86, 0x55D5, 3, "CH34X"),
-    Type("CH340", 0x1A86, 0x7523, 1, "CH34X"),
-    Type("ESP_JTAG", 0x303A, 0x1001, 1, "CdcAcm"),
-    Type("STM32_VCP", 0x0483, 0x5740, 1, "CdcAcm"),
-    Type("CP210X", 0x10C4, 0xEA60, 3, "CP210X"),
+    Type("CH34X", 0x1A86, 0x55D5, "CH34X", 3),
+    Type("CH340", 0x1A86, 0x7523, "CH34X", 1),
+    Type("ESP_JTAG", 0x303A, 0x1001, "CdcAcm", 1, baud_rate_required=False),
+    Type("STM32_VCP", 0x0483, 0x5740, "CdcAcm", 1, baud_rate_required=False),
+    Type("CP210X", 0x10C4, 0xEA60, "CP210X", 3),
 )
 
 
@@ -70,7 +73,7 @@ def max_length(length):
     return validator
 
 
-def channel_schema(channels):
+def channel_schema(channels, baud_rate_required):
     return cv.Schema(
         {
             cv.Required(CONF_CHANNELS): cv.All(
@@ -81,9 +84,13 @@ def channel_schema(channels):
                             cv.Optional(CONF_BUFFER_SIZE, default=256): cv.int_range(
                                 min=64, max=8192
                             ),
-                            cv.Required(CONF_BAUD_RATE): cv.int_range(
-                                min=300, max=1000000
-                            ),
+                            (
+                                cv.Required(CONF_BAUD_RATE)
+                                if baud_rate_required
+                                else cv.Optional(
+                                    CONF_BAUD_RATE, default=DEFAULT_BAUD_RATE
+                                )
+                            ): cv.int_range(min=300, max=1000000),
                             cv.Optional(CONF_STOP_BITS, default="1"): cv.enum(
                                 UART_STOP_BITS_OPTIONS, upper=True
                             ),
@@ -108,7 +115,7 @@ CONFIG_SCHEMA = cv.ensure_list(
     cv.typed_schema(
         {
             it.name: usb_device_schema(it.cls, it.vid, it.pid).extend(
-                channel_schema(it.max_channels)
+                channel_schema(it.max_channels, it.baud_rate_required)
             )
             for it in uart_types
         },

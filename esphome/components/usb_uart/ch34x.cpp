@@ -54,7 +54,7 @@ void USBUartTypeCH34X::enable_channels_() {
       factor++;
     factor = 256 - factor;
 
-    uint8_t value = 0xC0;
+    uint16_t value = 0xC0;
     if (channel->stop_bits_ == UART_CONFIG_STOP_BITS_2)
       value |= 4;
     switch (channel->parity_) {
