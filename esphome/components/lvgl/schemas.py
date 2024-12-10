@@ -17,9 +17,9 @@ from esphome.core import TimePeriod
 from esphome.schema_extractors import SCHEMA_EXTRACT
 
 from . import defines as df, lv_validation as lvalid
-from .defines import CONF_TIME_FORMAT
+from .defines import CONF_TIME_FORMAT, LV_GRAD_DIR
 from .helpers import add_lv_use, requires_component, validate_printf
-from .lv_validation import lv_color, lv_font, lv_image
+from .lv_validation import lv_color, lv_font, lv_gradient, lv_image
 from .lvcode import LvglComponent, lv_event_t_ptr
 from .types import (
     LVEncoderListener,
@@ -91,12 +91,13 @@ STYLE_PROPS = {
     "arc_opa": lvalid.opacity,
     "arc_color": lvalid.lv_color,
     "arc_rounded": lvalid.lv_bool,
-    "arc_width": cv.positive_int,
+    "arc_width": lvalid.lv_positive_int,
     "anim_time": lvalid.lv_milliseconds,
     "bg_color": lvalid.lv_color,
+    "bg_grad": lv_gradient,
     "bg_grad_color": lvalid.lv_color,
     "bg_dither_mode": df.LvConstant("LV_DITHER_", "NONE", "ORDERED", "ERR_DIFF").one_of,
-    "bg_grad_dir": df.LvConstant("LV_GRAD_DIR_", "NONE", "HOR", "VER").one_of,
+    "bg_grad_dir": LV_GRAD_DIR.one_of,
     "bg_grad_stop": lvalid.stop_value,
     "bg_image_opa": lvalid.opacity,
     "bg_image_recolor": lvalid.lv_color,
@@ -110,7 +111,7 @@ STYLE_PROPS = {
     "border_side": df.LvConstant(
         "LV_BORDER_SIDE_", "NONE", "TOP", "BOTTOM", "LEFT", "RIGHT", "INTERNAL"
     ).several_of,
-    "border_width": cv.positive_int,
+    "border_width": lvalid.lv_positive_int,
     "clip_corner": lvalid.lv_bool,
     "color_filter_opa": lvalid.opacity,
     "height": lvalid.size,
@@ -133,11 +134,11 @@ STYLE_PROPS = {
     "pad_right": lvalid.pixels,
     "pad_top": lvalid.pixels,
     "shadow_color": lvalid.lv_color,
-    "shadow_ofs_x": cv.int_,
-    "shadow_ofs_y": cv.int_,
+    "shadow_ofs_x": lvalid.lv_int,
+    "shadow_ofs_y": lvalid.lv_int,
     "shadow_opa": lvalid.opacity,
-    "shadow_spread": cv.int_,
-    "shadow_width": cv.positive_int,
+    "shadow_spread": lvalid.lv_int,
+    "shadow_width": lvalid.lv_positive_int,
     "text_align": df.LvConstant(
         "LV_TEXT_ALIGN_", "LEFT", "CENTER", "RIGHT", "AUTO"
     ).one_of,
@@ -149,7 +150,7 @@ STYLE_PROPS = {
     "text_letter_space": cv.positive_int,
     "text_line_space": cv.positive_int,
     "text_opa": lvalid.opacity,
-    "transform_angle": lvalid.angle,
+    "transform_angle": lvalid.lv_angle,
     "transform_height": lvalid.pixels_or_percent,
     "transform_pivot_x": lvalid.pixels_or_percent,
     "transform_pivot_y": lvalid.pixels_or_percent,
@@ -160,7 +161,7 @@ STYLE_PROPS = {
     "max_width": lvalid.pixels_or_percent,
     "min_height": lvalid.pixels_or_percent,
     "min_width": lvalid.pixels_or_percent,
-    "radius": lvalid.radius,
+    "radius": lvalid.lv_fraction,
     "width": lvalid.size,
     "x": lvalid.pixels_or_percent,
     "y": lvalid.pixels_or_percent,
@@ -215,7 +216,7 @@ def automation_schema(typ: LvType):
         events = df.LV_EVENT_TRIGGERS + (CONF_ON_VALUE,)
     else:
         events = df.LV_EVENT_TRIGGERS
-    args = [typ.get_arg_type()] if isinstance(typ, LvType) else []
+    args = typ.get_arg_type() if isinstance(typ, LvType) else []
     args.append(lv_event_t_ptr)
     return {
         cv.Optional(event): validate_automation(
@@ -340,6 +341,7 @@ FLEX_OBJ_SCHEMA = {
     cv.Optional(df.CONF_FLEX_GROW): cv.int_,
 }
 
+
 DISP_BG_SCHEMA = cv.Schema(
     {
         cv.Optional(df.CONF_DISP_BG_IMAGE): lv_image,
@@ -390,7 +392,9 @@ def container_validator(schema, widget_type: WidgetType):
             add_lv_use(ltype)
         if value == SCHEMA_EXTRACT:
             return result
-        result = result.extend(LAYOUT_SCHEMAS[ltype.lower()])
+        result = result.extend(
+            LAYOUT_SCHEMAS.get(ltype.lower(), LAYOUT_SCHEMAS[df.TYPE_NONE])
+        )
         return result(value)
 
     return validator

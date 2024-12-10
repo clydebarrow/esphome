@@ -104,7 +104,9 @@ std::shared_ptr<HttpContainer> HttpRequestArduino::start(std::string url, std::s
   static const size_t HEADER_COUNT = sizeof(header_keys) / sizeof(header_keys[0]);
   container->client_.collectHeaders(header_keys, HEADER_COUNT);
 
+  App.feed_wdt();
   container->status_code = container->client_.sendRequest(method.c_str(), body.c_str());
+  App.feed_wdt();
   if (container->status_code < 0) {
     ESP_LOGW(TAG, "HTTP Request failed; URL: %s; Error: %s", url.c_str(),
              HTTPClient::errorToString(container->status_code).c_str());
@@ -113,11 +115,10 @@ std::shared_ptr<HttpContainer> HttpRequestArduino::start(std::string url, std::s
     return nullptr;
   }
 
-  if (container->status_code < 200 || container->status_code >= 300) {
+  if (!is_success(container->status_code)) {
     ESP_LOGE(TAG, "HTTP Request failed; URL: %s; Code: %d", url.c_str(), container->status_code);
     this->status_momentary_error("failed", 1000);
-    container->end();
-    return nullptr;
+    // Still return the container, so it can be used to get the status code and error message
   }
 
   int content_length = container->client_.getSize();

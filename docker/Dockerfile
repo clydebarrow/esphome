@@ -32,33 +32,14 @@ RUN \
         python3-setuptools=66.1.1-1 \
         python3-venv=3.11.2-1+b1 \
         python3-wheel=0.38.4-2 \
-        iputils-ping=3:20221126-1 \
-        git=1:2.39.2-1.1 \
-        curl=7.88.1-10+deb12u6 \
-        openssh-client=1:9.2p1-2+deb12u2 \
+        iputils-ping=3:20221126-1+deb12u1 \
+        git=1:2.39.5-0+deb12u1 \
+        curl=7.88.1-10+deb12u8 \
+        openssh-client=1:9.2p1-2+deb12u3 \
         python3-cffi=1.15.1-5 \
         libcairo2=1.16.0-7 \
         libmagic1=1:5.44-3 \
         patch=2.7.6-7 \
-    && ( \
-        ( \
-            [ "$TARGETARCH$TARGETVARIANT" = "armv7" ] && \
-                apt-get install -y --no-install-recommends \
-                build-essential=12.9 \
-                python3-dev=3.11.2-1+b1 \
-                zlib1g-dev=1:1.2.13.dfsg-1 \
-                libjpeg-dev=1:2.1.5-2 \
-                libfreetype-dev=2.12.1+dfsg-5+deb12u3 \
-                libssl-dev=3.0.13-1~deb12u1 \
-                libffi-dev=3.4.4-1 \
-                libopenjp2-7=2.5.0-2 \
-                libtiff6=4.5.0-6+deb12u1 \
-                cargo=0.66.0+ds1-1 \
-                pkg-config=1.8.1-1 \
-                gcc-arm-linux-gnueabihf=4:12.2.0-3 \
-        ) \
-        || [ "$TARGETARCH$TARGETVARIANT" != "armv7" ] \
-    ) \
     && rm -rf \
         /tmp/* \
         /var/{cache,log}/* \
@@ -86,7 +67,7 @@ RUN \
     pip3 install \
     --break-system-packages --no-cache-dir \
     # Keep platformio version in sync with requirements.txt
-    platformio==6.1.15 \
+    platformio==6.1.16 \
     # Change some platformio settings
     && platformio settings set enable_telemetry No \
     && platformio settings set check_platformio_interval 1000000 \
@@ -96,14 +77,54 @@ RUN \
 # First install requirements to leverage caching when requirements don't change
 # tmpfs is for https://github.com/rust-lang/cargo/issues/8719
 
-COPY requirements.txt requirements_optional.txt script/platformio_install_deps.py platformio.ini /
-RUN --mount=type=tmpfs,target=/root/.cargo if [ "$TARGETARCH$TARGETVARIANT" = "armv7" ]; then \
-        export PIP_EXTRA_INDEX_URL="https://www.piwheels.org/simple"; \
-    fi; \
-    CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse CARGO_HOME=/root/.cargo \
-    pip3 install \
-    --break-system-packages --no-cache-dir -r /requirements.txt -r /requirements_optional.txt \
-    && /platformio_install_deps.py /platformio.ini --libraries
+COPY requirements.txt requirements_optional.txt /
+RUN --mount=type=tmpfs,target=/root/.cargo <<END-OF-RUN
+# Fail on any non-zero status
+set -e
+
+if [ "$TARGETARCH$TARGETVARIANT" = "armv7" ]
+then
+    curl -L https://www.piwheels.org/cp311/cryptography-43.0.0-cp37-abi3-linux_armv7l.whl -o /tmp/cryptography-43.0.0-cp37-abi3-linux_armv7l.whl
+    pip3 install --break-system-packages --no-cache-dir /tmp/cryptography-43.0.0-cp37-abi3-linux_armv7l.whl
+    rm /tmp/cryptography-43.0.0-cp37-abi3-linux_armv7l.whl
+    export PIP_EXTRA_INDEX_URL="https://www.piwheels.org/simple";
+fi
+
+# install build tools in case wheels are not available
+BUILD_DEPS="
+    build-essential=12.9
+    python3-dev=3.11.2-1+b1
+    zlib1g-dev=1:1.2.13.dfsg-1
+    libjpeg-dev=1:2.1.5-2
+    libfreetype-dev=2.12.1+dfsg-5+deb12u3
+    libssl-dev=3.0.15-1~deb12u1
+    libffi-dev=3.4.4-1
+    cargo=0.66.0+ds1-1
+    pkg-config=1.8.1-1
+"
+LIB_DEPS="
+    libtiff6=4.5.0-6+deb12u1
+    libopenjp2-7=2.5.0-2
+"
+if [ "$TARGETARCH$TARGETVARIANT" = "arm64" ] || [ "$TARGETARCH$TARGETVARIANT" = "armv7" ]
+then
+    apt-get update
+    apt-get install -y --no-install-recommends $BUILD_DEPS $LIB_DEPS
+fi
+
+CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse CARGO_HOME=/root/.cargo
+pip3 install --break-system-packages --no-cache-dir -r /requirements.txt -r /requirements_optional.txt
+
+if [ "$TARGETARCH$TARGETVARIANT" = "arm64" ] || [ "$TARGETARCH$TARGETVARIANT" = "armv7" ]
+then
+    apt-get remove -y --purge --auto-remove $BUILD_DEPS
+    rm -rf /tmp/* /var/{cache,log}/* /var/lib/apt/lists/*
+fi
+END-OF-RUN
+
+
+COPY script/platformio_install_deps.py platformio.ini /
+RUN /platformio_install_deps.py /platformio.ini --libraries
 
 # Avoid unsafe git error when container user and file config volume permissions don't match
 RUN git config --system --add safe.directory '*'
@@ -142,6 +163,18 @@ ENTRYPOINT ["/entrypoint.sh"]
 CMD ["dashboard", "/config"]
 
 
+ARG BUILD_VERSION=dev
+
+# Labels
+LABEL \
+    org.opencontainers.image.authors="The ESPHome Authors" \
+    org.opencontainers.image.title="ESPHome" \
+    org.opencontainers.image.description="ESPHome is a system to configure your microcontrollers by simple yet powerful configuration files and control them remotely through Home Automation systems" \
+    org.opencontainers.image.url="https://esphome.io/" \
+    org.opencontainers.image.documentation="https://esphome.io/" \
+    org.opencontainers.image.source="https://github.com/esphome/esphome" \
+    org.opencontainers.image.licenses="ESPHome" \
+    org.opencontainers.image.version=${BUILD_VERSION}
 
 
 # ======================= hassio-type image =======================
@@ -173,7 +206,7 @@ RUN if [ "$TARGETARCH$TARGETVARIANT" = "armv7" ]; then \
 # Labels
 LABEL \
     io.hass.name="ESPHome" \
-    io.hass.description="Manage and program ESP8266/ESP32 microcontrollers through YAML configuration files" \
+    io.hass.description="ESPHome is a system to configure your microcontrollers by simple yet powerful configuration files and control them remotely through Home Automation systems" \
     io.hass.type="addon" \
     io.hass.version="${BUILD_VERSION}"
     # io.hass.arch is inherited from addon-debian-base
@@ -188,17 +221,22 @@ ENV \
   PLATFORMIO_CORE_DIR=/esphome/.temp/platformio
 
 RUN \
-    apt-get update \
+    curl -L https://apt.llvm.org/llvm-snapshot.gpg.key -o /etc/apt/trusted.gpg.d/apt.llvm.org.asc \
+    && echo "deb http://apt.llvm.org/bookworm/ llvm-toolchain-bookworm-18 main" > /etc/apt/sources.list.d/llvm.sources.list \
+    && apt-get update \
     # Use pinned versions so that we get updates with build caching
     && apt-get install -y --no-install-recommends \
         clang-format-13=1:13.0.1-11+b2 \
-        clang-tidy-14=1:14.0.6-12 \
         patch=2.7.6-7 \
         software-properties-common=0.99.30-4.1~deb12u1 \
         nano=7.2-1+deb12u1 \
         build-essential=12.9 \
         python3-dev=3.11.2-1+b1 \
-    && rm -rf \
+    && if [ "$TARGETARCH$TARGETVARIANT" != "armv7" ]; then \
+    # move this up after armv7 is retired
+    apt-get install -y --no-install-recommends clang-tidy-18=1:18.1.8~++20240731024826+3b5b5c1ec4a3-1~exp1~20240731144843.145 ; \
+    fi; \
+    rm -rf \
         /tmp/* \
         /var/{cache,log}/* \
         /var/lib/apt/lists/*

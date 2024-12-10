@@ -79,7 +79,7 @@ class ImgType(WidgetType):
         if CONF_ANTIALIAS in config:
             lv.img_set_antialias(w.obj, config[CONF_ANTIALIAS])
         if mode := config.get(CONF_MODE):
-            lv.img_set_mode(w.obj, mode)
+            await w.set_property("size_mode", mode)
 
 
 img_spec = ImgType()

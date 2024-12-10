@@ -4,16 +4,29 @@ Constants already defined in esphome.const are not duplicated here and must be i
 
 """
 
+import logging
+
 from esphome import codegen as cg, config_validation as cv
 from esphome.const import CONF_ITEMS
-from esphome.core import Lambda
+from esphome.core import ID, Lambda
 from esphome.cpp_generator import LambdaExpression, MockObj
 from esphome.cpp_types import uint32
 from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
 
 from .helpers import requires_component
 
+LOGGER = logging.getLogger(__name__)
 lvgl_ns = cg.esphome_ns.namespace("lvgl")
+
+lv_defines = {}  # Dict of #defines to provide as build flags
+
+
+def add_define(macro, value="1"):
+    if macro in lv_defines and lv_defines[macro] != value:
+        LOGGER.error(
+            "Redefinition of %s - was %s now %s", macro, lv_defines[macro], value
+        )
+    lv_defines[macro] = value
 
 
 def literal(arg):
@@ -25,7 +38,7 @@ def literal(arg):
 def call_lambda(lamb: LambdaExpression):
     expr = lamb.content.strip()
     if expr.startswith("return") and expr.endswith(";"):
-        return expr[7:][:-1]
+        return expr[6:][:-1].strip()
     return f"{lamb}()"
 
 
@@ -59,6 +72,12 @@ class LValidator:
             )
         if self.retmapper is not None:
             return self.retmapper(value)
+        if isinstance(value, ID):
+            return await cg.get_variable(value)
+        if isinstance(value, list):
+            value = [
+                await cg.get_variable(x) if isinstance(x, ID) else x for x in value
+            ]
         return cg.safe_exp(value)
 
 
@@ -149,6 +168,7 @@ LV_EVENT_MAP = {
     "READY": "READY",
     "CANCEL": "CANCEL",
     "ALL_EVENTS": "ALL",
+    "CHANGE": "VALUE_CHANGED",
 }
 
 LV_EVENT_TRIGGERS = tuple(f"on_{x.lower()}" for x in LV_EVENT_MAP)
@@ -173,14 +193,17 @@ LV_ANIM = LvConstant(
     "OUT_BOTTOM",
 )
 
-LOG_LEVELS = (
-    "TRACE",
-    "INFO",
-    "WARN",
-    "ERROR",
-    "USER",
-    "NONE",
-)
+LV_GRAD_DIR = LvConstant("LV_GRAD_DIR_", "NONE", "HOR", "VER")
+LV_DITHER = LvConstant("LV_DITHER_", "NONE", "ORDERED", "ERR_DIFF")
+
+LV_LOG_LEVELS = {
+    "VERBOSE": "TRACE",
+    "DEBUG": "TRACE",
+    "INFO": "INFO",
+    "WARN": "WARN",
+    "ERROR": "ERROR",
+    "NONE": "NONE",
+}
 
 LV_LONG_MODES = LvConstant(
     "LV_LABEL_LONG_",
@@ -374,6 +397,7 @@ CONF_ANTIALIAS = "antialias"
 CONF_ARC_LENGTH = "arc_length"
 CONF_AUTO_START = "auto_start"
 CONF_BACKGROUND_STYLE = "background_style"
+CONF_BUTTON_STYLE = "button_style"
 CONF_DECIMAL_PLACES = "decimal_places"
 CONF_COLUMN = "column"
 CONF_DIGITS = "digits"
@@ -391,6 +415,7 @@ CONF_DEFAULT_FONT = "default_font"
 CONF_DEFAULT_GROUP = "default_group"
 CONF_DIR = "dir"
 CONF_DISPLAYS = "displays"
+CONF_DRAW_ROUNDING = "draw_rounding"
 CONF_EDITING = "editing"
 CONF_ENCODERS = "encoders"
 CONF_END_ANGLE = "end_angle"
@@ -405,6 +430,7 @@ CONF_FLEX_ALIGN_TRACK = "flex_align_track"
 CONF_FLEX_GROW = "flex_grow"
 CONF_FREEZE = "freeze"
 CONF_FULL_REFRESH = "full_refresh"
+CONF_GRADIENTS = "gradients"
 CONF_GRID_CELL_ROW_POS = "grid_cell_row_pos"
 CONF_GRID_CELL_COLUMN_POS = "grid_cell_column_pos"
 CONF_GRID_CELL_ROW_SPAN = "grid_cell_row_span"
@@ -419,6 +445,7 @@ CONF_HEADER_MODE = "header_mode"
 CONF_HOME = "home"
 CONF_INITIAL_FOCUS = "initial_focus"
 CONF_KEY_CODE = "key_code"
+CONF_KEYPADS = "keypads"
 CONF_LAYOUT = "layout"
 CONF_LEFT_BUTTON = "left_button"
 CONF_LINE_WIDTH = "line_width"
@@ -433,7 +460,10 @@ CONF_OFFSET_X = "offset_x"
 CONF_OFFSET_Y = "offset_y"
 CONF_ONE_CHECKED = "one_checked"
 CONF_ONE_LINE = "one_line"
+CONF_ON_PAUSE = "on_pause"
+CONF_ON_RESUME = "on_resume"
 CONF_ON_SELECT = "on_select"
+CONF_OPA = "opa"
 CONF_NEXT = "next"
 CONF_PAD_ROW = "pad_row"
 CONF_PAD_COLUMN = "pad_column"
@@ -447,6 +477,7 @@ CONF_POINTS = "points"
 CONF_PREVIOUS = "previous"
 CONF_REPEAT_COUNT = "repeat_count"
 CONF_RECOLOR = "recolor"
+CONF_RESUME_ON_INPUT = "resume_on_input"
 CONF_RIGHT_BUTTON = "right_button"
 CONF_ROLLOVER = "rollover"
 CONF_ROOT_BACK_BTN = "root_back_btn"
@@ -454,6 +485,7 @@ CONF_ROWS = "rows"
 CONF_SCALE_LINES = "scale_lines"
 CONF_SCROLLBAR_MODE = "scrollbar_mode"
 CONF_SELECTED_INDEX = "selected_index"
+CONF_SELECTED_TEXT = "selected_text"
 CONF_SHOW_SNOW = "show_snow"
 CONF_SPIN_TIME = "spin_time"
 CONF_SRC = "src"

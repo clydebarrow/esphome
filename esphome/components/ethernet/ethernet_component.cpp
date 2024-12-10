@@ -116,10 +116,15 @@ void EthernetComponent::setup() {
   eth_w5500_config_t w5500_config = ETH_W5500_DEFAULT_CONFIG(spi_handle);
 #endif
   w5500_config.int_gpio_num = this->interrupt_pin_;
+#ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
+  w5500_config.poll_period_ms = this->polling_interval_;
+#endif
   phy_config.phy_addr = this->phy_addr_spi_;
   phy_config.reset_gpio_num = this->reset_pin_;
 
   esp_eth_mac_t *mac = esp_eth_mac_new_w5500(&w5500_config, &mac_config);
+#elif defined(USE_ETHERNET_OPENETH)
+  esp_eth_mac_t *mac = esp_eth_mac_new_openeth(&mac_config);
 #else
   phy_config.phy_addr = this->phy_addr_;
   phy_config.reset_gpio_num = this->power_pin_;
@@ -143,6 +148,13 @@ void EthernetComponent::setup() {
 #endif
 
   switch (this->type_) {
+#ifdef USE_ETHERNET_OPENETH
+    case ETHERNET_TYPE_OPENETH: {
+      phy_config.autonego_timeout_ms = 1000;
+      this->phy_ = esp_eth_phy_new_dp83848(&phy_config);
+      break;
+    }
+#endif
 #if CONFIG_ETH_USE_ESP32_EMAC
     case ETHERNET_TYPE_LAN8720: {
       this->phy_ = esp_eth_phy_new_lan87xx(&phy_config);
@@ -302,6 +314,10 @@ void EthernetComponent::dump_config() {
       eth_type = "W5500";
       break;
 
+    case ETHERNET_TYPE_OPENETH:
+      eth_type = "OPENETH";
+      break;
+
     default:
       eth_type = "Unknown";
       break;
@@ -314,7 +330,14 @@ void EthernetComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  MISO Pin: %u", this->miso_pin_);
   ESP_LOGCONFIG(TAG, "  MOSI Pin: %u", this->mosi_pin_);
   ESP_LOGCONFIG(TAG, "  CS Pin: %u", this->cs_pin_);
-  ESP_LOGCONFIG(TAG, "  IRQ Pin: %u", this->interrupt_pin_);
+#ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
+  if (this->polling_interval_ != 0) {
+    ESP_LOGCONFIG(TAG, "  Polling Interval: %lu ms", this->polling_interval_);
+  } else
+#endif
+  {
+    ESP_LOGCONFIG(TAG, "  IRQ Pin: %d", this->interrupt_pin_);
+  }
   ESP_LOGCONFIG(TAG, "  Reset Pin: %d", this->reset_pin_);
   ESP_LOGCONFIG(TAG, "  Clock Speed: %d MHz", this->clock_speed_ / 1000000);
 #else
@@ -472,13 +495,13 @@ void EthernetComponent::start_connect_() {
     if (err != ESP_ERR_ESP_NETIF_DHCP_ALREADY_STARTED) {
       ESPHL_ERROR_CHECK(err, "DHCPC start error");
     }
-#if USE_NETWORK_IPV6
-    err = esp_netif_create_ip6_linklocal(this->eth_netif_);
-    if (err != ESP_OK) {
-      ESPHL_ERROR_CHECK(err, "Enable IPv6 link local failed");
-    }
-#endif /* USE_NETWORK_IPV6 */
   }
+#if USE_NETWORK_IPV6
+  err = esp_netif_create_ip6_linklocal(this->eth_netif_);
+  if (err != ESP_OK) {
+    ESPHL_ERROR_CHECK(err, "Enable IPv6 link local failed");
+  }
+#endif /* USE_NETWORK_IPV6 */
 
   this->connect_begin_ = millis();
   this->status_set_warning();
@@ -523,6 +546,9 @@ void EthernetComponent::set_cs_pin(uint8_t cs_pin) { this->cs_pin_ = cs_pin; }
 void EthernetComponent::set_interrupt_pin(uint8_t interrupt_pin) { this->interrupt_pin_ = interrupt_pin; }
 void EthernetComponent::set_reset_pin(uint8_t reset_pin) { this->reset_pin_ = reset_pin; }
 void EthernetComponent::set_clock_speed(int clock_speed) { this->clock_speed_ = clock_speed; }
+#ifdef USE_ETHERNET_SPI_POLLING_SUPPORT
+void EthernetComponent::set_polling_interval(uint32_t polling_interval) { this->polling_interval_ = polling_interval; }
+#endif
 #else
 void EthernetComponent::set_phy_addr(uint8_t phy_addr) { this->phy_addr_ = phy_addr; }
 void EthernetComponent::set_power_pin(int power_pin) { this->power_pin_ = power_pin; }

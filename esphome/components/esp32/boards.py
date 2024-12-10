@@ -1,4 +1,12 @@
-from .const import VARIANT_ESP32, VARIANT_ESP32C3, VARIANT_ESP32S2, VARIANT_ESP32S3
+from .const import (
+    VARIANT_ESP32,
+    VARIANT_ESP32C2,
+    VARIANT_ESP32C3,
+    VARIANT_ESP32C6,
+    VARIANT_ESP32H2,
+    VARIANT_ESP32S2,
+    VARIANT_ESP32S3,
+)
 
 ESP32_BASE_PINS = {
     "TX": 1,
@@ -103,6 +111,173 @@ ESP32_BOARD_PINS = {
         "LED": 13,
         "LED_BUILTIN": 13,
     },
+    "adafruit_feather_esp32s3": {
+        "BUTTON": 0,
+        "A0": 18,
+        "A1": 17,
+        "A2": 16,
+        "A3": 15,
+        "A4": 14,
+        "A5": 8,
+        "SCK": 36,
+        "MOSI": 35,
+        "MISO": 37,
+        "RX": 38,
+        "TX": 39,
+        "SCL": 4,
+        "SDA": 3,
+        "NEOPIXEL": 33,
+        "PIN_NEOPIXEL": 33,
+        "NEOPIXEL_POWER": 21,
+        "I2C_POWER": 7,
+        "LED": 13,
+        "LED_BUILTIN": 13,
+    },
+    "adafruit_feather_esp32s3_nopsram": {
+        "BUTTON": 0,
+        "A0": 18,
+        "A1": 17,
+        "A2": 16,
+        "A3": 15,
+        "A4": 14,
+        "A5": 8,
+        "SCK": 36,
+        "MOSI": 35,
+        "MISO": 37,
+        "RX": 38,
+        "TX": 39,
+        "SCL": 4,
+        "SDA": 3,
+        "NEOPIXEL": 33,
+        "PIN_NEOPIXEL": 33,
+        "NEOPIXEL_POWER": 21,
+        "I2C_POWER": 7,
+        "LED": 13,
+        "LED_BUILTIN": 13,
+    },
+    "adafruit_feather_esp32s3_tft": {
+        "BUTTON": 0,
+        "A0": 18,
+        "A1": 17,
+        "A2": 16,
+        "A3": 15,
+        "A4": 14,
+        "A5": 8,
+        "SCK": 36,
+        "MOSI": 35,
+        "MISO": 37,
+        "RX": 2,
+        "TX": 1,
+        "SCL": 41,
+        "SDA": 42,
+        "NEOPIXEL": 33,
+        "PIN_NEOPIXEL": 33,
+        "NEOPIXEL_POWER": 34,
+        "TFT_I2C_POWER": 21,
+        "TFT_CS": 7,
+        "TFT_DC": 39,
+        "TFT_RESET": 40,
+        "TFT_BACKLIGHT": 45,
+        "LED": 13,
+        "LED_BUILTIN": 13,
+    },
+    "adafruit_funhouse_esp32s2": {
+        "BUTTON_UP": 5,
+        "BUTTON_DOWN": 3,
+        "BUTTON_SELECT": 4,
+        "DOTSTAR_DATA": 14,
+        "DOTSTAR_CLOCK": 15,
+        "PIR_SENSE": 16,
+        "A0": 17,
+        "A1": 2,
+        "A2": 1,
+        "CAP6": 6,
+        "CAP7": 7,
+        "CAP8": 8,
+        "CAP9": 9,
+        "CAP10": 10,
+        "CAP11": 11,
+        "CAP12": 12,
+        "CAP13": 13,
+        "SPEAKER": 42,
+        "LED": 37,
+        "LIGHT": 18,
+        "TFT_MOSI": 35,
+        "TFT_SCK": 36,
+        "TFT_CS": 40,
+        "TFT_DC": 39,
+        "TFT_RESET": 41,
+        "TFT_BACKLIGHT": 21,
+        "RED_LED": 31,
+        "BUTTON": 0,
+    },
+    "adafruit_itsybitsy_esp32": {
+        "A0": 25,
+        "A1": 26,
+        "A2": 4,
+        "A3": 38,
+        "A4": 37,
+        "A5": 36,
+        "SCK": 19,
+        "MOSI": 21,
+        "MISO": 22,
+        "SCL": 27,
+        "SDA": 15,
+        "TX": 20,
+        "RX": 8,
+        "NEOPIXEL": 0,
+        "PIN_NEOPIXEL": 0,
+        "NEOPIXEL_POWER": 2,
+        "BUTTON": 35,
+    },
+    "adafruit_magtag29_esp32s2": {
+        "A1": 18,
+        "BUTTON_A": 15,
+        "BUTTON_B": 14,
+        "BUTTON_C": 12,
+        "BUTTON_D": 11,
+        "SDA": 33,
+        "SCL": 34,
+        "SPEAKER": 17,
+        "SPEAKER_ENABLE": 16,
+        "VOLTAGE_MONITOR": 4,
+        "ACCELEROMETER_INT": 9,
+        "ACCELEROMETER_INTERRUPT": 9,
+        "LIGHT": 3,
+        "NEOPIXEL": 1,
+        "PIN_NEOPIXEL": 1,
+        "NEOPIXEL_POWER": 21,
+        "EPD_BUSY": 5,
+        "EPD_RESET": 6,
+        "EPD_DC": 7,
+        "EPD_CS": 8,
+        "EPD_MOSI": 35,
+        "EPD_SCK": 36,
+        "EPD_MISO": 37,
+        "BUTTON": 0,
+        "LED": 13,
+        "LED_BUILTIN": 13,
+    },
+    "adafruit_metro_esp32s2": {
+        "A0": 17,
+        "A1": 18,
+        "A2": 1,
+        "A3": 2,
+        "A4": 3,
+        "A5": 4,
+        "RX": 38,
+        "TX": 37,
+        "SCL": 34,
+        "SDA": 33,
+        "MISO": 37,
+        "SCK": 36,
+        "MOSI": 35,
+        "NEOPIXEL": 45,
+        "PIN_NEOPIXEL": 45,
+        "LED": 42,
+        "LED_BUILTIN": 42,
+        "BUTTON": 0,
+    },
     "adafruit_qtpy_esp32c3": {
         "A0": 4,
         "A1": 3,
@@ -138,6 +313,26 @@ ESP32_BOARD_PINS = {
         "PIN_NEOPIXEL": 39,
         "NEOPIXEL_POWER": 38,
         "D0": 0,
+        "BUTTON": 0,
+        "SWITCH": 0,
+    },
+    "adafruit_qtpy_esp32s3_nopsram": {
+        "A0": 18,
+        "A1": 17,
+        "A2": 9,
+        "A3": 8,
+        "SDA": 7,
+        "SCL": 6,
+        "MOSI": 35,
+        "MISO": 37,
+        "SCK": 36,
+        "RX": 16,
+        "TX": 5,
+        "SDA1": 41,
+        "SCL1": 40,
+        "NEOPIXEL": 39,
+        "PIN_NEOPIXEL": 39,
+        "NEOPIXEL_POWER": 38,
         "BUTTON": 0,
         "SWITCH": 0,
     },
@@ -1068,7 +1263,18 @@ ESP32_BOARD_PINS = {
         "_VBAT": 35,
     },
     "wemosbat": {"LED": 16},
-    "wesp32": {"MISO": 32, "SCL": 4, "SDA": 15},
+    "wesp32": {
+        "MISO": 32,
+        "MOSI": 23,
+        "SCK": 18,
+        "SCL": 4,
+        "SDA": 15,
+        "MISO1": 12,
+        "MOSI1": 13,
+        "SCK1": 14,
+        "SCL1": 5,
+        "SDA1": 33,
+    },
     "widora-air": {
         "A1": 39,
         "A2": 35,
@@ -1146,6 +1352,26 @@ done | sort
 """
 
 BOARDS = {
+    "4d_systems_esp32s3_gen4_r8n16": {
+        "name": "4D Systems GEN4-ESP32 16MB (ESP32S3-R8N16)",
+        "variant": VARIANT_ESP32S3,
+    },
+    "adafruit_camera_esp32s3": {
+        "name": "Adafruit pyCamera S3",
+        "variant": VARIANT_ESP32S3,
+    },
+    "adafruit_feather_esp32c6": {
+        "name": "Adafruit Feather ESP32-C6",
+        "variant": VARIANT_ESP32C6,
+    },
+    "adafruit_feather_esp32s2": {
+        "name": "Adafruit Feather ESP32-S2",
+        "variant": VARIANT_ESP32S2,
+    },
+    "adafruit_feather_esp32s2_reversetft": {
+        "name": "Adafruit Feather ESP32-S2 Reverse TFT",
+        "variant": VARIANT_ESP32S2,
+    },
     "adafruit_feather_esp32s2_tft": {
         "name": "Adafruit Feather ESP32-S2 TFT",
         "variant": VARIANT_ESP32S2,
@@ -1156,6 +1382,10 @@ BOARDS = {
     },
     "adafruit_feather_esp32s3_nopsram": {
         "name": "Adafruit Feather ESP32-S3 No PSRAM",
+        "variant": VARIANT_ESP32S3,
+    },
+    "adafruit_feather_esp32s3_reversetft": {
+        "name": "Adafruit Feather ESP32-S3 Reverse TFT",
         "variant": VARIANT_ESP32S3,
     },
     "adafruit_feather_esp32s3_tft": {
@@ -1178,9 +1408,17 @@ BOARDS = {
         "name": "Adafruit MagTag 2.9",
         "variant": VARIANT_ESP32S2,
     },
+    "adafruit_matrixportal_esp32s3": {
+        "name": "Adafruit MatrixPortal ESP32-S3",
+        "variant": VARIANT_ESP32S3,
+    },
     "adafruit_metro_esp32s2": {
         "name": "Adafruit Metro ESP32-S2",
         "variant": VARIANT_ESP32S2,
+    },
+    "adafruit_metro_esp32s3": {
+        "name": "Adafruit Metro ESP32-S3",
+        "variant": VARIANT_ESP32S3,
     },
     "adafruit_qtpy_esp32c3": {
         "name": "Adafruit QT Py ESP32-C3",
@@ -1194,8 +1432,16 @@ BOARDS = {
         "name": "Adafruit QT Py ESP32-S2",
         "variant": VARIANT_ESP32S2,
     },
+    "adafruit_qtpy_esp32s3_n4r2": {
+        "name": "Adafruit QT Py ESP32-S3 (4M Flash 2M PSRAM)",
+        "variant": VARIANT_ESP32S3,
+    },
     "adafruit_qtpy_esp32s3_nopsram": {
         "name": "Adafruit QT Py ESP32-S3 No PSRAM",
+        "variant": VARIANT_ESP32S3,
+    },
+    "adafruit_qualia_s3_rgb666": {
+        "name": "Adafruit Qualia ESP32-S3 RGB666",
         "variant": VARIANT_ESP32S3,
     },
     "airm2m_core_esp32c3": {
@@ -1206,13 +1452,29 @@ BOARDS = {
         "name": "ALKS ESP32",
         "variant": VARIANT_ESP32,
     },
+    "arduino_nano_esp32": {
+        "name": "Arduino Nano ESP32",
+        "variant": VARIANT_ESP32S3,
+    },
+    "atd147_s3": {
+        "name": "ArtronShop ATD1.47-S3",
+        "variant": VARIANT_ESP32S3,
+    },
     "atmegazero_esp32s2": {
         "name": "EspinalLab ATMegaZero ESP32-S2",
         "variant": VARIANT_ESP32S2,
     },
+    "aventen_s3_sync": {
+        "name": "Aventen S3 Sync",
+        "variant": VARIANT_ESP32S3,
+    },
     "az-delivery-devkit-v4": {
         "name": "AZ-Delivery ESP-32 Dev Kit C V4",
         "variant": VARIANT_ESP32,
+    },
+    "bee_data_logger": {
+        "name": "Smart Bee Data Logger",
+        "variant": VARIANT_ESP32S3,
     },
     "bee_motion_mini": {
         "name": "Smart Bee Motion Mini",
@@ -1237,14 +1499,6 @@ BOARDS = {
     "bpi_leaf_s3": {
         "name": "BPI-Leaf-S3",
         "variant": VARIANT_ESP32S3,
-    },
-    "briki_abc_esp32": {
-        "name": "Briki ABC (MBC-WB) - ESP32",
-        "variant": VARIANT_ESP32,
-    },
-    "briki_mbc-wb_esp32": {
-        "name": "Briki MBC-WB - ESP32",
-        "variant": VARIANT_ESP32,
     },
     "cnrs_aw2eth": {
         "name": "CNRS AW2ETH",
@@ -1298,17 +1552,37 @@ BOARDS = {
         "name": "DFRobot Beetle ESP32-C3",
         "variant": VARIANT_ESP32C3,
     },
+    "dfrobot_firebeetle2_esp32e": {
+        "name": "DFRobot Firebeetle 2 ESP32-E",
+        "variant": VARIANT_ESP32,
+    },
     "dfrobot_firebeetle2_esp32s3": {
         "name": "DFRobot Firebeetle 2 ESP32-S3",
+        "variant": VARIANT_ESP32S3,
+    },
+    "dfrobot_romeo_esp32s3": {
+        "name": "DFRobot Romeo ESP32-S3",
         "variant": VARIANT_ESP32S3,
     },
     "dpu_esp32": {
         "name": "TAMC DPU ESP32",
         "variant": VARIANT_ESP32,
     },
+    "edgebox-esp-100": {
+        "name": "Seeed Studio Edgebox-ESP-100",
+        "variant": VARIANT_ESP32S3,
+    },
     "esp320": {
         "name": "Electronic SweetPeas ESP320",
         "variant": VARIANT_ESP32,
+    },
+    "esp32-c2-devkitm-1": {
+        "name": "Espressif ESP32-C2-DevKitM-1",
+        "variant": VARIANT_ESP32C2,
+    },
+    "esp32-c3-devkitc-02": {
+        "name": "Espressif ESP32-C3-DevKitC-02",
+        "variant": VARIANT_ESP32C3,
     },
     "esp32-c3-devkitm-1": {
         "name": "Espressif ESP32-C3-DevKitM-1",
@@ -1317,6 +1591,14 @@ BOARDS = {
     "esp32-c3-m1i-kit": {
         "name": "Ai-Thinker ESP-C3-M1-I-Kit",
         "variant": VARIANT_ESP32C3,
+    },
+    "esp32-c6-devkitc-1": {
+        "name": "Espressif ESP32-C6-DevKitC-1",
+        "variant": VARIANT_ESP32C6,
+    },
+    "esp32-c6-devkitm-1": {
+        "name": "Espressif ESP32-C6-DevKitM-1",
+        "variant": VARIANT_ESP32C6,
     },
     "esp32cam": {
         "name": "AI Thinker ESP32-CAM",
@@ -1344,6 +1626,14 @@ BOARDS = {
     },
     "esp32-gateway": {
         "name": "OLIMEX ESP32-GATEWAY",
+        "variant": VARIANT_ESP32,
+    },
+    "esp32-h2-devkitm-1": {
+        "name": "Espressif ESP32-H2-DevKit",
+        "variant": VARIANT_ESP32H2,
+    },
+    "esp32-pico-devkitm-2": {
+        "name": "Espressif ESP32-PICO-DevKitM-2",
         "variant": VARIANT_ESP32,
     },
     "esp32-poe-iso": {
@@ -1382,9 +1672,21 @@ BOARDS = {
         "name": "Espressif ESP32-S3-DevKitC-1-N8 (8 MB QD, No PSRAM)",
         "variant": VARIANT_ESP32S3,
     },
-    "esp32-s3-korvo-2": {
-        "name": "Espressif ESP32-S3-Korvo-2",
+    "esp32-s3-devkitm-1": {
+        "name": "Espressif ESP32-S3-DevKitM-1",
         "variant": VARIANT_ESP32S3,
+    },
+    "esp32s3_powerfeather": {
+        "name": "ESP32-S3 PowerFeather",
+        "variant": VARIANT_ESP32S3,
+    },
+    "esp32s3usbotg": {
+        "name": "Espressif ESP32-S3-USB-OTG",
+        "variant": VARIANT_ESP32S3,
+    },
+    "esp32-solo1": {
+        "name": "Espressif Generic ESP32-solo1 4M Flash",
+        "variant": VARIANT_ESP32,
     },
     "esp32thing": {
         "name": "SparkFun ESP32 Thing",
@@ -1454,9 +1756,9 @@ BOARDS = {
         "name": "Heltec WiFi Kit 32",
         "variant": VARIANT_ESP32,
     },
-    "heltec_wifi_kit_32_v2": {
-        "name": "Heltec WiFi Kit 32 (V2)",
-        "variant": VARIANT_ESP32,
+    "heltec_wifi_kit_32_V3": {
+        "name": "Heltec WiFi Kit 32 (V3)",
+        "variant": VARIANT_ESP32S3,
     },
     "heltec_wifi_lora_32": {
         "name": "Heltec WiFi LoRa 32",
@@ -1465,6 +1767,10 @@ BOARDS = {
     "heltec_wifi_lora_32_V2": {
         "name": "Heltec WiFi LoRa 32 (V2)",
         "variant": VARIANT_ESP32,
+    },
+    "heltec_wifi_lora_32_V3": {
+        "name": "Heltec WiFi LoRa 32 (V3)",
+        "variant": VARIANT_ESP32S3,
     },
     "heltec_wireless_stick_lite": {
         "name": "Heltec Wireless Stick Lite",
@@ -1510,6 +1816,14 @@ BOARDS = {
         "name": "oddWires IoT-Bus Proteus",
         "variant": VARIANT_ESP32,
     },
+    "ioxesp32": {
+        "name": "ArtronShop IOXESP32",
+        "variant": VARIANT_ESP32,
+    },
+    "ioxesp32ps": {
+        "name": "ArtronShop IOXESP32PS",
+        "variant": VARIANT_ESP32,
+    },
     "kb32-ft": {
         "name": "MakerAsia KB32-FT",
         "variant": VARIANT_ESP32,
@@ -1522,9 +1836,25 @@ BOARDS = {
         "name": "Labplus mPython",
         "variant": VARIANT_ESP32,
     },
+    "lilka_v2": {
+        "name": "Lilka v2",
+        "variant": VARIANT_ESP32S3,
+    },
+    "lilygo-t-display": {
+        "name": "LilyGo T-Display",
+        "variant": VARIANT_ESP32,
+    },
+    "lilygo-t-display-s3": {
+        "name": "LilyGo T-Display-S3",
+        "variant": VARIANT_ESP32S3,
+    },
     "lionbit": {
         "name": "Lion:Bit Dev Board",
         "variant": VARIANT_ESP32,
+    },
+    "lionbits3": {
+        "name": "Lion:Bit S3 STEM Dev Board",
+        "variant": VARIANT_ESP32S3,
     },
     "lolin32_lite": {
         "name": "WEMOS LOLIN32 Lite",
@@ -1554,8 +1884,16 @@ BOARDS = {
         "name": "WEMOS LOLIN S2 PICO",
         "variant": VARIANT_ESP32S2,
     },
+    "lolin_s3_mini": {
+        "name": "WEMOS LOLIN S3 Mini",
+        "variant": VARIANT_ESP32S3,
+    },
     "lolin_s3": {
         "name": "WEMOS LOLIN S3",
+        "variant": VARIANT_ESP32S3,
+    },
+    "lolin_s3_pro": {
+        "name": "WEMOS LOLIN S3 PRO",
         "variant": VARIANT_ESP32S3,
     },
     "lopy4": {
@@ -1570,8 +1908,16 @@ BOARDS = {
         "name": "M5Stack-ATOM",
         "variant": VARIANT_ESP32,
     },
+    "m5stack-atoms3": {
+        "name": "M5Stack AtomS3",
+        "variant": VARIANT_ESP32S3,
+    },
     "m5stack-core2": {
         "name": "M5Stack Core2",
+        "variant": VARIANT_ESP32,
+    },
+    "m5stack-core-esp32-16M": {
+        "name": "M5Stack Core ESP32 16M",
         "variant": VARIANT_ESP32,
     },
     "m5stack-core-esp32": {
@@ -1582,6 +1928,10 @@ BOARDS = {
         "name": "M5Stack-Core Ink",
         "variant": VARIANT_ESP32,
     },
+    "m5stack-cores3": {
+        "name": "M5Stack CoreS3",
+        "variant": VARIANT_ESP32S3,
+    },
     "m5stack-fire": {
         "name": "M5Stack FIRE",
         "variant": VARIANT_ESP32,
@@ -1590,12 +1940,24 @@ BOARDS = {
         "name": "M5Stack GREY ESP32",
         "variant": VARIANT_ESP32,
     },
+    "m5stack_paper": {
+        "name": "M5Stack Paper",
+        "variant": VARIANT_ESP32,
+    },
+    "m5stack-stamps3": {
+        "name": "M5Stack StampS3",
+        "variant": VARIANT_ESP32S3,
+    },
     "m5stack-station": {
         "name": "M5Stack Station",
         "variant": VARIANT_ESP32,
     },
     "m5stack-timer-cam": {
         "name": "M5Stack Timer CAM",
+        "variant": VARIANT_ESP32,
+    },
+    "m5stamp-pico": {
+        "name": "M5Stamp-Pico",
         "variant": VARIANT_ESP32,
     },
     "m5stick-c": {
@@ -1634,9 +1996,25 @@ BOARDS = {
         "name": "Deparment of Alchemy MiniMain ESP32-S2",
         "variant": VARIANT_ESP32S2,
     },
+    "motorgo_mini_1": {
+        "name": "MotorGo Mini 1 (ESP32-S3)",
+        "variant": VARIANT_ESP32S3,
+    },
+    "namino_arancio": {
+        "name": "Namino Arancio",
+        "variant": VARIANT_ESP32S3,
+    },
+    "namino_rosso": {
+        "name": "Namino Rosso",
+        "variant": VARIANT_ESP32S3,
+    },
     "nano32": {
         "name": "MakerAsia Nano32",
         "variant": VARIANT_ESP32,
+    },
+    "nebulas3": {
+        "name": "Kinetic Dynamics Nebula S3",
+        "variant": VARIANT_ESP32S3,
     },
     "nina_w10": {
         "name": "u-blox NINA-W10 series",
@@ -1698,9 +2076,21 @@ BOARDS = {
         "name": "Munich Labs RedPill ESP32-S3",
         "variant": VARIANT_ESP32S3,
     },
+    "roboheart_hercules": {
+        "name": "RoboHeart Hercules",
+        "variant": VARIANT_ESP32,
+    },
     "seeed_xiao_esp32c3": {
         "name": "Seeed Studio XIAO ESP32C3",
         "variant": VARIANT_ESP32C3,
+    },
+    "seeed_xiao_esp32s3": {
+        "name": "Seeed Studio XIAO ESP32S3",
+        "variant": VARIANT_ESP32S3,
+    },
+    "sensebox_mcu_esp32s2": {
+        "name": "senseBox MCU-S2 ESP32-S2",
+        "variant": VARIANT_ESP32S2,
     },
     "sensesiot_weizen": {
         "name": "LOGISENSES Senses Weizen",
@@ -1713,6 +2103,10 @@ BOARDS = {
     "s_odi_ultra": {
         "name": "S.ODI Ultra v1",
         "variant": VARIANT_ESP32,
+    },
+    "sparkfun_esp32c6_thing_plus": {
+        "name": "Sparkfun ESP32-C6 Thing Plus",
+        "variant": VARIANT_ESP32C6,
     },
     "sparkfun_esp32_iot_redboard": {
         "name": "SparkFun ESP32 IoT RedBoard",
@@ -1806,6 +2200,10 @@ BOARDS = {
         "name": "Unexpected Maker FeatherS3",
         "variant": VARIANT_ESP32S3,
     },
+    "um_nanos3": {
+        "name": "Unexpected Maker NanoS3",
+        "variant": VARIANT_ESP32S3,
+    },
     "um_pros3": {
         "name": "Unexpected Maker PROS3",
         "variant": VARIANT_ESP32S3,
@@ -1841,6 +2239,14 @@ BOARDS = {
     "upesy_wrover": {
         "name": "uPesy ESP32 Wrover DevKit",
         "variant": VARIANT_ESP32,
+    },
+    "valtrack_v4_mfw_esp32_c3": {
+        "name": "Valetron Systems VALTRACK-V4MVF",
+        "variant": VARIANT_ESP32C3,
+    },
+    "valtrack_v4_vts_esp32_c3": {
+        "name": "Valetron Systems VALTRACK-V4VTS",
+        "variant": VARIANT_ESP32C3,
     },
     "vintlabs-devkit-v1": {
         "name": "VintLabs ESP32 Devkit",

@@ -1,26 +1,25 @@
 import logging
 
 from esphome import automation, core
-from esphome.components import font
+import esphome.codegen as cg
 import esphome.components.image as espImage
 from esphome.components.image import (
     CONF_USE_TRANSPARENCY,
     LOCAL_SCHEMA,
-    WEB_SCHEMA,
-    SOURCE_WEB,
     SOURCE_LOCAL,
+    SOURCE_WEB,
+    WEB_SCHEMA,
 )
 import esphome.config_validation as cv
-import esphome.codegen as cg
 from esphome.const import (
     CONF_FILE,
     CONF_ID,
+    CONF_PATH,
     CONF_RAW_DATA_ID,
     CONF_REPEAT,
     CONF_RESIZE,
-    CONF_TYPE,
     CONF_SOURCE,
-    CONF_PATH,
+    CONF_TYPE,
     CONF_URL,
 )
 from esphome.core import CORE, HexInt
@@ -131,7 +130,7 @@ ANIMATION_SCHEMA = cv.Schema(
     )
 )
 
-CONFIG_SCHEMA = cv.All(font.validate_pillow_installed, ANIMATION_SCHEMA)
+CONFIG_SCHEMA = ANIMATION_SCHEMA
 
 NEXT_FRAME_SCHEMA = automation.maybe_simple_id(
     {
@@ -172,6 +171,9 @@ async def to_code(config):
         path = CORE.relative_config_path(conf_file[CONF_PATH])
     elif conf_file[CONF_SOURCE] == SOURCE_WEB:
         path = espImage.compute_local_image_path(conf_file).as_posix()
+    else:
+        raise core.EsphomeError(f"Unknown animation source: {conf_file[CONF_SOURCE]}")
+
     try:
         image = Image.open(path)
     except Exception as e:
@@ -183,13 +185,12 @@ async def to_code(config):
         new_width_max, new_height_max = config[CONF_RESIZE]
         ratio = min(new_width_max / width, new_height_max / height)
         width, height = int(width * ratio), int(height * ratio)
-    else:
-        if width > 500 or height > 500:
-            _LOGGER.warning(
-                'The image "%s" you requested is very big. Please consider'
-                " using the resize parameter.",
-                path,
-            )
+    elif width > 500 or height > 500:
+        _LOGGER.warning(
+            'The image "%s" you requested is very big. Please consider'
+            " using the resize parameter.",
+            path,
+        )
 
     transparent = config[CONF_USE_TRANSPARENCY]
 
@@ -269,7 +270,8 @@ async def to_code(config):
                 pos += 1
 
     elif config[CONF_TYPE] in ["RGB565", "TRANSPARENT_IMAGE"]:
-        data = [0 for _ in range(height * width * 2 * frames)]
+        bytes_per_pixel = 3 if transparent else 2
+        data = [0 for _ in range(height * width * bytes_per_pixel * frames)]
         pos = 0
         for frameIndex in range(frames):
             image.seek(frameIndex)
@@ -286,17 +288,13 @@ async def to_code(config):
                 G = g >> 2
                 B = b >> 3
                 rgb = (R << 11) | (G << 5) | B
-
-                if transparent:
-                    if rgb == 0x0020:
-                        rgb = 0
-                    if a < 0x80:
-                        rgb = 0x0020
-
                 data[pos] = rgb >> 8
                 pos += 1
                 data[pos] = rgb & 0xFF
                 pos += 1
+                if transparent:
+                    data[pos] = a
+                    pos += 1
 
     elif config[CONF_TYPE] in ["BINARY", "TRANSPARENT_BINARY"]:
         width8 = ((width + 7) // 8) * 8
@@ -306,6 +304,8 @@ async def to_code(config):
             if transparent:
                 alpha = image.split()[-1]
                 has_alpha = alpha.getextrema()[0] < 0xFF
+            else:
+                has_alpha = False
             frame = image.convert("1", dither=Image.Dither.NONE)
             if CONF_RESIZE in config:
                 frame = frame.resize([width, height])

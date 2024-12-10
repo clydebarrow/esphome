@@ -21,6 +21,7 @@ from esphome.const import (
     CONF_LIBRARIES,
     CONF_MIN_VERSION,
     CONF_NAME,
+    CONF_NAME_ADD_MAC_SUFFIX,
     CONF_ON_BOOT,
     CONF_ON_LOOP,
     CONF_ON_SHUTDOWN,
@@ -58,8 +59,6 @@ ProjectUpdateTrigger = cg.esphome_ns.class_(
 )
 
 VERSION_REGEX = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[ab]\d+)?$")
-
-CONF_NAME_ADD_MAC_SUFFIX = "name_add_mac_suffix"
 
 
 VALID_INCLUDE_EXTS = {".h", ".hpp", ".tcc", ".ino", ".cpp", ".c"}
@@ -100,9 +99,6 @@ def valid_include(value):
 def valid_project_name(value: str):
     if value.count(".") != 1:
         raise cv.Invalid("project name needs to have a namespace")
-
-    value = value.replace(" ", "_")
-
     return value
 
 
@@ -187,6 +183,9 @@ PRELOAD_CONFIG_SCHEMA = cv.Schema(
         cv.Optional(CONF_ESP8266_RESTORE_FROM_FLASH): cv.valid,
         cv.Optional(CONF_BOARD_FLASH_MODE): cv.valid,
         cv.Optional(CONF_ARDUINO_VERSION): cv.valid,
+        cv.Optional(CONF_MIN_VERSION, default=ESPHOME_VERSION): cv.All(
+            cv.version_number, cv.validate_esphome_version
+        ),
     },
     extra=cv.ALLOW_EXTRA,
 )
@@ -321,6 +320,8 @@ async def add_includes(includes):
 async def _add_platformio_options(pio_options):
     # Add includes at the very end, so that they override everything
     for key, val in pio_options.items():
+        if key == "build_flags" and not isinstance(val, list):
+            val = [val]
         cg.add_platformio_option(key, val)
 
 

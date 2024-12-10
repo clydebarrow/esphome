@@ -50,6 +50,8 @@ void MQTTClientComponent::setup() {
         }
       });
   this->mqtt_backend_.set_on_disconnect([this](MQTTClientDisconnectReason reason) {
+    if (this->state_ == MQTT_CLIENT_DISABLED)
+      return;
     this->state_ = MQTT_CLIENT_DISCONNECTED;
     this->disconnect_reason_ = reason;
   });
@@ -77,8 +79,9 @@ void MQTTClientComponent::setup() {
         topic, [this](const std::string &topic, const std::string &payload) { this->send_device_info_(); }, 2);
   }
 
-  this->last_connected_ = millis();
-  this->start_dnslookup_();
+  if (this->enable_on_boot_) {
+    this->enable();
+  }
 }
 
 void MQTTClientComponent::send_device_info_() {
@@ -147,6 +150,7 @@ void MQTTClientComponent::dump_config() {
                 this->ip_.str().c_str());
   ESP_LOGCONFIG(TAG, "  Username: " LOG_SECRET("'%s'"), this->credentials_.username.c_str());
   ESP_LOGCONFIG(TAG, "  Client ID: " LOG_SECRET("'%s'"), this->credentials_.client_id.c_str());
+  ESP_LOGCONFIG(TAG, "  Clean Session: %s", YESNO(this->credentials_.clean_session));
   if (this->is_discovery_ip_enabled()) {
     ESP_LOGCONFIG(TAG, "  Discovery IP enabled");
   }
@@ -162,7 +166,9 @@ void MQTTClientComponent::dump_config() {
     ESP_LOGCONFIG(TAG, "  Availability: '%s'", this->availability_.topic.c_str());
   }
 }
-bool MQTTClientComponent::can_proceed() { return network::is_disabled() || this->is_connected(); }
+bool MQTTClientComponent::can_proceed() {
+  return network::is_disabled() || this->state_ == MQTT_CLIENT_DISABLED || this->is_connected();
+}
 
 void MQTTClientComponent::start_dnslookup_() {
   for (auto &subscription : this->subscriptions_) {
@@ -246,6 +252,7 @@ void MQTTClientComponent::start_connect_() {
   this->mqtt_backend_.disconnect();
 
   this->mqtt_backend_.set_client_id(this->credentials_.client_id.c_str());
+  this->mqtt_backend_.set_clean_session(this->credentials_.clean_session);
   const char *username = nullptr;
   if (!this->credentials_.username.empty())
     username = this->credentials_.username.c_str();
@@ -337,6 +344,8 @@ void MQTTClientComponent::loop() {
   const uint32_t now = millis();
 
   switch (this->state_) {
+    case MQTT_CLIENT_DISABLED:
+      return;  // Return to avoid a reboot when disabled
     case MQTT_CLIENT_DISCONNECTED:
       if (now - this->connect_begin_ > 5000) {
         this->start_dnslookup_();
@@ -499,6 +508,23 @@ bool MQTTClientComponent::publish_json(const std::string &topic, const json::jso
   return this->publish(topic, message, qos, retain);
 }
 
+void MQTTClientComponent::enable() {
+  if (this->state_ != MQTT_CLIENT_DISABLED)
+    return;
+  ESP_LOGD(TAG, "Enabling MQTT...");
+  this->state_ = MQTT_CLIENT_DISCONNECTED;
+  this->last_connected_ = millis();
+  this->start_dnslookup_();
+}
+
+void MQTTClientComponent::disable() {
+  if (this->state_ == MQTT_CLIENT_DISABLED)
+    return;
+  ESP_LOGD(TAG, "Disabling MQTT...");
+  this->state_ = MQTT_CLIENT_DISABLED;
+  this->on_shutdown();
+}
+
 /** Check if the message topic matches the given subscription topic
  *
  * INFO: MQTT spec mandates that topics must not be empty and must be valid NULL-terminated UTF-8 strings.
@@ -582,6 +608,10 @@ void MQTTClientComponent::set_log_message_template(MQTTMessage &&message) { this
 const MQTTDiscoveryInfo &MQTTClientComponent::get_discovery_info() const { return this->discovery_info_; }
 void MQTTClientComponent::set_topic_prefix(const std::string &topic_prefix) { this->topic_prefix_ = topic_prefix; }
 const std::string &MQTTClientComponent::get_topic_prefix() const { return this->topic_prefix_; }
+void MQTTClientComponent::set_publish_nan_as_none(bool publish_nan_as_none) {
+  this->publish_nan_as_none_ = publish_nan_as_none;
+}
+bool MQTTClientComponent::is_publish_nan_as_none() const { return this->publish_nan_as_none_; }
 void MQTTClientComponent::disable_birth_message() {
   this->birth_message_.topic = "";
   this->recalculate_availability_();

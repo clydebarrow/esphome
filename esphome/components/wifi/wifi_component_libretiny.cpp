@@ -85,7 +85,16 @@ bool WiFiComponent::wifi_sta_ip_config_(optional<ManualIP> manual_ip) {
 network::IPAddresses WiFiComponent::wifi_sta_ip_addresses() {
   if (!this->has_sta())
     return {};
-  return {WiFi.localIP()};
+  network::IPAddresses addresses;
+  addresses[0] = WiFi.localIP();
+#if USE_NETWORK_IPV6
+  int i = 1;
+  auto v6_addresses = WiFi.allLocalIPv6();
+  for (auto address : v6_addresses) {
+    addresses[i++] = network::IPAddress(address.toString().c_str());
+  }
+#endif /* USE_NETWORK_IPV6 */
+  return addresses;
 }
 
 bool WiFiComponent::wifi_apply_hostname_() {
@@ -321,6 +330,11 @@ void WiFiComponent::wifi_event_callback_(esphome_wifi_event_id_t event, esphome_
       s_sta_connecting = false;
       break;
     }
+    case ESPHOME_EVENT_ID_WIFI_STA_GOT_IP6: {
+      // auto it = info.got_ip.ip_info;
+      ESP_LOGV(TAG, "Event: Got IPv6");
+      break;
+    }
     case ESPHOME_EVENT_ID_WIFI_STA_LOST_IP: {
       ESP_LOGV(TAG, "Event: Lost IP");
       break;
@@ -459,7 +473,7 @@ bssid_t WiFiComponent::wifi_bssid() {
 }
 std::string WiFiComponent::wifi_ssid() { return WiFi.SSID().c_str(); }
 int8_t WiFiComponent::wifi_rssi() { return WiFi.RSSI(); }
-int32_t WiFiComponent::wifi_channel_() { return WiFi.channel(); }
+int32_t WiFiComponent::get_wifi_channel() { return WiFi.channel(); }
 network::IPAddress WiFiComponent::wifi_subnet_mask_() { return {WiFi.subnetMask()}; }
 network::IPAddress WiFiComponent::wifi_gateway_ip_() { return {WiFi.gatewayIP()}; }
 network::IPAddress WiFiComponent::wifi_dns_ip_(int num) { return {WiFi.dnsIP(num)}; }

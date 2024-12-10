@@ -130,12 +130,11 @@ void event_handler(void *arg, esp_event_base_t event_base, int32_t event_id, voi
 }
 
 void WiFiComponent::wifi_pre_setup_() {
-#ifdef USE_ESP32_IGNORE_EFUSE_MAC_CRC
   uint8_t mac[6];
-  get_mac_address_raw(mac);
-  set_mac_address(mac);
-  ESP_LOGV(TAG, "Use EFuse MAC without checking CRC: %s", get_mac_address_pretty().c_str());
-#endif
+  if (has_custom_mac_address()) {
+    get_mac_address_raw(mac);
+    set_mac_address(mac);
+  }
   esp_err_t err = esp_netif_init();
   if (err != ERR_OK) {
     ESP_LOGE(TAG, "esp_netif_init failed: %s", esp_err_to_name(err));
@@ -290,8 +289,16 @@ bool WiFiComponent::wifi_sta_connect_(const WiFiAP &ap) {
   // https://docs.espressif.com/projects/esp-idf/en/latest/esp32/api-reference/network/esp_wifi.html#_CPPv417wifi_sta_config_t
   wifi_config_t conf;
   memset(&conf, 0, sizeof(conf));
-  strncpy(reinterpret_cast<char *>(conf.sta.ssid), ap.get_ssid().c_str(), sizeof(conf.sta.ssid));
-  strncpy(reinterpret_cast<char *>(conf.sta.password), ap.get_password().c_str(), sizeof(conf.sta.password));
+  if (ap.get_ssid().size() > sizeof(conf.sta.ssid)) {
+    ESP_LOGE(TAG, "SSID is too long");
+    return false;
+  }
+  if (ap.get_password().size() > sizeof(conf.sta.password)) {
+    ESP_LOGE(TAG, "password is too long");
+    return false;
+  }
+  memcpy(reinterpret_cast<char *>(conf.sta.ssid), ap.get_ssid().c_str(), ap.get_ssid().size());
+  memcpy(reinterpret_cast<char *>(conf.sta.password), ap.get_password().c_str(), ap.get_password().size());
 
   // The weakest authmode to accept in the fast scan mode
   if (ap.get_password().empty()) {
@@ -903,7 +910,11 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
 
   wifi_config_t conf;
   memset(&conf, 0, sizeof(conf));
-  strncpy(reinterpret_cast<char *>(conf.ap.ssid), ap.get_ssid().c_str(), sizeof(conf.ap.ssid));
+  if (ap.get_ssid().size() > sizeof(conf.ap.ssid)) {
+    ESP_LOGE(TAG, "AP SSID is too long");
+    return false;
+  }
+  memcpy(reinterpret_cast<char *>(conf.ap.ssid), ap.get_ssid().c_str(), ap.get_ssid().size());
   conf.ap.channel = ap.get_channel().value_or(1);
   conf.ap.ssid_hidden = ap.get_ssid().size();
   conf.ap.max_connection = 5;
@@ -914,7 +925,11 @@ bool WiFiComponent::wifi_start_ap_(const WiFiAP &ap) {
     *conf.ap.password = 0;
   } else {
     conf.ap.authmode = WIFI_AUTH_WPA2_PSK;
-    strncpy(reinterpret_cast<char *>(conf.ap.password), ap.get_password().c_str(), sizeof(conf.ap.password));
+    if (ap.get_password().size() > sizeof(conf.ap.password)) {
+      ESP_LOGE(TAG, "AP password is too long");
+      return false;
+    }
+    memcpy(reinterpret_cast<char *>(conf.ap.password), ap.get_password().c_str(), ap.get_password().size());
   }
 
   // pairwise cipher of SoftAP, group cipher will be derived using this.
@@ -974,7 +989,7 @@ int8_t WiFiComponent::wifi_rssi() {
   }
   return info.rssi;
 }
-int32_t WiFiComponent::wifi_channel_() {
+int32_t WiFiComponent::get_wifi_channel() {
   uint8_t primary;
   wifi_second_chan_t second;
   esp_err_t err = esp_wifi_get_channel(&primary, &second);

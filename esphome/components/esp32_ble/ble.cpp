@@ -188,12 +188,20 @@ bool ESP32BLE::ble_setup_() {
     }
   }
 
-  std::string name = App.get_name();
-  if (name.length() > 20) {
+  std::string name;
+  if (this->name_.has_value()) {
+    name = this->name_.value();
     if (App.is_name_add_mac_suffix_enabled()) {
-      name.erase(name.begin() + 13, name.end() - 7);  // Remove characters between 13 and the mac address
-    } else {
-      name = name.substr(0, 20);
+      name += "-" + get_mac_address().substr(6);
+    }
+  } else {
+    name = App.get_name();
+    if (name.length() > 20) {
+      if (App.is_name_add_mac_suffix_enabled()) {
+        name.erase(name.begin() + 13, name.end() - 7);  // Remove characters between 13 and the mac address
+      } else {
+        name = name.substr(0, 20);
+      }
     }
   }
 

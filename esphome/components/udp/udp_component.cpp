@@ -261,7 +261,8 @@ void UDPComponent::setup() {
       return;
     }
   }
-#else
+#endif
+#ifdef USE_SOCKET_IMPL_LWIP_TCP
   // 8266 and RP2040 `Duino
   for (const auto &address : this->addresses_) {
     auto ipaddr = IPAddress();
@@ -370,7 +371,8 @@ void UDPComponent::loop() {
     for (;;) {
 #if defined(USE_SOCKET_IMPL_BSD_SOCKETS) || defined(USE_SOCKET_IMPL_LWIP_SOCKETS)
       auto len = this->listen_socket_->read(buf, sizeof(buf));
-#else
+#endif
+#ifdef USE_SOCKET_IMPL_LWIP_TCP
       auto len = this->udp_client_.parsePacket();
       if (len > 0)
         len = this->udp_client_.read(buf, sizeof(buf));
@@ -432,7 +434,8 @@ static bool process_rolling_code(Provider &provider, uint8_t *&buf, const uint8_
 void UDPComponent::process_(uint8_t *buf, const size_t len) {
   auto ping_key_seen = !this->ping_pong_enable_;
   if (len < 8) {
-    return ESP_LOGV(TAG, "Bad length %zu", len);
+    ESP_LOGV(TAG, "Bad length %zu", len);
+    return;
   }
   char namebuf[256]{};
   uint8_t byte;
@@ -440,31 +443,40 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
   const uint8_t *end = buf + len;
   FuData rdata{};
   auto magic = get_uint16(buf);
-  if (magic != MAGIC_NUMBER && magic != MAGIC_PING)
-    return ESP_LOGV(TAG, "Bad magic %X", magic);
+  if (magic != MAGIC_NUMBER && magic != MAGIC_PING) {
+    ESP_LOGV(TAG, "Bad magic %X", magic);
+    return;
+  }
 
   auto hlen = *buf++;
   if (hlen > len - 3) {
-    return ESP_LOGV(TAG, "Bad hostname length %u > %zu", hlen, len - 3);
+    ESP_LOGV(TAG, "Bad hostname length %u > %zu", hlen, len - 3);
+    return;
   }
   memcpy(namebuf, buf, hlen);
   if (strcmp(this->name_, namebuf) == 0) {
-    return ESP_LOGV(TAG, "Ignoring our own data");
+    ESP_LOGV(TAG, "Ignoring our own data");
+    return;
   }
   buf += hlen;
-  if (magic == MAGIC_PING)
-    return this->process_ping_request_(namebuf, buf, end - buf);
+  if (magic == MAGIC_PING) {
+    this->process_ping_request_(namebuf, buf, end - buf);
+    return;
+  }
   if (round4(len) != len) {
-    return ESP_LOGW(TAG, "Bad length %zu", len);
+    ESP_LOGW(TAG, "Bad length %zu", len);
+    return;
   }
   hlen = round4(hlen + 3);
   buf = start_ptr + hlen;
   if (buf == end) {
-    return ESP_LOGV(TAG, "No data after header");
+    ESP_LOGV(TAG, "No data after header");
+    return;
   }
 
   if (this->providers_.count(namebuf) == 0) {
-    return ESP_LOGVV(TAG, "Unknown hostname %s", namebuf);
+    ESP_LOGVV(TAG, "Unknown hostname %s", namebuf);
+    return;
   }
   auto &provider = this->providers_[namebuf];
   // if encryption not used with this host, ping check is pointless since it would be easily spoofed.
@@ -487,7 +499,8 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
     if (!process_rolling_code(provider, buf, end))
       return;
   } else if (byte != DATA_KEY) {
-    return ESP_LOGV(TAG, "Expected rolling_key or data_key, got %X", byte);
+    ESP_LOGV(TAG, "Expected rolling_key or data_key, got %X", byte);
+    return;
   }
   while (buf < end) {
     byte = *buf++;
@@ -495,7 +508,8 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
       continue;
     if (byte == PING_KEY) {
       if (end - buf < 4) {
-        return ESP_LOGV(TAG, "PING_KEY requires 4 more bytes");
+        ESP_LOGV(TAG, "PING_KEY requires 4 more bytes");
+        return;
       }
       auto key = get_uint32(buf);
       if (key == this->ping_key_) {
@@ -513,21 +527,25 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
     }
     if (byte == BINARY_SENSOR_KEY) {
       if (end - buf < 3) {
-        return ESP_LOGV(TAG, "Binary sensor key requires at least 3 more bytes");
+        ESP_LOGV(TAG, "Binary sensor key requires at least 3 more bytes");
+        return;
       }
       rdata.u32 = *buf++;
     } else if (byte == SENSOR_KEY) {
       if (end - buf < 6) {
-        return ESP_LOGV(TAG, "Sensor key requires at least 6 more bytes");
+        ESP_LOGV(TAG, "Sensor key requires at least 6 more bytes");
+        return;
       }
       rdata.u32 = get_uint32(buf);
     } else {
-      return ESP_LOGW(TAG, "Unknown key byte %X", byte);
+      ESP_LOGW(TAG, "Unknown key byte %X", byte);
+      return;
     }
 
     hlen = *buf++;
     if (end - buf < hlen) {
-      return ESP_LOGV(TAG, "Name length of %u not available", hlen);
+      ESP_LOGV(TAG, "Name length of %u not available", hlen);
+      return;
     }
     memset(namebuf, 0, sizeof namebuf);
     memcpy(namebuf, buf, hlen);
@@ -587,7 +605,8 @@ void UDPComponent::send_packet_(void *data, size_t len) {
     if (result < 0)
       ESP_LOGW(TAG, "sendto() error %d", errno);
   }
-#else
+#endif
+#ifdef USE_SOCKET_IMPL_LWIP_TCP
   auto iface = IPAddress(0, 0, 0, 0);
   for (const auto &saddr : this->ipaddrs_) {
     if (this->udp_client_.beginPacketMulticast(saddr, this->port_, iface, 128) != 0) {

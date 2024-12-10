@@ -18,6 +18,7 @@ CONF_ON_SLEEP = "on_sleep"
 CONF_ON_WAKE = "on_wake"
 CONF_ON_SETUP = "on_setup"
 CONF_ON_PAGE = "on_page"
+CONF_ON_BUFFER_OVERFLOW = "on_buffer_overflow"
 CONF_TOUCH_SLEEP_TIMEOUT = "touch_sleep_timeout"
 CONF_WAKE_UP_PAGE = "wake_up_page"
 CONF_START_UP_PAGE = "start_up_page"
@@ -27,6 +28,7 @@ CONF_BACKGROUND_PRESSED_COLOR = "background_pressed_color"
 CONF_FOREGROUND_PRESSED_COLOR = "foreground_pressed_color"
 CONF_FONT_ID = "font_id"
 CONF_EXIT_REPARSE_ON_START = "exit_reparse_on_start"
+CONF_SKIP_CONNECTION_HANDSHAKE = "skip_connection_handshake"
 
 
 def NextionName(value):

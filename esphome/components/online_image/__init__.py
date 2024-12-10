@@ -98,6 +98,7 @@ CONFIG_SCHEMA = cv.Schema(
             # esp8266_arduino=cv.Version(2, 7, 0),
             esp32_arduino=cv.Version(0, 0, 0),
             esp_idf=cv.Version(4, 0, 0),
+            rp2040_arduino=cv.Version(0, 0, 0),
         ),
     )
 )
@@ -125,7 +126,7 @@ async def online_image_action_to_code(config, action_id, template_arg, args):
     var = cg.new_Pvariable(action_id, template_arg, paren)
 
     if CONF_URL in config:
-        template_ = await cg.templatable(config[CONF_URL], args, cg.const_char_ptr)
+        template_ = await cg.templatable(config[CONF_URL], args, cg.std_string)
         cg.add(var.set_url(template_))
     return var
 

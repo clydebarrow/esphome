@@ -11,9 +11,9 @@
 
 #ifdef USE_ESP32
 
+#include <esp_bt_defs.h>
 #include <esp_gap_ble_api.h>
 #include <esp_gattc_api.h>
-#include <esp_bt_defs.h>
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
@@ -44,10 +44,10 @@ class ESPBLEiBeacon {
   ESPBLEiBeacon(const uint8_t *data);
   static optional<ESPBLEiBeacon> from_manufacturer_data(const ServiceData &data);
 
-  uint16_t get_major() { return ((this->beacon_data_.major & 0xFF) << 8) | (this->beacon_data_.major >> 8); }
-  uint16_t get_minor() { return ((this->beacon_data_.minor & 0xFF) << 8) | (this->beacon_data_.minor >> 8); }
+  uint16_t get_major() { return byteswap(this->beacon_data_.major); }
+  uint16_t get_minor() { return byteswap(this->beacon_data_.minor); }
   int8_t get_signal_power() { return this->beacon_data_.signal_power; }
-  ESPBTUUID get_uuid() { return ESPBTUUID::from_raw(this->beacon_data_.proximity_uuid); }
+  ESPBTUUID get_uuid() { return ESPBTUUID::from_raw_reversed(this->beacon_data_.proximity_uuid); }
 
  protected:
   struct {
@@ -172,6 +172,7 @@ class ESPBTClient : public ESPBTDeviceListener {
                                    esp_ble_gattc_cb_param_t *param) = 0;
   virtual void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) = 0;
   virtual void connect() = 0;
+  virtual void disconnect() = 0;
   virtual void set_state(ClientState st) { this->state_ = st; }
   ClientState state() const { return state_; }
   int app_id;

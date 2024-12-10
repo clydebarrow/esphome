@@ -12,6 +12,8 @@ esphome:
           url: https://esphome.io
           headers:
             Content-Type: application/json
+          on_error:
+            logger.log: "Request failed"
           on_response:
             then:
               - logger.log:
@@ -36,6 +38,14 @@ http_request:
   useragent: esphome/tagreader
   timeout: 10s
   verify_ssl: ${verify_ssl}
+
+script:
+  - id: does_not_compile
+    parameters:
+      api_url: string
+    then:
+      - http_request.get:
+          url: "http://google.com"
 
 ota:
   - platform: http_request

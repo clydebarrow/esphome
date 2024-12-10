@@ -1,3 +1,4 @@
+import importlib
 import logging
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ from esphome.config import iter_component_configs, iter_components
 from esphome.const import (
     ENV_NOGITIGNORE,
     HEADER_FILE_EXTENSIONS,
+    PLATFORM_ESP32,
     SOURCE_FILE_EXTENSIONS,
     __version__,
 )
@@ -107,7 +109,10 @@ def storage_should_clean(old: StorageJSON, new: StorageJSON) -> bool:
     if old.build_path != new.build_path:
         return True
     if old.loaded_integrations != new.loaded_integrations:
-        return True
+        if new.core_platform == PLATFORM_ESP32:
+            from esphome.components.esp32 import FRAMEWORK_ESP_IDF
+
+            return new.framework == FRAMEWORK_ESP_IDF
     return False
 
 
@@ -295,25 +300,13 @@ def copy_src_tree():
         CORE.relative_src_path("esphome", "core", "version.h"), generate_version_h()
     )
 
-    if CORE.is_esp32:
-        from esphome.components.esp32 import copy_files
-
+    platform = "esphome.components." + CORE.target_platform
+    try:
+        module = importlib.import_module(platform)
+        copy_files = getattr(module, "copy_files")
         copy_files()
-
-    elif CORE.is_esp8266:
-        from esphome.components.esp8266 import copy_files
-
-        copy_files()
-
-    elif CORE.is_rp2040:
-        from esphome.components.rp2040 import copy_files
-
-        (pio) = copy_files()
-        if pio:
-            write_file_if_changed(
-                CORE.relative_src_path("esphome.h"),
-                ESPHOME_H_FORMAT.format(include_s + '\n#include "pio_includes.h"'),
-            )
+    except AttributeError:
+        pass
 
 
 def generate_defines_h():

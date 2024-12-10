@@ -927,6 +927,21 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
   void set_exit_reparse_on_start(bool exit_reparse);
 
   /**
+   * Sets whether the Nextion display should skip the connection handshake process.
+   * @param skip_handshake True or false. When skip_connection_handshake is true,
+   * the connection will be established without performing the handshake.
+   * This can be useful when using Nextion Simulator.
+   *
+   * Example:
+   * ```cpp
+   * it.set_skip_connection_handshake(true);
+   * ```
+   *
+   * When set to true, the display will be marked as connected without performing a handshake.
+   */
+  void set_skip_connection_handshake(bool skip_handshake) { this->skip_connection_handshake_ = skip_handshake; }
+
+  /**
    * Sets Nextion mode between sleep and awake
    * @param True or false. Sleep=true to enter sleep mode or sleep=false to exit sleep mode.
    */
@@ -1119,6 +1134,12 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    */
   void add_touch_event_callback(std::function<void(uint8_t, uint8_t, bool)> &&callback);
 
+  /** Add a callback to be notified when the nextion reports a buffer overflow.
+   *
+   * @param callback The void() callback.
+   */
+  void add_buffer_overflow_event_callback(std::function<void()> &&callback);
+
   void update_all_components();
 
   /**
@@ -1221,6 +1242,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
   int16_t start_up_page_ = -1;
   bool auto_wake_on_touch_ = true;
   bool exit_reparse_on_start_ = false;
+  bool skip_connection_handshake_ = false;
 
   /**
    * Manually send a raw command to the display and don't wait for an acknowledgement packet.
@@ -1307,6 +1329,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
   CallbackManager<void()> wake_callback_{};
   CallbackManager<void(uint8_t)> page_callback_{};
   CallbackManager<void(uint8_t, uint8_t, bool)> touch_callback_{};
+  CallbackManager<void()> buffer_overflow_callback_{};
 
   optional<nextion_writer_t> writer_;
   float brightness_{1.0};
