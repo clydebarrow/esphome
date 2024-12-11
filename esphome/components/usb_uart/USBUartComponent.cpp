@@ -70,8 +70,7 @@ std::vector<cdc_eps_t> USBUartTypeCdcAcm::parse_descriptors_(usb_device_handle_t
   if (device_desc->bDeviceClass == USB_CLASS_COMM && device_desc->bDeviceSubClass == USB_CDC_SUBCLASS_ACM) {
     ESP_LOGV(TAG, "Device is single CDC-ACM device");
     // single CDC-ACM device
-    auto eps = get_cdc(config_desc, 0);
-    if (eps)
+    if (auto eps = get_cdc(config_desc, 0))
       cdc_devs.push_back(*eps);
     return cdc_devs;
   }
@@ -90,8 +89,7 @@ std::vector<cdc_eps_t> USBUartTypeCdcAcm::parse_descriptors_(usb_device_handle_t
 
       if (iad_desc->bFunctionClass == USB_CLASS_COMM && iad_desc->bFunctionSubClass == USB_CDC_SUBCLASS_ACM) {
         ESP_LOGV(TAG, "Found CDC-ACM device in composite device");
-        auto eps = get_cdc(config_desc, iad_desc->bFirstInterface);
-        if (eps)
+        if (auto eps = get_cdc(config_desc, iad_desc->bFirstInterface))
           cdc_devs.push_back(*eps);
       }
     }
@@ -228,7 +226,7 @@ void USBUartComponent::start_output(USBUartChannel *channel) {
   this->transfer_out(ep->bEndpointAddress, callback, data, len);
 #ifdef USE_UART_DEBUGGER
   if (channel->debug_) {
-    uart::UARTDebug::log_hex(uart::UART_DIRECTION_TX, std::vector<uint8_t>(data, data + len), ',');  // NOLINT()
+    uart::UARTDebug::log_hex(uart::UART_DIRECTION_TX, std::vector(data, data + len), ',');  // NOLINT()
   }
 #endif
   ESP_LOGV(TAG, "Output %d bytes started", len);
