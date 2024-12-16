@@ -1,23 +1,22 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import pins
-from esphome.components import remote_base, esp32_rmt
+import esphome.codegen as cg
+from esphome.components import esp32_rmt, remote_base
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_BUFFER_SIZE,
+    CONF_CLOCK_DIVIDER,
     CONF_DUMP,
     CONF_FILTER,
     CONF_ID,
     CONF_IDLE,
+    CONF_MEMORY_BLOCKS,
     CONF_PIN,
+    CONF_RMT_CHANNEL,
     CONF_TOLERANCE,
     CONF_TYPE,
-    CONF_MEMORY_BLOCKS,
-    CONF_RMT_CHANNEL,
     CONF_VALUE,
 )
 from esphome.core import CORE, TimePeriod
-
-CONF_CLOCK_DIVIDER = "clock_divider"
 
 AUTO_LOAD = ["remote_base"]
 remote_receiver_ns = cg.esphome_ns.namespace("remote_receiver")
