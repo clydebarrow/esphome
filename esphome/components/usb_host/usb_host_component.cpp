@@ -5,7 +5,6 @@
 
 namespace esphome {
 namespace usb_host {
-
 void USBHost::setup() {
   ESP_LOGCONFIG(TAG, "Setup starts");
   usb_host_config_t config{};
@@ -15,6 +14,7 @@ void USBHost::setup() {
     this->mark_failed();
     return;
   }
+  ESP_LOGCONFIG(TAG, "Setup complete");
 }
 void USBHost::loop() {
   int err;
