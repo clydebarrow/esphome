@@ -8,48 +8,58 @@
 namespace esphome {
 namespace usb_uart {
 
+/**
+ *
+ * Given a configuration, look for the required interfaces defining a CDC-ACM device
+ * @param config_desc The configuration descriptor
+ * @param intf_idx The index of the interface to be examined
+ * @return
+ */
 static optional<cdc_eps_t> get_cdc(const usb_config_desc_t *config_desc, uint8_t intf_idx) {
   int conf_offset, ep_offset;
-  auto intf_desc = usb_parse_interface_descriptor(config_desc, intf_idx, 0, &conf_offset);
-  if (!intf_desc) {
-    ESP_LOGE(TAG, "usb_parse_interface_descriptor failed");
-    return nullopt;
-  }
-  if (intf_desc->bNumEndpoints != 1 || intf_desc->bInterfaceClass != USB_CLASS_COMM) {
-    ESP_LOGE(TAG, "num endpoints == %u, bInterfaceClass == %u", intf_desc->bNumEndpoints, intf_desc->bInterfaceClass);
-    return nullopt;
-  }
-  ep_offset = conf_offset;
-  auto notify_ep = usb_parse_endpoint_descriptor_by_index(intf_desc, 0, config_desc->wTotalLength, &ep_offset);
-  if (!notify_ep) {
-    ESP_LOGE(TAG, "notify_ep: usb_parse_endpoint_descriptor_by_index failed");
-    return nullopt;
-  }
-  auto data_desc = usb_parse_interface_descriptor(config_desc, intf_idx + 1, 0, &conf_offset);
-  if (!data_desc) {
-    ESP_LOGE(TAG, "data_desc: usb_parse_interface_descriptor failed");
-    return nullopt;
-  }
-  if (data_desc->bInterfaceClass != USB_CLASS_CDC_DATA || data_desc->bNumEndpoints != 2) {
-    ESP_LOGE(TAG, "data_desc: bInterfaceClass == %u, bInterfaceSubClass == %u, bNumEndpoints == %u",
-             data_desc->bInterfaceClass, data_desc->bInterfaceSubClass, data_desc->bNumEndpoints);
-    return nullopt;
-  }
-  ep_offset = conf_offset;
-  auto out_ep = usb_parse_endpoint_descriptor_by_index(data_desc, 0, config_desc->wTotalLength, &ep_offset);
-  if (!out_ep) {
-    ESP_LOGE(TAG, "out_ep: usb_parse_endpoint_descriptor_by_index failed");
-    return nullopt;
-  }
-  ep_offset = conf_offset;
-  auto in_ep = usb_parse_endpoint_descriptor_by_index(data_desc, 1, config_desc->wTotalLength, &ep_offset);
-  if (!in_ep) {
-    ESP_LOGE(TAG, "in_ep: usb_parse_endpoint_descriptor_by_index failed");
-    return nullopt;
+  const usb_ep_desc_t *notify_ep{}, *in_ep{}, *out_ep{};
+  uint8_t interface_number = 0;
+  // look for an interface with one interrupt endpoint (notify), and an interface with two bulk endpoints (data in/out)
+  for (;;) {
+    auto intf_desc = usb_parse_interface_descriptor(config_desc, intf_idx++, 0, &conf_offset);
+    if (!intf_desc) {
+      ESP_LOGE(TAG, "usb_parse_interface_descriptor failed");
+      return nullopt;
+    }
+    if (intf_desc->bNumEndpoints == 1) {
+      ep_offset = conf_offset;
+      notify_ep = usb_parse_endpoint_descriptor_by_index(intf_desc, 0, config_desc->wTotalLength, &ep_offset);
+      if (!notify_ep) {
+        ESP_LOGE(TAG, "notify_ep: usb_parse_endpoint_descriptor_by_index failed");
+        return nullopt;
+      }
+      if (notify_ep->bmAttributes != USB_BM_ATTRIBUTES_XFER_INT)
+        notify_ep = nullptr;
+    } else if (USB_CLASS_CDC_DATA && intf_desc->bNumEndpoints == 2) {
+      interface_number = intf_desc->bInterfaceNumber;
+      ep_offset = conf_offset;
+      out_ep = usb_parse_endpoint_descriptor_by_index(intf_desc, 0, config_desc->wTotalLength, &ep_offset);
+      if (!out_ep) {
+        ESP_LOGE(TAG, "out_ep: usb_parse_endpoint_descriptor_by_index failed");
+        return nullopt;
+      }
+      if (out_ep->bmAttributes != USB_BM_ATTRIBUTES_XFER_BULK)
+        out_ep = nullptr;
+      ep_offset = conf_offset;
+      in_ep = usb_parse_endpoint_descriptor_by_index(intf_desc, 1, config_desc->wTotalLength, &ep_offset);
+      if (!in_ep) {
+        ESP_LOGE(TAG, "in_ep: usb_parse_endpoint_descriptor_by_index failed");
+        return nullopt;
+      }
+      if (in_ep->bmAttributes != USB_BM_ATTRIBUTES_XFER_BULK)
+        in_ep = nullptr;
+    }
+    if (in_ep != nullptr && out_ep != nullptr && notify_ep != nullptr)
+      break;
   }
   if (in_ep->bEndpointAddress & usb_host::USB_DIR_IN)
-    return cdc_eps_t{notify_ep, in_ep, out_ep, data_desc};
-  return cdc_eps_t{notify_ep, out_ep, in_ep, data_desc};
+    return cdc_eps_t{notify_ep, in_ep, out_ep, interface_number};
+  return cdc_eps_t{notify_ep, out_ep, in_ep, interface_number};
 }
 
 std::vector<cdc_eps_t> USBUartTypeCdcAcm::parse_descriptors_(usb_device_handle_t dev_hdl) {
@@ -67,11 +77,12 @@ std::vector<cdc_eps_t> USBUartTypeCdcAcm::parse_descriptors_(usb_device_handle_t
     ESP_LOGE(TAG, "get_active_config_descriptor failed");
     return {};
   }
-  if (device_desc->bDeviceClass == USB_CLASS_COMM && device_desc->bDeviceSubClass == USB_CDC_SUBCLASS_ACM) {
-    ESP_LOGV(TAG, "Device is single CDC-ACM device");
+  if (device_desc->bDeviceClass == USB_CLASS_COMM) {
     // single CDC-ACM device
-    if (auto eps = get_cdc(config_desc, 0))
+    if (auto eps = get_cdc(config_desc, 0)) {
+      ESP_LOGV(TAG, "Found CDC-ACM device");
       cdc_devs.push_back(*eps);
+    }
     return cdc_devs;
   }
   if (((device_desc->bDeviceClass == USB_CLASS_MISC) && (device_desc->bDeviceSubClass == USB_SUBCLASS_COMMON) &&
@@ -248,11 +259,10 @@ void USBUartTypeCdcAcm::on_connected_() {
     }
     channel->cdc_dev_ = cdc_devs[i++];
     channel->initialised_ = true;
-    auto err =
-        usb_host_interface_claim(this->handle_, this->device_handle_, channel->cdc_dev_.intf->bInterfaceNumber, 0);
+    auto err = usb_host_interface_claim(this->handle_, this->device_handle_, channel->cdc_dev_.interface_number, 0);
     if (err != ESP_OK) {
       ESP_LOGE(TAG, "usb_host_interface_claim failed: %s, channel=%d, intf=%d", esp_err_to_name(err), channel->index_,
-               channel->cdc_dev_.intf->bInterfaceNumber);
+               channel->cdc_dev_.interface_number);
       this->status_set_error("usb_host_interface_claim failed");
       this->disconnect_();
       return;
@@ -275,10 +285,7 @@ void USBUartTypeCdcAcm::on_disconnected_() {
       usb_host_endpoint_halt(this->device_handle_, channel->cdc_dev_.notify_ep->bEndpointAddress);
       usb_host_endpoint_flush(this->device_handle_, channel->cdc_dev_.notify_ep->bEndpointAddress);
     }
-    if (channel->cdc_dev_.intf != nullptr) {
-      usb_host_interface_release(this->handle_, this->device_handle_, channel->cdc_dev_.intf->bInterfaceNumber);
-      channel->cdc_dev_.intf = nullptr;
-    }
+    usb_host_interface_release(this->handle_, this->device_handle_, channel->cdc_dev_.interface_number);
     channel->initialised_ = false;
     channel->input_started_ = false;
     channel->output_started_ = false;

@@ -88,9 +88,9 @@ std::vector<cdc_eps_t> USBUartTypeCP210X::parse_descriptors_(usb_device_handle_t
       continue;
     }
     if (in_ep->bEndpointAddress & usb_host::USB_DIR_IN) {
-      cdc_devs.push_back({cdc_eps_t{nullptr, in_ep, out_ep, data_desc}});
+      cdc_devs.push_back({cdc_eps_t{nullptr, in_ep, out_ep, data_desc->bInterfaceNumber}});
     } else {
-      cdc_devs.push_back({cdc_eps_t{nullptr, out_ep, in_ep, data_desc}});
+      cdc_devs.push_back({cdc_eps_t{nullptr, out_ep, in_ep, data_desc->bInterfaceNumber}});
     }
   }
   return cdc_devs;
