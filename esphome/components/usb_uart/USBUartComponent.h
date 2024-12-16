@@ -24,7 +24,7 @@ typedef struct {
   const usb_ep_desc_t *notify_ep;
   const usb_ep_desc_t *in_ep;
   const usb_ep_desc_t *out_ep;
-  const usb_intf_desc_t *intf;
+  const uint8_t intf_number;
 } cdc_eps_t;
 
 enum UARTParityOptions {
