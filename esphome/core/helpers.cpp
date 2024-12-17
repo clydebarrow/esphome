@@ -767,7 +767,8 @@ bool mac_address_is_valid(const uint8_t *mac) {
   return !(is_all_zeros || is_all_ones);
 }
 
-void delay_microseconds_safe(uint32_t us) {  // avoids CPU locks that could trigger WDT or affect WiFi/BT stability
+void IRAM_ATTR HOT delay_microseconds_safe(uint32_t us) {
+  // avoids CPU locks that could trigger WDT or affect WiFi/BT stability
   uint32_t start = micros();
 
   const uint32_t lag = 5000;  // microseconds, specifies the maximum time for a CPU busy-loop.
