@@ -1,5 +1,7 @@
 import esphome.codegen as cg
 import esphome.config_validation as cv
+from esphome.const import CONF_ID
+from esphome.cpp_generator import MockObjClass
 
 CODEOWNERS = ["@clydebarrow"]
 IS_PLATFORM_COMPONENT = True
@@ -9,12 +11,18 @@ Transport = transport_ns.class_("Transport", cg.Component)
 
 CONF_TRANSPORT = "transport"
 
-TRANSPORT_SCHEMA = cv.Schema(
-    {
-        cv.GenerateID(): cv.declare_id(Transport),
-    }
-)
+
+def transport_schema(
+    class_: MockObjClass,
+):
+    return cv.Schema(
+        {
+            cv.GenerateID(): cv.declare_id(class_),
+        }
+    )
 
 
-async def register_transport(var, config):
+async def new_transport(config, *args):
+    var = cg.new_Pvariable(config[CONF_ID], *args)
     await cg.register_component(var, config)
+    return var
