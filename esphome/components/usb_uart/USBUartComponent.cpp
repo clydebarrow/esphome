@@ -242,6 +242,20 @@ void USBUartComponent::start_output(USBUartChannel *channel) {
 #endif
   ESP_LOGV(TAG, "Output %d bytes started", len);
 }
+
+/**
+ * Hacky fix for some devices that report incorrect MPS values
+ * @param ep The endpoint descriptor
+ */
+static void fix_mps(const usb_ep_desc_t *ep) {
+  if (ep != nullptr) {
+    auto *ep_mutable = const_cast<usb_ep_desc_t *>(ep);
+    if (ep->wMaxPacketSize > 64) {
+      ESP_LOGW(TAG, "Corrected MPS of EP %u from %u to 64", ep->bEndpointAddress, ep->wMaxPacketSize);
+      ep_mutable->wMaxPacketSize = 64;
+    }
+  }
+}
 void USBUartTypeCdcAcm::on_connected_() {
   auto cdc_devs = this->parse_descriptors_(this->device_handle_);
   if (cdc_devs.empty()) {
@@ -258,6 +272,8 @@ void USBUartTypeCdcAcm::on_connected_() {
       break;
     }
     channel->cdc_dev_ = cdc_devs[i++];
+    fix_mps(channel->cdc_dev_.in_ep);
+    fix_mps(channel->cdc_dev_.out_ep);
     channel->initialised_ = true;
     auto err = usb_host_interface_claim(this->handle_, this->device_handle_, channel->cdc_dev_.interface_number, 0);
     if (err != ESP_OK) {
