@@ -119,6 +119,7 @@ void LvglComponent::add_event_cb(lv_obj_t *obj, event_callback_t callback, lv_ev
 }
 void LvglComponent::add_page(LvPageType *page) {
   this->pages_.push_back(page);
+  page->set_parent(this);
   page->setup(this->pages_.size() - 1);
 }
 void LvglComponent::show_page(size_t index, lv_scr_load_anim_t anim, uint32_t time) {
@@ -143,6 +144,8 @@ void LvglComponent::show_prev_page(lv_scr_load_anim_t anim, uint32_t time) {
   } while (this->pages_[this->current_page_]->skip);  // skip empty pages()
   this->show_page(this->current_page_, anim, time);
 }
+size_t LvglComponent::get_current_page() const { return this->current_page_; }
+bool LvPageType::is_showing() const { return this->parent_->get_current_page() == this->index; }
 void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_t *ptr) {
   auto width = lv_area_get_width(area);
   auto height = lv_area_get_height(area);

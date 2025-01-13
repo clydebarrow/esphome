@@ -27,6 +27,7 @@ lvgl:
   bg_color: light_blue
   disp_bg_color: color_id
   disp_bg_image: cat_image
+  disp_bg_opa: cover
   theme:
     obj:
       border_width: 1
@@ -132,10 +133,16 @@ lvgl:
 
   pages:
     - id: page1
+      bg_image_src: cat_image
       on_load:
         - logger.log: page loaded
         - lvgl.widget.focus:
             action: restore
+        - if:
+            condition:
+              lvgl.page.is_showing: page1
+            then:
+              logger.log: "Yes, page1 showing"
       on_unload:
         - logger.log: page unloaded
         - lvgl.widget.focus: mark
@@ -206,7 +213,7 @@ lvgl:
                 - lvgl.animimg.stop: anim_img
                 - lvgl.update:
                     disp_bg_color: 0xffff00
-                    disp_bg_image: cat_image
+                    disp_bg_image: none
                 - lvgl.widget.show: message_box
         - label:
             text: "Hello shiny day"

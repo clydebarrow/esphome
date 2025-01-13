@@ -302,7 +302,7 @@ esphome/components/noblex/* @AGalfra
 esphome/components/npi19/* @bakerkj
 esphome/components/number/* @esphome/core
 esphome/components/one_wire/* @ssieb
-esphome/components/online_image/* @guillempages
+esphome/components/online_image/* @clydebarrow @guillempages
 esphome/components/opentherm/* @olegtarasov
 esphome/components/ota/* @esphome/core
 esphome/components/output/* @esphome/core

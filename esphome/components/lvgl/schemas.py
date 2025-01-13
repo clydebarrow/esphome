@@ -19,7 +19,7 @@ from esphome.schema_extractors import SCHEMA_EXTRACT
 from . import defines as df, lv_validation as lvalid
 from .defines import CONF_TIME_FORMAT, LV_GRAD_DIR
 from .helpers import add_lv_use, requires_component, validate_printf
-from .lv_validation import lv_color, lv_font, lv_gradient, lv_image
+from .lv_validation import lv_color, lv_font, lv_gradient, lv_image, opacity
 from .lvcode import LvglComponent, lv_event_t_ptr
 from .types import (
     LVEncoderListener,
@@ -344,8 +344,11 @@ FLEX_OBJ_SCHEMA = {
 
 DISP_BG_SCHEMA = cv.Schema(
     {
-        cv.Optional(df.CONF_DISP_BG_IMAGE): lv_image,
+        cv.Optional(df.CONF_DISP_BG_IMAGE): cv.Any(
+            cv.one_of("none", lower=True), lv_image
+        ),
         cv.Optional(df.CONF_DISP_BG_COLOR): lv_color,
+        cv.Optional(df.CONF_DISP_BG_OPA): opacity,
     }
 )
 
