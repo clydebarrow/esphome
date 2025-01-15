@@ -501,9 +501,7 @@ size_t lv_millis(void) { return esphome::millis(); }
 void *lv_custom_mem_alloc(size_t size) {
   auto *ptr = malloc(size);  // NOLINT
   if (ptr == nullptr) {
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_ERROR
-    esphome::ESP_LOGE(esphome::lvgl::TAG, "Failed to allocate %zu bytes", size);
-#endif
+    ESP_LOGE(esphome::lvgl::TAG, "Failed to allocate %zu bytes", size);
   }
   return ptr;
 }
@@ -520,30 +518,22 @@ void *lv_custom_mem_alloc(size_t size) {
     ptr = heap_caps_malloc(size, cap_bits);
   }
   if (ptr == nullptr) {
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_ERROR
-    esphome::ESP_LOGE(esphome::lvgl::TAG, "Failed to allocate %zu bytes", size);
-#endif
+    ESP_LOGE(esphome::lvgl::TAG, "Failed to allocate %zu bytes", size);
     return nullptr;
   }
-#ifdef ESPHOME_LOG_HAS_VERBOSE
-  esphome::ESP_LOGV(esphome::lvgl::TAG, "allocate %zu - > %p", size, ptr);
-#endif
+  ESP_LOGV(esphome::lvgl::TAG, "allocate %zu - > %p", size, ptr);
   return ptr;
 }
 
 void lv_custom_mem_free(void *ptr) {
-#ifdef ESPHOME_LOG_HAS_VERBOSE
-  esphome::ESP_LOGV(esphome::lvgl::TAG, "free %p", ptr);
-#endif
+  ESP_LOGV(esphome::lvgl::TAG, "free %p", ptr);
   if (ptr == nullptr)
     return;
   heap_caps_free(ptr);
 }
 
 void *lv_custom_mem_realloc(void *ptr, size_t size) {
-#ifdef ESPHOME_LOG_HAS_VERBOSE
-  esphome::ESP_LOGV(esphome::lvgl::TAG, "realloc %p: %zu", ptr, size);
-#endif
+  ESP_LOGV(esphome::lvgl::TAG, "realloc %p: %zu", ptr, size);
   return heap_caps_realloc(ptr, size, cap_bits);
 }
 #endif

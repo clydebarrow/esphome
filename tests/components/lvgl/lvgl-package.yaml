@@ -795,6 +795,19 @@ lvgl:
                                 color: 0xA0A0A0
                                 r_mod: -20
                                 opa: 0%
+    - id: page3
+      widgets:
+        - keyboard:
+            id: lv_keyboard
+            align: bottom_mid
+            on_value:
+              then:
+                - logger.log:
+                    format: "keyboard value %s"
+                    args: [text.c_str()]
+        - keyboard:
+            id: lv_keyboard1
+            mode: special
 
 font:
   - file: "gfonts://Roboto"
@@ -805,10 +818,13 @@ image:
   - id: cat_image
     resize: 256x48
     file: $component_dir/logo-text.svg
+    type: RGB565
+    use_transparency: alpha_channel
   - id: dog_image
     file: $component_dir/logo-text.svg
     resize: 256x48
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    use_transparency: chroma_key
 
 color:
   - id: light_blue

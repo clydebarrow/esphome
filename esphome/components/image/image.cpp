@@ -22,10 +22,27 @@ void Image::draw(int x, int y, display::Display *display, Color color_on, Color 
     case IMAGE_TYPE_GRAYSCALE:
       for (int img_x = 0; img_x < width_; img_x++) {
         for (int img_y = 0; img_y < height_; img_y++) {
-          auto color = this->get_grayscale_pixel_(img_x, img_y);
-          if (color.w >= 0x80) {
-            display->draw_pixel_at(x + img_x, y + img_y, color);
+          const uint32_t pos = (img_x + img_y * this->width_);
+          const uint8_t gray = progmem_read_byte(this->data_start_ + pos);
+          Color color = Color(gray, gray, gray, 0xFF);
+          switch (this->transparency_) {
+            case TRANSPARENCY_CHROMA_KEY:
+              if (gray == 1) {
+                continue;  // skip drawing
+              }
+              break;
+            case TRANSPARENCY_ALPHA_CHANNEL: {
+              auto on = (float) gray / 255.0f;
+              auto off = 1.0f - on;
+              // blend color_on and color_off
+              color = Color(color_on.r * on + color_off.r * off, color_on.g * on + color_off.g * off,
+                            color_on.b * on + color_off.b * off, 0xFF);
+              break;
+            }
+            default:
+              break;
           }
+          display->draw_pixel_at(x + img_x, y + img_y, color);
         }
       }
       break;
@@ -179,8 +196,16 @@ Color Image::get_rgb565_pixel_(int x, int y) const {
 Color Image::get_grayscale_pixel_(int x, int y) const {
   const uint32_t pos = (x + y * this->width_);
   const uint8_t gray = progmem_read_byte(this->data_start_ + pos);
-  uint8_t alpha = (gray == 1 && this->transparency_ == TRANSPARENCY_CHROMA_KEY) ? 0 : 0xFF;
-  return Color(gray, gray, gray, alpha);
+  switch (this->transparency_) {
+    case TRANSPARENCY_CHROMA_KEY:
+      if (gray == 1)
+        return Color(0, 0, 0, 0);
+      return Color(gray, gray, gray, 0xFF);
+    case TRANSPARENCY_ALPHA_CHANNEL:
+      return Color(0, 0, 0, gray);
+    default:
+      return Color(gray, gray, gray, 0xFF);
+  }
 }
 int Image::get_width() const { return this->width_; }
 int Image::get_height() const { return this->height_; }
