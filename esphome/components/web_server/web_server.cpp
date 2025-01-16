@@ -455,8 +455,9 @@ void WebServer::handle_fan_request(AsyncWebServerRequest *request, const UrlMatc
     } else if (match.method == "toggle") {
       this->schedule_([obj]() { obj->toggle().perform(); });
       request->send(200);
-    } else if (match.method == "turn_on") {
-      auto call = obj->turn_on();
+    } else if (match.method == "turn_on" || match.method == "turn_off") {
+      auto call = match.method == "turn_on" ? obj->turn_on() : obj->turn_off();
+
       if (request->hasParam("speed_level")) {
         auto speed_level = request->getParam("speed_level")->value();
         auto val = parse_number<int>(speed_level.c_str());
@@ -485,9 +486,6 @@ void WebServer::handle_fan_request(AsyncWebServerRequest *request, const UrlMatc
         }
       }
       this->schedule_([call]() mutable { call.perform(); });
-      request->send(200);
-    } else if (match.method == "turn_off") {
-      this->schedule_([obj]() { obj->turn_off().perform(); });
       request->send(200);
     } else {
       request->send(404);

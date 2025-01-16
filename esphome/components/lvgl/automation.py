@@ -15,6 +15,7 @@ from .defines import (
     CONF_FREEZE,
     CONF_LVGL_ID,
     CONF_SHOW_SNOW,
+    PARTS,
     literal,
 )
 from .lv_validation import lv_bool, lv_color, lv_image, opacity
@@ -33,7 +34,7 @@ from .lvcode import (
     lvgl_comp,
     static_cast,
 )
-from .schemas import DISP_BG_SCHEMA, LIST_ACTION_SCHEMA, LVGL_SCHEMA
+from .schemas import DISP_BG_SCHEMA, LIST_ACTION_SCHEMA, LVGL_SCHEMA, base_update_schema
 from .types import (
     LV_STATE,
     LvglAction,
@@ -41,6 +42,7 @@ from .types import (
     ObjUpdateAction,
     lv_disp_t,
     lv_group_t,
+    lv_obj_base_t,
     lv_obj_t,
     lv_pseudo_button_t,
 )
@@ -336,3 +338,14 @@ async def widget_focus(config, action_id, template_arg, args):
             lv.group_focus_freeze(group, True)
         var = cg.new_Pvariable(action_id, template_arg, await context.get_lambda())
         return var
+
+
+@automation.register_action(
+    "lvgl.widget.update", ObjUpdateAction, base_update_schema(lv_obj_base_t, PARTS)
+)
+async def obj_update_to_code(config, action_id, template_arg, args):
+    async def do_update(widget: Widget):
+        await set_obj_properties(widget, config)
+
+    widgets = await get_widgets(config[CONF_ID])
+    return await action_to_code(widgets, do_update, action_id, template_arg, args)

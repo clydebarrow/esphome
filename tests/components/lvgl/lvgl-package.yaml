@@ -805,9 +805,24 @@ lvgl:
                 - logger.log:
                     format: "keyboard value %s"
                     args: [text.c_str()]
+                - lvgl.keyboard.update:
+                    id: lv_keyboard
+                    hidden: true
+            on_ready:
+              - lvgl.widget.update:
+                  id: lv_keyboard
+              - lvgl.keyboard.update:
+                  id: lv_keyboard
+                  hidden: true
+
         - keyboard:
             id: lv_keyboard1
             mode: special
+            on_ready:
+              lvgl.keyboard.update:
+                id: lv_keyboard1
+                hidden: true
+                mode: text_lower
 
 font:
   - file: "gfonts://Roboto"
