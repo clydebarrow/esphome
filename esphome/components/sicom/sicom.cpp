@@ -1,5 +1,6 @@
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/hal.h"
 #include "usb/usb_host.h"
 #include "sicom.h"
 
@@ -9,11 +10,9 @@ namespace sicom {
 static const char *TAG = "sicom";
 
 static float decode_voltage(ByteBuffer &data, size_t offset) { return (data.get<int16_t>(offset) * 0.001f); }
-
 static float decode_resistance(ByteBuffer &data, size_t offset) { return data.get<uint16_t>(offset); }
-
+static float decode_current(ByteBuffer &data, size_t offset) { return data.get_int32(offset) * 0.01f; }
 static float not_set = nanf("");
-
 static void unset(std::vector<float> &vec) { std::fill(vec.begin(), vec.end(), not_set); }
 
 static const uint16_t crc_table[256] = {
@@ -47,7 +46,8 @@ uint16_t calculateCRC16(const std::vector<uint8_t> &data) {
   return crc;
 }
 
-SicomDevice::SicomDevice(size_t voltage_cnt, size_t resistance_cnt, size_t current_cnt, size_t relay_cnt) {
+SicomDevice::SicomDevice(uint8_t id, size_t voltage_cnt, size_t resistance_cnt, size_t current_cnt, size_t relay_cnt)
+    : id_(id) {
   this->voltages_.resize(voltage_cnt, not_set);
   this->resistances_.resize(resistance_cnt, not_set);
   this->currents_.resize(current_cnt, not_set);
@@ -106,7 +106,7 @@ bool SicomDevice::get_relay(size_t index) {
 }
 //[16:15:25][I][sicom:095]: Received Slave message: 01.14.03.A0.00.25.0A.28.FF.FF.25.EE.FF.FF.FF.FF.FF.FF.00.E9.0A (21)
 bool SicomST107Device::decode(ByteBuffer &data) {
-  if (data.get_limit() != 21 || data.get_uint8(2) != 3)
+  if (data.get_limit() != 21)
     return false;
   if (this->address_ != 0 && this->address_ != data.get_uint8(0))
     return false;
@@ -120,17 +120,46 @@ bool SicomST107Device::decode(ByteBuffer &data) {
   return true;
 }
 
+//  [16:15:44][I][sicom:095]: Received Slave message:
+//  02.17.0E.A0.FF.FF.FF.FC.04.E8.3C.7C.00.08.66.00.0C.9C.28.67.28.67.1A.96 (24)
+bool SicomSC301Device::decode(ByteBuffer &data) {
+  if (data.get_limit() != 24)
+    return false;
+  this->currents_[0] = decode_current(data, 4);
+  this->voltages_[0] = decode_voltage(data, 13);
+  this->voltages_[1] = decode_voltage(data, 16);
+  return true;
+}
+
+// [16:15:45][I][sicom:095]: Received Slave message:
+// 01.19.10.A0.00.00.01.26.00.13.5C.4A.00.00.00.00.34.4D.25.4C.FF.FF.44.CA.66.27 (26)
+bool SicomSC303Device::decode(ByteBuffer &data) {
+  if (data.get_limit() != 26)
+    return false;
+  for (size_t i = 0; i != this->resistances_.size(); i++) {
+    this->resistances_[i] = decode_resistance(data, 18 + i * 2);
+  }
+  this->currents_[0] = decode_current(data, 4);
+  this->voltages_[0] = decode_voltage(data, 14);
+  this->voltages_[1] = decode_voltage(data, 16);
+  return true;
+}
+
 void SicomComponent::setup() { USBClient::setup(); }
 
 void SicomComponent::loop() { USBClient::loop(); }
 
 void SicomComponent::process_data_(ByteBuffer &buffer) {
+  uint8_t id = buffer.get_uint8(2);
+  uint8_t address = buffer.get_uint8(0);
   for (auto &device : this->devices_) {
-    if (device->decode(buffer)) {
+    if (device->get_id() == id && (device->get_address() == 0 || device->get_address() == address) &&
+        device->decode(buffer)) {
       return;
     }
   }
-  ESP_LOGV(TAG, "No device found for message: %s", format_hex_pretty(buffer.get_data()).c_str());
+  ESP_LOGD(TAG, "No device found for message: id=%02X, address=%02X, data=%s", id, address,
+           format_hex_pretty(buffer.get_data()).c_str());
 }
 
 optional<sicom_eps_t> SicomComponent::parse_descriptors_(usb_device_handle_t dev_hdl) {

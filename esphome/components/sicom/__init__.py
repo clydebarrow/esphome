@@ -32,8 +32,8 @@ class SicomDeviceType:
 SI_DEVICES = [
     # [name, voltages, resistances, currents, relays]
     SicomDeviceType("ST107", 3, 4, 0, 1),
-    SicomDeviceType("SC301", 0, 1, 0, 0),
-    SicomDeviceType("SC303", 0, 0, 1, 0),
+    SicomDeviceType("SC301", 2, 1, 1, 0),
+    SicomDeviceType("SC303", 2, 3, 1, 0),
 ]
 
 SI_DEVICES_MAP = {stype.name: stype for stype in SI_DEVICES}

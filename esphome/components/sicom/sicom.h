@@ -24,7 +24,7 @@ class SicomComponent;
 
 class SicomDevice : public PollingComponent, Parented<SicomComponent> {
  public:
-  SicomDevice(size_t voltage_cnt, size_t resistance_cnt, size_t current_cnt, size_t relay_cnt);
+  SicomDevice(uint8_t id, size_t voltage_cnt, size_t resistance_cnt, size_t current_cnt, size_t relay_cnt);
 
   void add_voltage_sensor(sensor::Sensor *sensor, size_t index) {
     if (index < this->voltage_sensors_.size()) {
@@ -57,9 +57,12 @@ class SicomDevice : public PollingComponent, Parented<SicomComponent> {
   size_t get_current_count() { return currents_.size(); }
 
   void set_address(uint8_t address) { address_ = address; }
+  uint8_t get_address() { return address_; }
+  uint8_t get_id() { return id_; }
 
  protected:
   uint8_t address_{};
+  uint8_t id_{};
   std::vector<float> voltages_{};
   std::vector<float> resistances_{};
   std::vector<float> currents_{};
@@ -74,7 +77,19 @@ class SicomDevice : public PollingComponent, Parented<SicomComponent> {
 
 class SicomST107Device : public SicomDevice {
  public:
-  SicomST107Device() : SicomDevice(3, 4, 0, 1){};
+  SicomST107Device() : SicomDevice(3, 3, 4, 0, 1){};
+  bool decode(ByteBuffer &data) override;
+};
+
+class SicomSC301Device : public SicomDevice {
+ public:
+  SicomSC301Device() : SicomDevice(0xE, 2, 1, 1, 0){};
+  bool decode(ByteBuffer &data) override;
+};
+
+class SicomSC303Device : public SicomDevice {
+ public:
+  SicomSC303Device() : SicomDevice(0x10, 2, 3, 1, 0){};
   bool decode(ByteBuffer &data) override;
 };
 

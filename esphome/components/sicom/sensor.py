@@ -41,7 +41,7 @@ CONFIG_SCHEMA = cv.typed_schema(
             accuracy_decimals=0,
         ).extend(SICOM_SENSOR_SCHEMA),
         CONF_CURRENT: sensor.sensor_schema(
-            unit_of_measurement=UNIT_AMPERE, icon=ICON_CURRENT_DC, accuracy_decimals=3
+            unit_of_measurement=UNIT_AMPERE, icon=ICON_CURRENT_DC, accuracy_decimals=2
         ).extend(SICOM_SENSOR_SCHEMA),
     }
 )
