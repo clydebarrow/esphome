@@ -1,23 +1,42 @@
 import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import uart
-from esphome.const import CONF_ID, CONF_TYPE, CONF_INDEX, CONF_DEVICE, CONF_ADDRESS
-
-sicom_ns = cg.esphome_ns.namespace("sicom")
-SicomComponent = sicom_ns.class_(
-    "SicomComponent", cg.PollingComponent, uart.UARTDevice
+from esphome.components.usb_host import (
+    USBClient,
+    register_usb_client,
+    usb_device_schema,
 )
+import esphome.config_validation as cv
+from esphome.const import CONF_ADDRESS, CONF_DEVICE, CONF_ID, CONF_INDEX, CONF_TYPE
+from esphome.cpp_helpers import register_component
+from esphome.cpp_types import Component
 
-SicomDevice = sicom_ns.class_("SicomDevice")
+DEPENDENCIES = ["usb_host"]
+sicom_ns = cg.esphome_ns.namespace("sicom")
+SicomComponent = sicom_ns.class_("SicomComponent", cg.Component, USBClient)
+
+SicomDevice = sicom_ns.class_("SicomDevice", Component)
 
 CONF_SICOM_ID = "sicom_id"
 CONF_DEVICES = "devices"
 
-SI_DEVICES = {
-    "st107": sicom_ns.class_("ST107", SicomDevice),
-    "sc301": sicom_ns.class_("SC301", SicomDevice),
-    "sc303": sicom_ns.class_("SC303", SicomDevice),
-}
+
+class SicomDeviceType:
+    def __init__(self, name, voltages=0, resistances=0, currents=0, relays=0):
+        self.name = name
+        self.voltages = voltages
+        self.resistances = resistances
+        self.currents = currents
+        self.relays = relays
+        self.cls = sicom_ns.class_(f"Sicom{name}Device", SicomDevice, Component)
+
+
+SI_DEVICES = [
+    # [name, voltages, resistances, currents, relays]
+    SicomDeviceType("ST107", 3, 4, 0, 1),
+    SicomDeviceType("SC301", 0, 1, 0, 0),
+    SicomDeviceType("SC303", 0, 0, 1, 0),
+]
+
+SI_DEVICES_MAP = {stype.name: stype for stype in SI_DEVICES}
 
 SICOM_SENSOR_SCHEMA = cv.Schema(
     {
@@ -27,32 +46,31 @@ SICOM_SENSOR_SCHEMA = cv.Schema(
 )
 
 
-def device_schema(type):
-
-
-CONFIG_SCHEMA = (
-    cv.Schema({
+CONFIG_SCHEMA = cv.Schema(
+    {
         cv.GenerateID(): cv.declare_id(SicomComponent),
         cv.Required(CONF_DEVICES): cv.ensure_list(
             cv.typed_schema(
                 {
-                    name: cv.Schema(
+                    stype.name: cv.polling_component_schema("5s").extend(
                         {
-                            cv.Required(CONF_ID): cv.declare_id(type),
-                            cv.Required(CONF_ADDRESS): cv.uint8_t,
+                            cv.Required(CONF_ID): cv.declare_id(stype.cls),
+                            cv.Optional(CONF_ADDRESS, default=0): cv.uint8_t,
                         }
                     )
-                    for name, type in SI_DEVICES.items()
+                    for stype in SI_DEVICES
                 }
             )
-        )
-    })
-    .extend(cv.polling_component_schema("5s"))
-    .extend(uart.UART_DEVICE_SCHEMA)
-)
+        ),
+    }
+).extend(usb_device_schema(SicomComponent, 0x1725, 0x07))
 
 
 async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
-    await cg.register_component(var, config)
-    await uart.register_uart_device(var, config)
+    var = await register_usb_client(config)
+    for device in config[CONF_DEVICES]:
+        stype = SI_DEVICES_MAP[device[CONF_TYPE]]
+        device_var = cg.new_Pvariable(device[CONF_ID])
+        await register_component(device_var, device)
+        cg.add(device_var.set_address(device[CONF_ADDRESS]))
+        cg.add(var.add_device(device_var))

@@ -171,6 +171,15 @@ void USBClient::setup() {
     usb_host_transfer_alloc(64, 0, &trq->transfer);
     trq->client = this;
   }
+#ifdef USE_OTA
+  ota::get_global_ota_callback()->add_on_state_callback(
+      [this](ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
+        if ((state == ota::OTA_STARTED || state == ota::OTA_COMPLETED) && this->state_ == USB_CLIENT_OPEN) {
+          this->disconnect_();
+        }
+      });
+#endif
+
   ESP_LOGCONFIG(TAG, "client setup complete");
 }
 
