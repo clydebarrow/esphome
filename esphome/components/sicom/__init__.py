@@ -5,7 +5,7 @@ from esphome.components.usb_host import (
     usb_device_schema,
 )
 import esphome.config_validation as cv
-from esphome.const import CONF_ADDRESS, CONF_DEVICE, CONF_ID, CONF_INDEX, CONF_TYPE
+from esphome.const import CONF_ADDRESS, CONF_DEVICE, CONF_ID, CONF_INDEX
 from esphome.cpp_helpers import register_component
 from esphome.cpp_types import Component
 
@@ -69,7 +69,6 @@ CONFIG_SCHEMA = cv.Schema(
 async def to_code(config):
     var = await register_usb_client(config)
     for device in config[CONF_DEVICES]:
-        stype = SI_DEVICES_MAP[device[CONF_TYPE]]
         device_var = cg.new_Pvariable(device[CONF_ID])
         await register_component(device_var, device)
         cg.add(device_var.set_address(device[CONF_ADDRESS]))

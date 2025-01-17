@@ -1,8 +1,7 @@
 import esphome.codegen as cg
-from esphome.components import resistance_sampler, sensor
+from esphome.components import sensor
 from esphome.components.ags10.sensor import CONF_RESISTANCE
 from esphome.components.daly_bms.sensor import ICON_CURRENT_DC
-from esphome.components.sensor import sensor_ns
 from esphome.components.sicom import SICOM_SENSOR_SCHEMA
 import esphome.config_validation as cv
 from esphome.const import (
@@ -19,15 +18,6 @@ from esphome.const import (
 
 DEPENDENCIES = ["sicom"]
 ICON_RESISTOR = "mdi:resistor"
-AUTO_LOAD = ["resistance_sampler"]
-
-ResistanceSensor = sensor_ns.class_(
-    "Sensor",
-    cg.Component,
-    sensor.Sensor,
-    resistance_sampler.ResistanceSampler,
-)
-
 
 CONFIG_SCHEMA = cv.typed_schema(
     {
@@ -35,7 +25,6 @@ CONFIG_SCHEMA = cv.typed_schema(
             unit_of_measurement=UNIT_VOLT, icon=ICON_FLASH, accuracy_decimals=3
         ).extend(SICOM_SENSOR_SCHEMA),
         CONF_RESISTANCE: sensor.sensor_schema(
-            ResistanceSensor,
             unit_of_measurement=UNIT_OHM,
             icon=ICON_RESISTOR,
             accuracy_decimals=0,
