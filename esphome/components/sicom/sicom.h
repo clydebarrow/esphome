@@ -103,6 +103,7 @@ class SicomComponent : public usb_host::USBClient {
   void dump_config() override;
 
   void add_device(SicomDevice *device) { this->devices_.push_back(device); }
+  void SicomComponent::send_message(const std::vector<uint8_t> &data);
 
  protected:
   void on_connected_() override;

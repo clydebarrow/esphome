@@ -60,6 +60,7 @@ SicomDevice::SicomDevice(uint8_t id, size_t voltage_cnt, size_t resistance_cnt, 
 #endif  // USE_SWITCH
 }
 void SicomDevice::update() {
+  this->
   size_t i = 0;
   for (auto &sensor : this->voltage_sensors_) {
     if (sensor)
@@ -211,6 +212,10 @@ optional<sicom_eps_t> SicomComponent::parse_descriptors_(usb_device_handle_t dev
     return eps;
   }
   return {};
+}
+
+void SicomComponent::send_message(const std::vector<uint8_t> &data) {
+  this->transfer_out(this->eps_.out_ep->bEndpointAddress, nullptr, data.data(), data.size());
 }
 
 void SicomComponent::start_input_() {
