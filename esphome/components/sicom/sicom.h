@@ -56,13 +56,16 @@ class SicomDevice : public PollingComponent, Parented<SicomComponent> {
   size_t get_resistance_count() { return resistances_.size(); }
   size_t get_current_count() { return currents_.size(); }
 
-  void set_address(uint8_t address) { address_ = address; }
-  uint8_t get_address() { return address_; }
   uint8_t get_id() { return id_; }
+  void set_serial_number(uint32_t serial_number) { serial_number_ = serial_number; }
+  uint32_t get_serial_number() { return serial_number_; }
+  bool is_enrolled() { return enrolled_; }
+  void set_enrolled(bool enrolled) { enrolled_ = enrolled; }
 
  protected:
-  uint8_t address_{};
+  uint32_t serial_number_{};
   uint8_t id_{};
+  bool enrolled_{};
   std::vector<float> voltages_{};
   std::vector<float> resistances_{};
   std::vector<float> currents_{};
@@ -98,21 +101,27 @@ class SicomComponent : public usb_host::USBClient {
   SicomComponent(uint16_t vid, uint16_t pid) : USBClient(vid, pid){};
   void setup() override;
   void loop() override;
+  void update() override;
+  void enrol_device_(uint32_t serial, size_t address);
   void process_data_(ByteBuffer &buffer);
   void process_byte_(uint8_t byte);
   void dump_config() override;
 
   void add_device(SicomDevice *device) { this->devices_.push_back(device); }
-  void SicomComponent::send_message(const std::vector<uint8_t> &data);
+  void set_debug(bool debug) { this->debug_ = debug; }
 
  protected:
   void on_connected_() override;
   void on_disconnected_() override;
+  void send_message_(uint8_t address, std::vector<uint8_t> data);
+  void send_message_(uint8_t address, uint8_t cmd);
   static optional<sicom_eps_t> parse_descriptors_(usb_device_handle_t dev_hdl);
   void start_input_();
   bool input_started_{};
+  bool debug_{};
   sicom_eps_t eps_{};
   std::vector<SicomDevice *> devices_{};
+  unsigned int current_device_{};
 };
 
 }  // namespace sicom

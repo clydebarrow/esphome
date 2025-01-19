@@ -36,7 +36,7 @@ static const uint16_t crc_table[256] = {
     0x97e0, 0x8669, 0x7787, 0x660e, 0x5495, 0x451c, 0x31a3, 0x202a, 0x12b1, 0x0338, 0xfbcf, 0xea46, 0xd8dd, 0xc954,
     0xbdeb, 0xac62, 0x9ef9, 0x8f70};
 
-uint16_t calculateCRC16(const std::vector<uint8_t> &data) {
+static uint16_t calculateCRC16(const std::vector<uint8_t> &data) {
   uint16_t crc = 0x0000;  // Initial value
 
   for (uint8_t byte : data) {
@@ -45,6 +45,21 @@ uint16_t calculateCRC16(const std::vector<uint8_t> &data) {
   }
   return crc;
 }
+
+static void add_crc(std::vector<uint8_t> &data) {
+  data[1] = data.size() + 1;
+  auto crc = calculateCRC16(data);
+  data.push_back(crc >> 8);
+  data.push_back(crc & 0xFF);
+}
+
+static const uint8_t BROADCAST_ADDRESS = 0xFA;
+static const uint8_t REQUEST_DATA_MSG = 0x0A;
+static const uint8_t REPLY_DATA_MSG = 0xA0;
+static const uint8_t ALL_CALL_MSG = 0x31;
+static const uint8_t ENTROL_MSG = 0x20;
+static const uint8_t DEVICE_HELLO = 0xC0;
+static const uint8_t DEVICE_ACK = 0xC1;
 
 SicomDevice::SicomDevice(uint8_t id, size_t voltage_cnt, size_t resistance_cnt, size_t current_cnt, size_t relay_cnt)
     : id_(id) {
@@ -60,7 +75,6 @@ SicomDevice::SicomDevice(uint8_t id, size_t voltage_cnt, size_t resistance_cnt, 
 #endif  // USE_SWITCH
 }
 void SicomDevice::update() {
-  this->
   size_t i = 0;
   for (auto &sensor : this->voltage_sensors_) {
     if (sensor)
@@ -109,8 +123,6 @@ bool SicomDevice::get_relay(size_t index) {
 bool SicomST107Device::decode(ByteBuffer &data) {
   if (data.get_limit() != 21)
     return false;
-  if (this->address_ != 0 && this->address_ != data.get_uint8(0))
-    return false;
   for (size_t i = 0; i != this->voltages_.size(); i++) {
     this->voltages_[i] = decode_voltage(data, 4 + i * 2);
   }
@@ -150,12 +162,65 @@ void SicomComponent::setup() { USBClient::setup(); }
 
 void SicomComponent::loop() { USBClient::loop(); }
 
+void SicomComponent::update() {
+  if (!this->is_connected())
+    return;
+  std::vector<uint8_t> message{};
+  if (this->current_device_ == 0) {
+    this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
+  } else if (this->devices_[this->current_device_ - 1]->is_enrolled()) {
+    this->send_message_(this->current_device_, REQUEST_DATA_MSG);
+  }
+  this->current_device_ = (this->current_device_ + 1) % (this->devices_.size() + 1);
+}
+
+void SicomComponent::enrol_device_(uint32_t serial, size_t address) {
+  ByteBuffer message = ByteBuffer(8, BIG);
+  message.put_uint8(ENTROL_MSG);
+  message.put_uint32(serial);
+  message.put_uint8(address);
+  this->send_message_(BROADCAST_ADDRESS, message.get_data());
+}
+
 void SicomComponent::process_data_(ByteBuffer &buffer) {
-  uint8_t id = buffer.get_uint8(2);
   uint8_t address = buffer.get_uint8(0);
-  for (auto &device : this->devices_) {
-    if (device->get_id() == id && (device->get_address() == 0 || device->get_address() == address) &&
-        device->decode(buffer)) {
+  uint8_t id = buffer.get_uint8(2);
+  uint8_t cmd = buffer.get_uint8(3);
+  if (address == BROADCAST_ADDRESS) {
+    if (buffer.get_uint8(1) == 9 && buffer.get_uint8(3) == DEVICE_HELLO) {
+    //FA.09.0E.C0.B4.6D.65.24.9E.91
+      buffer.little_endian();
+      auto serial = buffer.get_uint32(4);
+      ESP_LOGD(TAG, "Device Hello: id=%02X, id=%02X, serial=%08lX", id, id, serial);
+      size_t i = 1;
+      for (auto &device : this->devices_) {
+        auto device_serial = device->get_serial_number();
+        if (device->get_id() == id && (device_serial == 0 || device_serial == serial)) {
+          ESP_LOGD(TAG, "Device found: address=%u, id=%02X, serial=%08lX", i, id, serial);
+          device->set_serial_number(serial);
+          enrol_device_(serial, i);
+          break;
+        }
+        i++;
+      }
+    }
+    return;
+  }
+  if (address <= this->devices_.size()) {
+    auto device = this->devices_[address - 1];
+    // [14:00:39][D][sicom:296]: Received: 03.09.0E.C1.B4.6D.65.24.1E.43 (10)
+    if (cmd == REPLY_DATA_MSG) {
+      device->decode(buffer);
+      return;
+    }
+    if (cmd == DEVICE_ACK) {
+      buffer.little_endian();
+      auto serial = buffer.get_uint32(4);
+      if (device->get_serial_number() == serial) {
+        device->set_enrolled(true);
+        ESP_LOGD(TAG, "Device enrolled: id=%02X, address=%02X, serial=%08lX", id, address, serial);
+        this->send_message_(address, REQUEST_DATA_MSG);
+      }
       return;
     }
   }
@@ -214,8 +279,33 @@ optional<sicom_eps_t> SicomComponent::parse_descriptors_(usb_device_handle_t dev
   return {};
 }
 
-void SicomComponent::send_message(const std::vector<uint8_t> &data) {
-  this->transfer_out(this->eps_.out_ep->bEndpointAddress, nullptr, data.data(), data.size());
+/**
+ *
+ * Send a message. The message is prefixed with the address and the length of the message,
+ * and suffixed with a CRC16 checksum.
+ *
+ * @param address The address of the device to send the message to.
+ * @param data The data to send. Passed by value to allow modification.
+ */
+void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
+  if (this->eps_.out_ep == nullptr)
+    return;
+  data.insert(data.begin(), data.size() + 1);
+  data.insert(data.begin(), address);
+  add_crc(data);
+  auto callback = [this](const usb_host::transfer_status_t &status) {
+    ESP_LOGV(TAG, "Send message result result: length: %u; status %X", status.data_len, status.error_code);
+  };
+  this->transfer_out(this->eps_.out_ep->bEndpointAddress, callback, data.data(), data.size());
+  if (this->debug_) {
+    ESP_LOGD(TAG, "Sent message: %s", format_hex_pretty(data).c_str());
+  }
+}
+
+void SicomComponent::send_message_(uint8_t address, uint8_t cmd) {
+  std::vector<uint8_t> message{};
+  message.push_back(cmd);
+  this->send_message_(address, message);
 }
 
 void SicomComponent::start_input_() {
@@ -227,15 +317,14 @@ void SicomComponent::start_input_() {
       ESP_LOGE(TAG, "Data transfer failed, status=%s", esp_err_to_name(status.error_code));
       return;
     }
-    if ((status.data[0] & 0x80) == 0) {
-      ByteBuffer buffer = ByteBuffer::wrap(status.data + 1, status.data_len - 1, BIG);
-      if (calculateCRC16(buffer.get_data()) != 0) {
-        ESP_LOGD(TAG, "CRC Error: %s", format_hex_pretty(status.data, status.data_len).c_str());
-      } else {
-        this->process_data_(buffer);
-      }
+    if (this->debug_) {
+      ESP_LOGD(TAG, "Received: %s", format_hex_pretty(status.data, status.data_len).c_str());
+    }
+    ByteBuffer buffer = ByteBuffer::wrap(status.data, status.data_len, BIG);
+    if (calculateCRC16(buffer.get_data()) != 0) {
+      ESP_LOGD(TAG, "CRC Error: %s", format_hex_pretty(status.data, status.data_len).c_str());
     } else {
-      ESP_LOGV(TAG, "Received: %s", format_hex_pretty(status.data, status.data_len).c_str());
+      this->process_data_(buffer);
     }
     this->input_started_ = false;
     this->defer([this] { this->start_input_(); });

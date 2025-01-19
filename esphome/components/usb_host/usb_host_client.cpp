@@ -174,7 +174,7 @@ void USBClient::setup() {
 #ifdef USE_OTA
   ota::get_global_ota_callback()->add_on_state_callback(
       [this](ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
-        if ((state == ota::OTA_STARTED || state == ota::OTA_COMPLETED) && this->state_ == USB_CLIENT_OPEN) {
+        if ((state == ota::OTA_STARTED || state == ota::OTA_COMPLETED) && this->is_connected()) {
           this->disconnect_();
         }
       });
@@ -233,7 +233,8 @@ void USBClient::loop() {
     }
 
     default:
-      usb_host_client_handle_events(this->handle_, 0);
+      while (usb_host_client_handle_events(this->handle_, 1) == ESP_OK)
+        continue;
       break;
   }
 }

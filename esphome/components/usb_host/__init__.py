@@ -15,8 +15,8 @@ CONF_VID = "vid"
 CONF_PID = "pid"
 
 
-def usb_device_schema(cls=USBClient, vid: int = None, pid: [int] = None) -> cv.Schema:
-    schema = cv.COMPONENT_SCHEMA.extend(
+def usb_device_schema(cls=USBClient, vid: int = None, pid: [int] = None, update_interval="never") -> cv.Schema:
+    schema = cv.polling_component_schema(update_interval).extend(
         {
             cv.GenerateID(): cv.declare_id(cls),
         }

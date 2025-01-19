@@ -57,7 +57,7 @@ enum ClientState {
   USB_CLIENT_GET_INFO,
   USB_CLIENT_CONNECTED,
 };
-class USBClient : public Component {
+class USBClient : public PollingComponent {
   friend class USBHost;
 
  public:
@@ -81,6 +81,7 @@ class USBClient : public Component {
   void release_trq(transfer_request_t *trq);
   bool control_transfer(uint8_t type, uint8_t request, uint16_t value, uint16_t index, const transfer_cb_t &callback,
                         const std::vector<uint8_t> &data = {});
+  bool is_connected() { return this->state_ == USB_CLIENT_CONNECTED; }
 
  protected:
   bool register_();
