@@ -5,7 +5,7 @@ import esphome.codegen as cg
 from esphome.components.http_request import CONF_HTTP_REQUEST_ID, HttpRequestComponent
 from esphome.components.image import (
     CONF_INVERT_ALPHA,
-    CONF_USE_TRANSPARENCY,
+    CONF_TRANSPARENCY,
     IMAGE_SCHEMA,
     Image_,
     get_image_type_enum,
@@ -168,7 +168,7 @@ async def to_code(config):
 
     url = config[CONF_URL]
     width, height = config.get(CONF_RESIZE, (0, 0))
-    transparent = get_transparency_enum(config[CONF_USE_TRANSPARENCY])
+    transparent = get_transparency_enum(config[CONF_TRANSPARENCY])
 
     var = cg.new_Pvariable(
         config[CONF_ID],

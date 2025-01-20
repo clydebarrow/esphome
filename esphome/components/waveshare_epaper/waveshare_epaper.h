@@ -811,6 +811,7 @@ class WaveshareEPaper2P13InV3 : public WaveshareEPaper {
   void initialize() override;
 
  protected:
+  int get_width_controller() override;
   int get_width_internal() override;
   int get_height_internal() override;
   uint32_t idle_timeout_() override;

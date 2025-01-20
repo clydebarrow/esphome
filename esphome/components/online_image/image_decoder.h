@@ -100,7 +100,7 @@ class DownloadBuffer {
   void reset() { this->unread_ = 0; }
 
  protected:
-  ExternalRAMAllocator<uint8_t> allocator_;
+  RAMAllocator<uint8_t> allocator_{};
   uint8_t *buffer_;
   size_t size_;
   /** Total number of downloaded bytes not yet read. */

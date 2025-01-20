@@ -282,7 +282,7 @@ IMAGE_TYPE = {
 
 TransparencyType = image_ns.enum("TransparencyType")
 
-CONF_USE_TRANSPARENCY = "use_transparency"
+CONF_TRANSPARENCY = "transparency"
 
 # If the MDI file cannot be downloaded within this time, abort.
 IMAGE_DOWNLOAD_TIMEOUT = 30  # seconds
@@ -417,7 +417,7 @@ def validate_type(image_types):
 
 def validate_settings(value):
     type = value[CONF_TYPE]
-    transparency = value[CONF_USE_TRANSPARENCY].lower()
+    transparency = value[CONF_TRANSPARENCY].lower()
     allow_config = IMAGE_TYPE[type].allow_config
     if transparency not in allow_config:
         raise cv.Invalid(
@@ -458,9 +458,7 @@ BASE_SCHEMA = cv.Schema(
 IMAGE_SCHEMA = BASE_SCHEMA.extend(
     {
         cv.Required(CONF_TYPE): validate_type(IMAGE_TYPE),
-        cv.Optional(
-            CONF_USE_TRANSPARENCY, default=CONF_OPAQUE
-        ): validate_transparency(),
+        cv.Optional(CONF_TRANSPARENCY, default=CONF_OPAQUE): validate_transparency(),
     }
 )
 
@@ -476,7 +474,7 @@ def typed_image_schema(image_type):
                     BASE_SCHEMA.extend(
                         {
                             cv.Optional(
-                                CONF_USE_TRANSPARENCY, default=t
+                                CONF_TRANSPARENCY, default=t
                             ): validate_transparency((t,)),
                             cv.Optional(CONF_TYPE, default=image_type): validate_type(
                                 (image_type,)
@@ -494,7 +492,7 @@ def typed_image_schema(image_type):
             BASE_SCHEMA.extend(
                 {
                     cv.Optional(
-                        CONF_USE_TRANSPARENCY, default=CONF_OPAQUE
+                        CONF_TRANSPARENCY, default=CONF_OPAQUE
                     ): validate_transparency(),
                     cv.Optional(CONF_TYPE, default=image_type): validate_type(
                         (image_type,)
@@ -556,7 +554,7 @@ async def write_image(config, all_frames=False):
         else Image.Dither.FLOYDSTEINBERG
     )
     type = config[CONF_TYPE]
-    transparency = config[CONF_USE_TRANSPARENCY]
+    transparency = config[CONF_TRANSPARENCY]
     invert_alpha = config[CONF_INVERT_ALPHA]
     frame_count = 1
     if all_frames:
