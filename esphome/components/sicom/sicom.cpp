@@ -162,17 +162,7 @@ void SicomComponent::setup() { USBClient::setup(); }
 
 void SicomComponent::loop() { USBClient::loop(); }
 
-void SicomComponent::update() {
-  if (!this->is_connected())
-    return;
-  std::vector<uint8_t> message{};
-  if (this->current_device_ == 0) {
-    this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
-  } else if (this->devices_[this->current_device_ - 1]->is_enrolled()) {
-    this->send_message_(this->current_device_, REQUEST_DATA_MSG);
-  }
-  this->current_device_ = (this->current_device_ + 1) % (this->devices_.size() + 1);
-}
+void SicomComponent::update() {}
 
 void SicomComponent::enrol_device_(uint32_t serial, size_t address) {
   ByteBuffer message = ByteBuffer(8, BIG);
@@ -188,7 +178,7 @@ void SicomComponent::process_data_(ByteBuffer &buffer) {
   uint8_t cmd = buffer.get_uint8(3);
   if (address == BROADCAST_ADDRESS) {
     if (buffer.get_uint8(1) == 9 && buffer.get_uint8(3) == DEVICE_HELLO) {
-    //FA.09.0E.C0.B4.6D.65.24.9E.91
+      // FA.09.0E.C0.B4.6D.65.24.9E.91
       buffer.little_endian();
       auto serial = buffer.get_uint32(4);
       ESP_LOGD(TAG, "Device Hello: id=%02X, id=%02X, serial=%08lX", id, id, serial);
