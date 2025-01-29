@@ -2,7 +2,6 @@
 #ifdef USE_ONLINE_IMAGE_PNG_SUPPORT
 
 #include "esphome/components/display/display_buffer.h"
-#include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
@@ -41,7 +40,7 @@ static void draw_callback(pngle_t *pngle, uint32_t x, uint32_t y, uint32_t w, ui
   decoder->draw(x, y, w, h, color);
 }
 
-void PngDecoder::prepare(uint32_t download_size) {
+void PngDecoder::prepare(size_t download_size) {
   ImageDecoder::prepare(download_size);
   pngle_set_user_data(this->pngle_, this);
   pngle_set_init_callback(this->pngle_, init_callback);
@@ -51,7 +50,7 @@ void PngDecoder::prepare(uint32_t download_size) {
 int HOT PngDecoder::decode(uint8_t *buffer, size_t size) {
   if (!this->pngle_) {
     ESP_LOGE(TAG, "PNG decoder engine not initialized!");
-    return -1;
+    return DECODE_ERROR_OUT_OF_MEMORY;
   }
   if (size < 256 && size < this->download_size_ - this->decoded_bytes_) {
     ESP_LOGD(TAG, "Waiting for data");

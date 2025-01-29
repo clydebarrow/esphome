@@ -10,4 +10,5 @@ sensor:
   - platform: ads1115
     multiplexer: A0_A1
     gain: 1.024
+    sample_rate: 128
     id: ads1115_sensor

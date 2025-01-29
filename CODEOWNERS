@@ -49,6 +49,7 @@ esphome/components/atc_mithermometer/* @ahpohl
 esphome/components/atm90e26/* @danieltwagner
 esphome/components/atm90e32/* @circuitsetup @descipher
 esphome/components/audio/* @kahrendt
+esphome/components/audio_adc/* @kbx81
 esphome/components/audio_dac/* @kbx81
 esphome/components/axs15231/* @clydebarrow
 esphome/components/b_parasite/* @rbaron
@@ -132,6 +133,8 @@ esphome/components/ens160_i2c/* @latonita
 esphome/components/ens160_spi/* @latonita
 esphome/components/ens210/* @itn3rd77
 esphome/components/es7210/* @kahrendt
+esphome/components/es7243e/* @kbx81
+esphome/components/es8156/* @kbx81
 esphome/components/es8311/* @kahrendt @kroimon
 esphome/components/esp32/* @esphome/core
 esphome/components/esp32_ble/* @Rapsssito @jesserockz
@@ -145,6 +148,7 @@ esphome/components/esp32_rmt_led_strip/* @jesserockz
 esphome/components/esp8266/* @esphome/core
 esphome/components/ethernet_info/* @gtjadsonsantos
 esphome/components/event/* @nohat
+esphome/components/event_emitter/* @Rapsssito
 esphome/components/exposure_notifications/* @OttoWinter
 esphome/components/ezo/* @ssieb
 esphome/components/ezo_pmp/* @carlos-sarmiento

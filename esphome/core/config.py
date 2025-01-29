@@ -1,21 +1,17 @@
 import logging
 import multiprocessing
 import os
-import re
+from pathlib import Path
 
 from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import (
-    CONF_ARDUINO_VERSION,
     CONF_AREA,
-    CONF_BOARD,
-    CONF_BOARD_FLASH_MODE,
     CONF_BUILD_PATH,
     CONF_COMMENT,
     CONF_COMPILE_PROCESS_LIMIT,
     CONF_ESPHOME,
-    CONF_FRAMEWORK,
     CONF_FRIENDLY_NAME,
     CONF_INCLUDES,
     CONF_LIBRARIES,
@@ -30,13 +26,9 @@ from esphome.const import (
     CONF_PLATFORMIO_OPTIONS,
     CONF_PRIORITY,
     CONF_PROJECT,
-    CONF_SOURCE,
     CONF_TRIGGER_ID,
-    CONF_TYPE,
     CONF_VERSION,
     KEY_CORE,
-    PLATFORM_ESP8266,
-    TARGET_PLATFORMS,
     __version__ as ESPHOME_VERSION,
 )
 from esphome.core import CORE, coroutine_with_priority
@@ -44,7 +36,6 @@ from esphome.helpers import copy_file_if_changed, get_str_env, walk_files
 
 _LOGGER = logging.getLogger(__name__)
 
-BUILD_FLASH_MODES = ["qio", "qout", "dio", "dout"]
 StartupTrigger = cg.esphome_ns.class_(
     "StartupTrigger", cg.Component, automation.Trigger.template()
 )
@@ -57,8 +48,6 @@ LoopTrigger = cg.esphome_ns.class_(
 ProjectUpdateTrigger = cg.esphome_ns.class_(
     "ProjectUpdateTrigger", cg.Component, automation.Trigger.template(cg.std_string)
 )
-
-VERSION_REGEX = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+(?:[ab]\d+)?$")
 
 
 VALID_INCLUDE_EXTS = {".h", ".hpp", ".tcc", ".ino", ".cpp", ".c"}
@@ -111,7 +100,6 @@ else:
     _compile_process_limit_default = cv.UNDEFINED
 
 
-CONF_ESP8266_RESTORE_FROM_FLASH = "esp8266_restore_from_flash"
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -175,14 +163,9 @@ PRELOAD_CONFIG_SCHEMA = cv.Schema(
     {
         cv.Required(CONF_NAME): cv.valid_name,
         cv.Optional(CONF_BUILD_PATH): cv.string,
-        # Compat options, these were moved to target-platform specific sections
-        # but we'll keep these around for a long time because every config would
-        # be impacted
-        cv.Optional(CONF_PLATFORM): cv.one_of(*TARGET_PLATFORMS, lower=True),
-        cv.Optional(CONF_BOARD): cv.string_strict,
-        cv.Optional(CONF_ESP8266_RESTORE_FROM_FLASH): cv.valid,
-        cv.Optional(CONF_BOARD_FLASH_MODE): cv.valid,
-        cv.Optional(CONF_ARDUINO_VERSION): cv.valid,
+        cv.Optional(CONF_PLATFORM): cv.invalid(
+            "Please remove the `platform` key from the [esphome] block and use the correct platform component. This style of configuration has now been removed."
+        ),
         cv.Optional(CONF_MIN_VERSION, default=ESPHOME_VERSION): cv.All(
             cv.version_number, cv.validate_esphome_version
         ),
@@ -191,7 +174,31 @@ PRELOAD_CONFIG_SCHEMA = cv.Schema(
 )
 
 
-def preload_core_config(config, result):
+def _is_target_platform(name):
+    from esphome.loader import get_component
+
+    try:
+        if get_component(name, True).is_target_platform:
+            return True
+    except KeyError:
+        pass
+    return False
+
+
+def _list_target_platforms():
+    target_platforms = []
+    root = Path(__file__).parents[1]
+    for path in (root / "components").iterdir():
+        if not path.is_dir():
+            continue
+        if not (path / "__init__.py").is_file():
+            continue
+        if _is_target_platform(path.name):
+            target_platforms += [path.name]
+    return target_platforms
+
+
+def preload_core_config(config, result) -> str:
     with cv.prepend_path(CONF_ESPHOME):
         conf = PRELOAD_CONFIG_SCHEMA(config[CONF_ESPHOME])
 
@@ -204,63 +211,26 @@ def preload_core_config(config, result):
         conf[CONF_BUILD_PATH] = os.path.join(build_path, CORE.name)
     CORE.build_path = CORE.relative_internal_path(conf[CONF_BUILD_PATH])
 
-    has_oldstyle = CONF_PLATFORM in conf
-    newstyle_found = [key for key in TARGET_PLATFORMS if key in config]
-    oldstyle_opts = [
-        CONF_ESP8266_RESTORE_FROM_FLASH,
-        CONF_BOARD_FLASH_MODE,
-        CONF_ARDUINO_VERSION,
-        CONF_BOARD,
-    ]
+    target_platforms = []
 
-    if not has_oldstyle and not newstyle_found:
+    for domain, _ in config.items():
+        if _is_target_platform(domain):
+            target_platforms += [domain]
+
+    if not target_platforms:
         raise cv.Invalid(
             "Platform missing. You must include one of the available platform keys: "
-            + ", ".join(TARGET_PLATFORMS),
+            + ", ".join(_list_target_platforms()),
             [CONF_ESPHOME],
         )
-    if has_oldstyle and newstyle_found:
+    if len(target_platforms) > 1:
         raise cv.Invalid(
-            f"Please remove the `platform` key from the [esphome] block. You're already using the new style with the [{conf[CONF_PLATFORM]}] block",
-            [CONF_ESPHOME, CONF_PLATFORM],
+            f"Found multiple target platform blocks: {', '.join(target_platforms)}. Only one is allowed.",
+            [target_platforms[0]],
         )
-    if len(newstyle_found) > 1:
-        raise cv.Invalid(
-            f"Found multiple target platform blocks: {', '.join(newstyle_found)}. Only one is allowed.",
-            [newstyle_found[0]],
-        )
-    if newstyle_found:
-        # Convert to newstyle
-        for key in oldstyle_opts:
-            if key in conf:
-                raise cv.Invalid(
-                    f"Please move {key} to the [{newstyle_found[0]}] block.",
-                    [CONF_ESPHOME, key],
-                )
 
-    if has_oldstyle:
-        plat = conf.pop(CONF_PLATFORM)
-        plat_conf = {}
-        if CONF_ESP8266_RESTORE_FROM_FLASH in conf:
-            plat_conf["restore_from_flash"] = conf.pop(CONF_ESP8266_RESTORE_FROM_FLASH)
-        if CONF_BOARD_FLASH_MODE in conf:
-            plat_conf[CONF_BOARD_FLASH_MODE] = conf.pop(CONF_BOARD_FLASH_MODE)
-        if CONF_ARDUINO_VERSION in conf:
-            plat_conf[CONF_FRAMEWORK] = {}
-            if plat != PLATFORM_ESP8266:
-                plat_conf[CONF_FRAMEWORK][CONF_TYPE] = "arduino"
-
-            try:
-                if conf[CONF_ARDUINO_VERSION] not in ("recommended", "latest", "dev"):
-                    cv.Version.parse(conf[CONF_ARDUINO_VERSION])
-                plat_conf[CONF_FRAMEWORK][CONF_VERSION] = conf.pop(CONF_ARDUINO_VERSION)
-            except ValueError:
-                plat_conf[CONF_FRAMEWORK][CONF_SOURCE] = conf.pop(CONF_ARDUINO_VERSION)
-        if CONF_BOARD in conf:
-            plat_conf[CONF_BOARD] = conf.pop(CONF_BOARD)
-        # Insert generated target platform config to main config
-        config[plat] = plat_conf
     config[CONF_ESPHOME] = conf
+    return target_platforms[0]
 
 
 def include_file(path, basename):

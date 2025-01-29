@@ -15,15 +15,6 @@ PLATFORM_LIBRETINY_OLDSTYLE = "libretiny"
 PLATFORM_RP2040 = "rp2040"
 PLATFORM_RTL87XX = "rtl87xx"
 
-TARGET_PLATFORMS = [
-    PLATFORM_BK72XX,
-    PLATFORM_ESP32,
-    PLATFORM_ESP8266,
-    PLATFORM_HOST,
-    PLATFORM_LIBRETINY_OLDSTYLE,
-    PLATFORM_RP2040,
-    PLATFORM_RTL87XX,
-]
 
 SOURCE_FILE_EXTENSIONS = {".cpp", ".hpp", ".h", ".c", ".tcc", ".ino"}
 HEADER_FILE_EXTENSIONS = {".h", ".hpp", ".tcc"}
@@ -539,6 +530,7 @@ CONF_NETWORKS = "networks"
 CONF_NEW_PASSWORD = "new_password"
 CONF_NITROGEN_DIOXIDE = "nitrogen_dioxide"
 CONF_NOISE_LEVEL = "noise_level"
+CONF_NOTIFY = "notify"
 CONF_NUM_ATTEMPTS = "num_attempts"
 CONF_NUM_CHANNELS = "num_channels"
 CONF_NUM_CHIPS = "num_chips"
