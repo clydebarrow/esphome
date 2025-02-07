@@ -5,6 +5,8 @@
 #include "esphome/components/usb_host/usb_host.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/bytebuffer/bytebuffer.h"
+#include "esphome/components/uart/uart.h"
+#include <driver/rmt_tx.h>
 #ifdef USE_SWITCH
 #include "esphome/components/switch/switch.h"
 #endif
@@ -96,11 +98,11 @@ class SicomSC303Device : public SicomDevice {
   bool decode(ByteBuffer &data) override;
 };
 
-class SicomComponent : public usb_host::USBClient {
+class SicomComponent : public uart::UARTDevice, public PollingComponent {
  public:
-  SicomComponent(uint16_t vid, uint16_t pid) : USBClient(vid, pid){};
-  void setup() override;
+  //void setup() override;
   void loop() override;
+  void setup() override;
   void update() override;
   void enrol_device_(uint32_t serial, size_t address);
   void process_data_(ByteBuffer &buffer);
@@ -111,8 +113,6 @@ class SicomComponent : public usb_host::USBClient {
   void set_debug(bool debug) { this->debug_ = debug; }
 
  protected:
-  void on_connected_() override;
-  void on_disconnected_() override;
   void send_message_(uint8_t address, std::vector<uint8_t> data);
   void send_message_(uint8_t address, uint8_t cmd);
   static optional<sicom_eps_t> parse_descriptors_(usb_device_handle_t dev_hdl);
@@ -122,6 +122,10 @@ class SicomComponent : public usb_host::USBClient {
   sicom_eps_t eps_{};
   std::vector<SicomDevice *> devices_{};
   unsigned int current_device_{};
+  uint8_t tx_pin_{};
+  rmt_symbol_word_t rmt_buf_[64*11 + 16]{};
+  rmt_channel_handle_t  channel_{};
+
 };
 
 }  // namespace sicom

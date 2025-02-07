@@ -1,18 +1,16 @@
 import esphome.codegen as cg
 from esphome.components.sun_gtil2.text_sensor import CONF_SERIAL_NUMBER
-from esphome.components.usb_host import (
-    USBClient,
-    register_usb_client,
-    usb_device_schema,
-)
+from esphome.components.uart import UART_DEVICE_SCHEMA, register_uart_device, UARTDevice
 import esphome.config_validation as cv
-from esphome.const import CONF_ADDRESS, CONF_DEVICE, CONF_ID, CONF_INDEX, CONF_UPDATE_INTERVAL, CONF_TYPE
+from esphome.config_validation import polling_component_schema
+from esphome.const import CONF_DEVICE, CONF_ID, CONF_INDEX, CONF_UPDATE_INTERVAL, CONF_TYPE, CONF_TX_PIN
 from esphome.cpp_helpers import register_component
 from esphome.cpp_types import Component
+from esphome.pins import internal_gpio_output_pin_number
 
-DEPENDENCIES = ["usb_host"]
+DEPENDENCIES = ["uart"]
 sicom_ns = cg.esphome_ns.namespace("sicom")
-SicomComponent = sicom_ns.class_("SicomComponent", cg.Component, USBClient)
+SicomComponent = sicom_ns.class_("SicomComponent", cg.Component, UARTDevice)
 
 SicomDevice = sicom_ns.class_("SicomDevice", Component)
 
@@ -56,9 +54,10 @@ def validate_config(config):
     return config
 
 CONFIG_SCHEMA = cv.All(
-    cv.Schema(
+    UART_DEVICE_SCHEMA.extend(polling_component_schema("1s")).extend(
         {
             cv.GenerateID(): cv.declare_id(SicomComponent),
+            cv.Required(CONF_TX_PIN): internal_gpio_output_pin_number,
             cv.Required(CONF_DEVICES): cv.ensure_list(
                 cv.typed_schema(
                     {
@@ -73,15 +72,19 @@ CONFIG_SCHEMA = cv.All(
                 )
             ),
         }
-    ).extend(usb_device_schema(SicomComponent, 0x1725, 0x07, update_interval="1s")),
-    validate_config
+    ),
+    validate_config,
+    cv.require_framework_version(esp_idf=cv.Version(5, 1, 0))
 )
 
 
 async def to_code(config):
-    var = await register_usb_client(config)
+    var = await cg.new_Pvariable(config[CONF_ID])
+    await register_component(var, config)
+    await register_uart_device(var, config)
     devices = config[CONF_DEVICES]
     update_interval = max(config[CONF_UPDATE_INTERVAL].total_milliseconds / len(devices), 30)
+    cg.add(var.set_tx_pin(config[CONF_TX_PIN]))
     cg.add(var.set_update_interval(update_interval))
     for device in config[CONF_DEVICES]:
         device_var = cg.new_Pvariable(device[CONF_ID])

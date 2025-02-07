@@ -1,13 +1,21 @@
 #include "esphome/core/log.h"
 #include "esphome/core/helpers.h"
-#include "esphome/core/hal.h"
-#include "usb/usb_host.h"
 #include "sicom.h"
+
 
 namespace esphome {
 namespace sicom {
 
 static const char *TAG = "sicom";
+#ifdef USE_ESP32_VARIANT_ESP32H2
+static const uint32_t RMT_CLK_FREQ = 32000000;
+static const uint8_t RMT_CLK_DIV = 1;
+#else
+static const uint32_t RMT_CLK_FREQ = 80000000;
+static const uint8_t RMT_CLK_DIV = 2;
+#endif
+static const uint16_t BAUD_RATE = 115200;
+static const uint16_t SYMBOL_LENGTH = (uint16_t)((float)RMT_CLK_FREQ / RMT_CLK_DIV / BAUD_RATE + 0.5);
 
 static float decode_voltage(ByteBuffer &data, size_t offset) { return (data.get<int16_t>(offset) * 0.001f); }
 static float decode_resistance(ByteBuffer &data, size_t offset) { return data.get<uint16_t>(offset); }
@@ -158,9 +166,31 @@ bool SicomSC303Device::decode(ByteBuffer &data) {
   return true;
 }
 
-void SicomComponent::setup() { USBClient::setup(); }
+void SicomComponent::loop() {  }
 
-void SicomComponent::loop() { USBClient::loop(); }
+void SicomComponent::setup() {
+
+  rmt_tx_channel_config_t channel;
+  memset(&channel, 0, sizeof(channel));
+  channel.clk_src = RMT_CLK_SRC_DEFAULT;
+  channel.resolution_hz = RMT_CLK_FREQ / RMT_CLK_DIV;
+  channel.gpio_num = gpio_num_t(this->tx_pin_);
+  channel.mem_block_symbols = 512;  // using DMA
+  channel.trans_queue_depth = 1;
+  channel.flags.io_loop_back = 0;
+  channel.flags.io_od_mode = 0;
+  channel.flags.invert_out = 0;
+  channel.flags.with_dma = 1;
+  channel.intr_priority = 0;
+  if (rmt_new_tx_channel(&channel, &this->channel_) != ESP_OK) {
+    ESP_LOGE(TAG, "Channel creation failed");
+    this->mark_failed();
+    return;
+  }
+
+
+}
+
 
 void SicomComponent::update() {}
 
