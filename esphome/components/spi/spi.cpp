@@ -7,6 +7,10 @@ namespace spi {
 
 const char *const TAG = "spi";
 
+SPIDelegate *const SPIDelegate::NULL_DELEGATE =  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+    new SPIDelegateDummy();
+// https://bugs.llvm.org/show_bug.cgi?id=48040
+
 bool SPIDelegate::is_ready() { return true; }
 
 GPIOPin *const NullPin::NULL_PIN = new NullPin();  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
@@ -75,6 +79,8 @@ void SPIComponent::dump_config() {
   }
 }
 
+void SPIDelegateDummy::begin_transaction() { ESP_LOGE(TAG, "SPIDevice not initialised - did you call spi_setup()?"); }
+
 uint8_t SPIDelegateBitBash::transfer(uint8_t data) { return this->transfer_(data, 8); }
 
 void SPIDelegateBitBash::write(uint16_t data, size_t num_bits) { this->transfer_(data, num_bits); }
@@ -82,7 +88,7 @@ void SPIDelegateBitBash::write(uint16_t data, size_t num_bits) { this->transfer_
 uint16_t SPIDelegateBitBash::transfer_(uint16_t data, size_t num_bits) {
   // Clock starts out at idle level
   this->clk_pin_->digital_write(clock_polarity_);
-  uint8_t out_data = 0;
+  uint16_t out_data = 0;
 
   for (uint8_t i = 0; i != num_bits; i++) {
     uint8_t shift;

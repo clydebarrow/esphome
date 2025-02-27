@@ -146,6 +146,8 @@ TYPE_FLEX = "flex"
 TYPE_GRID = "grid"
 TYPE_NONE = "none"
 
+DIRECTIONS = LvConstant("LV_DIR_", "LEFT", "RIGHT", "BOTTOM", "TOP")
+
 LV_FONTS = list(f"montserrat_{s}" for s in range(8, 50, 2)) + [
     "dejavu_16_persian_hebrew",
     "simsun_16_cjk",
@@ -169,9 +171,13 @@ LV_EVENT_MAP = {
     "CANCEL": "CANCEL",
     "ALL_EVENTS": "ALL",
     "CHANGE": "VALUE_CHANGED",
+    "GESTURE": "GESTURE",
 }
 
 LV_EVENT_TRIGGERS = tuple(f"on_{x.lower()}" for x in LV_EVENT_MAP)
+SWIPE_TRIGGERS = tuple(
+    f"on_swipe_{x.lower()}" for x in DIRECTIONS.choices + ("up", "down")
+)
 
 
 LV_ANIM = LvConstant(
@@ -215,7 +221,7 @@ LV_LONG_MODES = LvConstant(
 )
 
 STATES = (
-    "default",
+    # default state not included here
     "checked",
     "focused",
     "focus_key",
@@ -250,7 +256,6 @@ KEYBOARD_MODES = LvConstant(
     "NUMBER",
 )
 ROLLER_MODES = LvConstant("LV_ROLLER_MODE_", "NORMAL", "INFINITE")
-DIRECTIONS = LvConstant("LV_DIR_", "LEFT", "RIGHT", "BOTTOM", "TOP")
 TILE_DIRECTIONS = DIRECTIONS.extend("HOR", "VER", "ALL")
 CHILD_ALIGNMENTS = LvConstant(
     "LV_ALIGN_",
@@ -403,6 +408,7 @@ CONF_COLUMN = "column"
 CONF_DIGITS = "digits"
 CONF_DISP_BG_COLOR = "disp_bg_color"
 CONF_DISP_BG_IMAGE = "disp_bg_image"
+CONF_DISP_BG_OPA = "disp_bg_opa"
 CONF_BODY = "body"
 CONF_BUTTONS = "buttons"
 CONF_BYTE_ORDER = "byte_order"
@@ -456,8 +462,6 @@ CONF_LVGL_ID = "lvgl_id"
 CONF_LONG_MODE = "long_mode"
 CONF_MSGBOXES = "msgboxes"
 CONF_OBJ = "obj"
-CONF_OFFSET_X = "offset_x"
-CONF_OFFSET_Y = "offset_y"
 CONF_ONE_CHECKED = "one_checked"
 CONF_ONE_LINE = "one_line"
 CONF_ON_PAUSE = "on_pause"

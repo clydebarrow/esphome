@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
+from ipaddress import AddressValueError, IPv4Address, ip_address
 import logging
 import os
 import re
@@ -67,7 +68,6 @@ from esphome.const import (
 from esphome.core import (
     CORE,
     HexInt,
-    IPAddress,
     Lambda,
     TimePeriod,
     TimePeriodMicroseconds,
@@ -1130,7 +1130,7 @@ def domain(value):
     if re.match(vol.DOMAIN_REGEX, value) is not None:
         return value
     try:
-        return str(ipv4(value))
+        return str(ipaddress(value))
     except Invalid as err:
         raise Invalid(f"Invalid domain: {value}") from err
 
@@ -1160,21 +1160,29 @@ def ssid(value):
     return value
 
 
-def ipv4(value):
-    if isinstance(value, list):
-        parts = value
-    elif isinstance(value, str):
-        parts = value.split(".")
-    elif isinstance(value, IPAddress):
-        return value
-    else:
-        raise Invalid("IPv4 address must consist of either string or integer list")
-    if len(parts) != 4:
-        raise Invalid("IPv4 address must consist of four point-separated integers")
-    parts_ = list(map(int, parts))
-    if not all(0 <= x < 256 for x in parts_):
-        raise Invalid("IPv4 address parts must be in range from 0 to 255")
-    return IPAddress(*parts_)
+def ipv4address(value):
+    try:
+        address = IPv4Address(value)
+    except AddressValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv4 address") from exc
+    return address
+
+
+def ipv4address_multi_broadcast(value):
+    address = ipv4address(value)
+    if not (address.is_multicast or (address == IPv4Address("255.255.255.255"))):
+        raise Invalid(
+            f"{value} is not a multicasst address nor local broadcast address"
+        )
+    return address
+
+
+def ipaddress(value):
+    try:
+        address = ip_address(value)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IP address") from exc
+    return address
 
 
 def _valid_topic(value):
@@ -1215,8 +1223,7 @@ def subscribe_topic(value):
         if index != len(value) - 1:
             # If there are multiple wildcards, this will also trigger
             raise Invalid(
-                "Multi-level wildcard must be the last "
-                "character in the topic filter."
+                "Multi-level wildcard must be the last character in the topic filter."
             )
         if len(value) > 1 and value[index - 1] != "/":
             raise Invalid("Multi-level wildcard must be after a topic level separator.")
@@ -1660,6 +1667,12 @@ class SplitDefault(Optional):
         esp32_c3=vol.UNDEFINED,
         esp32_c3_arduino=vol.UNDEFINED,
         esp32_c3_idf=vol.UNDEFINED,
+        esp32_c6=vol.UNDEFINED,
+        esp32_c6_arduino=vol.UNDEFINED,
+        esp32_c6_idf=vol.UNDEFINED,
+        esp32_h2=vol.UNDEFINED,
+        esp32_h2_arduino=vol.UNDEFINED,
+        esp32_h2_idf=vol.UNDEFINED,
         rp2040=vol.UNDEFINED,
         bk72xx=vol.UNDEFINED,
         rtl87xx=vol.UNDEFINED,
@@ -1691,6 +1704,18 @@ class SplitDefault(Optional):
         self._esp32_c3_idf_default = vol.default_factory(
             _get_priority_default(esp32_c3_idf, esp32_c3, esp32_idf, esp32)
         )
+        self._esp32_c6_arduino_default = vol.default_factory(
+            _get_priority_default(esp32_c6_arduino, esp32_c6, esp32_arduino, esp32)
+        )
+        self._esp32_c6_idf_default = vol.default_factory(
+            _get_priority_default(esp32_c6_idf, esp32_c6, esp32_idf, esp32)
+        )
+        self._esp32_h2_arduino_default = vol.default_factory(
+            _get_priority_default(esp32_h2_arduino, esp32_h2, esp32_arduino, esp32)
+        )
+        self._esp32_h2_idf_default = vol.default_factory(
+            _get_priority_default(esp32_h2_idf, esp32_h2, esp32_idf, esp32)
+        )
         self._rp2040_default = vol.default_factory(rp2040)
         self._bk72xx_default = vol.default_factory(bk72xx)
         self._rtl87xx_default = vol.default_factory(rtl87xx)
@@ -1704,6 +1729,8 @@ class SplitDefault(Optional):
             from esphome.components.esp32 import get_esp32_variant
             from esphome.components.esp32.const import (
                 VARIANT_ESP32C3,
+                VARIANT_ESP32C6,
+                VARIANT_ESP32H2,
                 VARIANT_ESP32S2,
                 VARIANT_ESP32S3,
             )
@@ -1724,6 +1751,16 @@ class SplitDefault(Optional):
                     return self._esp32_c3_arduino_default
                 if CORE.using_esp_idf:
                     return self._esp32_c3_idf_default
+            elif variant == VARIANT_ESP32C6:
+                if CORE.using_arduino:
+                    return self._esp32_c6_arduino_default
+                if CORE.using_esp_idf:
+                    return self._esp32_c6_idf_default
+            elif variant == VARIANT_ESP32H2:
+                if CORE.using_arduino:
+                    return self._esp32_h2_arduino_default
+                if CORE.using_esp_idf:
+                    return self._esp32_h2_idf_default
             else:
                 if CORE.using_arduino:
                     return self._esp32_arduino_default

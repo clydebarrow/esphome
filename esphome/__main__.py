@@ -2,6 +2,7 @@
 import argparse
 from datetime import datetime
 import functools
+import importlib
 import logging
 import os
 import re
@@ -66,7 +67,7 @@ def choose_prompt(options, purpose: str = None):
         return options[0][1]
 
     safe_print(
-        f'Found multiple options{f" for {purpose}" if purpose else ""}, please choose one:'
+        f"Found multiple options{f' for {purpose}' if purpose else ''}, please choose one:"
     )
     for i, (desc, _) in enumerate(options):
         safe_print(f"  [{i + 1}] {desc}")
@@ -336,6 +337,13 @@ def check_permissions(port):
 
 
 def upload_program(config, args, host):
+    try:
+        module = importlib.import_module("esphome.components." + CORE.target_platform)
+        if getattr(module, "upload_program")(config, args, host):
+            return 0
+    except AttributeError:
+        pass
+
     if get_port_type(host) == "SERIAL":
         check_permissions(host)
         if CORE.target_platform in (PLATFORM_ESP32, PLATFORM_ESP8266):
@@ -759,6 +767,14 @@ def parse_args(argv):
         "-q", "--quiet", help="Disable all ESPHome logs.", action="store_true"
     )
     options_parser.add_argument(
+        "-l",
+        "--log-level",
+        help="Set the log level.",
+        default=os.getenv("ESPHOME_LOG_LEVEL", "INFO"),
+        action="store",
+        choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
+    )
+    options_parser.add_argument(
         "--dashboard", help=argparse.SUPPRESS, action="store_true"
     )
     options_parser.add_argument(
@@ -987,11 +1003,16 @@ def run_esphome(argv):
     args = parse_args(argv)
     CORE.dashboard = args.dashboard
 
+    # Override log level if verbose is set
+    if args.verbose:
+        args.log_level = "DEBUG"
+    elif args.quiet:
+        args.log_level = "CRITICAL"
+
     setup_log(
-        args.verbose,
-        args.quiet,
+        log_level=args.log_level,
         # Show timestamp for dashboard access logs
-        args.command == "dashboard",
+        include_timestamp=args.command == "dashboard",
     )
 
     if args.command in PRE_CONFIG_ACTIONS:

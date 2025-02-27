@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 import re
 
+import esphome_glyphsets as glyphsets
 import freetype
-import glyphsets
 import requests
 
 from esphome import core, external_files
@@ -51,8 +51,11 @@ CONF_IGNORE_MISSING_GLYPHS = "ignore_missing_glyphs"
 # Cache loaded freetype fonts
 class FontCache(dict):
     def __missing__(self, key):
-        res = self[key] = freetype.Face(key)
-        return res
+        try:
+            res = self[key] = freetype.Face(key)
+            return res
+        except freetype.FT_Exception as e:
+            raise cv.Invalid(f"Could not load Font file {key}: {e}") from e
 
 
 FONT_CACHE = FontCache()
