@@ -93,6 +93,7 @@ esphome/components/captive_portal/* @OttoWinter
 esphome/components/ccs811/* @habbie
 esphome/components/cd74hc4067/* @asoehlke
 esphome/components/ch422g/* @clydebarrow @jesterret
+esphome/components/chsc6x/* @kkosik20
 esphome/components/climate/* @esphome/core
 esphome/components/climate_ir/* @glmnet
 esphome/components/color_temperature/* @jesserockz
@@ -225,6 +226,7 @@ esphome/components/inkplate6/* @jesserockz
 esphome/components/integration/* @OttoWinter
 esphome/components/internal_temperature/* @Mat931
 esphome/components/interval/* @esphome/core
+esphome/components/io_bus/* @clydebarrow
 esphome/components/jsn_sr04t/* @Mafus1
 esphome/components/json/* @OttoWinter
 esphome/components/kamstrup_kmp/* @cfeenstra1024
@@ -234,6 +236,7 @@ esphome/components/kuntze/* @ssieb
 esphome/components/lcd_menu/* @numo68
 esphome/components/ld2410/* @regevbr @sebcaps
 esphome/components/ld2420/* @descipher
+esphome/components/ld2450/* @hareeshmu
 esphome/components/ledc/* @OttoWinter
 esphome/components/libretiny/* @kuba2k2
 esphome/components/libretiny_pwm/* @kuba2k2
@@ -242,6 +245,7 @@ esphome/components/lightwaverf/* @max246
 esphome/components/lilygo_t5_47/touchscreen/* @jesserockz
 esphome/components/lock/* @esphome/core
 esphome/components/logger/* @esphome/core
+esphome/components/logger/select/* @clydebarrow
 esphome/components/ltr390/* @latonita @sjtrny
 esphome/components/ltr501/* @latonita
 esphome/components/ltr_als_ps/* @latonita
@@ -296,6 +300,7 @@ esphome/components/mopeka_std_check/* @Fabian-Schmidt
 esphome/components/mpl3115a2/* @kbickar
 esphome/components/mpu6886/* @fabaff
 esphome/components/ms8607/* @e28eta
+esphome/components/msa3xx/* @latonita
 esphome/components/nau7802/* @cujomalainey
 esphome/components/network/* @esphome/core
 esphome/components/nextion/* @edwardtfn @senexcrenshaw
@@ -389,6 +394,7 @@ esphome/components/sn74hc165/* @jesserockz
 esphome/components/socket/* @esphome/core
 esphome/components/sonoff_d1/* @anatoly-savchenkov
 esphome/components/speaker/* @jesserockz @kahrendt
+esphome/components/speaker/media_player/* @kahrendt @synesthesiam
 esphome/components/spi/* @clydebarrow @esphome/core
 esphome/components/spi_device/* @clydebarrow
 esphome/components/spi_led_strip/* @clydebarrow
@@ -443,6 +449,7 @@ esphome/components/tmp102/* @timsavage
 esphome/components/tmp1075/* @sybrenstuvel
 esphome/components/tmp117/* @Azimath
 esphome/components/tof10120/* @wstrzalka
+esphome/components/tormatic/* @ti-mo
 esphome/components/toshiba/* @kbx81
 esphome/components/touchscreen/* @jesserockz @nielsnl68
 esphome/components/tsl2591/* @wjcarpenter
