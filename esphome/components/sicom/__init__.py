@@ -1,14 +1,24 @@
 import esphome.codegen as cg
+from esphome.components.esp32 import only_on_variant
+from esphome.components.esp32.const import VARIANT_ESP32S3
 from esphome.components.sun_gtil2.text_sensor import CONF_SERIAL_NUMBER
-from esphome.components.uart import UART_DEVICE_SCHEMA, register_uart_device, UARTDevice
+from esphome.components.uart import UART_DEVICE_SCHEMA, UARTDevice, register_uart_device
 import esphome.config_validation as cv
 from esphome.config_validation import polling_component_schema
-from esphome.const import CONF_DEVICE, CONF_ID, CONF_INDEX, CONF_UPDATE_INTERVAL, CONF_TYPE, CONF_TX_PIN
+from esphome.const import (
+    CONF_DEVICE,
+    CONF_ID,
+    CONF_INDEX,
+    CONF_TX_PIN,
+    CONF_TYPE,
+    CONF_UPDATE_INTERVAL,
+)
 from esphome.cpp_helpers import register_component
 from esphome.cpp_types import Component
-from esphome.pins import internal_gpio_output_pin_number
+from esphome.pins import gpio_output_pin_schema, internal_gpio_output_pin_number
 
 DEPENDENCIES = ["uart"]
+AUTO_LOAD = ["bytebuffer"]
 sicom_ns = cg.esphome_ns.namespace("sicom")
 SicomComponent = sicom_ns.class_("SicomComponent", cg.Component, UARTDevice)
 
@@ -16,6 +26,7 @@ SicomDevice = sicom_ns.class_("SicomDevice", Component)
 
 CONF_SICOM_ID = "sicom_id"
 CONF_DEVICES = "devices"
+CONF_TX_ENABLE_PIN = "tx_enable_pin"
 
 
 class SicomDeviceType:
@@ -30,6 +41,7 @@ class SicomDeviceType:
 
 SI_DEVICES = [
     # [name, voltages, resistances, currents, relays]
+    SicomDeviceType("SCQ25T", 3, 4, 4, 1),
     SicomDeviceType("ST107", 3, 4, 0, 1),
     SicomDeviceType("SC301", 2, 1, 1, 0),
     SicomDeviceType("SC303", 2, 3, 1, 0),
@@ -44,20 +56,29 @@ SICOM_SENSOR_SCHEMA = cv.Schema(
     }
 )
 
+
 def validate_config(config):
     for stype in SI_DEVICES:
-        devices = [device for device in config[CONF_DEVICES] if device[CONF_TYPE] == stype.name]
+        devices = [
+            device for device in config[CONF_DEVICES] if device[CONF_TYPE] == stype.name
+        ]
         if len(devices) > 1:
-            serials = set([device[CONF_SERIAL_NUMBER] for device in devices])
-            if len(serials) != len(devices) or not all(device[CONF_SERIAL_NUMBER] for device in devices):
-                raise cv.Invalid("Multiple devices of the same type must each have a unique serial number")
+            serials = {device[CONF_SERIAL_NUMBER] for device in devices}
+            if len(serials) != len(devices) or not all(
+                device[CONF_SERIAL_NUMBER] for device in devices
+            ):
+                raise cv.Invalid(
+                    "Multiple devices of the same type must each have a unique serial number"
+                )
     return config
+
 
 CONFIG_SCHEMA = cv.All(
     UART_DEVICE_SCHEMA.extend(polling_component_schema("1s")).extend(
         {
             cv.GenerateID(): cv.declare_id(SicomComponent),
             cv.Required(CONF_TX_PIN): internal_gpio_output_pin_number,
+            cv.Optional(CONF_TX_ENABLE_PIN): gpio_output_pin_schema,
             cv.Required(CONF_DEVICES): cv.ensure_list(
                 cv.typed_schema(
                     {
@@ -73,18 +94,25 @@ CONFIG_SCHEMA = cv.All(
             ),
         }
     ),
+    cv.only_with_esp_idf,
+    # only_on_variant(supported=[VARIANT_ESP32S3]),
+    cv.require_framework_version(esp_idf=cv.Version(5, 1, 0)),
     validate_config,
-    cv.require_framework_version(esp_idf=cv.Version(5, 1, 0))
 )
 
 
 async def to_code(config):
-    var = await cg.new_Pvariable(config[CONF_ID])
+    var = cg.new_Pvariable(config[CONF_ID])
     await register_component(var, config)
     await register_uart_device(var, config)
     devices = config[CONF_DEVICES]
-    update_interval = max(config[CONF_UPDATE_INTERVAL].total_milliseconds / len(devices), 30)
+    update_interval = min(
+        config[CONF_UPDATE_INTERVAL].total_milliseconds // len(devices), 30
+    )
     cg.add(var.set_tx_pin(config[CONF_TX_PIN]))
+    if tx_enable_pin := config.get(CONF_TX_ENABLE_PIN):
+        tx_enable_pin = await cg.gpio_pin_expression(tx_enable_pin)
+        cg.add(var.set_tx_enable_pin(tx_enable_pin))
     cg.add(var.set_update_interval(update_interval))
     for device in config[CONF_DEVICES]:
         device_var = cg.new_Pvariable(device[CONF_ID])

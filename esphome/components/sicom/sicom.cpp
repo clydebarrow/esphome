@@ -2,7 +2,6 @@
 #include "esphome/core/helpers.h"
 #include "sicom.h"
 
-
 namespace esphome {
 namespace sicom {
 
@@ -14,8 +13,8 @@ static const uint8_t RMT_CLK_DIV = 1;
 static const uint32_t RMT_CLK_FREQ = 80000000;
 static const uint8_t RMT_CLK_DIV = 2;
 #endif
-static const uint16_t BAUD_RATE = 115200;
-static const uint16_t SYMBOL_LENGTH = (uint16_t)((float)RMT_CLK_FREQ / RMT_CLK_DIV / BAUD_RATE + 0.5);
+static const uint32_t BAUD_RATE = 115200;
+static const uint16_t SYMBOL_LENGTH = (uint16_t) ((float) RMT_CLK_FREQ / RMT_CLK_DIV / BAUD_RATE + 0.5);
 
 static float decode_voltage(ByteBuffer &data, size_t offset) { return (data.get<int16_t>(offset) * 0.001f); }
 static float decode_resistance(ByteBuffer &data, size_t offset) { return data.get<uint16_t>(offset); }
@@ -68,6 +67,11 @@ static const uint8_t ALL_CALL_MSG = 0x31;
 static const uint8_t ENTROL_MSG = 0x20;
 static const uint8_t DEVICE_HELLO = 0xC0;
 static const uint8_t DEVICE_ACK = 0xC1;
+static const uint8_t MAX_ADDRESS = 32;
+
+static const size_t MAX_MSG_LEN = 64;
+static const size_t MIN_MSG_LEN = 5;
+static const size_t LEN_OFFS = 1;
 
 SicomDevice::SicomDevice(uint8_t id, size_t voltage_cnt, size_t resistance_cnt, size_t current_cnt, size_t relay_cnt)
     : id_(id) {
@@ -127,6 +131,7 @@ bool SicomDevice::get_relay(size_t index) {
   }
   return relays_[index];
 }
+bool SicomSCQ25TDevice::decode(ByteBuffer &data) { return true; }
 //[16:15:25][I][sicom:095]: Received Slave message: 01.14.03.A0.00.25.0A.28.FF.FF.25.EE.FF.FF.FF.FF.FF.FF.00.E9.0A (21)
 bool SicomST107Device::decode(ByteBuffer &data) {
   if (data.get_limit() != 21)
@@ -166,36 +171,114 @@ bool SicomSC303Device::decode(ByteBuffer &data) {
   return true;
 }
 
-void SicomComponent::loop() {  }
+void SicomComponent::loop() {
+  for (;;) {
+    uint8_t byte;
+    if (!this->available()) {
+      return;
+    }
+    this->read_byte(&byte);
+    if (!this->rx_data_.empty() || byte == 0xFA || byte <= MAX_ADDRESS) {
+      this->rx_data_.push_back(byte);
+    } else {
+      ESP_LOGD(TAG, "Skipping byte: %02X", byte);
+      continue;
+    }
+    if (this->rx_data_.size() >= MAX_MSG_LEN) {
+      this->rx_data_.clear();
+      ESP_LOGD(TAG, "Buffer overflow");
+    }
+    if (this->rx_data_.size() > 1 && this->rx_data_[1] <= MIN_MSG_LEN) {
+      this->rx_data_.clear();
+      continue;
+    }
+    if (this->rx_data_.size() < MIN_MSG_LEN)
+      continue;
+    auto len = this->rx_data_[LEN_OFFS];
+    if (len < MIN_MSG_LEN - 1 || len > MAX_MSG_LEN) {
+      ESP_LOGD(TAG, "Invalid length on data: %s", format_hex_pretty(this->rx_data_).c_str());
+      this->rx_data_.clear();
+      continue;
+    }
+    if (this->rx_data_[LEN_OFFS] == this->rx_data_.size() - 1) {
+      if (calculateCRC16(this->rx_data_) == 0) {
+        ESP_LOGD(TAG, "Received data: %s", format_hex_pretty(this->rx_data_).c_str());
+        auto buffer = ByteBuffer::wrap(this->rx_data_);
+        this->process_data_(buffer);
+      } else {
+        ESP_LOGD(TAG, "CRC error on data: %s", format_hex_pretty(this->rx_data_).c_str());
+      }
+      this->rx_data_.clear();
+    }
+  }
+}
 
 void SicomComponent::setup() {
-
-  rmt_tx_channel_config_t channel;
-  memset(&channel, 0, sizeof(channel));
+  if (this->tx_enable_pin_ != nullptr) {
+    this->tx_enable_pin_->setup();
+    this->tx_enable_pin_->digital_write(false);
+  }
+  rmt_tx_channel_config_t channel{};
   channel.clk_src = RMT_CLK_SRC_DEFAULT;
   channel.resolution_hz = RMT_CLK_FREQ / RMT_CLK_DIV;
-  channel.gpio_num = gpio_num_t(this->tx_pin_);
-  channel.mem_block_symbols = 512;  // using DMA
+  channel.gpio_num = (gpio_num_t) this->tx_pin_;
+#ifdef USE_ESP32_VARIANT_ESP32S3
+  channel.flags.with_dma = 0;
+#else
+  channel.flags.with_dma = 0;
+#endif
+  channel.mem_block_symbols = 96;
   channel.trans_queue_depth = 1;
   channel.flags.io_loop_back = 0;
   channel.flags.io_od_mode = 0;
   channel.flags.invert_out = 0;
-  channel.flags.with_dma = 1;
   channel.intr_priority = 0;
   if (rmt_new_tx_channel(&channel, &this->channel_) != ESP_OK) {
     ESP_LOGE(TAG, "Channel creation failed");
     this->mark_failed();
     return;
   }
-
-
+  if (rmt_enable(this->channel_) != ESP_OK) {
+    ESP_LOGE(TAG, "Enabling channel failed");
+    this->mark_failed();
+    return;
+  }
+  if (rmt_apply_carrier(this->channel_, nullptr) != ESP_OK) {
+    ESP_LOGE(TAG, "Applying carrier failed");
+    this->mark_failed();
+    return;
+  }
+  rmt_copy_encoder_config_t encoder_config{};
+  rmt_new_copy_encoder(&encoder_config, &this->encoder_);
+  this->transmit_config_.loop_count = 0;
+  this->transmit_config_.flags.eot_level = 1;
+  this->transmit_config_.flags.queue_nonblocking = false;
 }
 
-
-void SicomComponent::update() {}
+void SicomComponent::update() {
+  this->loop();
+  auto now = millis();
+  if (now - this->last_all_call_ >= 1000) {
+    std::vector<uint8_t> buffer{};
+    buffer.push_back(ALL_CALL_MSG);
+    this->send_message_(BROADCAST_ADDRESS, buffer);
+    this->last_all_call_ = now;
+    return;
+  }
+  auto device = this->devices_[this->next_device_++];
+  if (device->get_state() == ENROLLING) {
+    this->enrol_device_(device->get_serial_number(), this->next_device_);
+  }
+  if (device->get_state() == ENROLLED) {
+    this->send_message_(this->next_device_, REQUEST_DATA_MSG);
+  };
+  if (this->next_device_ >= this->devices_.size()) {
+    this->next_device_ = 0;
+  }
+}
 
 void SicomComponent::enrol_device_(uint32_t serial, size_t address) {
-  ByteBuffer message = ByteBuffer(8, BIG);
+  ByteBuffer message = ByteBuffer(6, BIG);
   message.put_uint8(ENTROL_MSG);
   message.put_uint32(serial);
   message.put_uint8(address);
@@ -203,6 +286,8 @@ void SicomComponent::enrol_device_(uint32_t serial, size_t address) {
 }
 
 void SicomComponent::process_data_(ByteBuffer &buffer) {
+  ESP_LOGD(TAG, "Received data message: %s", format_hex_pretty(buffer.get_data()).c_str());
+  delay(5);
   uint8_t address = buffer.get_uint8(0);
   uint8_t id = buffer.get_uint8(2);
   uint8_t cmd = buffer.get_uint8(3);
@@ -211,14 +296,15 @@ void SicomComponent::process_data_(ByteBuffer &buffer) {
       // FA.09.0E.C0.B4.6D.65.24.9E.91
       buffer.little_endian();
       auto serial = buffer.get_uint32(4);
-      ESP_LOGD(TAG, "Device Hello: id=%02X, id=%02X, serial=%08lX", id, id, serial);
+      ESP_LOGD(TAG, "Device Hello: id=%02X, serial=%08lX", id, serial);
       size_t i = 1;
       for (auto &device : this->devices_) {
         auto device_serial = device->get_serial_number();
         if (device->get_id() == id && (device_serial == 0 || device_serial == serial)) {
           ESP_LOGD(TAG, "Device found: address=%u, id=%02X, serial=%08lX", i, id, serial);
           device->set_serial_number(serial);
-          enrol_device_(serial, i);
+          device->set_state(ENROLLING);
+          this->enrol_device_(serial, i);
           break;
         }
         i++;
@@ -226,18 +312,18 @@ void SicomComponent::process_data_(ByteBuffer &buffer) {
     }
     return;
   }
-  if (address <= this->devices_.size()) {
+  if (address > 0 && address <= this->devices_.size()) {
     auto device = this->devices_[address - 1];
     // [14:00:39][D][sicom:296]: Received: 03.09.0E.C1.B4.6D.65.24.1E.43 (10)
     if (cmd == REPLY_DATA_MSG) {
       device->decode(buffer);
       return;
     }
-    if (cmd == DEVICE_ACK) {
+    if (cmd == DEVICE_ACK && buffer.get_capacity() == 10) {
       buffer.little_endian();
       auto serial = buffer.get_uint32(4);
       if (device->get_serial_number() == serial) {
-        device->set_enrolled(true);
+        device->set_state(ENROLLED);
         ESP_LOGD(TAG, "Device enrolled: id=%02X, address=%02X, serial=%08lX", id, address, serial);
         this->send_message_(address, REQUEST_DATA_MSG);
       }
@@ -246,57 +332,6 @@ void SicomComponent::process_data_(ByteBuffer &buffer) {
   }
   ESP_LOGD(TAG, "No device found for message: id=%02X, address=%02X, data=%s", id, address,
            format_hex_pretty(buffer.get_data()).c_str());
-}
-
-optional<sicom_eps_t> SicomComponent::parse_descriptors_(usb_device_handle_t dev_hdl) {
-  const usb_config_desc_t *config_desc;
-  const usb_device_desc_t *device_desc;
-  int conf_offset = 0, ep_offset;
-  sicom_eps_t eps{};
-
-  // Get required descriptors
-  if (usb_host_get_device_descriptor(dev_hdl, &device_desc) != ESP_OK) {
-    ESP_LOGE(TAG, "get_device_descriptor failed");
-    return {};
-  }
-  if (usb_host_get_active_config_descriptor(dev_hdl, &config_desc) != ESP_OK) {
-    ESP_LOGE(TAG, "get_active_config_descriptor failed");
-    return {};
-  }
-  if (device_desc->bDeviceClass != USB_CLASS_VENDOR_SPEC)
-    return {};
-  for (uint8_t i = 0; i != config_desc->bNumInterfaces; i++) {
-    auto data_desc = usb_parse_interface_descriptor(config_desc, i, 0, &conf_offset);
-    if (!data_desc) {
-      ESP_LOGE(TAG, "data_desc: usb_parse_interface_descriptor failed");
-      break;
-    }
-    if (data_desc->bNumEndpoints != 2 || data_desc->bInterfaceClass != USB_CLASS_VENDOR_SPEC ||
-        data_desc->bInterfaceSubClass != 0x7) {
-      ESP_LOGE(TAG, "data_desc: bInterfaceClass == %u, bInterfaceSubClass == %u, bNumEndpoints == %u",
-               data_desc->bInterfaceClass, data_desc->bInterfaceSubClass, data_desc->bNumEndpoints);
-      continue;
-    }
-    ep_offset = conf_offset;
-    eps.in_ep = usb_parse_endpoint_descriptor_by_index(data_desc, 0, config_desc->wTotalLength, &ep_offset);
-    if (!eps.in_ep) {
-      ESP_LOGE(TAG, "in_ep: usb_parse_endpoint_descriptor_by_index failed");
-      continue;
-    }
-    ep_offset = conf_offset;
-    eps.out_ep = usb_parse_endpoint_descriptor_by_index(data_desc, 1, config_desc->wTotalLength, &ep_offset);
-    if (!eps.out_ep) {
-      ESP_LOGE(TAG, "out_ep: usb_parse_endpoint_descriptor_by_index failed");
-      continue;
-    }
-    if (!(eps.in_ep->bEndpointAddress & usb_host::USB_DIR_IN) || eps.out_ep->bEndpointAddress & usb_host::USB_DIR_IN) {
-      ESP_LOGE(TAG, "endpoints: invalid direction");
-      continue;
-    }
-    eps.interface_number = data_desc->bInterfaceNumber;
-    return eps;
-  }
-  return {};
 }
 
 /**
@@ -308,16 +343,43 @@ optional<sicom_eps_t> SicomComponent::parse_descriptors_(usb_device_handle_t dev
  * @param data The data to send. Passed by value to allow modification.
  */
 void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
-  if (this->eps_.out_ep == nullptr)
-    return;
   data.insert(data.begin(), data.size() + 1);
   data.insert(data.begin(), address);
   add_crc(data);
-  auto callback = [this](const usb_host::transfer_status_t &status) {
-    ESP_LOGV(TAG, "Send message result result: length: %u; status %X", status.data_len, status.error_code);
-  };
-  this->transfer_out(this->eps_.out_ep->bEndpointAddress, callback, data.data(), data.size());
-  if (this->debug_) {
+  // encode the message as RMT symbols
+  std::vector<rmt_symbol_word_t> symbols;
+  symbols.reserve(data.size() * 6 + 16);  // Reserve space for the symbols
+                                          // Lead-in of 4 high bits
+  symbols.push_back({.duration0 = SYMBOL_LENGTH, .level0 = 1, .duration1 = SYMBOL_LENGTH, .level1 = 1});
+  // Encode each byte in the data vector
+  bool first = true;
+  for (uint8_t byte : data) {
+    // One high state plus start bit
+    symbols.push_back({.duration0 = SYMBOL_LENGTH, .level0 = 1, .duration1 = SYMBOL_LENGTH, .level1 = 0});
+    // 8 bits of data in 4 symbols
+    for (int i = 0; i != 8; i += 2) {
+      uint8_t bits = byte >> i;
+      symbols.push_back({.duration0 = SYMBOL_LENGTH,
+                         .level0 = (bits & 0x01) != 0,
+                         .duration1 = SYMBOL_LENGTH,
+                         .level1 = (bits & 0x02) != 0});
+    }
+    // 9th bit (low) plus stop bit (high)
+    symbols.push_back({.duration0 = SYMBOL_LENGTH, .level0 = first, .duration1 = SYMBOL_LENGTH, .level1 = 1});
+    first = false;
+  }
+  symbols.push_back({.duration0 = SYMBOL_LENGTH, .level0 = 1, .duration1 = SYMBOL_LENGTH, .level1 = 1});
+  if (this->tx_enable_pin_ != nullptr) {
+    this->tx_enable_pin_->digital_write(true);
+  }
+  auto err = rmt_transmit(this->channel_, this->encoder_, symbols.data(), symbols.size() * sizeof(rmt_symbol_word_t),
+                          &this->transmit_config_);
+  if (this->tx_enable_pin_ != nullptr) {
+    this->tx_enable_pin_->digital_write(false);
+  }
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "Failed to transmit message, err=%s", esp_err_to_name(err));
+  } else if (true || this->debug_) {
     ESP_LOGD(TAG, "Sent message: %s", format_hex_pretty(data).c_str());
   }
 }
@@ -328,61 +390,6 @@ void SicomComponent::send_message_(uint8_t address, uint8_t cmd) {
   this->send_message_(address, message);
 }
 
-void SicomComponent::start_input_() {
-  if (this->eps_.in_ep == nullptr || this->input_started_)
-    return;
-  auto callback = [this](const usb_host::transfer_status_t &status) {
-    ESP_LOGV(TAG, "Transfer result: length: %u; status %X", status.data_len, status.error_code);
-    if (!status.success) {
-      ESP_LOGE(TAG, "Data transfer failed, status=%s", esp_err_to_name(status.error_code));
-      return;
-    }
-    if (this->debug_) {
-      ESP_LOGD(TAG, "Received: %s", format_hex_pretty(status.data, status.data_len).c_str());
-    }
-    ByteBuffer buffer = ByteBuffer::wrap(status.data, status.data_len, BIG);
-    if (calculateCRC16(buffer.get_data()) != 0) {
-      ESP_LOGD(TAG, "CRC Error: %s", format_hex_pretty(status.data, status.data_len).c_str());
-    } else {
-      this->process_data_(buffer);
-    }
-    this->input_started_ = false;
-    this->defer([this] { this->start_input_(); });
-  };
-  this->input_started_ = true;
-  this->transfer_in(this->eps_.in_ep->bEndpointAddress, callback, 64);
-}
-void SicomComponent::on_connected_() {
-  if (this->input_started_) {
-    this->disconnect_();
-    return;
-  }
-  auto eps = this->parse_descriptors_(this->device_handle_);
-  if (!eps) {
-    this->status_set_error("No Sicom device found");
-    this->disconnect_();
-    return;
-  }
-  auto err = usb_host_interface_claim(this->handle_, this->device_handle_, eps->interface_number, 0);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "claim interface failed: %s, intf=%d", esp_err_to_name(err), eps->interface_number);
-    this->status_set_error("usb_host_interface_claim failed");
-    this->disconnect_();
-    return;
-  }
-  this->eps_ = *eps;
-  this->start_input_();
-}
-void SicomComponent::on_disconnected_() {
-  if (this->eps_.in_ep != nullptr) {
-    usb_host_endpoint_halt(this->device_handle_, this->eps_.in_ep->bEndpointAddress);
-    usb_host_endpoint_flush(this->device_handle_, this->eps_.in_ep->bEndpointAddress);
-  }
-  usb_host_interface_release(this->handle_, this->device_handle_, this->eps_.interface_number);
-  this->input_started_ = false;
-  this->eps_ = {};
-  USBClient::on_disconnected_();
-}
 void SicomComponent::dump_config() { ESP_LOGCONFIG(TAG, "Sicom"); }
 
 }  // namespace sicom

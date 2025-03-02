@@ -2,7 +2,6 @@
 
 #include "esphome/core/component.h"
 
-#include "esphome/components/usb_host/usb_host.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/bytebuffer/bytebuffer.h"
 #include "esphome/components/uart/uart.h"
@@ -16,13 +15,13 @@ namespace sicom {
 
 using namespace bytebuffer;
 
-typedef struct {
-  const usb_ep_desc_t *in_ep;
-  const usb_ep_desc_t *out_ep;
-  uint8_t interface_number;
-} sicom_eps_t;
-
 class SicomComponent;
+
+enum DeviceState {
+  UNSEEN,
+  ENROLLING,
+  ENROLLED,
+};
 
 class SicomDevice : public PollingComponent, Parented<SicomComponent> {
  public:
@@ -59,15 +58,16 @@ class SicomDevice : public PollingComponent, Parented<SicomComponent> {
   size_t get_current_count() { return currents_.size(); }
 
   uint8_t get_id() { return id_; }
-  void set_serial_number(uint32_t serial_number) { serial_number_ = serial_number; }
-  uint32_t get_serial_number() { return serial_number_; }
-  bool is_enrolled() { return enrolled_; }
-  void set_enrolled(bool enrolled) { enrolled_ = enrolled; }
+  void set_serial_number(uint32_t serial_number) { this->serial_number_ = serial_number; }
+  uint32_t get_serial_number() { return this->serial_number_; }
+  bool is_enrolled() { return this->state_ == ENROLLED; }
+  void set_state(DeviceState state) { this->state_ = state; }
+  DeviceState get_state() { return this->state_; }
 
  protected:
   uint32_t serial_number_{};
   uint8_t id_{};
-  bool enrolled_{};
+  DeviceState state_{UNSEEN};
   std::vector<float> voltages_{};
   std::vector<float> resistances_{};
   std::vector<float> currents_{};
@@ -78,6 +78,12 @@ class SicomDevice : public PollingComponent, Parented<SicomComponent> {
 #ifdef USE_SWITCH
   std::vector<switch_::Switch *> relay_sensors_{};
 #endif  // USE_SWITCH
+};
+
+class SicomSCQ25TDevice : public SicomDevice {
+ public:
+  SicomSCQ25TDevice() : SicomDevice(2, 3, 4, 4, 1){};
+  bool decode(ByteBuffer &data) override;
 };
 
 class SicomST107Device : public SicomDevice {
@@ -100,7 +106,7 @@ class SicomSC303Device : public SicomDevice {
 
 class SicomComponent : public uart::UARTDevice, public PollingComponent {
  public:
-  //void setup() override;
+  // void setup() override;
   void loop() override;
   void setup() override;
   void update() override;
@@ -111,21 +117,25 @@ class SicomComponent : public uart::UARTDevice, public PollingComponent {
 
   void add_device(SicomDevice *device) { this->devices_.push_back(device); }
   void set_debug(bool debug) { this->debug_ = debug; }
+  void set_tx_pin(uint8_t tx_pin) { this->tx_pin_ = tx_pin; }
+  void set_tx_enable_pin(GPIOPin *tx_enable_pin) { this->tx_enable_pin_ = tx_enable_pin; }
 
  protected:
   void send_message_(uint8_t address, std::vector<uint8_t> data);
   void send_message_(uint8_t address, uint8_t cmd);
-  static optional<sicom_eps_t> parse_descriptors_(usb_device_handle_t dev_hdl);
   void start_input_();
   bool input_started_{};
   bool debug_{};
-  sicom_eps_t eps_{};
   std::vector<SicomDevice *> devices_{};
   unsigned int current_device_{};
   uint8_t tx_pin_{};
-  rmt_symbol_word_t rmt_buf_[64*11 + 16]{};
-  rmt_channel_handle_t  channel_{};
-
+  GPIOPin *tx_enable_pin_{};
+  rmt_channel_handle_t channel_{};
+  rmt_encoder_handle_t encoder_{};
+  rmt_transmit_config_t transmit_config_{};
+  uint32_t last_all_call_{};
+  std::vector<uint8_t> rx_data_{};
+  size_t next_device_{};
 };
 
 }  // namespace sicom

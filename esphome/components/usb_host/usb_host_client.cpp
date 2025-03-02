@@ -1,3 +1,5 @@
+// Should not be needed, but it's required to pass CI clang-tidy checks
+#if defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3)
 #include "usb_host.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
@@ -97,7 +99,7 @@ void usb_client_print_config_descriptor(const usb_config_desc_t *cfg_desc,
   }
 
   int offset = 0;
-  uint16_t wTotalLength = cfg_desc->wTotalLength;
+  uint16_t w_total_length = cfg_desc->wTotalLength;
   const usb_standard_desc_t *next_desc = (const usb_standard_desc_t *) cfg_desc;
 
   do {
@@ -118,7 +120,7 @@ void usb_client_print_config_descriptor(const usb_config_desc_t *cfg_desc,
         break;
     }
 
-    next_desc = usb_parse_next_descriptor(next_desc, wTotalLength, &offset);
+    next_desc = usb_parse_next_descriptor(next_desc, w_total_length, &offset);
 
   } while (next_desc != NULL);
 }
@@ -171,15 +173,6 @@ void USBClient::setup() {
     usb_host_transfer_alloc(64, 0, &trq->transfer);
     trq->client = this;
   }
-#ifdef USE_OTA
-  ota::get_global_ota_callback()->add_on_state_callback(
-      [this](ota::OTAState state, float progress, uint8_t error, ota::OTAComponent *comp) {
-        if ((state == ota::OTA_STARTED || state == ota::OTA_COMPLETED) && this->is_connected()) {
-          this->disconnect_();
-        }
-      });
-#endif
-
   ESP_LOGCONFIG(TAG, "client setup complete");
 }
 
@@ -188,23 +181,25 @@ void USBClient::loop() {
     case USB_CLIENT_OPEN: {
       int err;
       ESP_LOGD(TAG, "Open device %d", this->device_addr_);
-      if ((err = usb_host_device_open(this->handle_, this->device_addr_, &this->device_handle_)) != ESP_OK) {
+      err = usb_host_device_open(this->handle_, this->device_addr_, &this->device_handle_);
+      if (err != ESP_OK) {
         ESP_LOGW(TAG, "Device open failed: %s", esp_err_to_name(err));
         this->state_ = USB_CLIENT_INIT;
         break;
       }
       ESP_LOGD(TAG, "Get descriptor device %d", this->device_addr_);
       const usb_device_desc_t *desc;
-      if ((err = usb_host_get_device_descriptor(this->device_handle_, &desc)) != ESP_OK) {
+      err = usb_host_get_device_descriptor(this->device_handle_, &desc);
+      if (err != ESP_OK) {
         ESP_LOGW(TAG, "Device get_desc failed: %s", esp_err_to_name(err));
-        this->disconnect_();
+        this->disconnect();
       } else {
         ESP_LOGD(TAG, "Device descriptor: vid %X pid %X", desc->idVendor, desc->idProduct);
         if (desc->idVendor == this->vid_ && desc->idProduct == this->pid_ || this->vid_ == 0 && this->pid_ == 0) {
           usb_device_info_t dev_info;
           if ((err = usb_host_device_info(this->device_handle_, &dev_info)) != ESP_OK) {
             ESP_LOGW(TAG, "Device info failed: %s", esp_err_to_name(err));
-            this->disconnect_();
+            this->disconnect();
             break;
           }
           this->state_ = USB_CLIENT_CONNECTED;
@@ -223,18 +218,17 @@ void USBClient::loop() {
           if (err == ESP_OK)
             usb_client_print_config_descriptor(config_desc, nullptr);
 #endif
-          this->on_connected_();
+          this->on_connected();
         } else {
           ESP_LOGD(TAG, "Not our device, closing");
-          this->disconnect_();
+          this->disconnect();
         }
       }
       break;
     }
 
     default:
-      while (usb_host_client_handle_events(this->handle_, 1) == ESP_OK)
-        continue;
+      usb_host_client_handle_events(this->handle_, 0);
       break;
   }
 }
@@ -247,12 +241,12 @@ void USBClient::on_opened(uint8_t addr) {
 }
 void USBClient::on_removed(usb_device_handle_t handle) {
   if (this->device_handle_ == handle) {
-    this->disconnect_();
+    this->disconnect();
   }
 }
 
 static void control_callback(const usb_transfer_t *xfer) {
-  auto trq = static_cast<transfer_request_t *>(xfer->context);
+  auto *trq = static_cast<TransferRequest *>(xfer->context);
   trq->status.error_code = xfer->status;
   trq->status.success = xfer->status == USB_TRANSFER_STATUS_COMPLETED;
   trq->status.endpoint = xfer->bEndpointAddress;
@@ -263,20 +257,20 @@ static void control_callback(const usb_transfer_t *xfer) {
   trq->client->release_trq(trq);
 }
 
-transfer_request_t *USBClient::get_trq_() {
+TransferRequest *USBClient::get_trq_() {
   if (this->trq_pool_.empty()) {
     ESP_LOGE(TAG, "Too many requests queued");
     return nullptr;
   }
-  auto trq = this->trq_pool_.front();
+  auto *trq = this->trq_pool_.front();
   this->trq_pool_.pop_front();
   trq->client = this;
   trq->transfer->context = trq;
   trq->transfer->device_handle = this->device_handle_;
   return trq;
 }
-void USBClient::disconnect_() {
-  this->on_disconnected_();
+void USBClient::disconnect() {
+  this->on_disconnected();
   auto err = usb_host_device_close(this->handle_, this->device_handle_);
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Device close failed: %s", esp_err_to_name(err));
@@ -288,7 +282,7 @@ void USBClient::disconnect_() {
 
 bool USBClient::control_transfer(uint8_t type, uint8_t request, uint16_t value, uint16_t index,
                                  const transfer_cb_t &callback, const std::vector<uint8_t> &data) {
-  auto trq = this->get_trq_();
+  auto *trq = this->get_trq_();
   if (trq == nullptr)
     return false;
   auto length = data.size();
@@ -322,7 +316,7 @@ bool USBClient::control_transfer(uint8_t type, uint8_t request, uint16_t value, 
 }
 
 static void transfer_callback(usb_transfer_t *xfer) {
-  auto *trq = static_cast<transfer_request_t *>(xfer->context);
+  auto *trq = static_cast<TransferRequest *>(xfer->context);
   trq->status.error_code = xfer->status;
   trq->status.success = xfer->status == USB_TRANSFER_STATUS_COMPLETED;
   trq->status.endpoint = xfer->bEndpointAddress;
@@ -355,7 +349,7 @@ void USBClient::transfer_in(uint8_t ep_address, const transfer_cb_t &callback, u
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to submit transfer, address=%x, length=%d, err=%x", ep_address, length, err);
     this->release_trq(trq);
-    this->disconnect_();
+    this->disconnect();
   }
 }
 
@@ -391,7 +385,8 @@ void USBClient::dump_config() {
   ESP_LOGCONFIG(TAG, "  Vendor id %04X", this->vid_);
   ESP_LOGCONFIG(TAG, "  Product id %04X", this->pid_);
 }
-void USBClient::release_trq(transfer_request_t *trq) { this->trq_pool_.push_back(trq); }
+void USBClient::release_trq(TransferRequest *trq) { this->trq_pool_.push_back(trq); }
 
 }  // namespace usb_host
 }  // namespace esphome
+#endif  // USE_ESP32_VARIANT_ESP32S2 || USE_ESP32_VARIANT_ESP32S3
