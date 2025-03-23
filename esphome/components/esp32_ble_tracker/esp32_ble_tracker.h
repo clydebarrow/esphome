@@ -173,12 +173,22 @@ class ESPBTClient : public ESPBTDeviceListener {
   virtual void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) = 0;
   virtual void connect() = 0;
   virtual void disconnect() = 0;
-  virtual void set_state(ClientState st) { this->state_ = st; }
+  virtual void set_state(ClientState st) {
+    this->state_ = st;
+    if (st == ClientState::IDLE) {
+      this->want_disconnect_ = false;
+    }
+  }
   ClientState state() const { return state_; }
   int app_id;
 
  protected:
-  ClientState state_;
+  ClientState state_{ClientState::INIT};
+  // want_disconnect_ is set to true when a disconnect is requested
+  // while the client is connecting. This is used to disconnect the
+  // client as soon as we get the connection id (conn_id_) from the
+  // ESP_GATTC_OPEN_EVT event.
+  bool want_disconnect_{false};
 };
 
 class ESP32BLETracker : public Component,
@@ -229,7 +239,7 @@ class ESP32BLETracker : public Component,
   /// Called when a `ESP_GAP_BLE_SCAN_STOP_COMPLETE_EVT` event is received.
   void gap_scan_stop_complete_(const esp_ble_gap_cb_param_t::ble_scan_stop_cmpl_evt_param &param);
 
-  int app_id_;
+  int app_id_{0};
 
   /// Vector of addresses that have already been printed in print_bt_device_info
   std::vector<uint64_t> already_discovered_;
@@ -242,10 +252,10 @@ class ESP32BLETracker : public Component,
   uint32_t scan_duration_;
   uint32_t scan_interval_;
   uint32_t scan_window_;
-  uint8_t scan_start_fail_count_;
+  uint8_t scan_start_fail_count_{0};
   bool scan_continuous_;
   bool scan_active_;
-  bool scanner_idle_;
+  bool scanner_idle_{true};
   bool ble_was_disabled_{true};
   bool raw_advertisements_{false};
   bool parse_advertisements_{false};
@@ -260,6 +270,10 @@ class ESP32BLETracker : public Component,
   esp_ble_gap_cb_param_t::ble_scan_result_evt_param *scan_result_buffer_;
   esp_bt_status_t scan_start_failed_{ESP_BT_STATUS_SUCCESS};
   esp_bt_status_t scan_set_param_failed_{ESP_BT_STATUS_SUCCESS};
+  int connecting_{0};
+  int discovered_{0};
+  int searching_{0};
+  int disconnecting_{0};
 };
 
 // NOLINTNEXTLINE
