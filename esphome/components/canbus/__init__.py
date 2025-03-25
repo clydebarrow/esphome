@@ -131,6 +131,8 @@ async def register_canbus(var, config):
 
 # just adding a comment to test the workflow
 
+# Triggers
+
 
 # Actions
 @automation.register_action(
