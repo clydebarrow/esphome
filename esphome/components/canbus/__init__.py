@@ -129,6 +129,9 @@ async def register_canbus(var, config):
     await setup_canbus_core_(var, config)
 
 
+# just adding a comment to test the workflow
+
+
 # Actions
 @automation.register_action(
     "canbus.send",
