@@ -1,7 +1,6 @@
 from esphome import automation
 import esphome.codegen as cg
 
-
 import esphome.config_validation as cv
 from esphome.const import CONF_DATA, CONF_ID, CONF_TRIGGER_ID
 from esphome.core import CORE
