@@ -1,8 +1,5 @@
 import logging
 
-
-
-
 from esphome.const import (
     CONF_DISABLED_BY_DEFAULT,
     CONF_ENTITY_CATEGORY,
