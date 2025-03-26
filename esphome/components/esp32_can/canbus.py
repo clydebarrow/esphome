@@ -1,4 +1,6 @@
 from esphome import pins
+
+
 import esphome.codegen as cg
 from esphome.components import canbus
 from esphome.components.canbus import CONF_BIT_RATE, CanbusComponent, CanSpeed
