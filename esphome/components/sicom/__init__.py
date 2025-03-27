@@ -2,7 +2,12 @@ import esphome.codegen as cg
 from esphome.components.esp32 import only_on_variant
 from esphome.components.esp32.const import VARIANT_ESP32S3
 from esphome.components.sun_gtil2.text_sensor import CONF_SERIAL_NUMBER
-from esphome.components.uart import UART_DEVICE_SCHEMA, UARTDevice, register_uart_device
+from esphome.components.uart import (
+    UART_DEVICE_SCHEMA,
+    IDFUARTComponent,
+    UARTDevice,
+    register_uart_device,
+)
 import esphome.config_validation as cv
 from esphome.config_validation import polling_component_schema
 from esphome.const import (
@@ -11,6 +16,7 @@ from esphome.const import (
     CONF_INDEX,
     CONF_TX_PIN,
     CONF_TYPE,
+    CONF_UART_ID,
     CONF_UPDATE_INTERVAL,
 )
 from esphome.cpp_helpers import register_component
@@ -74,8 +80,9 @@ def validate_config(config):
 
 
 CONFIG_SCHEMA = cv.All(
-    UART_DEVICE_SCHEMA.extend(polling_component_schema("1s")).extend(
+    polling_component_schema("1s").extend(
         {
+            cv.GenerateID(CONF_UART_ID): cv.use_id(IDFUARTComponent),
             cv.GenerateID(): cv.declare_id(SicomComponent),
             cv.Required(CONF_TX_PIN): internal_gpio_output_pin_number,
             cv.Optional(CONF_TX_ENABLE_PIN): gpio_output_pin_schema,
