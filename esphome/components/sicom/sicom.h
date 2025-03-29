@@ -19,6 +19,7 @@ namespace sicom {
 
 using namespace bytebuffer;
 
+const size_t MAX_DEVICES = 30; // maximum number of messages in the queue
 class SicomComponent;
 
 enum DeviceState {
@@ -28,39 +29,48 @@ enum DeviceState {
   TALKING,
 };
 
+enum State {
+  STATE_ALL_CALL = 0,
+  STATE_CALLING,
+  STATE_ENROLLING,
+  STATE_ENROLLING_2,
+  STATE_POLLING,
+};
+
+enum DataType {
+  SIGNED16 = 8,
+  UNSIGNED16 = 9,
+  SIGNED32 = 16,
+  UNSIGNED32 = 17,
+};
+class SicomSensor {
+  public:
+  SicomSensor(sensor::Sensor *sensor, size_t offset, DataType data_type, float scale)
+      : sensor_(sensor), offset_(offset), data_type_(data_type), scale_(scale) {
+    this->length_ = (size_t)data_type / 4;
+  }
+
+  bool decode(ByteBuffer &buffer);
+  void invalidate() { this->sensor_->publish_state(NAN); }
+
+ protected:
+  sensor::Sensor *sensor_;
+  size_t offset_;
+  DataType data_type_;
+  float scale_;
+  size_t length_;
+};
+
 class SicomDevice : public PollingComponent, Parented<SicomComponent> {
  public:
-  SicomDevice(uint8_t id, size_t voltage_cnt, size_t resistance_cnt, size_t current_cnt, size_t relay_cnt);
+  SicomDevice(uint8_t id) : id_(id) {}
 
-  void add_voltage_sensor(sensor::Sensor *sensor, size_t index) {
-    if (index < this->voltage_sensors_.size()) {
-      this->voltage_sensors_[index] = sensor;
-    }
-  }
+  void add_sensor(SicomSensor *sensor) { this->sensors_.push_back(sensor); }
 
-  void add_resistance_sensor(sensor::Sensor *sensor, size_t index) {
-    if (index < this->resistance_sensors_.size()) {
-      this->resistance_sensors_[index] = sensor;
-    }
-  }
-  void add_current_sensor(sensor::Sensor *sensor, size_t index) {
-    if (index < this->current_sensors_.size()) {
-      this->current_sensors_[index] = sensor;
-    }
-  }
+  void invalidate();
 
   void update() override;
-  virtual bool decode(ByteBuffer &data) = 0;
-
-  float get_voltage(size_t index) const;
-  float get_resistance(size_t index) const;
-  float get_current(size_t index) const;
-  bool get_relay(size_t index);
-
-  size_t get_relay_count() { return relays_.size(); }
-  size_t get_voltage_count() { return voltages_.size(); }
-  size_t get_resistance_count() { return resistances_.size(); }
-  size_t get_current_count() { return currents_.size(); }
+  bool decode(ByteBuffer &data);
 
   uint8_t get_id() { return id_; }
   void set_serial_number(uint32_t serial_number) { this->serial_number_ = serial_number; }
@@ -73,40 +83,7 @@ class SicomDevice : public PollingComponent, Parented<SicomComponent> {
   uint32_t serial_number_{};
   uint8_t id_{};
   DeviceState state_{UNSEEN};
-  std::vector<float> voltages_{};
-  std::vector<float> resistances_{};
-  std::vector<float> currents_{};
-  std::vector<bool> relays_{};
-  std::vector<sensor::Sensor *> voltage_sensors_{};
-  std::vector<sensor::Sensor *> resistance_sensors_{};
-  std::vector<sensor::Sensor *> current_sensors_{};
-#ifdef USE_SWITCH
-  std::vector<switch_::Switch *> relay_sensors_{};
-#endif  // USE_SWITCH
-};
-
-class SicomSCQ25TDevice : public SicomDevice {
- public:
-  SicomSCQ25TDevice() : SicomDevice(2, 3, 4, 4, 1){};
-  bool decode(ByteBuffer &data) override;
-};
-
-class SicomST107Device : public SicomDevice {
- public:
-  SicomST107Device() : SicomDevice(3, 3, 4, 0, 1){};
-  bool decode(ByteBuffer &data) override;
-};
-
-class SicomSC301Device : public SicomDevice {
- public:
-  SicomSC301Device() : SicomDevice(0xE, 2, 1, 1, 0){};
-  bool decode(ByteBuffer &data) override;
-};
-
-class SicomSC303Device : public SicomDevice {
- public:
-  SicomSC303Device() : SicomDevice(0x10, 2, 3, 1, 0){};
-  bool decode(ByteBuffer &data) override;
+  std::vector<SicomSensor *> sensors_{};
 };
 
 class SicomComponent : public uart::UARTDevice, public PollingComponent {
@@ -116,17 +93,14 @@ class SicomComponent : public uart::UARTDevice, public PollingComponent {
   void setup() override;
   void update() override;
   std::vector<uint8_t> read_msg(uint8_t address);
-  void enrol_device_(uint32_t serial, size_t address);
+  void enrol_device_(std::vector<uint8_t> &data);
   void process_data_(ByteBuffer &buffer);
-  void process_byte_(uint8_t byte);
   void dump_config() override;
 
   void add_device(SicomDevice *device) { this->devices_.push_back(device); }
   void set_debug(bool debug) { this->debug_ = debug; }
   void set_tx_pin(uint8_t tx_pin) { this->tx_pin_ = tx_pin; }
   void set_tx_enable_pin(GPIOPin *tx_enable_pin) { this->tx_enable_pin_ = tx_enable_pin; }
-  void set_uart_parent(uart::IDFUARTComponent *parent) { this->uart_ = parent; }
-  [[noreturn]] void run_task();
 
  protected:
   void send_message_(uint8_t address, std::vector<uint8_t> data);
@@ -142,11 +116,7 @@ class SicomComponent : public uart::UARTDevice, public PollingComponent {
   rmt_encoder_handle_t encoder_{};
   rmt_transmit_config_t transmit_config_{};
   uint32_t last_all_call_{};
-  std::vector<uint8_t> rx_data_{};
-  QueueHandle_t data_queue_{};
-  uart::IDFUARTComponent *uart_{};
-  QueueHandle_t rx_queue_{};
-  uint8_t uart_num_{0xFF};
+  enum State state_{STATE_ALL_CALL};
 };
 
 }  // namespace sicom

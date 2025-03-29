@@ -1,6 +1,4 @@
 import esphome.codegen as cg
-from esphome.components.esp32 import only_on_variant
-from esphome.components.esp32.const import VARIANT_ESP32S3
 from esphome.components.sun_gtil2.text_sensor import CONF_SERIAL_NUMBER
 from esphome.components.uart import (
     UART_DEVICE_SCHEMA,
@@ -28,7 +26,8 @@ AUTO_LOAD = ["bytebuffer"]
 sicom_ns = cg.esphome_ns.namespace("sicom")
 SicomComponent = sicom_ns.class_("SicomComponent", cg.Component, UARTDevice)
 
-SicomDevice = sicom_ns.class_("SicomDevice", Component)
+SicomDevice = sicom_ns.class_("SicomDevice")
+SicomSensor = sicom_ns.class_("SicomSensor")
 
 CONF_SICOM_ID = "sicom_id"
 CONF_DEVICES = "devices"
@@ -36,21 +35,58 @@ CONF_TX_ENABLE_PIN = "tx_enable_pin"
 
 
 class SicomDeviceType:
-    def __init__(self, name, voltages=0, resistances=0, currents=0, relays=0):
+    def __init__(self, name,
+                 id,
+                 voltage_count = 0,
+                 voltage_offset = 0,
+                 voltage_size = 2,
+                 voltage_scale = .01,
+                 voltage_increment = 0,
+                 current_count = 0,
+                    current_offset = 0,
+                    current_size = 4,
+                    current_scale = .001,
+                 current_increment = 0,
+                    resistance_count = 0,
+                    resistance_offset = 0,
+                    resistance_size = 2,
+                    resistance_scale = 1.0,
+                    resistance_increment = 0,
+                 ):
+
         self.name = name
-        self.voltages = voltages
-        self.resistances = resistances
-        self.currents = currents
-        self.relays = relays
-        self.cls = sicom_ns.class_(f"Sicom{name}Device", SicomDevice, Component)
+        self.id = id
+        self.voltage_count = voltage_count
+        self.voltage_offset = voltage_offset
+        self.voltage_size = voltage_size
+        self.voltage_scale = voltage_scale
+        self.voltage_increment = voltage_increment or voltage_size
+        self.current_count = current_count
+        self.current_offset = current_offset
+        self.current_size = current_size
+        self.current_scale = current_scale
+        self.current_increment = current_increment or current_size
+        self.resistance_count = resistance_count
+        self.resistance_offset = resistance_offset
+        self.resistance_size = resistance_size
+        self.resistance_scale = resistance_scale
+        self.resistance_increment = resistance_increment or resistance_size
+
+
 
 
 SI_DEVICES = [
-    # [name, voltages, resistances, currents, relays]
-    SicomDeviceType("SCQ25T", 3, 4, 4, 1),
-    SicomDeviceType("ST107", 3, 4, 0, 1),
-    SicomDeviceType("SC301", 2, 1, 1, 0),
-    SicomDeviceType("SC303", 2, 3, 1, 0),
+    SicomDeviceType("SCQ25T", id=0x2, voltage_count=3, voltage_offset=28,
+                    current_count=4, current_offset=4, current_size=2,
+                    resistance_count = 4, resistance_offset = 34),
+    SicomDeviceType("ST107", id=3,
+                    voltage_count=4, voltage_offset=4,
+                    resistance_count=4, resistance_offset=10,),
+    SicomDeviceType("SC301", id= 0xE, voltage_count=2, voltage_offset=13, voltage_increment= 3,
+                    current_count=1, current_offset=4),
+    SicomDeviceType("SC303", id= 0x10, voltage_count=2, voltage_offset=14,
+                    resistance_count=3, resistance_offset=18,
+                    current_count=1, current_offset=4),
 ]
 
 SI_DEVICES_MAP = {stype.name: stype for stype in SI_DEVICES}
@@ -91,7 +127,7 @@ CONFIG_SCHEMA = cv.All(
                     {
                         stype.name: cv.polling_component_schema("5s").extend(
                             {
-                                cv.Required(CONF_ID): cv.declare_id(stype.cls),
+                                cv.Required(CONF_ID): cv.declare_id(SicomDevice),
                                 cv.Optional(CONF_SERIAL_NUMBER, default=0): cv.uint32_t,
                             }
                         )
