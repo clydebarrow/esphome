@@ -2,7 +2,11 @@ import esphome.codegen as cg
 from esphome.components import sensor
 from esphome.components.ags10.sensor import CONF_RESISTANCE
 from esphome.components.daly_bms.sensor import ICON_CURRENT_DC
-from esphome.components.sicom import SICOM_SENSOR_SCHEMA
+from esphome.components.sicom import (
+    CONF_SICOM_SENSOR_ID,
+    SICOM_SENSOR_SCHEMA,
+    sicom_devices,
+)
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_CURRENT,
@@ -37,8 +41,18 @@ CONFIG_SCHEMA = cv.typed_schema(
 
 
 async def to_code(config):
+    device = sicom_devices[config[CONF_DEVICE]]
+    sensors = device.sensors[config[CONF_TYPE]]
+    index = config[CONF_INDEX]
+    if index >= len(sensors):
+        raise cv.Invalid(
+            f"Sensor index {index} is greater than the number of sensors ({device.sensor_count}) for device {device.name}"
+        )
+    stype = sensors[index]
     var = await sensor.new_sensor(config)
+    sicom_sensor_var = cg.new_Pvariable(
+        config[CONF_SICOM_SENSOR_ID], var, stype.offset, stype.data_type, stype.scale
+    )
     paren = await cg.get_variable(config[CONF_DEVICE])
-    stype = config[CONF_TYPE]
-    cg.add(getattr(paren, f"add_{stype}_sensor")(var, config[CONF_INDEX]))
+    cg.add(paren.add_sensor(sicom_sensor_var))
     return var

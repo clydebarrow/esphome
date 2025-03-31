@@ -9,12 +9,6 @@ static const char *TAG = "sicom";
 static const uint32_t BAUD_RATE = 115200;
 static const uint16_t SYMBOL_LENGTH = 16;
 
-static float decode_voltage(ByteBuffer &data, size_t offset) { return (data.get<int16_t>(offset) * 0.001f); }
-static float decode_resistance(ByteBuffer &data, size_t offset) { return data.get<uint16_t>(offset); }
-static float decode_current(ByteBuffer &data, size_t offset) { return data.get<uint32_t>(offset) * 0.01f; }
-static float not_set = nanf("");
-static void unset(std::vector<float> &vec) { std::fill(vec.begin(), vec.end(), not_set); }
-
 static const uint16_t crc_table[256] = {
     0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf, 0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5,
     0xe97e, 0xf8f7, 0x0919, 0x1890, 0x2a0b, 0x3b82, 0x4f3d, 0x5eb4, 0x6c2f, 0x7da6, 0x8551, 0x94d8, 0xa643, 0xb7ca,
@@ -46,13 +40,6 @@ static uint16_t calculateCRC16(const std::vector<uint8_t> &data) {
   return crc;
 }
 
-static void add_crc(std::vector<uint8_t> &data) {
-  data[1] = data.size() + 1;
-  auto crc = calculateCRC16(data);
-  data.push_back(crc >> 8);
-  data.push_back(crc & 0xFF);
-}
-
 static const uint8_t BROADCAST_ADDRESS = 0xFA;
 static const uint8_t REQUEST_DATA_MSG = 0x0A;
 static const uint8_t REPLY_DATA_MSG = 0xA0;
@@ -60,17 +47,26 @@ static const uint8_t ALL_CALL_MSG = 0x31;
 static const uint8_t ENTROL_MSG = 0x20;
 static const uint8_t DEVICE_HELLO = 0xC0;
 static const uint8_t DEVICE_ACK = 0xC1;
-static const uint8_t MAX_ADDRESS = 32;
 
 static const size_t MAX_MSG_LEN = 64;
 static const size_t MIN_MSG_LEN = 5;
+static const size_t ADDR_OFFS = 0;
 static const size_t LEN_OFFS = 1;
+static const size_t TYPE_OFFs = 2;
+static const size_t CMD_OFFS = 3;
+
+static void add_crc(std::vector<uint8_t> &data) {
+  data[LEN_OFFS] = data.size() + 1;
+  auto crc = calculateCRC16(data);
+  data.push_back(crc >> 8);
+  data.push_back(crc & 0xFF);
+}
 
 bool SicomSensor::decode(ByteBuffer &buffer) {
   if (buffer.get_limit() < this->offset_ + this->length_) {
     return false;
   }
-  float value = not_set;
+  float value = NAN;
   switch (this->data_type_) {
     case SIGNED16:
       value = buffer.get_int16(this->offset_) * this->scale_;
@@ -96,116 +92,6 @@ void SicomDevice::invalidate() {
   for (auto &sensor : this->sensors_) {
     sensor->invalidate();
   }
-}
-void SicomDevice::update() {
-  size_t i = 0;
-  for (auto &sensor : this->voltage_sensors_) {
-    if (sensor)
-      sensor->publish_state(this->get_voltage(i++));
-  }
-  i = 0;
-  for (auto &sensor : this->resistance_sensors_) {
-    if (sensor)
-      sensor->publish_state(this->get_resistance(i++));
-  }
-  i = 0;
-  for (auto &sensor : this->current_sensors_) {
-    if (sensor)
-      sensor->publish_state(this->get_current(i++));
-  }
-  unset(this->voltages_);
-  unset(this->resistances_);
-  unset(this->currents_);
-}
-
-float SicomDevice::get_voltage(size_t index) const {
-  if (index >= this->voltages_.size()) {
-    return not_set;
-  }
-  return voltages_[index];
-}
-float SicomDevice::get_resistance(size_t index) const {
-  if (index >= this->resistances_.size()) {
-    return not_set;
-  }
-  return resistances_[index];
-}
-float SicomDevice::get_current(size_t index) const {
-  if (index >= this->resistances_.size()) {
-    return not_set;
-  }
-  return currents_[index];
-}
-bool SicomDevice::get_relay(size_t index) {
-  if (index >= this->resistances_.size()) {
-    return false;
-  }
-  return relays_[index];
-}
-// 01:2C:02:A0:00:00:00:00:00:00:00:00:00:00:00:12:00:00:00:12:00:00:00:12:00:00:00:12:FF:ED:FF:EC:FF:EC:FF:FF:FF:FF:FF:FF:FF:FF:00:A4:6C
-bool SicomSCQ25TDevice::decode(ByteBuffer &data) {
-  if (data.get_limit() != 45)
-    return false;
-  for (size_t i = 0; i != this->voltages_.size(); i++) {
-    this->voltages_[i] = decode_voltage(data, 28 + i * 2);
-  }
-  for (size_t i = 0; i != this->currents_.size(); i++) {
-    this->currents_[i] = data.get<int16_t>(4 + i * 2) * .01f;
-  }
-  for (size_t i = 0; i != this->resistances_.size(); i++) {
-    this->resistances_[i] = decode_resistance(data, 34 + i * 2);
-  }
-  this->state_ = TALKING;
-  return true;
-}
-
-//[16:15:25][I][sicom:095]: Received Slave message: 01.14.03.A0.00.25.0A.28.FF.FF.25.EE.FF.FF.FF.FF.FF.FF.00.E9.0A (21)
-bool SicomST107Device::decode(ByteBuffer &data) {
-  if (data.get_limit() != 21)
-    return false;
-  for (size_t i = 0; i != this->voltages_.size(); i++) {
-    this->voltages_[i] = decode_voltage(data, 4 + i * 2);
-  }
-  for (size_t i = 0; i != this->resistances_.size(); i++) {
-    this->resistances_[i] = decode_resistance(data, 10 + i * 2);
-  }
-  this->relays_[0] = data.get_uint8(18);
-  this->state_ = TALKING;
-  return true;
-}
-
-//  [16:15:44][I][sicom:095]: Received Slave message:
-//  02.17.0E.A0.FF.FF.FF.FC.04.E8.3C.7C.00.08.66.00.0C.9C.28.67.28.67.1A.96 (24)
-bool SicomSC301Device::decode(ByteBuffer &data) {
-  if (data.get_limit() != 24)
-    return false;
-  this->currents_[0] = decode_current(data, 4);
-  this->voltages_[0] = decode_voltage(data, 13);
-  this->voltages_[1] = decode_voltage(data, 16);
-  this->state_ = TALKING;
-  return true;
-}
-
-// [16:15:45][I][sicom:095]: Received Slave message:
-// 01.19.10.A0.00.00.01.26.00.13.5C.4A.00.00.00.00.34.4D.25.4C.FF.FF.44.CA.66.27 (26)
-bool SicomSC303Device::decode(ByteBuffer &data) {
-  if (data.get_limit() != 26)
-    return false;
-  for (size_t i = 0; i != this->resistances_.size(); i++) {
-    this->resistances_[i] = decode_resistance(data, 18 + i * 2);
-  }
-  this->currents_[0] = decode_current(data, 4);
-  this->voltages_[0] = decode_voltage(data, 14);
-  this->voltages_[1] = decode_voltage(data, 16);
-  this->state_ = TALKING;
-  return true;
-}
-
-void SicomComponent::loop() {}
-
-static void sicomTask(void *arg) {
-  SicomComponent *sicom = (SicomComponent *) arg;
-  sicom->run_task();
 }
 void SicomComponent::setup() {
   if (this->tx_enable_pin_ != nullptr) {
@@ -245,20 +131,30 @@ void SicomComponent::setup() {
   this->transmit_config_.flags.queue_nonblocking = false;
 }
 
+bool SicomComponent::try_read_(uint8_t *data) {
+  if (this->available() == 0)
+    return false;
+  this->read_array(data, 1);
+  return true;
+}
+
 // Try to read a message, starting with the given address
 // If the address is not found, return an empty vector
-// This should be called after a delay to allow the data to have been buffered
-std::vector<uint8_t> SicomComponent::read_msg(uint8_t address) {
+std::vector<uint8_t> SicomComponent::read_message_(uint8_t address) {
   uint8_t byte = 0xFF;
   std::vector<uint8_t> buffer{};
+  auto available = this->available();
+  if (this->available() < MIN_MSG_LEN) {
+    return {};
+  }
   for (;;) {
-    if (!this->read_byte(&byte))
+    if (!this->try_read_(&byte))
       return {};
-    if (byte == address) {
-      break;
+    if (byte != address) {
+      continue;
     }
     // get the message length
-    if (!this->read_byte(&byte))
+    if (!this->try_read_(&byte))
       return {};
     if (byte >= MIN_MSG_LEN && byte <= MAX_MSG_LEN)
       break;
@@ -267,110 +163,147 @@ std::vector<uint8_t> SicomComponent::read_msg(uint8_t address) {
   buffer.push_back(byte);
   auto len = byte;
   while (--len != 0) {
-    if (!this->read_byte(&byte))
+    if (!this->try_read_(&byte))
       return {};
     buffer.push_back(byte);
   }
-  ESP_LOGD(TAG, "Received message: %s", format_hex_pretty(buffer).c_str());
+  if (this->debug_)
+    ESP_LOGD(TAG, "Received message: %s", format_hex_pretty(buffer).c_str());
   if (calculateCRC16(buffer) == 0)
     return buffer;
   return {};
 }
 
-void SicomComponent::enrol_device_(std::vector<uint8_t> &data) {
-    if (data.size() == 10 && data[3] == DEVICE_HELLO) {
-      auto buffer = ByteBuffer::wrap(data, LITTLE);
-      auto serial = buffer.get_uint32(4);
-      auto id = buffer.get_uint8(2);
-      ESP_LOGD(TAG, "Device Hello: id=%02X, serial=%08lX", id, serial);
-      for (auto i = 0; i != this->devices_.size(); i++) {
-        auto device = this->devices_[i];
-        auto device_serial = device->get_serial_number();
-        if (device->get_id() == id && (device_serial == 0 || device_serial == serial)) {
-          ESP_LOGD(TAG, "Device found: address=%u, id=%02X, serial=%08lX", i + 1, id, serial);
-          device->set_serial_number(serial);
-          ByteBuffer message = ByteBuffer(6, BIG);
-          message.put_uint8(ENTROL_MSG);
-          message.put_uint32(serial);
-          message.put_uint8(i + 1);
-          this->send_message_(BROADCAST_ADDRESS, message.get_data());
+void SicomComponent::send_enrol_message_() {
+  auto device = this->devices_[this->next_device_];
+  ByteBuffer message = ByteBuffer(6, BIG);
+  message.put_uint8(ENTROL_MSG);
+  message.put_uint32(device->get_serial_number());
+  message.put_uint8(this->next_device_ + 1);
+  this->send_message_(BROADCAST_ADDRESS, message.get_data());
 }
+void SicomComponent::enrol_device_(std::vector<uint8_t> &data) {
+  if (data.size() == 10 && data[3] == DEVICE_HELLO) {
+    auto buffer = ByteBuffer::wrap(data, LITTLE);
+    auto serial = buffer.get_uint32(4);
+    auto id = buffer.get_uint8(2);
+    ESP_LOGD(TAG, "Device Hello: id=%02X, serial=%08lX", id, serial);
+    for (auto i = 0; i != this->devices_.size(); i++) {
+      auto device = this->devices_[i];
+      auto device_serial = device->get_serial_number();
+      if (device->get_id() == id && (device_serial == 0 || device_serial == serial)) {
+        device->set_serial_number(serial);
+        this->next_device_ = i;
+        ESP_LOGD(TAG, "Device found: address=%u, id=%02X, serial=%08lX", i + 1, id, serial);
+        device->set_serial_number(serial);
+        this->send_enrol_message_();
+        break;
+      }
+    }
+  }
+}
+
+bool SicomComponent::confirm_enrolment_(const std::vector<uint8_t> &data) {
+  if (data.size() == 10 && data[3] == DEVICE_ACK) {
+    auto buffer = ByteBuffer::wrap(data, LITTLE);
+    auto id = buffer.get_uint8(2);
+    auto serial = buffer.get_uint32(4);
+    auto device = this->devices_[this->next_device_];
+    if (device->get_id() == id && device->get_serial_number() == serial) {
+      device->set_state(ENROLLED);
+      return true;
+    }
+  }
+  return false;
+}
+
+void SicomComponent::send_poll_() {
+  auto device = this->devices_[this->next_device_];
+  if (device->is_enrolled()) {
+    this->send_message_(this->next_device_ + 1, REQUEST_DATA_MSG);
+  }
+}
+
 void SicomComponent::update() {
+  ESP_LOGVV(TAG, "Updating Sicom device with state %d", this->state_);
+  auto elapsed = millis() - this->last_all_call_;
   switch (this->state_) {
     case STATE_ALL_CALL:
+      this->last_all_call_ = millis();
       this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
       this->state_ = STATE_CALLING;
       return;
 
     case STATE_CALLING: {
-      auto data = this->read_msg(BROADCAST_ADDRESS);
+      auto data = this->read_message_(BROADCAST_ADDRESS);
       if (data.empty()) {
-        this->state_ = STATE_POLLING;
+        this->state_ = STATE_POLL_START;
+        this->next_device_ = 0;
         return;
       }
       this->enrol_device_(data);
+      this->state_ = STATE_ENROLLING;
+      return;
+    }
 
+    case STATE_ENROLLING:
+    case STATE_ENROLLING_2: {
+      auto data = this->read_message_(this->next_device_ + 1);
+      if (data.empty()) {
+        this->send_enrol_message_();
+        this->state_ = STATE_ENROLLING_2;
+        return;
+      }
+      if (this->confirm_enrolment_(data) || this->state_ == STATE_ENROLLING_2) {
+        this->state_ = STATE_POLL_START;
+        this->next_device_ = 0;
+      } else {
+        this->state_ = STATE_ENROLLING_2;
+      }
+      return;
+    }
+
+    case STATE_POLL_START:
+      this->state_ = STATE_POLLING;
+      this->next_device_ = 0;
+      this->send_poll_();
+      return;
+
+    case STATE_POLLING:
       break;
-    }
-
-
-    default:;
   }
-
-  this->last_all_call_ = millis();
-  for (;;) {
-    int32_t remaining = this->last_all_call_ + 1000 - millis();
-    ESP_LOGD(TAG, "Delaying for %d ms", remaining);
-    if (remaining > 0)
-      delay(remaining);
-    this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
-    this->last_all_call_ = millis();
-    auto data = this->read_msg(BROADCAST_ADDRESS);
-    // process a device HELLO message
-          data = this->read_msg(i + 1);
-          if (data.empty()) {
-            this->send_message_(BROADCAST_ADDRESS, message.get_data());
-            data = this->read_msg(i + 1);
-          }
-          ESP_LOGD(TAG, "Received data message: %s", format_hex_pretty(data).c_str());
-          if (data.size() == 10 && data[3] == DEVICE_ACK) {
-            device->set_state(ENROLLED);
-          }
-          break;
-        }
-        i++;
-      }
-    }
-    for (auto i = 0; i != this->devices_.size(); i++) {
-      auto device = this->devices_[i];
-      if (device->get_state() == ENROLLED) {
-        this->send_message_(i + 1, REQUEST_DATA_MSG);
-        auto dev_data = this->read_msg(i + 1);
-        if (dev_data.size() != 0) {
-          ESP_LOGD(TAG, "Received data message: %s", format_hex_pretty(dev_data).c_str());
-          xQueueSend(this->rx_queue_, &dev_data, portMAX_DELAY);
-        }
-      }
-      delay(20);
-    }
-  }
-}
-
-void SicomComponent::process_data_(ByteBuffer &buffer) {
-  ESP_LOGV(TAG, "Received data message: %s", format_hex_pretty(buffer.get_data()).c_str());
-  uint8_t address = buffer.get_uint8(0);
-  uint8_t id = buffer.get_uint8(2);
-  uint8_t cmd = buffer.get_uint8(3);
-  if (cmd == REPLY_DATA_MSG && address > 0 && address <= this->devices_.size()) {
-    auto device = this->devices_[address - 1];
-    // [14:00:39][D][sicom:296]: Received: 03.09.0E.C1.B4.6D.65.24.1E.43 (10)
-    ESP_LOGV(TAG, "data message: id=%02X, address=%02X, data=%s", id, address,
-             format_hex_pretty(buffer.get_data()).c_str());
-    device->decode(buffer);
+  // restart the state sequence once per second
+  if (elapsed > 1000) {
+    this->state_ = STATE_ALL_CALL;
     return;
   }
-  ESP_LOGD(TAG, "No device found for message: id=%02X, address=%02X, data=%s", id, address,
-           format_hex_pretty(buffer.get_data()).c_str());
+  // any more devices to poll?
+  if (this->next_device_ == this->devices_.size())
+    return;
+
+  auto device = this->devices_[this->next_device_++];
+  if (device->is_enrolled()) {
+    auto data = this->read_message_(this->next_device_);
+    if (!data.empty()) {
+      ESP_LOGV(TAG, "Received data message: %s", format_hex_pretty(data).c_str());
+      if (data[CMD_OFFS] == REPLY_DATA_MSG) {
+        device->decode(data);
+      } else {
+        ESP_LOGD(TAG, "Unknown cmd: %02X for device %d", data[CMD_OFFS], this->next_device_);
+      }
+    } else {
+      device->invalidate();
+    }
+  }
+  if (this->next_device_ != this->devices_.size())
+    this->send_poll_();
+}
+
+void SicomDevice::decode(std::vector<uint8_t> &data) {
+  auto buffer = ByteBuffer::wrap(data, BIG);
+  for (auto *sensor : this->sensors_) {
+    sensor->decode(buffer);
+  }
 }
 
 /**
@@ -410,6 +343,11 @@ void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
   if (this->tx_enable_pin_ != nullptr) {
     this->tx_enable_pin_->digital_write(true);
   }
+  // flush the input buffer
+  auto buffered = this->available();
+  uint8_t byte;
+  while (buffered--)
+    this->read_byte(&byte);
   auto err = rmt_transmit(this->channel_, this->encoder_, symbols.data(), symbols.size() * sizeof(rmt_symbol_word_t),
                           &this->transmit_config_);
   rmt_tx_wait_all_done(this->channel_, 10);
@@ -418,7 +356,7 @@ void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
   }
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to transmit message, err=%s", esp_err_to_name(err));
-  } else if (true || this->debug_) {
+  } else if (this->debug_) {
     ESP_LOGD(TAG, "Sent message: %s", format_hex_pretty(data).c_str());
   }
 }
