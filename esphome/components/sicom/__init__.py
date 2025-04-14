@@ -1,5 +1,6 @@
 import esphome.codegen as cg
 from esphome.components.ags10.sensor import CONF_RESISTANCE
+from esphome.components.binary_sensor import binary_sensor_schema, new_binary_sensor
 from esphome.components.sun_gtil2.text_sensor import CONF_SERIAL_NUMBER
 from esphome.components.uart import IDFUARTComponent, UARTDevice, register_uart_device
 import esphome.config_validation as cv
@@ -9,16 +10,19 @@ from esphome.const import (
     CONF_DEVICE,
     CONF_ID,
     CONF_INDEX,
+    CONF_STATUS,
     CONF_TX_PIN,
     CONF_TYPE,
     CONF_UART_ID,
     CONF_VOLTAGE,
+    DEVICE_CLASS_CONNECTIVITY,
+    ENTITY_CATEGORY_DIAGNOSTIC,
 )
 from esphome.cpp_helpers import register_component
 from esphome.pins import gpio_output_pin_schema, internal_gpio_output_pin_number
 
 DEPENDENCIES = ["uart"]
-AUTO_LOAD = ["bytebuffer"]
+AUTO_LOAD = ["bytebuffer", "sensor", "binary_sensor"]
 sicom_ns = cg.esphome_ns.namespace("sicom")
 SicomComponent = sicom_ns.class_("SicomComponent", cg.Component, UARTDevice)
 
@@ -191,6 +195,10 @@ CONFIG_SCHEMA = cv.All(
                             stype.name: cv.Schema(
                                 {
                                     cv.Required(CONF_ID): cv.declare_id(SicomDevice),
+                                    cv.Optional(CONF_STATUS): binary_sensor_schema(
+                                        device_class=DEVICE_CLASS_CONNECTIVITY,
+                                        entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+                                    ),
                                     cv.Optional(
                                         CONF_SERIAL_NUMBER, default=0
                                     ): cv.uint32_t,
@@ -225,3 +233,6 @@ async def to_code(config):
         if serial_number := device.get(CONF_SERIAL_NUMBER):
             cg.add(device_var.set_serial_number(serial_number))
         cg.add(var.add_device(device_var))
+        if status := device.get(CONF_STATUS):
+            sens = await new_binary_sensor(status)
+            cg.add(device_var.set_status_sensor(sens))

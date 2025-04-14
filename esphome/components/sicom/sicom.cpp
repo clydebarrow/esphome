@@ -92,7 +92,10 @@ void SicomDevice::invalidate() {
   for (auto &sensor : this->sensors_) {
     sensor->invalidate();
   }
+  if (this->status_sensor_ != nullptr)
+    this->status_sensor_->publish_state(false);
 }
+
 void SicomComponent::setup() {
   if (this->tx_enable_pin_ != nullptr) {
     this->tx_enable_pin_->setup();
@@ -225,7 +228,6 @@ void SicomComponent::send_poll_() {
 }
 
 void SicomComponent::update() {
-  ESP_LOGVV(TAG, "Updating Sicom device with state %d", this->state_);
   auto elapsed = millis() - this->last_all_call_;
   switch (this->state_) {
     case STATE_ALL_CALL:
@@ -304,6 +306,8 @@ void SicomDevice::decode(std::vector<uint8_t> &data) {
   for (auto *sensor : this->sensors_) {
     sensor->decode(buffer);
   }
+  if (this->status_sensor_ != nullptr)
+    this->status_sensor_->publish_state(true);
 }
 
 /**

@@ -5,6 +5,7 @@
 #include "esphome/core/component.h"
 
 #include "esphome/components/sensor/sensor.h"
+#include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/bytebuffer/bytebuffer.h"
 #include "esphome/components/uart/uart.h"
 
@@ -64,6 +65,7 @@ class SicomDevice {
   SicomDevice(uint8_t id) : id_(id) {}
 
   void add_sensor(SicomSensor *sensor) { this->sensors_.push_back(sensor); }
+  void set_status_sensor(binary_sensor::BinarySensor *status_sensor) { this->status_sensor_ = status_sensor; }
 
   void invalidate();
 
@@ -81,6 +83,7 @@ class SicomDevice {
   uint8_t id_;
   DeviceState state_{UNSEEN};
   std::vector<SicomSensor *> sensors_{};
+  binary_sensor::BinarySensor *status_sensor_{nullptr};
 };
 
 class SicomComponent : public uart::UARTDevice, public PollingComponent {

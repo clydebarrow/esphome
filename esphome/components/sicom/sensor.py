@@ -41,6 +41,7 @@ CONFIG_SCHEMA = cv.typed_schema(
 
 
 async def to_code(config):
+    paren = await cg.get_variable(config[CONF_DEVICE])
     device = sicom_devices[config[CONF_DEVICE]]
     sensors = device.sensors[config[CONF_TYPE]]
     index = config[CONF_INDEX]
@@ -53,6 +54,5 @@ async def to_code(config):
     sicom_sensor_var = cg.new_Pvariable(
         config[CONF_SICOM_SENSOR_ID], var, stype.offset, stype.data_type, stype.scale
     )
-    paren = await cg.get_variable(config[CONF_DEVICE])
     cg.add(paren.add_sensor(sicom_sensor_var))
     return var
