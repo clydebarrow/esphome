@@ -3,13 +3,12 @@
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/voltage_sampler/voltage_sampler.h"
 #include "esphome/core/component.h"
-#include "esphome/core/defines.h"
 #include "esphome/core/hal.h"
 
 #ifdef USE_ESP32
 #include <esp_adc_cal.h>
 #include "driver/adc.h"
-#endif
+#endif  // USE_ESP32
 
 namespace esphome {
 namespace adc {
@@ -29,6 +28,21 @@ static const adc_atten_t ADC_ATTEN_DB_12_COMPAT = ADC_ATTEN_DB_11;
 #endif
 #endif  // USE_ESP32
 
+enum class SamplingMode : uint8_t { AVG = 0, MIN = 1, MAX = 2 };
+const LogString *sampling_mode_to_str(SamplingMode mode);
+
+class Aggregator {
+ public:
+  void add_sample(uint32_t value);
+  uint32_t aggregate();
+  Aggregator(SamplingMode mode);
+
+ protected:
+  SamplingMode mode_{SamplingMode::AVG};
+  uint32_t aggr_{0};
+  uint32_t samples_{0};
+};
+
 class ADCSensor : public sensor::Sensor, public PollingComponent, public voltage_sampler::VoltageSampler {
  public:
 #ifdef USE_ESP32
@@ -43,7 +57,7 @@ class ADCSensor : public sensor::Sensor, public PollingComponent, public voltage
     this->channel1_ = ADC1_CHANNEL_MAX;
   }
   void set_autorange(bool autorange) { this->autorange_ = autorange; }
-#endif
+#endif  // USE_ESP32
 
   /// Update ADC values
   void update() override;
@@ -55,24 +69,26 @@ class ADCSensor : public sensor::Sensor, public PollingComponent, public voltage
   void set_pin(InternalGPIOPin *pin) { this->pin_ = pin; }
   void set_output_raw(bool output_raw) { this->output_raw_ = output_raw; }
   void set_sample_count(uint8_t sample_count);
+  void set_sampling_mode(SamplingMode sampling_mode);
   float sample() override;
 
 #ifdef USE_ESP8266
   std::string unique_id() override;
-#endif
+#endif  // USE_ESP8266
 
 #ifdef USE_RP2040
   void set_is_temperature() { this->is_temperature_ = true; }
-#endif
+#endif  // USE_RP2040
 
  protected:
   InternalGPIOPin *pin_;
   bool output_raw_{false};
   uint8_t sample_count_{1};
+  SamplingMode sampling_mode_{SamplingMode::AVG};
 
 #ifdef USE_RP2040
   bool is_temperature_{false};
-#endif
+#endif  // USE_RP2040
 
 #ifdef USE_ESP32
   adc_atten_t attenuation_{ADC_ATTEN_DB_0};
@@ -83,8 +99,8 @@ class ADCSensor : public sensor::Sensor, public PollingComponent, public voltage
   esp_adc_cal_characteristics_t cal_characteristics_[SOC_ADC_ATTEN_NUM] = {};
 #else
   esp_adc_cal_characteristics_t cal_characteristics_[ADC_ATTEN_MAX] = {};
-#endif
-#endif
+#endif  // ESP_IDF_VERSION_MAJOR
+#endif  // USE_ESP32
 };
 
 }  // namespace adc

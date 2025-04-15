@@ -40,7 +40,7 @@ bool Nextion::send_command_(const std::string &command) {
 }
 
 bool Nextion::check_connect_() {
-  if (this->get_is_connected_())
+  if (this->is_connected_)
     return true;
 
   // Check if the handshake should be skipped for the Nextion connection
@@ -190,6 +190,10 @@ void Nextion::add_touch_event_callback(std::function<void(uint8_t, uint8_t, bool
   this->touch_callback_.add(std::move(callback));
 }
 
+void Nextion::add_buffer_overflow_event_callback(std::function<void()> &&callback) {
+  this->buffer_overflow_callback_.add(std::move(callback));
+}
+
 void Nextion::update_all_components() {
   if ((!this->is_setup() && !this->ignore_is_setup_) || this->is_sleeping())
     return;
@@ -269,19 +273,13 @@ void Nextion::loop() {
     this->sent_setup_commands_ = true;
     this->send_command_("bkcmd=3");  // Always, returns 0x00 to 0x23 result of serial command.
 
-    this->set_backlight_brightness(this->brightness_);
+    if (this->brightness_.has_value()) {
+      this->set_backlight_brightness(this->brightness_.value());
+    }
 
     // Check if a startup page has been set and send the command
     if (this->start_up_page_ != -1) {
       this->goto_page(this->start_up_page_);
-    }
-
-    // This could probably be removed from the loop area, as those are redundant.
-    this->set_auto_wake_on_touch(this->auto_wake_on_touch_);
-    this->set_exit_reparse_on_start(this->exit_reparse_on_start_);
-
-    if (this->touch_sleep_timeout_ != 0) {
-      this->set_touch_sleep_timeout(this->touch_sleep_timeout_);
     }
 
     if (this->wake_up_page_ != -1) {
@@ -339,7 +337,7 @@ void Nextion::process_serial_() {
 }
 // nextion.tech/instruction-set/
 void Nextion::process_nextion_commands_() {
-  if (this->command_data_.length() == 0) {
+  if (this->command_data_.empty()) {
     return;
   }
 
@@ -458,7 +456,9 @@ void Nextion::process_nextion_commands_() {
         this->remove_from_q_();
         break;
       case 0x24:  //  Serial Buffer overflow occurs
-        ESP_LOGW(TAG, "Nextion reported Serial Buffer overflow!");
+        // Buffer will continue to receive the current instruction, all previous instructions are lost.
+        ESP_LOGE(TAG, "Nextion reported Serial Buffer overflow!");
+        this->buffer_overflow_callback_.call();
         break;
       case 0x65: {  // touch event return data
         if (to_process_length != 3) {
@@ -557,13 +557,10 @@ void Nextion::process_nextion_commands_() {
           break;
         }
 
-        int dataindex = 0;
-
         int value = 0;
 
         for (int i = 0; i < 4; ++i) {
           value += to_process[i] << (8 * i);
-          ++dataindex;
         }
 
         NextionQueue *nb = this->nextion_queue_.front();

@@ -165,7 +165,7 @@ class MQTTClientComponent : public Component {
    *
    * @param topic_prefix The topic prefix. The last "/" is appended automatically.
    */
-  void set_topic_prefix(const std::string &topic_prefix);
+  void set_topic_prefix(const std::string &topic_prefix, const std::string &check_topic_prefix);
   /// Get the topic prefix of this device, using default if necessary
   const std::string &get_topic_prefix() const;
 
@@ -263,6 +263,10 @@ class MQTTClientComponent : public Component {
   void set_on_connect(mqtt_on_connect_callback_t &&callback);
   void set_on_disconnect(mqtt_on_disconnect_callback_t &&callback);
 
+  // Publish None state instead of NaN for Home Assistant
+  void set_publish_nan_as_none(bool publish_nan_as_none);
+  bool is_publish_nan_as_none() const;
+
  protected:
   void send_device_info_();
 
@@ -328,6 +332,8 @@ class MQTTClientComponent : public Component {
   uint32_t connect_begin_;
   uint32_t last_connected_{0};
   optional<MQTTClientDisconnectReason> disconnect_reason_{};
+
+  bool publish_nan_as_none_{false};
 };
 
 extern MQTTClientComponent *global_mqtt_client;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)

@@ -59,6 +59,36 @@ void PrometheusHandler::handleRequest(AsyncWebServerRequest *req) {
     this->text_sensor_row_(stream, obj, area, node, friendly_name);
 #endif
 
+#ifdef USE_NUMBER
+  this->number_type_(stream);
+  for (auto *obj : App.get_numbers())
+    this->number_row_(stream, obj, area, node, friendly_name);
+#endif
+
+#ifdef USE_SELECT
+  this->select_type_(stream);
+  for (auto *obj : App.get_selects())
+    this->select_row_(stream, obj, area, node, friendly_name);
+#endif
+
+#ifdef USE_MEDIA_PLAYER
+  this->media_player_type_(stream);
+  for (auto *obj : App.get_media_players())
+    this->media_player_row_(stream, obj, area, node, friendly_name);
+#endif
+
+#ifdef USE_UPDATE
+  this->update_entity_type_(stream);
+  for (auto *obj : App.get_updates())
+    this->update_entity_row_(stream, obj, area, node, friendly_name);
+#endif
+
+#ifdef USE_VALVE
+  this->valve_type_(stream);
+  for (auto *obj : App.get_valves())
+    this->valve_row_(stream, obj, area, node, friendly_name);
+#endif
+
   req->send(stream);
 }
 
@@ -507,6 +537,289 @@ void PrometheusHandler::text_sensor_row_(AsyncResponseStream *stream, text_senso
     stream->print(F("\",name=\""));
     stream->print(relabel_name_(obj).c_str());
     stream->print(F("\"} 1\n"));
+  }
+}
+#endif
+
+// Type-specific implementation
+#ifdef USE_NUMBER
+void PrometheusHandler::number_type_(AsyncResponseStream *stream) {
+  stream->print(F("#TYPE esphome_number_value gauge\n"));
+  stream->print(F("#TYPE esphome_number_failed gauge\n"));
+}
+void PrometheusHandler::number_row_(AsyncResponseStream *stream, number::Number *obj, std::string &area,
+                                    std::string &node, std::string &friendly_name) {
+  if (obj->is_internal() && !this->include_internal_)
+    return;
+  if (!std::isnan(obj->state)) {
+    // We have a valid value, output this value
+    stream->print(F("esphome_number_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 0\n"));
+    // Data itself
+    stream->print(F("esphome_number_value{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} "));
+    stream->print(obj->state);
+    stream->print(F("\n"));
+  } else {
+    // Invalid state
+    stream->print(F("esphome_number_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 1\n"));
+  }
+}
+#endif
+
+#ifdef USE_SELECT
+void PrometheusHandler::select_type_(AsyncResponseStream *stream) {
+  stream->print(F("#TYPE esphome_select_value gauge\n"));
+  stream->print(F("#TYPE esphome_select_failed gauge\n"));
+}
+void PrometheusHandler::select_row_(AsyncResponseStream *stream, select::Select *obj, std::string &area,
+                                    std::string &node, std::string &friendly_name) {
+  if (obj->is_internal() && !this->include_internal_)
+    return;
+  if (obj->has_state()) {
+    // We have a valid value, output this value
+    stream->print(F("esphome_select_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 0\n"));
+    // Data itself
+    stream->print(F("esphome_select_value{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\",value=\""));
+    stream->print(obj->state.c_str());
+    stream->print(F("\"} "));
+    stream->print(F("1.0"));
+    stream->print(F("\n"));
+  } else {
+    // Invalid state
+    stream->print(F("esphome_select_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 1\n"));
+  }
+}
+#endif
+
+#ifdef USE_MEDIA_PLAYER
+void PrometheusHandler::media_player_type_(AsyncResponseStream *stream) {
+  stream->print(F("#TYPE esphome_media_player_state_value gauge\n"));
+  stream->print(F("#TYPE esphome_media_player_volume gauge\n"));
+  stream->print(F("#TYPE esphome_media_player_is_muted gauge\n"));
+  stream->print(F("#TYPE esphome_media_player_failed gauge\n"));
+}
+void PrometheusHandler::media_player_row_(AsyncResponseStream *stream, media_player::MediaPlayer *obj,
+                                          std::string &area, std::string &node, std::string &friendly_name) {
+  if (obj->is_internal() && !this->include_internal_)
+    return;
+  stream->print(F("esphome_media_player_failed{id=\""));
+  stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
+  stream->print(F("\",name=\""));
+  stream->print(relabel_name_(obj).c_str());
+  stream->print(F("\"} 0\n"));
+  // Data itself
+  stream->print(F("esphome_media_player_state_value{id=\""));
+  stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
+  stream->print(F("\",name=\""));
+  stream->print(relabel_name_(obj).c_str());
+  stream->print(F("\",value=\""));
+  stream->print(media_player::media_player_state_to_string(obj->state));
+  stream->print(F("\"} "));
+  stream->print(F("1.0"));
+  stream->print(F("\n"));
+  stream->print(F("esphome_media_player_volume{id=\""));
+  stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
+  stream->print(F("\",name=\""));
+  stream->print(relabel_name_(obj).c_str());
+  stream->print(F("\"} "));
+  stream->print(obj->volume);
+  stream->print(F("\n"));
+  stream->print(F("esphome_media_player_is_muted{id=\""));
+  stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
+  stream->print(F("\",name=\""));
+  stream->print(relabel_name_(obj).c_str());
+  stream->print(F("\"} "));
+  if (obj->is_muted()) {
+    stream->print(F("1.0"));
+  } else {
+    stream->print(F("0.0"));
+  }
+  stream->print(F("\n"));
+}
+#endif
+
+#ifdef USE_UPDATE
+void PrometheusHandler::update_entity_type_(AsyncResponseStream *stream) {
+  stream->print(F("#TYPE esphome_update_entity_state gauge\n"));
+  stream->print(F("#TYPE esphome_update_entity_info gauge\n"));
+  stream->print(F("#TYPE esphome_update_entity_failed gauge\n"));
+}
+
+void PrometheusHandler::handle_update_state_(AsyncResponseStream *stream, update::UpdateState state) {
+  switch (state) {
+    case update::UpdateState::UPDATE_STATE_UNKNOWN:
+      stream->print("unknown");
+      break;
+    case update::UpdateState::UPDATE_STATE_NO_UPDATE:
+      stream->print("none");
+      break;
+    case update::UpdateState::UPDATE_STATE_AVAILABLE:
+      stream->print("available");
+      break;
+    case update::UpdateState::UPDATE_STATE_INSTALLING:
+      stream->print("installing");
+      break;
+    default:
+      stream->print("invalid");
+      break;
+  }
+}
+
+void PrometheusHandler::update_entity_row_(AsyncResponseStream *stream, update::UpdateEntity *obj, std::string &area,
+                                           std::string &node, std::string &friendly_name) {
+  if (obj->is_internal() && !this->include_internal_)
+    return;
+  if (obj->has_state()) {
+    // We have a valid value, output this value
+    stream->print(F("esphome_update_entity_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 0\n"));
+    // First update state
+    stream->print(F("esphome_update_entity_state{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\",value=\""));
+    handle_update_state_(stream, obj->state);
+    stream->print(F("\"} "));
+    stream->print(F("1.0"));
+    stream->print(F("\n"));
+    // Next update info
+    stream->print(F("esphome_update_entity_info{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\",current_version=\""));
+    stream->print(obj->update_info.current_version.c_str());
+    stream->print(F("\",latest_version=\""));
+    stream->print(obj->update_info.latest_version.c_str());
+    stream->print(F("\",title=\""));
+    stream->print(obj->update_info.title.c_str());
+    stream->print(F("\"} "));
+    stream->print(F("1.0"));
+    stream->print(F("\n"));
+  } else {
+    // Invalid state
+    stream->print(F("esphome_update_entity_failed{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} 1\n"));
+  }
+}
+#endif
+
+#ifdef USE_VALVE
+void PrometheusHandler::valve_type_(AsyncResponseStream *stream) {
+  stream->print(F("#TYPE esphome_valve_operation gauge\n"));
+  stream->print(F("#TYPE esphome_valve_failed gauge\n"));
+  stream->print(F("#TYPE esphome_valve_position gauge\n"));
+}
+
+void PrometheusHandler::valve_row_(AsyncResponseStream *stream, valve::Valve *obj, std::string &area, std::string &node,
+                                   std::string &friendly_name) {
+  if (obj->is_internal() && !this->include_internal_)
+    return;
+  stream->print(F("esphome_valve_failed{id=\""));
+  stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
+  stream->print(F("\",name=\""));
+  stream->print(relabel_name_(obj).c_str());
+  stream->print(F("\"} 0\n"));
+  // Data itself
+  stream->print(F("esphome_valve_operation{id=\""));
+  stream->print(relabel_id_(obj).c_str());
+  add_area_label_(stream, area);
+  add_node_label_(stream, node);
+  add_friendly_name_label_(stream, friendly_name);
+  stream->print(F("\",name=\""));
+  stream->print(relabel_name_(obj).c_str());
+  stream->print(F("\",operation=\""));
+  stream->print(valve::valve_operation_to_str(obj->current_operation));
+  stream->print(F("\"} "));
+  stream->print(F("1.0"));
+  stream->print(F("\n"));
+  // Now see if position is supported
+  if (obj->get_traits().get_supports_position()) {
+    stream->print(F("esphome_valve_position{id=\""));
+    stream->print(relabel_id_(obj).c_str());
+    add_area_label_(stream, area);
+    add_node_label_(stream, node);
+    add_friendly_name_label_(stream, friendly_name);
+    stream->print(F("\",name=\""));
+    stream->print(relabel_name_(obj).c_str());
+    stream->print(F("\"} "));
+    stream->print(obj->position);
+    stream->print(F("\n"));
   }
 }
 #endif

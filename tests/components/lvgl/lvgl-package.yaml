@@ -24,9 +24,12 @@ lvgl:
     logger.log: LVGL is Paused
   on_resume:
     logger.log: LVGL has resumed
+  on_boot:
+    logger.log: LVGL has started
   bg_color: light_blue
   disp_bg_color: color_id
   disp_bg_image: cat_image
+  disp_bg_opa: cover
   theme:
     obj:
       border_width: 1
@@ -109,6 +112,10 @@ lvgl:
       close_button: true
       title: Messagebox
       bg_color: 0xffff
+      widgets:
+        - label:
+            text: Hello Msgbox
+            id: msgbox_label
       body:
         text: This is a sample messagebox
         bg_color: 0x808080
@@ -123,20 +130,45 @@ lvgl:
           on_click:
             then:
               - lvgl.widget.hide: message_box
+              - lvgl.style.update:
+                  id: style_test
+                  bg_color: blue
+                  bg_opa: !lambda return 0.5;
     - id: simple_msgbox
       title: Simple
 
   pages:
     - id: page1
+      on_swipe_top:
+        logger.log: "swiped up"
+      on_swipe_bottom:
+        logger.log: "swiped down"
+      on_swipe_up:
+        logger.log: "swiped up"
+      on_swipe_down:
+        logger.log: "swiped down"
+      on_swipe_left:
+        logger.log: "swiped left"
+      on_swipe_right:
+        logger.log: "swiped right"
+      bg_image_src: cat_image
       on_load:
         - logger.log: page loaded
         - lvgl.widget.focus:
             action: restore
+        - if:
+            condition:
+              lvgl.page.is_showing: page1
+            then:
+              logger.log: "Yes, page1 showing"
       on_unload:
         - logger.log: page unloaded
         - lvgl.widget.focus: mark
         - lvgl.widget.redraw: hello_label
         - lvgl.widget.redraw:
+        - lvgl.label.update:
+            id: msgbox_label
+            text: Unloaded
       on_all_events:
         logger.log:
           format: "Event %s"
@@ -158,6 +190,11 @@ lvgl:
               - Nov
               - Dec
             selected_index: 1
+            on_change:
+              then:
+                - logger.log:
+                    format: "Roller changed = %d: %s"
+                    args: [x, text.c_str()]
             on_value:
               then:
                 - logger.log:
@@ -171,10 +208,18 @@ lvgl:
             duration: 1s
             auto_start: true
             on_all_events:
-              logger.log:
-                format: "Event %s"
-                args: ['lv_event_code_name_for(event->code).c_str()']
+              - logger.log:
+                  format: "Event %s"
+                  args: ['lv_event_code_name_for(event->code).c_str()']
+              - lvgl.animimg.update:
+                  id: anim_img
+                  src: !lambda "return {dog_image, cat_image};"
+                  duration: 2s
         - label:
+            on_boot:
+              lvgl.label.update:
+                id: hello_label
+                text: Goodbye Cruel World
             id: hello_label
             text: Hello world
             text_color: 0xFF8000
@@ -190,7 +235,7 @@ lvgl:
                 - lvgl.animimg.stop: anim_img
                 - lvgl.update:
                     disp_bg_color: 0xffff00
-                    disp_bg_image: cat_image
+                    disp_bg_image: none
                 - lvgl.widget.show: message_box
         - label:
             text: "Hello shiny day"
@@ -333,7 +378,7 @@ lvgl:
             id: button_button
             width: 20%
             height: 10%
-            transform_angle: !lambda return 180*100;
+            transform_angle: !lambda return(180*100);
             arc_width: !lambda return 4;
             border_width: !lambda return 6;
             shadow_ofs_x: !lambda return 6;
@@ -440,6 +485,7 @@ lvgl:
             src: cat_image
             align: top_left
             y: "50"
+            mode: real
         - tileview:
             id: tileview_id
             scrollbar_mode: active
@@ -468,6 +514,110 @@ lvgl:
 
     - id: page2
       widgets:
+        - canvas:
+            id: canvas_id
+            align: center
+            width: 400
+            height: 400
+            transparent: true
+            on_boot:
+              - lvgl.canvas.fill:
+                  color: blue
+                  opa: 50%
+              - lvgl.canvas.draw_rectangle:
+                  x: 20
+                  y: 20
+                  width: 150
+                  height: 150
+                  bg_color: green
+                  bg_opa: cover
+                  radius: 5
+                  border_color: black
+                  border_width: 4
+                  border_opa: 80%
+                  shadow_color: black
+                  shadow_width: 10
+                  shadow_ofs_x: 5
+                  shadow_ofs_y: 5
+                  shadow_spread: 4
+                  shadow_opa: cover
+                  outline_color: red
+                  outline_width: 4
+                  outline_pad: 4
+                  outline_opa: cover
+              - lvgl.canvas.set_pixels:
+                  color: red
+                  points:
+                    - x: 100
+                      y: 100
+                    - 100,101
+                    - 100,102
+                    - 100,103
+                    - 100,104
+              - lvgl.canvas.set_pixels:
+                  opa: 50%
+                  color: !lambda return lv_color_make(255,255,255);
+                  points:
+                    - x: !lambda return random_uint32() % 200;
+                      y: !lambda return random_uint32() % 200;
+                    - 121,120
+                    - 122,120
+                    - 123,120
+                    - 124,120
+                    - 125,120
+
+              - lvgl.canvas.draw_text:
+                  x: 100
+                  y: 100
+                  font: montserrat_18
+                  color: white
+                  opa: cover
+                  decor: underline
+                  letter_space: 1
+                  line_space: 2
+                  text: Canvas Text
+                  align: center
+                  max_width: 150
+              - lvgl.canvas.draw_image:
+                  src: cat_image
+                  x: 100
+                  y: 100
+                  angle: 90
+                  zoom: 2.0
+                  pivot_x: 25
+                  pivot_y: 25
+              - lvgl.canvas.draw_line:
+                  color: blue
+                  width: 4
+                  round_end: true
+                  round_start: false
+                  points:
+                    - 50,50
+                    - 50, 200
+                    - 200, 200
+                    - 200, 50
+                    - 50,50
+              - lvgl.canvas.draw_polygon:
+                  bg_color: teal
+                  border_color: white
+                  border_width: 2
+                  border_opa: cover
+                  points:
+                    - 150,150
+                    - 150, 300
+                    - 300, 300
+                    - 350, 250
+              - lvgl.canvas.draw_arc:
+                  x: 200
+                  y: 200
+                  radius: 40
+                  opa: 50%
+                  color: purple
+                  width: 6
+                  rounded: true
+                  start_angle: 10
+                  end_angle: !lambda return 900;
+
         - qrcode:
             id: lv_qr
             align: left_mid
@@ -572,14 +722,24 @@ lvgl:
             align: center
             points:
               - 5, 5
+              - x: !lambda return random_uint32() % 100;
+                y: !lambda return random_uint32() % 100;
               - 70, 70
               - 120, 10
               - 180, 60
               - 240, 10
             on_click:
-              - lvgl.widget.update:
+              - lvgl.line.update:
                   id: lv_line_id
                   line_color: 0xFFFF
+                  points:
+                    - 5, 5
+                    - x: !lambda return random_uint32() % 100;
+                      y: !lambda return random_uint32() % 100;
+                    - 70, 70
+                    - 120, 10
+                    - 180, 60
+                    - 240, 10
               - lvgl.page.next:
         - switch:
             align: right_mid
@@ -635,7 +795,8 @@ lvgl:
                   - image:
                       grid_cell_row_pos: 0
                       grid_cell_column_pos: 0
-                      src: dog_image
+                      src: !lambda return dog_image;
+                      mode: virtual
                       on_click:
                         then:
                           - lvgl.tabview.select:
@@ -770,6 +931,34 @@ lvgl:
                                 color: 0xA0A0A0
                                 r_mod: -20
                                 opa: 0%
+    - id: page3
+      widgets:
+        - keyboard:
+            id: lv_keyboard
+            align: bottom_mid
+            on_value:
+              then:
+                - logger.log:
+                    format: "keyboard value %s"
+                    args: [text.c_str()]
+                - lvgl.keyboard.update:
+                    id: lv_keyboard
+                    hidden: true
+            on_ready:
+              - lvgl.widget.update:
+                  id: lv_keyboard
+              - lvgl.keyboard.update:
+                  id: lv_keyboard
+                  hidden: true
+
+        - keyboard:
+            id: lv_keyboard1
+            mode: special
+            on_ready:
+              lvgl.keyboard.update:
+                id: lv_keyboard1
+                hidden: true
+                mode: text_lower
 
 font:
   - file: "gfonts://Roboto"
@@ -780,10 +969,13 @@ image:
   - id: cat_image
     resize: 256x48
     file: $component_dir/logo-text.svg
+    type: RGB565
+    transparency: alpha_channel
   - id: dog_image
     file: $component_dir/logo-text.svg
     resize: 256x48
-    type: TRANSPARENT_BINARY
+    type: BINARY
+    transparency: chroma_key
 
 color:
   - id: light_blue
@@ -798,3 +990,13 @@ color:
     green_int: 123
     blue_int: 64
     white_int: 255
+
+select:
+  - platform: lvgl
+    id: lv_roller_select
+    widget: lv_roller
+    restore_value: true
+  - platform: lvgl
+    id: lv_dropdown_select
+    widget: lv_dropdown
+    restore_value: false

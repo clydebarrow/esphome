@@ -23,6 +23,7 @@ void DHT::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  Model: DHT22 (or equivalent)");
   }
+  ESP_LOGCONFIG(TAG, "  Internal Pull-up: %s", ONOFF(this->pin_->get_flags() & gpio::FLAG_PULLUP));
 
   LOG_UPDATE_INTERVAL(this);
 
@@ -101,7 +102,7 @@ bool HOT IRAM_ATTR DHT::read_sensor_(float *temperature, float *humidity, bool r
   } else {
     delayMicroseconds(800);
   }
-  this->pin_->pin_mode(gpio::FLAG_INPUT | gpio::FLAG_PULLUP);
+  this->pin_->pin_mode(this->pin_->get_flags());
 
   {
     InterruptLock lock;
@@ -135,7 +136,8 @@ bool HOT IRAM_ATTR DHT::read_sensor_(float *temperature, float *humidity, bool r
 
       // Wait for falling edge
       while (this->pin_->digital_read()) {
-        if ((end_time = micros()) - start_time > 90) {
+        end_time = micros();
+        if (end_time - start_time > 90) {
           if (i < 0) {
             error_code = 3;
           } else {
@@ -156,8 +158,9 @@ bool HOT IRAM_ATTR DHT::read_sensor_(float *temperature, float *humidity, bool r
       if (bit == 0) {
         bit = 7;
         byte++;
-      } else
+      } else {
         bit--;
+      }
     }
   }
   if (!report_errors && error_code != 0)

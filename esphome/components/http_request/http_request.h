@@ -18,8 +18,8 @@ namespace esphome {
 namespace http_request {
 
 struct Header {
-  const char *name;
-  const char *value;
+  std::string name;
+  std::string value;
 };
 
 // Some common HTTP status codes
@@ -189,7 +189,7 @@ template<typename... Ts> class HttpRequestSendAction : public Action<Ts...> {
 
     if (container == nullptr) {
       for (auto *trigger : this->error_triggers_)
-        trigger->trigger(x...);
+        trigger->trigger();
       return;
     }
 

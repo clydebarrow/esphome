@@ -3,6 +3,8 @@
 #include "esphome/components/network/util.h"
 #include "udp_component.h"
 
+#include "esphome/components/xxtea/xxtea.h"
+
 namespace esphome {
 namespace udp {
 
@@ -47,54 +49,7 @@ namespace udp {
  */
 static const char *const TAG = "udp";
 
-/**
- * XXTEA implementation, using 256 bit key.
- */
-
-static const uint32_t DELTA = 0x9e3779b9;
-#define MX ((((z >> 5) ^ (y << 2)) + ((y >> 3) ^ (z << 4))) ^ ((sum ^ y) + (k[(p ^ e) & 7] ^ z)))
-
-/**
- * Encrypt a block of data in-place
- */
-
-static void xxtea_encrypt(uint32_t *v, size_t n, const uint32_t *k) {
-  uint32_t z, y, sum, e;
-  size_t p;
-  size_t q = 6 + 52 / n;
-  sum = 0;
-  z = v[n - 1];
-  while (q-- != 0) {
-    sum += DELTA;
-    e = (sum >> 2);
-    for (p = 0; p != n - 1; p++) {
-      y = v[p + 1];
-      z = v[p] += MX;
-    }
-    y = v[0];
-    z = v[n - 1] += MX;
-  }
-}
-
-static void xxtea_decrypt(uint32_t *v, size_t n, const uint32_t *k) {
-  uint32_t z, y, sum, e;
-  size_t p;
-  size_t q = 6 + 52 / n;
-  sum = q * DELTA;
-  y = v[0];
-  while (q-- != 0) {
-    e = (sum >> 2);
-    for (p = n - 1; p != 0; p--) {
-      z = v[p - 1];
-      y = v[p] -= MX;
-    }
-    z = v[n - 1];
-    y = v[0] -= MX;
-    sum -= DELTA;
-  }
-}
-
-inline static size_t round4(size_t value) { return (value + 3) & ~3; }
+static size_t round4(size_t value) { return (value + 3) & ~3; }
 
 union FuData {
   uint32_t u32;
@@ -245,12 +200,23 @@ void UDPComponent::setup() {
     }
     struct sockaddr_in server {};
 
-    socklen_t sl = socket::set_sockaddr_any((struct sockaddr *) &server, sizeof(server), this->port_);
-    if (sl == 0) {
-      ESP_LOGE(TAG, "Socket unable to set sockaddr: errno %d", errno);
-      this->mark_failed();
-      this->status_set_error("Unable to set sockaddr");
-      return;
+    server.sin_family = AF_INET;
+    server.sin_addr.s_addr = ESPHOME_INADDR_ANY;
+    server.sin_port = htons(this->port_);
+
+    if (this->listen_address_.has_value()) {
+      struct ip_mreq imreq = {};
+      imreq.imr_interface.s_addr = ESPHOME_INADDR_ANY;
+      inet_aton(this->listen_address_.value().str().c_str(), &imreq.imr_multiaddr);
+      server.sin_addr.s_addr = imreq.imr_multiaddr.s_addr;
+      ESP_LOGV(TAG, "Join multicast %s", this->listen_address_.value().str().c_str());
+      err = this->listen_socket_->setsockopt(IPPROTO_IP, IP_ADD_MEMBERSHIP, &imreq, sizeof(imreq));
+      if (err < 0) {
+        ESP_LOGE(TAG, "Failed to set IP_ADD_MEMBERSHIP. Error %d", errno);
+        this->mark_failed();
+        this->status_set_error("Failed to set IP_ADD_MEMBERSHIP");
+        return;
+      }
     }
 
     err = this->listen_socket_->bind((struct sockaddr *) &server, sizeof(server));
@@ -301,7 +267,7 @@ void UDPComponent::flush_() {
   memcpy(buffer, this->header_.data(), this->header_.size());
   memcpy(buffer + header_len, this->data_.data(), this->data_.size());
   if (this->is_encrypted_()) {
-    xxtea_encrypt(buffer + header_len, len, (uint32_t *) this->encryption_key_.data());
+    xxtea::encrypt(buffer + header_len, len, (uint32_t *) this->encryption_key_.data());
   }
   auto total_len = (header_len + len) * 4;
   this->send_packet_(buffer, total_len);
@@ -434,7 +400,8 @@ static bool process_rolling_code(Provider &provider, uint8_t *&buf, const uint8_
 void UDPComponent::process_(uint8_t *buf, const size_t len) {
   auto ping_key_seen = !this->ping_pong_enable_;
   if (len < 8) {
-    return ESP_LOGV(TAG, "Bad length %zu", len);
+    ESP_LOGV(TAG, "Bad length %zu", len);
+    return;
   }
   char namebuf[256]{};
   uint8_t byte;
@@ -442,31 +409,40 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
   const uint8_t *end = buf + len;
   FuData rdata{};
   auto magic = get_uint16(buf);
-  if (magic != MAGIC_NUMBER && magic != MAGIC_PING)
-    return ESP_LOGV(TAG, "Bad magic %X", magic);
+  if (magic != MAGIC_NUMBER && magic != MAGIC_PING) {
+    ESP_LOGV(TAG, "Bad magic %X", magic);
+    return;
+  }
 
   auto hlen = *buf++;
   if (hlen > len - 3) {
-    return ESP_LOGV(TAG, "Bad hostname length %u > %zu", hlen, len - 3);
+    ESP_LOGV(TAG, "Bad hostname length %u > %zu", hlen, len - 3);
+    return;
   }
   memcpy(namebuf, buf, hlen);
   if (strcmp(this->name_, namebuf) == 0) {
-    return ESP_LOGV(TAG, "Ignoring our own data");
+    ESP_LOGV(TAG, "Ignoring our own data");
+    return;
   }
   buf += hlen;
-  if (magic == MAGIC_PING)
-    return this->process_ping_request_(namebuf, buf, end - buf);
+  if (magic == MAGIC_PING) {
+    this->process_ping_request_(namebuf, buf, end - buf);
+    return;
+  }
   if (round4(len) != len) {
-    return ESP_LOGW(TAG, "Bad length %zu", len);
+    ESP_LOGW(TAG, "Bad length %zu", len);
+    return;
   }
   hlen = round4(hlen + 3);
   buf = start_ptr + hlen;
   if (buf == end) {
-    return ESP_LOGV(TAG, "No data after header");
+    ESP_LOGV(TAG, "No data after header");
+    return;
   }
 
   if (this->providers_.count(namebuf) == 0) {
-    return ESP_LOGVV(TAG, "Unknown hostname %s", namebuf);
+    ESP_LOGVV(TAG, "Unknown hostname %s", namebuf);
+    return;
   }
   auto &provider = this->providers_[namebuf];
   // if encryption not used with this host, ping check is pointless since it would be easily spoofed.
@@ -482,14 +458,15 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
 #endif
 
   if (!provider.encryption_key.empty()) {
-    xxtea_decrypt((uint32_t *) buf, (end - buf) / 4, (uint32_t *) provider.encryption_key.data());
+    xxtea::decrypt((uint32_t *) buf, (end - buf) / 4, (uint32_t *) provider.encryption_key.data());
   }
   byte = *buf++;
   if (byte == ROLLING_CODE_KEY) {
     if (!process_rolling_code(provider, buf, end))
       return;
   } else if (byte != DATA_KEY) {
-    return ESP_LOGV(TAG, "Expected rolling_key or data_key, got %X", byte);
+    ESP_LOGV(TAG, "Expected rolling_key or data_key, got %X", byte);
+    return;
   }
   while (buf < end) {
     byte = *buf++;
@@ -497,7 +474,8 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
       continue;
     if (byte == PING_KEY) {
       if (end - buf < 4) {
-        return ESP_LOGV(TAG, "PING_KEY requires 4 more bytes");
+        ESP_LOGV(TAG, "PING_KEY requires 4 more bytes");
+        return;
       }
       auto key = get_uint32(buf);
       if (key == this->ping_key_) {
@@ -515,21 +493,25 @@ void UDPComponent::process_(uint8_t *buf, const size_t len) {
     }
     if (byte == BINARY_SENSOR_KEY) {
       if (end - buf < 3) {
-        return ESP_LOGV(TAG, "Binary sensor key requires at least 3 more bytes");
+        ESP_LOGV(TAG, "Binary sensor key requires at least 3 more bytes");
+        return;
       }
       rdata.u32 = *buf++;
     } else if (byte == SENSOR_KEY) {
       if (end - buf < 6) {
-        return ESP_LOGV(TAG, "Sensor key requires at least 6 more bytes");
+        ESP_LOGV(TAG, "Sensor key requires at least 6 more bytes");
+        return;
       }
       rdata.u32 = get_uint32(buf);
     } else {
-      return ESP_LOGW(TAG, "Unknown key byte %X", byte);
+      ESP_LOGW(TAG, "Unknown key byte %X", byte);
+      return;
     }
 
     hlen = *buf++;
     if (end - buf < hlen) {
-      return ESP_LOGV(TAG, "Name length of %u not available", hlen);
+      ESP_LOGV(TAG, "Name length of %u not available", hlen);
+      return;
     }
     memset(namebuf, 0, sizeof namebuf);
     memcpy(namebuf, buf, hlen);
@@ -553,6 +535,9 @@ void UDPComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "  Ping-pong: %s", YESNO(this->ping_pong_enable_));
   for (const auto &address : this->addresses_)
     ESP_LOGCONFIG(TAG, "  Address: %s", address.c_str());
+  if (this->listen_address_.has_value()) {
+    ESP_LOGCONFIG(TAG, "  Listen address: %s", this->listen_address_.value().str().c_str());
+  }
 #ifdef USE_SENSOR
   for (auto sensor : this->sensors_)
     ESP_LOGCONFIG(TAG, "  Sensor: %s", sensor.id);

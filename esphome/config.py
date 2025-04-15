@@ -18,10 +18,10 @@ from esphome.const import (
     CONF_ESPHOME,
     CONF_EXTERNAL_COMPONENTS,
     CONF_ID,
+    CONF_MIN_VERSION,
     CONF_PACKAGES,
     CONF_PLATFORM,
     CONF_SUBSTITUTIONS,
-    TARGET_PLATFORMS,
 )
 from esphome.core import CORE, DocumentRange, EsphomeError
 import esphome.core.config as core_config
@@ -832,17 +832,21 @@ def validate_config(
     result[CONF_ESPHOME] = config[CONF_ESPHOME]
     result.add_output_path([CONF_ESPHOME], CONF_ESPHOME)
     try:
-        core_config.preload_core_config(config, result)
+        target_platform = core_config.preload_core_config(config, result)
     except vol.Invalid as err:
         result.add_error(err)
         return result
     # Remove temporary esphome config path again, it will be reloaded later
     result.remove_output_path([CONF_ESPHOME], CONF_ESPHOME)
 
+    # Check version number now to avoid loading components that are not supported
+    if min_version := config[CONF_ESPHOME].get(CONF_MIN_VERSION):
+        cv.All(cv.version_number, cv.validate_esphome_version)(min_version)
+
     # First run platform validation steps
-    for key in TARGET_PLATFORMS:
-        if key in config:
-            result.add_validation_step(LoadValidationStep(key, config[key]))
+    result.add_validation_step(
+        LoadValidationStep(target_platform, config[target_platform])
+    )
     result.run_validation_steps()
 
     if result.errors:
