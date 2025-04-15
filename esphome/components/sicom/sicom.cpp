@@ -8,6 +8,7 @@ namespace sicom {
 static const char *TAG = "sicom";
 static const uint32_t BAUD_RATE = 115200;
 static const uint16_t SYMBOL_LENGTH = 16;
+static const size_t MAX_DEVICES = 32;
 
 static const uint16_t crc_table[256] = {
     0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf, 0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5,
@@ -89,7 +90,7 @@ bool SicomSensor::decode(ByteBuffer &buffer) {
 }
 void SicomDevice::invalidate() {
   auto elapsed = millis() - this->last_data_time_;
-  if (elapsed > 2000) {
+  if (elapsed > 4000) {
     this->state_ = UNSEEN;
     for (auto &sensor : this->sensors_)
       sensor->invalidate();
@@ -223,6 +224,8 @@ bool SicomComponent::confirm_enrolment_(const std::vector<uint8_t> &data) {
 }
 
 void SicomComponent::send_poll_() {
+  if (this->next_device_ >= this->devices_.size())
+    return;
   auto device = this->devices_[this->next_device_];
   if (device->is_enrolled()) {
     this->send_message_(this->next_device_ + 1, REQUEST_DATA_MSG);
@@ -281,34 +284,36 @@ void SicomComponent::update() {
     this->state_ = STATE_ALL_CALL;
     return;
   }
-  // any more devices to poll? Wrap around if
-  auto device = this->devices_[this->next_device_++];
-  if (device->is_enrolled()) {
-    auto data = this->read_message_(this->next_device_);
-    if (!data.empty()) {
-      ESP_LOGV(TAG, "Received data message: %s", format_hex_pretty(data).c_str());
-      if (data[CMD_OFFS] == REPLY_DATA_MSG) {
-        device->decode(data);
+  if (this->next_device_ < this->devices_.size()) {
+    // any more devices to poll? Wrap around if
+    auto device = this->devices_[this->next_device_];
+    if (device->is_enrolled()) {
+      auto data = this->read_message_(this->next_device_ + 1);
+      if (!data.empty()) {
+        ESP_LOGV(TAG, "Received data message: %s", format_hex_pretty(data).c_str());
+        if (data[CMD_OFFS] == REPLY_DATA_MSG) {
+          device->decode(data);
+        } else {
+          ESP_LOGD(TAG, "Unknown cmd: %02X for device %d", data[CMD_OFFS], this->next_device_ + 1);
+        }
       } else {
-        ESP_LOGD(TAG, "Unknown cmd: %02X for device %d", data[CMD_OFFS], this->next_device_);
+        device->invalidate();
       }
-    } else {
-      device->invalidate();
     }
   }
-  if (this->next_device_ == this->devices_.size())
+  if (++this->next_device_ == MAX_DEVICES)
     this->next_device_ = 0;
   this->send_poll_();
 }
 
 void SicomDevice::decode(std::vector<uint8_t> &data) {
   auto buffer = ByteBuffer::wrap(data, BIG);
-  this->last_data_time_ = millis();
   for (auto *sensor : this->sensors_) {
     sensor->decode(buffer);
   }
   if (this->status_sensor_ != nullptr)
     this->status_sensor_->publish_state(true);
+  this->last_data_time_ = millis();
 }
 
 /**

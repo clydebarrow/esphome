@@ -182,7 +182,7 @@ def validate_config(config):
 
 
 CONFIG_SCHEMA = cv.All(
-    polling_component_schema("20ms").extend(
+    polling_component_schema("15ms").extend(
         {
             cv.GenerateID(CONF_UART_ID): cv.use_id(IDFUARTComponent),
             cv.GenerateID(): cv.declare_id(SicomComponent),
