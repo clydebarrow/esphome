@@ -88,12 +88,14 @@ bool SicomSensor::decode(ByteBuffer &buffer) {
   return true;
 }
 void SicomDevice::invalidate() {
-  this->state_ = UNSEEN;
-  for (auto &sensor : this->sensors_) {
-    sensor->invalidate();
+  auto elapsed = millis() - this->last_data_time_;
+  if (elapsed > 2000) {
+    this->state_ = UNSEEN;
+    for (auto &sensor : this->sensors_)
+      sensor->invalidate();
+    if (this->status_sensor_ != nullptr)
+      this->status_sensor_->publish_state(false);
   }
-  if (this->status_sensor_ != nullptr)
-    this->status_sensor_->publish_state(false);
 }
 
 void SicomComponent::setup() {
@@ -279,10 +281,7 @@ void SicomComponent::update() {
     this->state_ = STATE_ALL_CALL;
     return;
   }
-  // any more devices to poll?
-  if (this->next_device_ == this->devices_.size())
-    return;
-
+  // any more devices to poll? Wrap around if
   auto device = this->devices_[this->next_device_++];
   if (device->is_enrolled()) {
     auto data = this->read_message_(this->next_device_);
@@ -297,12 +296,14 @@ void SicomComponent::update() {
       device->invalidate();
     }
   }
-  if (this->next_device_ != this->devices_.size())
-    this->send_poll_();
+  if (this->next_device_ == this->devices_.size())
+    this->next_device_ = 0;
+  this->send_poll_();
 }
 
 void SicomDevice::decode(std::vector<uint8_t> &data) {
   auto buffer = ByteBuffer::wrap(data, BIG);
+  this->last_data_time_ = millis();
   for (auto *sensor : this->sensors_) {
     sensor->decode(buffer);
   }

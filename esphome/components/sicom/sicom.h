@@ -84,6 +84,7 @@ class SicomDevice {
   DeviceState state_{UNSEEN};
   std::vector<SicomSensor *> sensors_{};
   binary_sensor::BinarySensor *status_sensor_{nullptr};
+  uint32_t last_data_time_{};
 };
 
 class SicomComponent : public uart::UARTDevice, public PollingComponent {
