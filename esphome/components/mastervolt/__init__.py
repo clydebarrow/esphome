@@ -36,7 +36,7 @@ CONFIG_SCHEMA = cv.Schema(
 )
 
 
-MASTERVOLT_SCHEMA = cv.Schema(
+MASTERVOLT_DEVICE_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_DEVICE_ID): cv.use_id(MastervoltDevice),
     }

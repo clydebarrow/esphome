@@ -14,7 +14,7 @@ void Mastervolt::on_receive_(uint32_t can_id, bool extended_id, bool rtr, const 
     }
   }
   if (this->debug_)
-    ESP_LOGD(TAG, "unknown message - id: 0x%08X, data: %s", can_id, format_hex_pretty(data).c_str());
+    ESP_LOGD(TAG, "unknown message - id: 0x%08" PRIx32 ", data: %s", can_id, format_hex_pretty(data).c_str());
 }
 
 void Mastervolt::setup() {
@@ -29,7 +29,7 @@ void MastervoltDevice::on_receive(ByteBuffer data) {
     this->sensors_[command]->process_message(data);
     return;
   }
-  ESP_LOGD(TAG, "Unknown data %s for device 0x%08X", format_hex_pretty(data.get_data()).c_str(), this->can_id_);
+  ESP_LOGD(TAG, "Unknown data %s for device 0x%08" PRIx32, format_hex_pretty(data.get_data()).c_str(), this->can_id_);
 }
 
 }  // namespace mastervolt
