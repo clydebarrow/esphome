@@ -139,6 +139,7 @@ SI_DEVICES = [
         voltage_increment=3,
         current_count=1,
         current_offset=4,
+        current_scale=0.01,
     ),
     SicomDeviceType(
         "SC303",
@@ -149,6 +150,7 @@ SI_DEVICES = [
         resistance_offset=18,
         current_count=1,
         current_offset=4,
+        current_scale=0.01,
     ),
 ]
 
