@@ -98,6 +98,7 @@ esphome/components/climate/* @esphome/core
 esphome/components/climate_ir/* @glmnet
 esphome/components/color_temperature/* @jesserockz
 esphome/components/combination/* @Cat-Ion @kahrendt
+esphome/components/const/* @esphome/core
 esphome/components/coolix/* @glmnet
 esphome/components/copy/* @OttoWinter
 esphome/components/cover/* @esphome/core
@@ -250,6 +251,7 @@ esphome/components/ltr501/* @latonita
 esphome/components/ltr_als_ps/* @latonita
 esphome/components/lvgl/* @clydebarrow
 esphome/components/m5stack_8angle/* @rnauber
+esphome/components/mapping/* @clydebarrow
 esphome/components/matrix_keypad/* @ssieb
 esphome/components/max17043/* @blacknell
 esphome/components/max31865/* @DAVe3283
@@ -276,7 +278,7 @@ esphome/components/mdns/* @esphome/core
 esphome/components/media_player/* @jesserockz
 esphome/components/micro_wake_word/* @jesserockz @kahrendt
 esphome/components/micronova/* @jorre05
-esphome/components/microphone/* @jesserockz
+esphome/components/microphone/* @jesserockz @kahrendt
 esphome/components/mics_4514/* @jesserockz
 esphome/components/midea/* @dudanov
 esphome/components/midea_ir/* @dudanov
@@ -324,7 +326,9 @@ esphome/components/pcf8563/* @KoenBreeman
 esphome/components/pid/* @OttoWinter
 esphome/components/pipsolar/* @andreashergert1984
 esphome/components/pm1006/* @habbie
+esphome/components/pm2005/* @andrewjswan
 esphome/components/pmsa003i/* @sjtrny
+esphome/components/pmsx003/* @ximex
 esphome/components/pmwcs3/* @SeByDocKy
 esphome/components/pn532/* @OttoWinter @jesserockz
 esphome/components/pn532_i2c/* @OttoWinter @jesserockz
