@@ -95,7 +95,7 @@ class SicomComponent : public uart::UARTDevice, public PollingComponent {
   void update() override;
   void send_enrol_message_();
   void enrol_device_(std::vector<uint8_t> &data);
-  void process_data_(std::vector<uint8_t> &buffer);
+  bool process_data_(std::vector<uint8_t> &buffer);
   void dump_config() override;
 
   void add_device(SicomDevice *device) { this->devices_.push_back(device); }

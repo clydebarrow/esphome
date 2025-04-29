@@ -7,6 +7,7 @@ import esphome.config_validation as cv
 from esphome.config_validation import polling_component_schema
 from esphome.const import (
     CONF_CURRENT,
+    CONF_DEBUG,
     CONF_DEVICE,
     CONF_ID,
     CONF_INDEX,
@@ -184,10 +185,11 @@ def validate_config(config):
 
 
 CONFIG_SCHEMA = cv.All(
-    polling_component_schema("15ms").extend(
+    polling_component_schema("30ms").extend(
         {
             cv.GenerateID(CONF_UART_ID): cv.use_id(IDFUARTComponent),
             cv.GenerateID(): cv.declare_id(SicomComponent),
+            cv.Optional(CONF_DEBUG, default=False): cv.boolean,
             cv.Required(CONF_TX_PIN): internal_gpio_output_pin_number,
             cv.Optional(CONF_TX_ENABLE_PIN): gpio_output_pin_schema,
             cv.Required(CONF_DEVICES): cv.All(
@@ -225,6 +227,7 @@ async def to_code(config):
     await register_component(var, config)
     await register_uart_device(var, config)
     cg.add(var.set_tx_pin(config[CONF_TX_PIN]))
+    cg.add(var.set_debug(config[CONF_DEBUG]))
     if tx_enable_pin := config.get(CONF_TX_ENABLE_PIN):
         tx_enable_pin = await cg.gpio_pin_expression(tx_enable_pin)
         cg.add(var.set_tx_enable_pin(tx_enable_pin))

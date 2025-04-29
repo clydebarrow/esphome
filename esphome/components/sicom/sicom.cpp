@@ -149,23 +149,23 @@ bool SicomComponent::try_read_(uint8_t *data) {
 std::vector<uint8_t> SicomComponent::read_message_(uint8_t address) {
   uint8_t byte = 0xFF;
   std::vector<uint8_t> buffer{};
-  auto available = this->available();
   if (this->available() < MIN_MSG_LEN) {
     return {};
   }
   for (;;) {
     if (!this->try_read_(&byte))
       return {};
-    if (byte != address) {
+    if (byte != address && byte != BROADCAST_ADDRESS) {
       continue;
     }
+    buffer.push_back(byte);
     // get the message length
     if (!this->try_read_(&byte))
       return {};
     if (byte >= MIN_MSG_LEN && byte <= MAX_MSG_LEN)
       break;
+    buffer.clear();
   }
-  buffer.push_back(address);
   buffer.push_back(byte);
   auto len = byte;
   while (--len != 0) {
@@ -177,6 +177,7 @@ std::vector<uint8_t> SicomComponent::read_message_(uint8_t address) {
     ESP_LOGD(TAG, "Received message: %s", format_hex_pretty(buffer).c_str());
   if (calculateCRC16(buffer) == 0)
     return buffer;
+  ESP_LOGD(TAG, "Failed checksum; message: %s", format_hex_pretty(buffer).c_str());
   return {};
 }
 
@@ -232,6 +233,20 @@ void SicomComponent::send_poll_() {
   }
 }
 
+bool SicomComponent::process_data_(std::vector<uint8_t> &buffer) {
+  if (buffer.empty())
+    return false;
+  auto index = buffer[0] - 1;
+  if (index >= this->devices_.size())
+    return false;
+  if (buffer[CMD_OFFS] == REPLY_DATA_MSG) {
+    this->devices_[index]->decode(buffer);
+    return true;
+  }
+  ESP_LOGD(TAG, "Unknown cmd: %02X for device %d", buffer[CMD_OFFS], this->next_device_ + 1);
+  return false;
+}
+
 void SicomComponent::update() {
   auto elapsed = millis() - this->last_all_call_;
   switch (this->state_) {
@@ -248,6 +263,8 @@ void SicomComponent::update() {
         this->next_device_ = 0;
         return;
       }
+      if (this->confirm_enrolment_(data)) {
+      }
       this->enrol_device_(data);
       this->state_ = STATE_ENROLLING;
       return;
@@ -255,19 +272,21 @@ void SicomComponent::update() {
 
     case STATE_ENROLLING:
     case STATE_ENROLLING_2: {
-      auto data = this->read_message_(this->next_device_ + 1);
-      if (data.empty()) {
-        this->send_enrol_message_();
-        this->state_ = STATE_ENROLLING_2;
-        return;
+      for (;;) {
+        auto data = this->read_message_(BROADCAST_ADDRESS);
+        if (!data.empty() && data[0] != BROADCAST_ADDRESS) {
+          this->process_data_(data);
+          continue;
+        }
+        if (this->confirm_enrolment_(data) || this->state_ == STATE_ENROLLING_2) {
+          this->state_ = STATE_POLL_START;
+          this->next_device_ = 0;
+          return;
+        }
+        break;
       }
-      if (this->confirm_enrolment_(data) || this->state_ == STATE_ENROLLING_2) {
-        this->state_ = STATE_POLL_START;
-        this->next_device_ = 0;
-      } else {
-        this->state_ = STATE_ENROLLING_2;
-      }
-      return;
+      this->state_ = STATE_ENROLLING_2;
+      this->send_enrol_message_();
     }
 
     case STATE_POLL_START:
@@ -289,16 +308,8 @@ void SicomComponent::update() {
     auto device = this->devices_[this->next_device_];
     if (device->is_enrolled()) {
       auto data = this->read_message_(this->next_device_ + 1);
-      if (!data.empty()) {
-        ESP_LOGV(TAG, "Received data message: %s", format_hex_pretty(data).c_str());
-        if (data[CMD_OFFS] == REPLY_DATA_MSG) {
-          device->decode(data);
-        } else {
-          ESP_LOGD(TAG, "Unknown cmd: %02X for device %d", data[CMD_OFFS], this->next_device_ + 1);
-        }
-      } else {
+      if (!this->process_data_(data))
         device->invalidate();
-      }
     }
   }
   if (++this->next_device_ == MAX_DEVICES)
@@ -355,9 +366,12 @@ void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
   }
   // flush the input buffer
   auto buffered = this->available();
-  uint8_t byte;
-  while (buffered--)
-    this->read_byte(&byte);
+  if (buffered != 0) {
+    ESP_LOGD(TAG, "Flushing %d bytes from input buffer", buffered);
+    uint8_t byte;
+    while (buffered--)
+      this->read_byte(&byte);
+  }
   auto err = rmt_transmit(this->channel_, this->encoder_, symbols.data(), symbols.size() * sizeof(rmt_symbol_word_t),
                           &this->transmit_config_);
   rmt_tx_wait_all_done(this->channel_, 10);
