@@ -104,7 +104,7 @@ class SicomComponent : public uart::UARTDevice, public PollingComponent {
   void set_tx_enable_pin(GPIOPin *tx_enable_pin) { this->tx_enable_pin_ = tx_enable_pin; }
 
  protected:
-  std::vector<uint8_t> read_message_(uint8_t address);
+  std::vector<uint8_t> read_message_();
   void send_message_(uint8_t address, std::vector<uint8_t> data);
   void send_message_(uint8_t address, uint8_t cmd);
   bool confirm_enrolment_(const std::vector<uint8_t> &data);

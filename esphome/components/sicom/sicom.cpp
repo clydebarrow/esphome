@@ -146,7 +146,7 @@ bool SicomComponent::try_read_(uint8_t *data) {
 
 // Try to read a message, starting with the given address
 // If the address is not found, return an empty vector
-std::vector<uint8_t> SicomComponent::read_message_(uint8_t address) {
+std::vector<uint8_t> SicomComponent::read_message_() {
   uint8_t byte = 0xFF;
   std::vector<uint8_t> buffer{};
   if (this->available() < MIN_MSG_LEN) {
@@ -155,7 +155,7 @@ std::vector<uint8_t> SicomComponent::read_message_(uint8_t address) {
   for (;;) {
     if (!this->try_read_(&byte))
       return {};
-    if (byte != address && byte != BROADCAST_ADDRESS) {
+    if (byte != BROADCAST_ADDRESS && byte >= this->devices_.size()) {
       continue;
     }
     buffer.push_back(byte);
@@ -257,7 +257,7 @@ void SicomComponent::update() {
       return;
 
     case STATE_CALLING: {
-      auto data = this->read_message_(BROADCAST_ADDRESS);
+      auto data = this->read_message_();
       if (data.empty()) {
         this->state_ = STATE_POLL_START;
         this->next_device_ = 0;
@@ -273,7 +273,7 @@ void SicomComponent::update() {
     case STATE_ENROLLING:
     case STATE_ENROLLING_2: {
       for (;;) {
-        auto data = this->read_message_(BROADCAST_ADDRESS);
+        auto data = this->read_message_();
         if (!data.empty() && data[0] != BROADCAST_ADDRESS) {
           this->process_data_(data);
           continue;
@@ -307,7 +307,7 @@ void SicomComponent::update() {
     // any more devices to poll? Wrap around if
     auto device = this->devices_[this->next_device_];
     if (device->is_enrolled()) {
-      auto data = this->read_message_(this->next_device_ + 1);
+      auto data = this->read_message_();
       if (!this->process_data_(data))
         device->invalidate();
     }
