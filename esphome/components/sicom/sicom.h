@@ -21,19 +21,9 @@ namespace sicom {
 using namespace bytebuffer;
 
 enum DeviceState {
-  UNSEEN,
-  ENROLLING,
-  ENROLLED,
-  TALKING,
-};
-
-enum State {
-  STATE_ALL_CALL = 0,
-  STATE_CALLING,
-  STATE_ENROLLING,
-  STATE_ENROLLING_2,
-  STATE_POLL_START,
-  STATE_POLLING,
+  DEVICE_UNSEEN,
+  DEVICE_ENROLLING,
+  DEVICE_ENROLLED,
 };
 
 enum DataType {
@@ -74,14 +64,15 @@ class SicomDevice {
   uint8_t get_id() const { return id_; }
   void set_serial_number(uint32_t serial_number) { this->serial_number_ = serial_number; }
   uint32_t get_serial_number() const { return this->serial_number_; }
-  bool is_enrolled() const { return this->state_ == ENROLLED; }
-  void set_state(DeviceState state) { this->state_ = state; }
+  bool is_enrolled() const { return this->state_ == DEVICE_ENROLLED; }
+  bool is_enrolling() const { return this->state_ == DEVICE_ENROLLING; }
+  void set_state(DeviceState state);
   DeviceState get_state() const { return this->state_; }
 
  protected:
   uint32_t serial_number_{};
   uint8_t id_;
-  DeviceState state_{UNSEEN};
+  DeviceState state_{DEVICE_UNSEEN};
   std::vector<SicomSensor *> sensors_{};
   binary_sensor::BinarySensor *status_sensor_{nullptr};
   uint32_t last_data_time_{};
@@ -93,9 +84,9 @@ class SicomComponent : public uart::UARTDevice, public PollingComponent {
   void setup() override;
   bool try_read_(uint8_t *data);
   void update() override;
-  void send_enrol_message_();
-  void enrol_device_(std::vector<uint8_t> &data);
-  bool process_data_(std::vector<uint8_t> &buffer);
+  void send_enrol_message_(SicomDevice *device, uint8_t address);
+  bool enrol_device_(std::vector<uint8_t> &data);
+  bool process_message_(std::vector<uint8_t> &buffer);
   void dump_config() override;
 
   void add_device(SicomDevice *device) { this->devices_.push_back(device); }
@@ -119,9 +110,7 @@ class SicomComponent : public uart::UARTDevice, public PollingComponent {
   rmt_channel_handle_t channel_{};
   rmt_encoder_handle_t encoder_{};
   rmt_transmit_config_t transmit_config_{};
-  uint32_t last_all_call_{};
-  enum State state_ { STATE_ALL_CALL };
-  size_t next_device_{};
+  uint16_t next_device_{};
 };
 
 }  // namespace sicom
