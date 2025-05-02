@@ -10,18 +10,20 @@ void MicrophoneSource::add_data_callback(std::function<void(const std::vector<ui
           data_callback(this->process_audio_(data));
         }
       };
-  // Future PR will uncomment this! It requires changing the callback vector to an uint8_t in every component using a
-  // mic callback.
-  // this->mic_->add_data_callback(std::move(filtered_callback));
+  this->mic_->add_data_callback(std::move(filtered_callback));
 }
 
 void MicrophoneSource::start() {
-  this->enabled_ = true;
-  this->mic_->start();
+  if (!this->enabled_) {
+    this->enabled_ = true;
+    this->mic_->start();
+  }
 }
 void MicrophoneSource::stop() {
-  this->enabled_ = false;
-  this->mic_->stop();
+  if (this->enabled_) {
+    this->enabled_ = false;
+    this->mic_->stop();
+  }
 }
 
 std::vector<uint8_t> MicrophoneSource::process_audio_(const std::vector<uint8_t> &data) {

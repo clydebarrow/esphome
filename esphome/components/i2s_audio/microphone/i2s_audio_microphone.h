@@ -7,6 +7,9 @@
 #include "esphome/components/microphone/microphone.h"
 #include "esphome/core/component.h"
 
+#include <freertos/event_groups.h>
+#include <freertos/semphr.h>
+
 namespace esphome {
 namespace i2s_audio {
 
@@ -25,9 +28,6 @@ class I2SAudioMicrophone : public I2SAudioIn, public microphone::Microphone, pub
 
   void set_pdm(bool pdm) { this->pdm_ = pdm; }
 
-  size_t read(int16_t *buf, size_t len, TickType_t ticks_to_wait);
-  size_t read(int16_t *buf, size_t len) override { return this->read(buf, len, pdMS_TO_TICKS(100)); }
-
 #ifdef USE_I2S_LEGACY
 #if SOC_I2S_SUPPORTS_ADC
   void set_adc_channel(adc1_channel_t channel) {
@@ -38,9 +38,17 @@ class I2SAudioMicrophone : public I2SAudioIn, public microphone::Microphone, pub
 #endif
 
  protected:
-  void start_();
-  void stop_();
-  void read_();
+  bool start_driver_();
+  void stop_driver_();
+
+  size_t read_(uint8_t *buf, size_t len, TickType_t ticks_to_wait);
+
+  static void mic_task(void *params);
+
+  SemaphoreHandle_t active_listeners_semaphore_{nullptr};
+  EventGroupHandle_t event_group_{nullptr};
+
+  TaskHandle_t task_handle_{nullptr};
 
 #ifdef USE_I2S_LEGACY
   int8_t din_pin_{I2S_PIN_NO_CHANGE};
@@ -53,8 +61,6 @@ class I2SAudioMicrophone : public I2SAudioIn, public microphone::Microphone, pub
   i2s_chan_handle_t rx_handle_;
 #endif
   bool pdm_{false};
-
-  HighFrequencyLoopRequester high_freq_;
 };
 
 }  // namespace i2s_audio
