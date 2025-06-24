@@ -36,7 +36,7 @@ CONFIG_SCHEMA = cv.typed_schema(
             accuracy_decimals=3,
         ).extend(SICOM_SENSOR_SCHEMA),
         CONF_RESISTANCE: sensor.sensor_schema(
-            device_class=DEVICE_CLASS_RESISTANCE,
+            # device_class=DEVICE_CLASS_RESISTANCE,
             state_class=STATE_CLASS_MEASUREMENT,
             unit_of_measurement=UNIT_OHM,
             icon=ICON_RESISTOR,
