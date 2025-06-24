@@ -18,13 +18,13 @@ from esphome.const import (
     CONF_TRIGGER_ID,
     CONF_TYPE,
 )
-from esphome.core import CORE, ID
+from esphome.core import CORE, ID, Lambda
 from esphome.cpp_generator import MockObj
 from esphome.final_validate import full_config
 from esphome.helpers import write_file_if_changed
 
 from . import defines as df, helpers, lv_validation as lvalid
-from .automation import disp_update, focused_widgets, update_to_code
+from .automation import disp_update, focused_widgets, refreshed_widgets, update_to_code
 from .defines import add_define
 from .encoders import (
     ENCODERS_CONFIG,
@@ -240,6 +240,13 @@ def final_validation(configs):
                     "A non adjustable arc may not be focused",
                     path,
                 )
+        for w in refreshed_widgets:
+            path = global_config.get_path_for_id(w)
+            widget_conf = global_config.get_config_for_path(path[:-1])
+            if not any(isinstance(v, Lambda) for v in widget_conf.values()):
+                raise cv.Invalid(
+                    f"Widget '{w}' does not have any templated properties to refresh",
+                )
 
 
 async def to_code(configs):
@@ -314,7 +321,7 @@ async def to_code(configs):
             frac = 2
         elif frac > 0.19:
             frac = 4
-        else:
+        elif frac != 0:
             frac = 8
         displays = [
             await cg.get_variable(display) for display in config[df.CONF_DISPLAYS]
@@ -415,7 +422,7 @@ LVGL_SCHEMA = cv.All(
                 ): lvalid.lv_font,
                 cv.Optional(df.CONF_FULL_REFRESH, default=False): cv.boolean,
                 cv.Optional(CONF_DRAW_ROUNDING, default=2): cv.positive_int,
-                cv.Optional(CONF_BUFFER_SIZE, default="100%"): cv.percentage,
+                cv.Optional(CONF_BUFFER_SIZE, default=0): cv.percentage,
                 cv.Optional(df.CONF_LOG_LEVEL, default="WARN"): cv.one_of(
                     *df.LV_LOG_LEVELS, upper=True
                 ),
