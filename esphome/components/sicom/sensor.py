@@ -14,7 +14,10 @@ from esphome.const import (
     CONF_INDEX,
     CONF_TYPE,
     CONF_VOLTAGE,
+    DEVICE_CLASS_CURRENT,
+    DEVICE_CLASS_VOLTAGE,
     ICON_FLASH,
+    STATE_CLASS_MEASUREMENT,
     UNIT_AMPERE,
     UNIT_OHM,
     UNIT_VOLT,
@@ -26,15 +29,25 @@ ICON_RESISTOR = "mdi:resistor"
 CONFIG_SCHEMA = cv.typed_schema(
     {
         CONF_VOLTAGE: sensor.sensor_schema(
-            unit_of_measurement=UNIT_VOLT, icon=ICON_FLASH, accuracy_decimals=3
+            device_class=DEVICE_CLASS_VOLTAGE,
+            state_class=STATE_CLASS_MEASUREMENT,
+            unit_of_measurement=UNIT_VOLT,
+            icon=ICON_FLASH,
+            accuracy_decimals=3,
         ).extend(SICOM_SENSOR_SCHEMA),
         CONF_RESISTANCE: sensor.sensor_schema(
+            device_class=DEVICE_CLASS_RESISTANCE,
+            state_class=STATE_CLASS_MEASUREMENT,
             unit_of_measurement=UNIT_OHM,
             icon=ICON_RESISTOR,
             accuracy_decimals=0,
         ).extend(SICOM_SENSOR_SCHEMA),
         CONF_CURRENT: sensor.sensor_schema(
-            unit_of_measurement=UNIT_AMPERE, icon=ICON_CURRENT_DC, accuracy_decimals=2
+            device_class=DEVICE_CLASS_CURRENT,
+            state_class=STATE_CLASS_MEASUREMENT,
+            unit_of_measurement=UNIT_AMPERE,
+            icon=ICON_CURRENT_DC,
+            accuracy_decimals=2,
         ).extend(SICOM_SENSOR_SCHEMA),
     }
 )
