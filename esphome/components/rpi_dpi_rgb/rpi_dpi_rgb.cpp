@@ -151,7 +151,7 @@ void RpiDpiRgb::reset_display_() const {
       this->enable_pin_->setup();
       this->enable_pin_->digital_write(false);
     }
-    delay(1);
+    delay(10);
     this->reset_pin_->digital_write(true);
     if (this->enable_pin_ != nullptr) {
       delay(11);
