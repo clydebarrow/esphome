@@ -102,12 +102,8 @@ class Canbus : public Component {
   uint32_t can_id_;
   bool use_extended_id_;
   CanSpeed bit_rate_;
-<<<<<<< HEAD
-  CallbackManager<void(uint32_t can_id, bool extended_id, bool rtr, std::vector<uint8_t> &data)> callback_manager_{};
-=======
   CallbackManager<void(uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data)>
       callback_manager_{};
->>>>>>> 86c0fb48a3dc1454cefc8cc31338300e2b971e51
 
   virtual bool setup_internal();
   virtual Error send_message(struct CanFrame *frame);
