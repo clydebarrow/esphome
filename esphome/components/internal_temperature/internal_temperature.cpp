@@ -9,7 +9,7 @@ uint8_t temprature_sens_read();
 }
 #elif defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C6) || \
     defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3) || defined(USE_ESP32_VARIANT_ESP32H2) || \
-    defined(USE_ESP32_VARIANT_ESP32C2)
+    defined(USE_ESP32_VARIANT_ESP32C2) || defined(USE_ESP32_VARIANT_ESP32P4)
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
 #include "driver/temp_sensor.h"
 #else
@@ -33,7 +33,8 @@ static const char *const TAG = "internal_temperature";
 #ifdef USE_ESP32
 #if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)) && \
     (defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C6) || defined(USE_ESP32_VARIANT_ESP32S2) || \
-     defined(USE_ESP32_VARIANT_ESP32S3) || defined(USE_ESP32_VARIANT_ESP32H2) || defined(USE_ESP32_VARIANT_ESP32C2))
+     defined(USE_ESP32_VARIANT_ESP32S3) || defined(USE_ESP32_VARIANT_ESP32H2) || defined(USE_ESP32_VARIANT_ESP32C2) || \
+     defined(USE_ESP32_VARIANT_ESP32P4))
 static temperature_sensor_handle_t tsensNew = NULL;
 #endif  // ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0) && USE_ESP32_VARIANT
 #endif  // USE_ESP32
@@ -49,7 +50,7 @@ void InternalTemperatureSensor::update() {
   success = (raw != 128);
 #elif defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C6) || \
     defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3) || defined(USE_ESP32_VARIANT_ESP32H2) || \
-    defined(USE_ESP32_VARIANT_ESP32C2)
+    defined(USE_ESP32_VARIANT_ESP32C2) || defined(USE_ESP32_VARIANT_ESP32P4)
 #if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
   temp_sensor_config_t tsens = TSENS_CONFIG_DEFAULT();
   temp_sensor_set_config(tsens);
@@ -65,7 +66,7 @@ void InternalTemperatureSensor::update() {
   esp_err_t result = temperature_sensor_get_celsius(tsensNew, &temperature);
   success = (result == ESP_OK);
   if (!success) {
-    ESP_LOGE(TAG, "Failed to get temperature: %d", result);
+    ESP_LOGE(TAG, "Reading failed (%d)", result);
   }
 #endif  // ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
 #endif  // USE_ESP32_VARIANT
@@ -100,21 +101,22 @@ void InternalTemperatureSensor::setup() {
 #ifdef USE_ESP32
 #if (ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)) && \
     (defined(USE_ESP32_VARIANT_ESP32C3) || defined(USE_ESP32_VARIANT_ESP32C6) || defined(USE_ESP32_VARIANT_ESP32S2) || \
-     defined(USE_ESP32_VARIANT_ESP32S3) || defined(USE_ESP32_VARIANT_ESP32H2) || defined(USE_ESP32_VARIANT_ESP32C2))
-  ESP_LOGCONFIG(TAG, "Setting up temperature sensor...");
+     defined(USE_ESP32_VARIANT_ESP32S3) || defined(USE_ESP32_VARIANT_ESP32H2) || defined(USE_ESP32_VARIANT_ESP32C2) || \
+     defined(USE_ESP32_VARIANT_ESP32P4))
+  ESP_LOGCONFIG(TAG, "Running setup");
 
   temperature_sensor_config_t tsens_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(-10, 80);
 
   esp_err_t result = temperature_sensor_install(&tsens_config, &tsensNew);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to install temperature sensor: %d", result);
+    ESP_LOGE(TAG, "Install failed (%d)", result);
     this->mark_failed();
     return;
   }
 
   result = temperature_sensor_enable(tsensNew);
   if (result != ESP_OK) {
-    ESP_LOGE(TAG, "Failed to enable temperature sensor: %d", result);
+    ESP_LOGE(TAG, "Enabling failed (%d)", result);
     this->mark_failed();
     return;
   }

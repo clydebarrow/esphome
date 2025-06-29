@@ -3,6 +3,8 @@ import esphome.codegen as cg
 from esphome.components import i2c, sensirion_common, sensor
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_AMBIENT_PRESSURE_COMPENSATION,
+    CONF_AUTOMATIC_SELF_CALIBRATION,
     CONF_CO2,
     CONF_HUMIDITY,
     CONF_ID,
@@ -33,10 +35,7 @@ ForceRecalibrationWithReference = scd30_ns.class_(
     "ForceRecalibrationWithReference", automation.Action
 )
 
-CONF_AUTOMATIC_SELF_CALIBRATION = "automatic_self_calibration"
 CONF_ALTITUDE_COMPENSATION = "altitude_compensation"
-CONF_AMBIENT_PRESSURE_COMPENSATION = "ambient_pressure_compensation"
-
 
 CONFIG_SCHEMA = (
     cv.Schema(

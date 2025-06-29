@@ -4,7 +4,7 @@ from esphome import automation
 import esphome.codegen as cg
 from esphome.components import esp32_ble
 from esphome.components.esp32 import add_idf_sdkconfig_option
-from esphome.components.esp32_ble import bt_uuid
+from esphome.components.esp32_ble import BTLoggers, bt_uuid
 import esphome.config_validation as cv
 from esphome.config_validation import UNDEFINED
 from esphome.const import (
@@ -32,6 +32,7 @@ DEPENDENCIES = ["esp32"]
 DOMAIN = "esp32_ble_server"
 
 CONF_ADVERTISE = "advertise"
+CONF_APPEARANCE = "appearance"
 CONF_BROADCAST = "broadcast"
 CONF_CHARACTERISTICS = "characteristics"
 CONF_DESCRIPTION = "description"
@@ -421,6 +422,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.GenerateID(): cv.declare_id(BLEServer),
         cv.GenerateID(esp32_ble.CONF_BLE_ID): cv.use_id(esp32_ble.ESP32BLE),
         cv.Optional(CONF_MANUFACTURER): value_schema("string", templatable=False),
+        cv.Optional(CONF_APPEARANCE, default=0): cv.uint16_t,
         cv.Optional(CONF_MODEL): value_schema("string", templatable=False),
         cv.Optional(CONF_FIRMWARE_VERSION): value_schema("string", templatable=False),
         cv.Optional(CONF_MANUFACTURER_DATA): cv.Schema([cv.uint8_t]),
@@ -523,6 +525,9 @@ async def to_code_characteristic(service_var, char_conf):
 
 
 async def to_code(config):
+    # Register the loggers this component needs
+    esp32_ble.register_bt_logger(BTLoggers.GATT, BTLoggers.SMP)
+
     var = cg.new_Pvariable(config[CONF_ID])
 
     await cg.register_component(var, config)
@@ -531,6 +536,7 @@ async def to_code(config):
     cg.add(parent.register_gatts_event_handler(var))
     cg.add(parent.register_ble_status_event_handler(var))
     cg.add(var.set_parent(parent))
+    cg.add(parent.advertising_set_appearance(config[CONF_APPEARANCE]))
     if CONF_MANUFACTURER_DATA in config:
         cg.add(var.set_manufacturer_data(config[CONF_MANUFACTURER_DATA]))
     for service_config in config[CONF_SERVICES]:

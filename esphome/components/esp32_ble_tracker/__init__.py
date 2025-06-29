@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from collections.abc import MutableMapping
+from collections.abc import Callable, MutableMapping
 import logging
-from typing import Any, Callable
+from typing import Any
 
 from esphome import automation
 import esphome.codegen as cg
 from esphome.components import esp32_ble
 from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.components.esp32_ble import (
+    BTLoggers,
     bt_uuid,
     bt_uuid16_format,
     bt_uuid32_format,
@@ -17,6 +18,7 @@ from esphome.components.esp32_ble import (
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ACTIVE,
+    CONF_CONTINUOUS,
     CONF_DURATION,
     CONF_ID,
     CONF_INTERVAL,
@@ -42,8 +44,8 @@ CONF_MAX_CONNECTIONS = "max_connections"
 CONF_ESP32_BLE_ID = "esp32_ble_id"
 CONF_SCAN_PARAMETERS = "scan_parameters"
 CONF_WINDOW = "window"
-CONF_CONTINUOUS = "continuous"
 CONF_ON_SCAN_END = "on_scan_end"
+CONF_SOFTWARE_COEXISTENCE = "software_coexistence"
 
 DEFAULT_MAX_CONNECTIONS = 3
 IDF_MAX_CONNECTIONS = 9
@@ -203,6 +205,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_SCAN_END): automation.validate_automation(
                 {cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(BLEEndOfScanTrigger)}
             ),
+            cv.OnlyWith(CONF_SOFTWARE_COEXISTENCE, "wifi", default=True): bool,
         }
     ).extend(cv.COMPONENT_SCHEMA),
 )
@@ -257,11 +260,15 @@ ESP_BLE_DEVICE_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
+    # Register the loggers this component needs
+    esp32_ble.register_bt_logger(BTLoggers.BLE_SCAN)
+
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
     parent = await cg.get_variable(config[esp32_ble.CONF_BLE_ID])
     cg.add(parent.register_gap_event_handler(var))
+    cg.add(parent.register_gap_scan_event_handler(var))
     cg.add(parent.register_gattc_event_handler(var))
     cg.add(parent.register_ble_status_event_handler(var))
     cg.add(var.set_parent(parent))
@@ -310,6 +317,8 @@ async def to_code(config):
 
     if CORE.using_esp_idf:
         add_idf_sdkconfig_option("CONFIG_BT_ENABLED", True)
+        if config.get(CONF_SOFTWARE_COEXISTENCE):
+            add_idf_sdkconfig_option("CONFIG_SW_COEXIST_ENABLE", True)
         # https://github.com/espressif/esp-idf/issues/4101
         # https://github.com/espressif/esp-idf/issues/2503
         # Match arduino CONFIG_BTU_TASK_STACK_SIZE
@@ -331,6 +340,8 @@ async def to_code(config):
 
     cg.add_define("USE_OTA_STATE_CALLBACK")  # To be notified when an OTA update starts
     cg.add_define("USE_ESP32_BLE_CLIENT")
+    if config.get(CONF_SOFTWARE_COEXISTENCE):
+        cg.add_define("USE_ESP32_BLE_SOFTWARE_COEXISTENCE")
 
 
 ESP32_BLE_START_SCAN_ACTION_SCHEMA = cv.Schema(

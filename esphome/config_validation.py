@@ -1,9 +1,19 @@
 """Helpers for config validation using voluptuous."""
 
+from __future__ import annotations
+
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
-from ipaddress import AddressValueError, IPv4Address, ip_address
+from ipaddress import (
+    AddressValueError,
+    IPv4Address,
+    IPv4Network,
+    IPv6Address,
+    IPv6Network,
+    ip_address,
+    ip_network,
+)
 import logging
 import os
 import re
@@ -21,6 +31,7 @@ from esphome.const import (
     CONF_COMMAND_RETAIN,
     CONF_COMMAND_TOPIC,
     CONF_DAY,
+    CONF_DEVICE_ID,
     CONF_DISABLED_BY_DEFAULT,
     CONF_DISCOVERY,
     CONF_ENTITY_CATEGORY,
@@ -116,7 +127,7 @@ RequiredFieldInvalid = vol.RequiredFieldInvalid
 ROOT_CONFIG_PATH = object()
 
 RESERVED_IDS = [
-    # C++ keywords http://en.cppreference.com/w/cpp/keyword
+    # C++ keywords https://en.cppreference.com/w/cpp/keyword
     "alarm",
     "alignas",
     "alignof",
@@ -345,6 +356,13 @@ def icon(value):
     raise Invalid(
         'Icons must match the format "[icon pack]:[icon]", e.g. "mdi:home-assistant"'
     )
+
+
+def sub_device_id(value: str | None) -> core.ID:
+    # Lazy import to avoid circular imports
+    from esphome.core.config import Device
+
+    return use_id(Device)(value)
 
 
 def boolean(value):
@@ -982,23 +1000,32 @@ def uuid(value):
 
 
 METRIC_SUFFIXES = {
-    "E": 1e18,
-    "P": 1e15,
-    "T": 1e12,
-    "G": 1e9,
-    "M": 1e6,
-    "k": 1e3,
-    "da": 10,
-    "d": 1e-1,
-    "c": 1e-2,
-    "m": 0.001,
-    "µ": 1e-6,
-    "u": 1e-6,
-    "n": 1e-9,
-    "p": 1e-12,
-    "f": 1e-15,
-    "a": 1e-18,
-    "": 1,
+    "Q": 1e30,  # Quetta
+    "R": 1e27,  # Ronna
+    "Y": 1e24,  # Yotta
+    "Z": 1e21,  # Zetta
+    "E": 1e18,  # Exa
+    "P": 1e15,  # Peta
+    "T": 1e12,  # Tera
+    "G": 1e9,  # Giga
+    "M": 1e6,  # Mega
+    "k": 1e3,  # Kilo
+    "h": 1e2,  # Hecto
+    "da": 1e1,  # Deca
+    "": 1e0,  # No prefix
+    "d": 1e-1,  # Deci
+    "c": 1e-2,  # Centi
+    "m": 1e-3,  # Milli
+    "µ": 1e-6,  # Micro
+    "u": 1e-6,  # Micro (same as µ)
+    "n": 1e-9,  # Nano
+    "p": 1e-12,  # Pico
+    "f": 1e-15,  # Femto
+    "a": 1e-18,  # Atto
+    "z": 1e-21,  # Zepto
+    "y": 1e-24,  # Yocto
+    "r": 1e-27,  # Ronto
+    "q": 1e-30,  # Quecto
 }
 
 
@@ -1167,6 +1194,14 @@ def ipv4address(value):
     return address
 
 
+def ipv6address(value):
+    try:
+        address = IPv6Address(value)
+    except AddressValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv6 address") from exc
+    return address
+
+
 def ipv4address_multi_broadcast(value):
     address = ipv4address(value)
     if not (address.is_multicast or (address == IPv4Address("255.255.255.255"))):
@@ -1182,6 +1217,33 @@ def ipaddress(value):
     except ValueError as exc:
         raise Invalid(f"{value} is not a valid IP address") from exc
     return address
+
+
+def ipv4network(value):
+    """Validate that the value is a valid IPv4 network."""
+    try:
+        network = IPv4Network(value, strict=False)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv4 network") from exc
+    return network
+
+
+def ipv6network(value):
+    """Validate that the value is a valid IPv6 network."""
+    try:
+        network = IPv6Network(value, strict=False)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IPv6 network") from exc
+    return network
+
+
+def ipnetwork(value):
+    """Validate that the value is a valid IP network."""
+    try:
+        network = ip_network(value, strict=False)
+    except ValueError as exc:
+        raise Invalid(f"{value} is not a valid IP network") from exc
+    return network
 
 
 def _valid_topic(value):
@@ -1498,29 +1560,8 @@ def dimensions(value):
 
 
 def directory(value):
-    import json
-
     value = string(value)
     path = CORE.relative_config_path(value)
-
-    if CORE.vscode and (
-        not CORE.ace or os.path.abspath(path) == os.path.abspath(CORE.config_path)
-    ):
-        print(
-            json.dumps(
-                {
-                    "type": "check_directory_exists",
-                    "path": path,
-                }
-            )
-        )
-        data = json.loads(input())
-        assert data["type"] == "directory_exists_response"
-        if data["content"]:
-            return value
-        raise Invalid(
-            f"Could not find directory '{path}'. Please make sure it exists (full path: {os.path.abspath(path)})."
-        )
 
     if not os.path.exists(path):
         raise Invalid(
@@ -1534,29 +1575,8 @@ def directory(value):
 
 
 def file_(value):
-    import json
-
     value = string(value)
     path = CORE.relative_config_path(value)
-
-    if CORE.vscode and (
-        not CORE.ace or os.path.abspath(path) == os.path.abspath(CORE.config_path)
-    ):
-        print(
-            json.dumps(
-                {
-                    "type": "check_file_exists",
-                    "path": path,
-                }
-            )
-        )
-        data = json.loads(input())
-        assert data["type"] == "file_exists_response"
-        if data["content"]:
-            return value
-        raise Invalid(
-            f"Could not find file '{path}'. Please make sure it exists (full path: {os.path.abspath(path)})."
-        )
 
     if not os.path.exists(path):
         raise Invalid(
@@ -1691,6 +1711,26 @@ class OnlyWith(Optional):
     @property
     def default(self):
         if self._component in CORE.loaded_integrations:
+            return self._default
+        return vol.UNDEFINED
+
+    @default.setter
+    def default(self, value):
+        # Ignore default set from vol.Optional
+        pass
+
+
+class OnlyWithout(Optional):
+    """Set the default value only if the given component is NOT loaded."""
+
+    def __init__(self, key, component, default=None):
+        super().__init__(key)
+        self._component = component
+        self._default = vol.default_factory(default)
+
+    @property
+    def default(self):
+        if self._component not in CORE.loaded_integrations:
             return self._default
         return vol.UNDEFINED
 
@@ -1866,6 +1906,7 @@ ENTITY_BASE_SCHEMA = Schema(
         Optional(CONF_DISABLED_BY_DEFAULT, default=False): boolean,
         Optional(CONF_ICON): icon,
         Optional(CONF_ENTITY_CATEGORY): entity_category,
+        Optional(CONF_DEVICE_ID): sub_device_id,
     }
 )
 
@@ -1934,7 +1975,7 @@ class Version:
         return f"{self.major}.{self.minor}.{self.patch}"
 
     @classmethod
-    def parse(cls, value: str) -> "Version":
+    def parse(cls, value: str) -> Version:
         match = re.match(r"^(\d+).(\d+).(\d+)-?\w*$", value)
         if match is None:
             raise ValueError(f"Not a valid version number {value}")
@@ -2111,6 +2152,29 @@ def rename_key(old_key, new_key):
         config = config.copy()
         if old_key in config:
             config[new_key] = config.pop(old_key)
+        return config
+
+    return validator
+
+
+# Remove before 2025.11.0
+def deprecated_schema_constant(entity_type: str):
+    def validator(config):
+        type: str = "unknown"
+        if (id := config.get(CONF_ID)) is not None and isinstance(id, core.ID):
+            type = str(id.type).split("::", maxsplit=1)[0]
+        _LOGGER.warning(
+            "Using `%s.%s_SCHEMA` is deprecated and will be removed in ESPHome 2025.11.0. "
+            "Please use `%s.%s_schema(...)` instead. "
+            "If you are seeing this, report an issue to the external_component author and ask them to update it. "
+            "https://developers.esphome.io/blog/2025/05/14/_schema-deprecations/. "
+            "Component using this schema: %s",
+            entity_type,
+            entity_type.upper(),
+            entity_type,
+            entity_type,
+            type,
+        )
         return config
 
     return validator

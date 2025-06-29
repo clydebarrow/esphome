@@ -117,12 +117,17 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
     bool found = false;
     for (auto *server_register : this->server_registers_) {
       if (server_register->address == current_address) {
-        float value = server_register->read_lambda();
+        if (!server_register->read_lambda) {
+          break;
+        }
+        int64_t value = server_register->read_lambda();
+        ESP_LOGD(TAG, "Matched register. Address: 0x%02X. Value type: %zu. Register count: %u. Value: %s.",
+                 server_register->address, static_cast<size_t>(server_register->value_type),
+                 server_register->register_count, server_register->format_value(value).c_str());
 
-        ESP_LOGD(TAG, "Matched register. Address: 0x%02X. Value type: %zu. Register count: %u. Value: %0.1f.",
-                 server_register->address, static_cast<uint8_t>(server_register->value_type),
-                 server_register->register_count, value);
-        std::vector<uint16_t> payload = float_to_payload(value, server_register->value_type);
+        std::vector<uint16_t> payload;
+        payload.reserve(server_register->register_count * 2);
+        number_to_payload(payload, value, server_register->value_type);
         sixteen_bit_response.insert(sixteen_bit_response.end(), payload.cbegin(), payload.cend());
         current_address += server_register->register_count;
         found = true;
@@ -132,11 +137,7 @@ void ModbusController::on_modbus_read_registers(uint8_t function_code, uint16_t 
 
     if (!found) {
       ESP_LOGW(TAG, "Could not match any register to address %02X. Sending exception response.", current_address);
-      std::vector<uint8_t> error_response;
-      error_response.push_back(this->address_);
-      error_response.push_back(0x81);
-      error_response.push_back(0x02);
-      this->send_raw(error_response);
+      send_error(function_code, 0x02);
       return;
     }
   }
@@ -346,10 +347,12 @@ size_t ModbusController::create_register_ranges_() {
 }
 
 void ModbusController::dump_config() {
-  ESP_LOGCONFIG(TAG, "ModbusController:");
-  ESP_LOGCONFIG(TAG, "  Address: 0x%02X", this->address_);
-  ESP_LOGCONFIG(TAG, "  Max Command Retries: %d", this->max_cmd_retries_);
-  ESP_LOGCONFIG(TAG, "  Offline Skip Updates: %d", this->offline_skip_updates_);
+  ESP_LOGCONFIG(TAG,
+                "ModbusController:\n"
+                "  Address: 0x%02X\n"
+                "  Max Command Retries: %d\n"
+                "  Offline Skip Updates: %d",
+                this->address_, this->max_cmd_retries_, this->offline_skip_updates_);
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
   ESP_LOGCONFIG(TAG, "sensormap");
   for (auto &it : this->sensorset_) {

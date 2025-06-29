@@ -30,7 +30,6 @@
 #elif defined(USE_ESP_IDF)
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
-#include "esp_mac.h"
 #include "esp_random.h"
 #include "esp_system.h"
 #elif defined(USE_RP2040)
@@ -45,6 +44,7 @@
 #endif
 #ifdef USE_ESP32
 #include "rom/crc.h"
+#include "esp_mac.h"
 #include "esp_efuse.h"
 #include "esp_efuse_table.h"
 #endif
@@ -76,23 +76,8 @@ static const uint16_t CRC16_1021_BE_LUT_H[] = {0x0000, 0x1231, 0x2462, 0x3653, 0
                                                0x9188, 0x83b9, 0xb5ea, 0xa7db, 0xd94c, 0xcb7d, 0xfd2e, 0xef1f};
 #endif
 
-// STL backports
-
-#if _GLIBCXX_RELEASE < 8
-std::string to_string(int value) { return str_snprintf("%d", 32, value); }                   // NOLINT
-std::string to_string(long value) { return str_snprintf("%ld", 32, value); }                 // NOLINT
-std::string to_string(long long value) { return str_snprintf("%lld", 32, value); }           // NOLINT
-std::string to_string(unsigned value) { return str_snprintf("%u", 32, value); }              // NOLINT
-std::string to_string(unsigned long value) { return str_snprintf("%lu", 32, value); }        // NOLINT
-std::string to_string(unsigned long long value) { return str_snprintf("%llu", 32, value); }  // NOLINT
-std::string to_string(float value) { return str_snprintf("%f", 32, value); }
-std::string to_string(double value) { return str_snprintf("%f", 32, value); }
-std::string to_string(long double value) { return str_snprintf("%Lf", 32, value); }
-#endif
-
 // Mathematics
 
-float lerp(float completion, float start, float end) { return start + (end - start) * completion; }
 uint8_t crc8(const uint8_t *data, uint8_t len) {
   uint8_t crc = 0;
 
@@ -354,6 +339,10 @@ size_t parse_hex(const char *str, size_t length, uint8_t *data, size_t count) {
     data[i >> 1] = !(i & 1) ? val << 4 : data[i >> 1] | val;
   }
   return chars;
+}
+
+std::string format_mac_address_pretty(const uint8_t *mac) {
+  return str_snprintf("%02X:%02X:%02X:%02X:%02X:%02X", 17, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 static char format_hex_char(uint8_t v) { return v >= 10 ? 'a' + (v - 10) : '0' + v; }
@@ -732,7 +721,7 @@ std::string get_mac_address() {
 std::string get_mac_address_pretty() {
   uint8_t mac[6];
   get_mac_address_raw(mac);
-  return str_snprintf("%02X:%02X:%02X:%02X:%02X:%02X", 17, mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return format_mac_address_pretty(mac);
 }
 
 #ifdef USE_ESP32

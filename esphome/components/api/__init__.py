@@ -49,6 +49,7 @@ SERVICE_ARG_NATIVE_TYPES = {
     "string[]": cg.std_vector.template(cg.std_string),
 }
 CONF_ENCRYPTION = "encryption"
+CONF_BATCH_DELAY = "batch_delay"
 
 
 def validate_encryption_key(value):
@@ -82,6 +83,19 @@ ACTIONS_SCHEMA = automation.validate_automation(
     ),
 )
 
+ENCRYPTION_SCHEMA = cv.Schema(
+    {
+        cv.Optional(CONF_KEY): validate_encryption_key,
+    }
+)
+
+
+def _encryption_schema(config):
+    if config is None:
+        config = {}
+    return ENCRYPTION_SCHEMA(config)
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -95,11 +109,10 @@ CONFIG_SCHEMA = cv.All(
                 CONF_SERVICES, group_of_exclusion=CONF_ACTIONS
             ): ACTIONS_SCHEMA,
             cv.Exclusive(CONF_ACTIONS, group_of_exclusion=CONF_ACTIONS): ACTIONS_SCHEMA,
-            cv.Optional(CONF_ENCRYPTION): cv.Schema(
-                {
-                    cv.Required(CONF_KEY): validate_encryption_key,
-                }
-            ),
+            cv.Optional(CONF_ENCRYPTION): _encryption_schema,
+            cv.Optional(
+                CONF_BATCH_DELAY, default="100ms"
+            ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_ON_CLIENT_CONNECTED): automation.validate_automation(
                 single=True
             ),
@@ -120,6 +133,7 @@ async def to_code(config):
     cg.add(var.set_port(config[CONF_PORT]))
     cg.add(var.set_password(config[CONF_PASSWORD]))
     cg.add(var.set_reboot_timeout(config[CONF_REBOOT_TIMEOUT]))
+    cg.add(var.set_batch_delay(config[CONF_BATCH_DELAY]))
 
     for conf in config.get(CONF_ACTIONS, []):
         template_args = []
@@ -151,9 +165,17 @@ async def to_code(config):
             config[CONF_ON_CLIENT_DISCONNECTED],
         )
 
-    if encryption_config := config.get(CONF_ENCRYPTION):
-        decoded = base64.b64decode(encryption_config[CONF_KEY])
-        cg.add(var.set_noise_psk(list(decoded)))
+    if (encryption_config := config.get(CONF_ENCRYPTION, None)) is not None:
+        if key := encryption_config.get(CONF_KEY):
+            decoded = base64.b64decode(key)
+            cg.add(var.set_noise_psk(list(decoded)))
+        else:
+            # No key provided, but encryption desired
+            # This will allow a plaintext client to provide a noise key,
+            # send it to the device, and then switch to noise.
+            # The key will be saved in flash and used for future connections
+            # and plaintext disabled. Only a factory reset can remove it.
+            cg.add_define("USE_API_PLAINTEXT")
         cg.add_define("USE_API_NOISE")
         cg.add_library("esphome/noise-c", "0.1.6")
     else:
