@@ -40,6 +40,8 @@ TYPE_QUAD = "quad"
 TYPE_OCTAL = "octal"
 TYPE_HEX = "hex"
 
+SDK_MODES = {TYPE_QUAD: "QUAD", TYPE_OCTAL: "OCT", TYPE_HEX: "HEX"}
+
 CONF_ENABLE_ECC = "enable_ecc"
 
 SPIRAM_MODES = {
@@ -124,15 +126,15 @@ async def to_code(config):
         add_idf_sdkconfig_option("CONFIG_SPIRAM_USE_CAPS_ALLOC", True)
         add_idf_sdkconfig_option("CONFIG_SPIRAM_IGNORE_NOTFOUND", True)
 
-        mode = config[CONF_MODE]
-        if mode == TYPE_OCTAL:
-            mode = "oct"
-        add_idf_sdkconfig_option(f"CONFIG_SPIRAM_MODE_{mode.upper()}", True)
+        add_idf_sdkconfig_option(
+            f"CONFIG_SPIRAM_MODE_{SDK_MODES[config[CONF_MODE]]}", True
+        )
 
+        # Remove MHz suffix, convert to int
         speed = int(config[CONF_SPEED][:-3])
         add_idf_sdkconfig_option(f"CONFIG_SPIRAM_SPEED_{speed}M", True)
         add_idf_sdkconfig_option("CONFIG_SPIRAM_SPEED", speed)
-        if config[CONF_MODE] == TYPE_OCTAL and config[CONF_SPEED] == "120MHZ":
+        if config[CONF_MODE] == TYPE_OCTAL and speed == 120:
             add_idf_sdkconfig_option("CONFIG_ESPTOOLPY_FLASHFREQ_120M", True)
             add_idf_sdkconfig_option("CONFIG_BOOTLOADER_FLASH_DC_AWARE", True)
             if CORE.data[KEY_CORE][KEY_FRAMEWORK_VERSION] >= cv.Version(5, 4, 0):
