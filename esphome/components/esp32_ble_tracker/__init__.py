@@ -9,6 +9,7 @@ import esphome.codegen as cg
 from esphome.components import esp32_ble
 from esphome.components.esp32 import add_idf_sdkconfig_option
 from esphome.components.esp32_ble import (
+    BTLoggers,
     bt_uuid,
     bt_uuid16_format,
     bt_uuid32_format,
@@ -28,8 +29,6 @@ from esphome.const import (
     CONF_ON_BLE_SERVICE_DATA_ADVERTISE,
     CONF_SERVICE_UUID,
     CONF_TRIGGER_ID,
-    KEY_CORE,
-    KEY_FRAMEWORK_VERSION,
 )
 from esphome.core import CORE
 
@@ -259,11 +258,15 @@ ESP_BLE_DEVICE_SCHEMA = cv.Schema(
 
 
 async def to_code(config):
+    # Register the loggers this component needs
+    esp32_ble.register_bt_logger(BTLoggers.BLE_SCAN)
+
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
 
     parent = await cg.get_variable(config[esp32_ble.CONF_BLE_ID])
     cg.add(parent.register_gap_event_handler(var))
+    cg.add(parent.register_gap_scan_event_handler(var))
     cg.add(parent.register_gattc_event_handler(var))
     cg.add(parent.register_ble_status_event_handler(var))
     cg.add(var.set_parent(parent))
@@ -318,10 +321,7 @@ async def to_code(config):
         # https://github.com/espressif/esp-idf/issues/2503
         # Match arduino CONFIG_BTU_TASK_STACK_SIZE
         # https://github.com/espressif/arduino-esp32/blob/fd72cf46ad6fc1a6de99c1d83ba8eba17d80a4ee/tools/sdk/esp32/sdkconfig#L1866
-        if CORE.data[KEY_CORE][KEY_FRAMEWORK_VERSION] >= cv.Version(4, 4, 6):
-            add_idf_sdkconfig_option("CONFIG_BT_BTU_TASK_STACK_SIZE", 8192)
-        else:
-            add_idf_sdkconfig_option("CONFIG_BTU_TASK_STACK_SIZE", 8192)
+        add_idf_sdkconfig_option("CONFIG_BT_BTU_TASK_STACK_SIZE", 8192)
         add_idf_sdkconfig_option("CONFIG_BT_ACL_CONNECTIONS", 9)
         add_idf_sdkconfig_option(
             "CONFIG_BTDM_CTRL_BLE_MAX_CONN", config[CONF_MAX_CONNECTIONS]
@@ -330,8 +330,7 @@ async def to_code(config):
         # max notifications in 5.x, setting CONFIG_BT_ACL_CONNECTIONS
         # is enough in 4.x
         # https://github.com/esphome/issues/issues/6808
-        if CORE.data[KEY_CORE][KEY_FRAMEWORK_VERSION] >= cv.Version(5, 0, 0):
-            add_idf_sdkconfig_option("CONFIG_BT_GATTC_NOTIF_REG_MAX", 9)
+        add_idf_sdkconfig_option("CONFIG_BT_GATTC_NOTIF_REG_MAX", 9)
 
     cg.add_define("USE_OTA_STATE_CALLBACK")  # To be notified when an OTA update starts
     cg.add_define("USE_ESP32_BLE_CLIENT")

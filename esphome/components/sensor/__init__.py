@@ -101,8 +101,8 @@ from esphome.const import (
     ENTITY_CATEGORY_CONFIG,
 )
 from esphome.core import CORE, coroutine_with_priority
+from esphome.core.entity_helpers import entity_duplicate_validator, setup_entity
 from esphome.cpp_generator import MockObjClass
-from esphome.cpp_helpers import setup_entity
 from esphome.util import Registry
 
 CODEOWNERS = ["@esphome/core"]
@@ -167,7 +167,6 @@ DEVICE_CLASSES = [
 ]
 
 _LOGGER = logging.getLogger(__name__)
-
 sensor_ns = cg.esphome_ns.namespace("sensor")
 StateClasses = sensor_ns.enum("StateClass")
 STATE_CLASSES = {
@@ -318,6 +317,8 @@ _SENSOR_SCHEMA = (
         }
     )
 )
+
+_SENSOR_SCHEMA.add_extra(entity_duplicate_validator("sensor"))
 
 
 def sensor_schema(
@@ -788,7 +789,7 @@ async def build_filters(config):
 
 
 async def setup_sensor_core_(var, config):
-    await setup_entity(var, config)
+    await setup_entity(var, config, "sensor")
 
     if (device_class := config.get(CONF_DEVICE_CLASS)) is not None:
         cg.add(var.set_device_class(device_class))
@@ -840,6 +841,7 @@ async def register_sensor(var, config):
     if not CORE.has_id(config[CONF_ID]):
         var = cg.Pvariable(config[CONF_ID], var)
     cg.add(cg.App.register_sensor(var))
+    CORE.register_platform_component("sensor", var)
     await setup_sensor_core_(var, config)
 
 

@@ -22,6 +22,16 @@ void BLEClientBase::setup() {
   this->connection_index_ = connection_index++;
 }
 
+void BLEClientBase::set_state(espbt::ClientState st) {
+  ESP_LOGV(TAG, "[%d] [%s] Set state %d", this->connection_index_, this->address_str_.c_str(), (int) st);
+  ESPBTClient::set_state(st);
+
+  if (st == espbt::ClientState::READY_TO_CONNECT) {
+    // Enable loop when we need to connect
+    this->enable_loop();
+  }
+}
+
 void BLEClientBase::loop() {
   if (!esp32_ble::global_ble->is_active()) {
     this->set_state(espbt::ClientState::INIT);
@@ -37,16 +47,23 @@ void BLEClientBase::loop() {
   }
   // READY_TO_CONNECT means we have discovered the device
   // and the scanner has been stopped by the tracker.
-  if (this->state_ == espbt::ClientState::READY_TO_CONNECT) {
+  else if (this->state_ == espbt::ClientState::READY_TO_CONNECT) {
     this->connect();
+  }
+  // If its idle, we can disable the loop as set_state
+  // will enable it again when we need to connect.
+  else if (this->state_ == espbt::ClientState::IDLE) {
+    this->disable_loop();
   }
 }
 
 float BLEClientBase::get_setup_priority() const { return setup_priority::AFTER_BLUETOOTH; }
 
 void BLEClientBase::dump_config() {
-  ESP_LOGCONFIG(TAG, "  Address: %s", this->address_str().c_str());
-  ESP_LOGCONFIG(TAG, "  Auto-Connect: %s", TRUEFALSE(this->auto_connect_));
+  ESP_LOGCONFIG(TAG,
+                "  Address: %s\n"
+                "  Auto-Connect: %s",
+                this->address_str().c_str(), TRUEFALSE(this->auto_connect_));
   std::string state_name;
   switch (this->state()) {
     case espbt::ClientState::INIT:
@@ -479,17 +496,17 @@ float BLEClientBase::parse_char_value(uint8_t *value, uint16_t length) {
       if (length > 2) {
         return (float) encode_uint16(value[1], value[2]);
       }
-      // fall through
+      [[fallthrough]];
     case 0x7:  // uint24.
       if (length > 3) {
         return (float) encode_uint24(value[1], value[2], value[3]);
       }
-      // fall through
+      [[fallthrough]];
     case 0x8:  // uint32.
       if (length > 4) {
         return (float) encode_uint32(value[1], value[2], value[3], value[4]);
       }
-      // fall through
+      [[fallthrough]];
     case 0xC:  // int8.
       return (float) ((int8_t) value[1]);
     case 0xD:  // int12.
@@ -497,12 +514,12 @@ float BLEClientBase::parse_char_value(uint8_t *value, uint16_t length) {
       if (length > 2) {
         return (float) ((int16_t) (value[1] << 8) + (int16_t) value[2]);
       }
-      // fall through
+      [[fallthrough]];
     case 0xF:  // int24.
       if (length > 3) {
         return (float) ((int32_t) (value[1] << 16) + (int32_t) (value[2] << 8) + (int32_t) (value[3]));
       }
-      // fall through
+      [[fallthrough]];
     case 0x10:  // int32.
       if (length > 4) {
         return (float) ((int32_t) (value[1] << 24) + (int32_t) (value[2] << 16) + (int32_t) (value[3] << 8) +

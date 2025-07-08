@@ -67,6 +67,11 @@ class OnlineImage : public PollingComponent,
     this->last_modified_ = "";
   }
 
+  /** Add the request header */
+  template<typename V> void add_request_header(const std::string &header, V value) {
+    this->request_headers_.push_back(std::pair<std::string, TemplatableValue<std::string> >(header, value));
+  }
+
   /**
    * @brief Set the image that needs to be shown as long as the downloaded image
    *  is not available.
@@ -153,6 +158,8 @@ class OnlineImage : public PollingComponent,
 
   std::string url_{""};
 
+  std::vector<std::pair<std::string, TemplatableValue<std::string> > > request_headers_;
+
   /** width requested on configuration, or 0 if non specified. */
   const int fixed_width_;
   /** height requested on configuration, or 0 if non specified. */
@@ -194,9 +201,12 @@ template<typename... Ts> class OnlineImageSetUrlAction : public Action<Ts...> {
  public:
   OnlineImageSetUrlAction(OnlineImage *parent) : parent_(parent) {}
   TEMPLATABLE_VALUE(std::string, url)
+  TEMPLATABLE_VALUE(bool, update)
   void play(Ts... x) override {
     this->parent_->set_url(this->url_.value(x...));
-    this->parent_->update();
+    if (this->update_.value(x...)) {
+      this->parent_->update();
+    }
   }
 
  protected:
