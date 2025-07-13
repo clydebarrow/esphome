@@ -22,6 +22,16 @@ void BLEClientBase::setup() {
   this->connection_index_ = connection_index++;
 }
 
+void BLEClientBase::set_state(espbt::ClientState st) {
+  ESP_LOGV(TAG, "[%d] [%s] Set state %d", this->connection_index_, this->address_str_.c_str(), (int) st);
+  ESPBTClient::set_state(st);
+
+  if (st == espbt::ClientState::READY_TO_CONNECT) {
+    // Enable loop when we need to connect
+    this->enable_loop();
+  }
+}
+
 void BLEClientBase::loop() {
   if (!esp32_ble::global_ble->is_active()) {
     this->set_state(espbt::ClientState::INIT);
@@ -37,12 +47,63 @@ void BLEClientBase::loop() {
   }
   // READY_TO_CONNECT means we have discovered the device
   // and the scanner has been stopped by the tracker.
-  if (this->state_ == espbt::ClientState::READY_TO_CONNECT) {
+  else if (this->state_ == espbt::ClientState::READY_TO_CONNECT) {
     this->connect();
+  }
+  // If its idle, we can disable the loop as set_state
+  // will enable it again when we need to connect.
+  else if (this->state_ == espbt::ClientState::IDLE) {
+    this->disable_loop();
   }
 }
 
 float BLEClientBase::get_setup_priority() const { return setup_priority::AFTER_BLUETOOTH; }
+
+void BLEClientBase::dump_config() {
+  ESP_LOGCONFIG(TAG,
+                "  Address: %s\n"
+                "  Auto-Connect: %s",
+                this->address_str().c_str(), TRUEFALSE(this->auto_connect_));
+  std::string state_name;
+  switch (this->state()) {
+    case espbt::ClientState::INIT:
+      state_name = "INIT";
+      break;
+    case espbt::ClientState::DISCONNECTING:
+      state_name = "DISCONNECTING";
+      break;
+    case espbt::ClientState::IDLE:
+      state_name = "IDLE";
+      break;
+    case espbt::ClientState::SEARCHING:
+      state_name = "SEARCHING";
+      break;
+    case espbt::ClientState::DISCOVERED:
+      state_name = "DISCOVERED";
+      break;
+    case espbt::ClientState::READY_TO_CONNECT:
+      state_name = "READY_TO_CONNECT";
+      break;
+    case espbt::ClientState::CONNECTING:
+      state_name = "CONNECTING";
+      break;
+    case espbt::ClientState::CONNECTED:
+      state_name = "CONNECTED";
+      break;
+    case espbt::ClientState::ESTABLISHED:
+      state_name = "ESTABLISHED";
+      break;
+    default:
+      state_name = "UNKNOWN_STATE";
+      break;
+  }
+  ESP_LOGCONFIG(TAG, "  State: %s", state_name.c_str());
+  if (this->status_ == ESP_GATT_NO_RESOURCES) {
+    ESP_LOGE(TAG, "  Failed due to no resources. Try to reduce number of BLE clients in config.");
+  } else if (this->status_ != ESP_GATT_OK) {
+    ESP_LOGW(TAG, "  Failed due to error code %d", this->status_);
+  }
+}
 
 bool BLEClientBase::parse_device(const espbt::ESPBTDevice &device) {
   if (!this->auto_connect_)
@@ -79,12 +140,49 @@ void BLEClientBase::connect() {
 esp_err_t BLEClientBase::pair() { return esp_ble_set_encryption(this->remote_bda_, ESP_BLE_SEC_ENCRYPT); }
 
 void BLEClientBase::disconnect() {
-  if (this->state_ == espbt::ClientState::IDLE || this->state_ == espbt::ClientState::DISCONNECTING)
+  if (this->state_ == espbt::ClientState::IDLE) {
+    ESP_LOGI(TAG, "[%d] [%s] Disconnect requested, but already idle.", this->connection_index_,
+             this->address_str_.c_str());
     return;
-  ESP_LOGI(TAG, "[%d] [%s] Disconnecting.", this->connection_index_, this->address_str_.c_str());
+  }
+  if (this->state_ == espbt::ClientState::DISCONNECTING) {
+    ESP_LOGI(TAG, "[%d] [%s] Disconnect requested, but already disconnecting.", this->connection_index_,
+             this->address_str_.c_str());
+    return;
+  }
+  if (this->state_ == espbt::ClientState::CONNECTING || this->conn_id_ == UNSET_CONN_ID) {
+    ESP_LOGW(TAG, "[%d] [%s] Disconnecting before connected, disconnect scheduled.", this->connection_index_,
+             this->address_str_.c_str());
+    this->want_disconnect_ = true;
+    return;
+  }
+  this->unconditional_disconnect();
+}
+
+void BLEClientBase::unconditional_disconnect() {
+  // Disconnect without checking the state.
+  ESP_LOGI(TAG, "[%d] [%s] Disconnecting (conn_id: %d).", this->connection_index_, this->address_str_.c_str(),
+           this->conn_id_);
+  if (this->state_ == espbt::ClientState::DISCONNECTING) {
+    ESP_LOGE(TAG, "[%d] [%s] Tried to disconnect while already disconnecting.", this->connection_index_,
+             this->address_str_.c_str());
+    return;
+  }
+  if (this->conn_id_ == UNSET_CONN_ID) {
+    ESP_LOGE(TAG, "[%d] [%s] No connection ID set, cannot disconnect.", this->connection_index_,
+             this->address_str_.c_str());
+    return;
+  }
   auto err = esp_ble_gattc_close(this->gattc_if_, this->conn_id_);
   if (err != ESP_OK) {
-    ESP_LOGW(TAG, "[%d] [%s] esp_ble_gattc_close error, err=%d", this->connection_index_, this->address_str_.c_str(),
+    //
+    // This is a fatal error, but we can't do anything about it
+    // and it likely means the BLE stack is in a bad state.
+    //
+    // In the future we might consider App.reboot() here since
+    // the BLE stack is in an indeterminate state.
+    //
+    ESP_LOGE(TAG, "[%d] [%s] esp_ble_gattc_close error, err=%d", this->connection_index_, this->address_str_.c_str(),
              err);
   }
 
@@ -129,6 +227,8 @@ bool BLEClientBase::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
       } else {
         ESP_LOGE(TAG, "[%d] [%s] gattc app registration failed id=%d code=%d", this->connection_index_,
                  this->address_str_.c_str(), param->reg.app_id, param->reg.status);
+        this->status_ = param->reg.status;
+        this->mark_failed();
       }
       break;
     }
@@ -138,10 +238,36 @@ bool BLEClientBase::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
       this->log_event_("ESP_GATTC_OPEN_EVT");
       this->conn_id_ = param->open.conn_id;
       this->service_count_ = 0;
+      if (this->state_ != espbt::ClientState::CONNECTING) {
+        // This should not happen but lets log it in case it does
+        // because it means we have a bad assumption about how the
+        // ESP BT stack works.
+        if (this->state_ == espbt::ClientState::CONNECTED) {
+          ESP_LOGE(TAG, "[%d] [%s] Got ESP_GATTC_OPEN_EVT while already connected, status=%d", this->connection_index_,
+                   this->address_str_.c_str(), param->open.status);
+        } else if (this->state_ == espbt::ClientState::ESTABLISHED) {
+          ESP_LOGE(TAG, "[%d] [%s] Got ESP_GATTC_OPEN_EVT while already established, status=%d",
+                   this->connection_index_, this->address_str_.c_str(), param->open.status);
+        } else if (this->state_ == espbt::ClientState::DISCONNECTING) {
+          ESP_LOGE(TAG, "[%d] [%s] Got ESP_GATTC_OPEN_EVT while disconnecting, status=%d", this->connection_index_,
+                   this->address_str_.c_str(), param->open.status);
+        } else {
+          ESP_LOGE(TAG, "[%d] [%s] Got ESP_GATTC_OPEN_EVT while not in connecting state, status=%d",
+                   this->connection_index_, this->address_str_.c_str(), param->open.status);
+        }
+      }
       if (param->open.status != ESP_GATT_OK && param->open.status != ESP_GATT_ALREADY_OPEN) {
         ESP_LOGW(TAG, "[%d] [%s] Connection failed, status=%d", this->connection_index_, this->address_str_.c_str(),
                  param->open.status);
         this->set_state(espbt::ClientState::IDLE);
+        break;
+      }
+      if (this->want_disconnect_) {
+        // Disconnect was requested after connecting started,
+        // but before the connection was established. Now that we have
+        // this->conn_id_ set, we can disconnect it.
+        this->unconditional_disconnect();
+        this->conn_id_ = UNSET_CONN_ID;
         break;
       }
       auto ret = esp_ble_gattc_send_mtu_req(this->gattc_if_, param->open.conn_id);
@@ -195,6 +321,7 @@ bool BLEClientBase::gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_
       this->log_event_("ESP_GATTC_CLOSE_EVT");
       this->release_services();
       this->set_state(espbt::ClientState::IDLE);
+      this->conn_id_ = UNSET_CONN_ID;
       break;
     }
     case ESP_GATTC_SEARCH_RES_EVT: {
@@ -369,17 +496,17 @@ float BLEClientBase::parse_char_value(uint8_t *value, uint16_t length) {
       if (length > 2) {
         return (float) encode_uint16(value[1], value[2]);
       }
-      // fall through
+      [[fallthrough]];
     case 0x7:  // uint24.
       if (length > 3) {
         return (float) encode_uint24(value[1], value[2], value[3]);
       }
-      // fall through
+      [[fallthrough]];
     case 0x8:  // uint32.
       if (length > 4) {
         return (float) encode_uint32(value[1], value[2], value[3], value[4]);
       }
-      // fall through
+      [[fallthrough]];
     case 0xC:  // int8.
       return (float) ((int8_t) value[1]);
     case 0xD:  // int12.
@@ -387,12 +514,12 @@ float BLEClientBase::parse_char_value(uint8_t *value, uint16_t length) {
       if (length > 2) {
         return (float) ((int16_t) (value[1] << 8) + (int16_t) value[2]);
       }
-      // fall through
+      [[fallthrough]];
     case 0xF:  // int24.
       if (length > 3) {
         return (float) ((int32_t) (value[1] << 16) + (int32_t) (value[2] << 8) + (int32_t) (value[3]));
       }
-      // fall through
+      [[fallthrough]];
     case 0x10:  // int32.
       if (length > 4) {
         return (float) ((int32_t) (value[1] << 24) + (int32_t) (value[2] << 16) + (int32_t) (value[3] << 8) +

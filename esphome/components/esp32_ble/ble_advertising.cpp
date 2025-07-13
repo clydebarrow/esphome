@@ -6,6 +6,7 @@
 #include <cstring>
 #include "ble_uuid.h"
 #include "esphome/core/log.h"
+#include "esphome/core/application.h"
 
 namespace esphome {
 namespace esp32_ble {
@@ -83,7 +84,7 @@ esp_err_t BLEAdvertising::services_advertisement_() {
   esp_err_t err;
 
   this->advertising_data_.set_scan_rsp = false;
-  this->advertising_data_.include_name = true;
+  this->advertising_data_.include_name = !this->scan_response_;
   this->advertising_data_.include_txpower = !this->scan_response_;
   err = esp_ble_gap_config_adv_data(&this->advertising_data_);
   if (err != ESP_OK) {
@@ -143,7 +144,7 @@ void BLEAdvertising::loop() {
   if (this->raw_advertisements_callbacks_.empty()) {
     return;
   }
-  const uint32_t now = millis();
+  const uint32_t now = App.get_loop_component_start_time();
   if (now - this->last_advertisement_time_ > this->advertising_cycle_time_) {
     this->stop();
     this->current_adv_index_ += 1;

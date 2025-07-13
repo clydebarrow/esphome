@@ -47,7 +47,7 @@ struct TT21100TouchReport {
 float TT21100Touchscreen::get_setup_priority() const { return setup_priority::HARDWARE - 1.0f; }
 
 void TT21100Touchscreen::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up TT21100 Touchscreen...");
+  ESP_LOGCONFIG(TAG, "Running setup");
 
   // Register interrupt pin
   if (this->interrupt_pin_ != nullptr) {
@@ -68,7 +68,7 @@ void TT21100Touchscreen::setup() {
       this->x_raw_max_ = this->display_->get_native_width();
     }
     if (this->y_raw_max_ == this->y_raw_min_) {
-      this->x_raw_max_ = this->display_->get_native_height();
+      this->y_raw_max_ = this->display_->get_native_height();
     }
   }
 

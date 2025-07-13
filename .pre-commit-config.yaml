@@ -4,27 +4,19 @@
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.5.4
+    rev: v0.12.3
     hooks:
       # Run the linter.
       - id: ruff
         args: [--fix]
       # Run the formatter.
       - id: ruff-format
-  - repo: https://github.com/psf/black-pre-commit-mirror
-    rev: 24.4.2
-    hooks:
-      - id: black
-        args:
-          - --safe
-          - --quiet
-        files: ^((esphome|script|tests)/.+)?[^/]+\.py$
   - repo: https://github.com/PyCQA/flake8
-    rev: 6.1.0
+    rev: 7.3.0
     hooks:
       - id: flake8
         additional_dependencies:
-          - flake8-docstrings==1.5.0
+          - flake8-docstrings==1.7.0
           - pydocstyle==5.1.1
         files: ^(esphome|tests)/.+\.py$
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -36,12 +28,12 @@ repos:
           - --branch=release
           - --branch=beta
   - repo: https://github.com/asottile/pyupgrade
-    rev: v3.15.2
+    rev: v3.20.0
     hooks:
       - id: pyupgrade
-        args: [--py39-plus]
+        args: [--py310-plus]
   - repo: https://github.com/adrienverge/yamllint.git
-    rev: v1.35.1
+    rev: v1.37.1
     hooks:
       - id: yamllint
   - repo: https://github.com/pre-commit/mirrors-clang-format
@@ -53,6 +45,13 @@ repos:
     hooks:
       - id: pylint
         name: pylint
-        entry: script/run-in-env.sh pylint
-        language: script
+        entry: python3 script/run-in-env.py pylint
+        language: system
         types: [python]
+      - id: clang-tidy-hash
+        name: Update clang-tidy hash
+        entry: python script/clang_tidy_hash.py --update-if-changed
+        language: python
+        files: ^(\.clang-tidy|platformio\.ini|requirements_dev\.txt)$
+        pass_filenames: false
+        additional_dependencies: []

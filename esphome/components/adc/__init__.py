@@ -10,8 +10,15 @@ from esphome.components.esp32.const import (
     VARIANT_ESP32S2,
     VARIANT_ESP32S3,
 )
+from esphome.config_helpers import filter_source_files_from_platform
 import esphome.config_validation as cv
-from esphome.const import CONF_ANALOG, CONF_INPUT, CONF_NUMBER, PLATFORM_ESP8266
+from esphome.const import (
+    CONF_ANALOG,
+    CONF_INPUT,
+    CONF_NUMBER,
+    PLATFORM_ESP8266,
+    PlatformFramework,
+)
 from esphome.core import CORE
 
 CODEOWNERS = ["@esphome/core"]
@@ -36,12 +43,21 @@ ATTENUATION_MODES = {
     "auto": "auto",
 }
 
+sampling_mode = adc_ns.enum("SamplingMode", is_class=True)
+
+SAMPLING_MODES = {
+    "avg": sampling_mode.AVG,
+    "min": sampling_mode.MIN,
+    "max": sampling_mode.MAX,
+}
+
 adc1_channel_t = cg.global_ns.enum("adc1_channel_t")
 adc2_channel_t = cg.global_ns.enum("adc2_channel_t")
 
-# From https://github.com/espressif/esp-idf/blob/master/components/driver/include/driver/adc_common.h
 # pin to adc1 channel mapping
+# https://github.com/espressif/esp-idf/blob/v4.4.8/components/driver/include/driver/adc.h
 ESP32_VARIANT_ADC1_PIN_TO_CHANNEL = {
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32/include/soc/adc_channel.h
     VARIANT_ESP32: {
         36: adc1_channel_t.ADC1_CHANNEL_0,
         37: adc1_channel_t.ADC1_CHANNEL_1,
@@ -52,6 +68,41 @@ ESP32_VARIANT_ADC1_PIN_TO_CHANNEL = {
         34: adc1_channel_t.ADC1_CHANNEL_6,
         35: adc1_channel_t.ADC1_CHANNEL_7,
     },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c2/include/soc/adc_channel.h
+    VARIANT_ESP32C2: {
+        0: adc1_channel_t.ADC1_CHANNEL_0,
+        1: adc1_channel_t.ADC1_CHANNEL_1,
+        2: adc1_channel_t.ADC1_CHANNEL_2,
+        3: adc1_channel_t.ADC1_CHANNEL_3,
+        4: adc1_channel_t.ADC1_CHANNEL_4,
+    },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c3/include/soc/adc_channel.h
+    VARIANT_ESP32C3: {
+        0: adc1_channel_t.ADC1_CHANNEL_0,
+        1: adc1_channel_t.ADC1_CHANNEL_1,
+        2: adc1_channel_t.ADC1_CHANNEL_2,
+        3: adc1_channel_t.ADC1_CHANNEL_3,
+        4: adc1_channel_t.ADC1_CHANNEL_4,
+    },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/include/soc/adc_channel.h
+    VARIANT_ESP32C6: {
+        0: adc1_channel_t.ADC1_CHANNEL_0,
+        1: adc1_channel_t.ADC1_CHANNEL_1,
+        2: adc1_channel_t.ADC1_CHANNEL_2,
+        3: adc1_channel_t.ADC1_CHANNEL_3,
+        4: adc1_channel_t.ADC1_CHANNEL_4,
+        5: adc1_channel_t.ADC1_CHANNEL_5,
+        6: adc1_channel_t.ADC1_CHANNEL_6,
+    },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32h2/include/soc/adc_channel.h
+    VARIANT_ESP32H2: {
+        1: adc1_channel_t.ADC1_CHANNEL_0,
+        2: adc1_channel_t.ADC1_CHANNEL_1,
+        3: adc1_channel_t.ADC1_CHANNEL_2,
+        4: adc1_channel_t.ADC1_CHANNEL_3,
+        5: adc1_channel_t.ADC1_CHANNEL_4,
+    },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s2/include/soc/adc_channel.h
     VARIANT_ESP32S2: {
         1: adc1_channel_t.ADC1_CHANNEL_0,
         2: adc1_channel_t.ADC1_CHANNEL_1,
@@ -64,6 +115,7 @@ ESP32_VARIANT_ADC1_PIN_TO_CHANNEL = {
         9: adc1_channel_t.ADC1_CHANNEL_8,
         10: adc1_channel_t.ADC1_CHANNEL_9,
     },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/include/soc/adc_channel.h
     VARIANT_ESP32S3: {
         1: adc1_channel_t.ADC1_CHANNEL_0,
         2: adc1_channel_t.ADC1_CHANNEL_1,
@@ -76,40 +128,12 @@ ESP32_VARIANT_ADC1_PIN_TO_CHANNEL = {
         9: adc1_channel_t.ADC1_CHANNEL_8,
         10: adc1_channel_t.ADC1_CHANNEL_9,
     },
-    VARIANT_ESP32C3: {
-        0: adc1_channel_t.ADC1_CHANNEL_0,
-        1: adc1_channel_t.ADC1_CHANNEL_1,
-        2: adc1_channel_t.ADC1_CHANNEL_2,
-        3: adc1_channel_t.ADC1_CHANNEL_3,
-        4: adc1_channel_t.ADC1_CHANNEL_4,
-    },
-    VARIANT_ESP32C2: {
-        0: adc1_channel_t.ADC1_CHANNEL_0,
-        1: adc1_channel_t.ADC1_CHANNEL_1,
-        2: adc1_channel_t.ADC1_CHANNEL_2,
-        3: adc1_channel_t.ADC1_CHANNEL_3,
-        4: adc1_channel_t.ADC1_CHANNEL_4,
-    },
-    VARIANT_ESP32C6: {
-        0: adc1_channel_t.ADC1_CHANNEL_0,
-        1: adc1_channel_t.ADC1_CHANNEL_1,
-        2: adc1_channel_t.ADC1_CHANNEL_2,
-        3: adc1_channel_t.ADC1_CHANNEL_3,
-        4: adc1_channel_t.ADC1_CHANNEL_4,
-        5: adc1_channel_t.ADC1_CHANNEL_5,
-        6: adc1_channel_t.ADC1_CHANNEL_6,
-    },
-    VARIANT_ESP32H2: {
-        1: adc1_channel_t.ADC1_CHANNEL_0,
-        2: adc1_channel_t.ADC1_CHANNEL_1,
-        3: adc1_channel_t.ADC1_CHANNEL_2,
-        4: adc1_channel_t.ADC1_CHANNEL_3,
-        5: adc1_channel_t.ADC1_CHANNEL_4,
-    },
 }
 
+# pin to adc2 channel mapping
+# https://github.com/espressif/esp-idf/blob/v4.4.8/components/driver/include/driver/adc.h
 ESP32_VARIANT_ADC2_PIN_TO_CHANNEL = {
-    # TODO: add other variants
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32/include/soc/adc_channel.h
     VARIANT_ESP32: {
         4: adc2_channel_t.ADC2_CHANNEL_0,
         0: adc2_channel_t.ADC2_CHANNEL_1,
@@ -122,6 +146,19 @@ ESP32_VARIANT_ADC2_PIN_TO_CHANNEL = {
         25: adc2_channel_t.ADC2_CHANNEL_8,
         26: adc2_channel_t.ADC2_CHANNEL_9,
     },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c2/include/soc/adc_channel.h
+    VARIANT_ESP32C2: {
+        5: adc2_channel_t.ADC2_CHANNEL_0,
+    },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c3/include/soc/adc_channel.h
+    VARIANT_ESP32C3: {
+        5: adc2_channel_t.ADC2_CHANNEL_0,
+    },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32c6/include/soc/adc_channel.h
+    VARIANT_ESP32C6: {},  # no ADC2
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32h2/include/soc/adc_channel.h
+    VARIANT_ESP32H2: {},  # no ADC2
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s2/include/soc/adc_channel.h
     VARIANT_ESP32S2: {
         11: adc2_channel_t.ADC2_CHANNEL_0,
         12: adc2_channel_t.ADC2_CHANNEL_1,
@@ -134,6 +171,7 @@ ESP32_VARIANT_ADC2_PIN_TO_CHANNEL = {
         19: adc2_channel_t.ADC2_CHANNEL_8,
         20: adc2_channel_t.ADC2_CHANNEL_9,
     },
+    # https://github.com/espressif/esp-idf/blob/master/components/soc/esp32s3/include/soc/adc_channel.h
     VARIANT_ESP32S3: {
         11: adc2_channel_t.ADC2_CHANNEL_0,
         12: adc2_channel_t.ADC2_CHANNEL_1,
@@ -146,12 +184,6 @@ ESP32_VARIANT_ADC2_PIN_TO_CHANNEL = {
         19: adc2_channel_t.ADC2_CHANNEL_8,
         20: adc2_channel_t.ADC2_CHANNEL_9,
     },
-    VARIANT_ESP32C3: {
-        5: adc2_channel_t.ADC2_CHANNEL_0,
-    },
-    VARIANT_ESP32C2: {},
-    VARIANT_ESP32C6: {},
-    VARIANT_ESP32H2: {},
 }
 
 
@@ -204,3 +236,20 @@ def validate_adc_pin(value):
         )(value)
 
     raise NotImplementedError
+
+
+FILTER_SOURCE_FILES = filter_source_files_from_platform(
+    {
+        "adc_sensor_esp32.cpp": {
+            PlatformFramework.ESP32_ARDUINO,
+            PlatformFramework.ESP32_IDF,
+        },
+        "adc_sensor_esp8266.cpp": {PlatformFramework.ESP8266_ARDUINO},
+        "adc_sensor_rp2040.cpp": {PlatformFramework.RP2040_ARDUINO},
+        "adc_sensor_libretiny.cpp": {
+            PlatformFramework.BK72XX_ARDUINO,
+            PlatformFramework.RTL87XX_ARDUINO,
+            PlatformFramework.LN882X_ARDUINO,
+        },
+    }
+)

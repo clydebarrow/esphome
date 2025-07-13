@@ -21,10 +21,6 @@ namespace time {
 static const char *const TAG = "time";
 
 RealTimeClock::RealTimeClock() = default;
-void RealTimeClock::call_setup() {
-  this->apply_timezone_();
-  PollingComponent::call_setup();
-}
 void RealTimeClock::synchronize_epoch_(uint32_t epoch) {
   // Update UTC epoch time.
   struct timeval timev {
@@ -39,8 +35,10 @@ void RealTimeClock::synchronize_epoch_(uint32_t epoch) {
     ret = settimeofday(&timev, nullptr);
   }
 
+#ifdef USE_TIME_TIMEZONE
   // Move timezone back to local timezone.
   this->apply_timezone_();
+#endif
 
   if (ret != 0) {
     ESP_LOGW(TAG, "setimeofday() failed with code %d", ret);
@@ -53,10 +51,12 @@ void RealTimeClock::synchronize_epoch_(uint32_t epoch) {
   this->time_sync_callback_.call();
 }
 
+#ifdef USE_TIME_TIMEZONE
 void RealTimeClock::apply_timezone_() {
   setenv("TZ", this->timezone_.c_str(), 1);
   tzset();
 }
+#endif
 
 }  // namespace time
 }  // namespace esphome

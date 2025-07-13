@@ -8,23 +8,27 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
+#define SOC_HP_I2C_NUM SOC_I2C_NUM
+#endif
+
 namespace esphome {
 namespace i2c {
 
 static const char *const TAG = "i2c.idf";
 
 void IDFI2CBus::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up I2C bus...");
+  ESP_LOGCONFIG(TAG, "Running setup");
   static i2c_port_t next_port = I2C_NUM_0;
   port_ = next_port;
-#if SOC_I2C_NUM > 1
+#if SOC_HP_I2C_NUM > 1
   next_port = (next_port == I2C_NUM_0) ? I2C_NUM_1 : I2C_NUM_MAX;
 #else
   next_port = I2C_NUM_MAX;
 #endif
 
   if (port_ == I2C_NUM_MAX) {
-    ESP_LOGE(TAG, "Too many I2C buses configured. Max %u supported.", SOC_I2C_NUM);
+    ESP_LOGE(TAG, "No more than %u buses supported", SOC_HP_I2C_NUM);
     this->mark_failed();
     return;
   }
@@ -39,6 +43,10 @@ void IDFI2CBus::setup() {
   conf.scl_io_num = scl_pin_;
   conf.scl_pullup_en = scl_pullup_enabled_;
   conf.master.clk_speed = frequency_;
+#ifdef USE_ESP32_VARIANT_ESP32S2
+  // workaround for https://github.com/esphome/issues/issues/6718
+  conf.clk_flags = I2C_SCLK_SRC_FLAG_AWARE_DFS;
+#endif
   esp_err_t err = i2c_param_config(port_, &conf);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "i2c_param_config failed: %s", esp_err_to_name(err));
@@ -59,7 +67,7 @@ void IDFI2CBus::setup() {
       ESP_LOGV(TAG, "i2c_timeout set to %" PRIu32 " ticks (%" PRIu32 " us)", timeout_ * 80, timeout_);
     }
   }
-  err = i2c_driver_install(port_, I2C_MODE_MASTER, 0, 0, ESP_INTR_FLAG_IRAM);
+  err = i2c_driver_install(port_, I2C_MODE_MASTER, 0, 0, 0);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "i2c_driver_install failed: %s", esp_err_to_name(err));
     this->mark_failed();
@@ -67,15 +75,17 @@ void IDFI2CBus::setup() {
   }
   initialized_ = true;
   if (this->scan_) {
-    ESP_LOGV(TAG, "Scanning i2c bus for active devices...");
+    ESP_LOGV(TAG, "Scanning bus for active devices");
     this->i2c_scan_();
   }
 }
 void IDFI2CBus::dump_config() {
   ESP_LOGCONFIG(TAG, "I2C Bus:");
-  ESP_LOGCONFIG(TAG, "  SDA Pin: GPIO%u", this->sda_pin_);
-  ESP_LOGCONFIG(TAG, "  SCL Pin: GPIO%u", this->scl_pin_);
-  ESP_LOGCONFIG(TAG, "  Frequency: %" PRIu32 " Hz", this->frequency_);
+  ESP_LOGCONFIG(TAG,
+                "  SDA Pin: GPIO%u\n"
+                "  SCL Pin: GPIO%u\n"
+                "  Frequency: %" PRIu32 " Hz",
+                this->sda_pin_, this->scl_pin_, this->frequency_);
   if (timeout_ > 0) {
     ESP_LOGCONFIG(TAG, "  Timeout: %" PRIu32 "us", this->timeout_);
   }
@@ -91,13 +101,13 @@ void IDFI2CBus::dump_config() {
       break;
   }
   if (this->scan_) {
-    ESP_LOGI(TAG, "Results from i2c bus scan:");
+    ESP_LOGI(TAG, "Results from bus scan:");
     if (scan_results_.empty()) {
-      ESP_LOGI(TAG, "Found no i2c devices!");
+      ESP_LOGI(TAG, "Found no devices");
     } else {
       for (const auto &s : scan_results_) {
         if (s.second) {
-          ESP_LOGI(TAG, "Found i2c device at address 0x%02X", s.first);
+          ESP_LOGI(TAG, "Found device at address 0x%02X", s.first);
         } else {
           ESP_LOGE(TAG, "Unknown error at address 0x%02X", s.first);
         }
@@ -249,7 +259,7 @@ ErrorCode IDFI2CBus::writev(uint8_t address, WriteBuffer *buffers, size_t cnt, b
 /// https://www.nxp.com/docs/en/user-guide/UM10204.pdf
 /// https://www.analog.com/media/en/technical-documentation/application-notes/54305147357414AN686_0.pdf
 void IDFI2CBus::recover_() {
-  ESP_LOGI(TAG, "Performing I2C bus recovery");
+  ESP_LOGI(TAG, "Performing bus recovery");
 
   const gpio_num_t scl_pin = static_cast<gpio_num_t>(scl_pin_);
   const gpio_num_t sda_pin = static_cast<gpio_num_t>(sda_pin_);
@@ -286,7 +296,7 @@ void IDFI2CBus::recover_() {
   // with the SCL line. In that case, the I2C bus cannot be recovered.
   delayMicroseconds(half_period_usec);
   if (gpio_get_level(scl_pin) == 0) {
-    ESP_LOGE(TAG, "Recovery failed: SCL is held LOW on the I2C bus");
+    ESP_LOGE(TAG, "Recovery failed: SCL is held LOW on the bus");
     recovery_result_ = RECOVERY_FAILED_SCL_LOW;
     return;
   }

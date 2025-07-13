@@ -1,40 +1,33 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import pins
+import esphome.codegen as cg
 from esphome.components import light
+from esphome.components.esp32 import get_esp32_variant
+from esphome.components.esp32.const import VARIANT_ESP32C3, VARIANT_ESP32S3
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_CHANNEL,
     CONF_CLOCK_PIN,
     CONF_DATA_PIN,
+    CONF_INVERT,
     CONF_METHOD,
     CONF_NUM_LEDS,
+    CONF_OUTPUT_ID,
     CONF_PIN,
     CONF_TYPE,
     CONF_VARIANT,
-    CONF_OUTPUT_ID,
-    CONF_INVERT,
-)
-from esphome.components.esp32 import get_esp32_variant
-from esphome.components.esp32.const import (
-    VARIANT_ESP32C3,
-    VARIANT_ESP32S3,
 )
 from esphome.core import CORE
+
 from ._methods import (
-    METHODS,
-    METHOD_SPI,
-    METHOD_ESP8266_UART,
     METHOD_BIT_BANG,
     METHOD_ESP32_I2S,
     METHOD_ESP32_RMT,
     METHOD_ESP8266_DMA,
+    METHOD_ESP8266_UART,
+    METHOD_SPI,
+    METHODS,
 )
-from .const import (
-    CHIP_TYPES,
-    CONF_ASYNC,
-    CONF_BUS,
-    ONE_WIRE_CHIPS,
-)
+from .const import CHIP_TYPES, CONF_ASYNC, CONF_BUS, ONE_WIRE_CHIPS
 
 neopixelbus_ns = cg.esphome_ns.namespace("neopixelbus")
 NeoPixelBusLightOutputBase = neopixelbus_ns.class_(
@@ -222,4 +215,7 @@ async def to_code(config):
 
     # https://github.com/Makuna/NeoPixelBus/blob/master/library.json
     # Version Listed Here: https://registry.platformio.org/libraries/makuna/NeoPixelBus/versions
-    cg.add_library("makuna/NeoPixelBus", "2.7.3")
+    if CORE.is_esp32:
+        cg.add_library("makuna/NeoPixelBus", "2.8.0")
+    else:
+        cg.add_library("makuna/NeoPixelBus", "2.7.3")

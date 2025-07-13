@@ -1,6 +1,5 @@
 from importlib import resources
 import logging
-from typing import Optional
 
 import tzlocal
 
@@ -40,7 +39,7 @@ SyncTrigger = time_ns.class_("SyncTrigger", automation.Trigger.template(), cg.Co
 TimeHasTimeCondition = time_ns.class_("TimeHasTimeCondition", Condition)
 
 
-def _load_tzdata(iana_key: str) -> Optional[bytes]:
+def _load_tzdata(iana_key: str) -> bytes | None:
     # From https://tzdata.readthedocs.io/en/latest/#examples
     try:
         package_loc, resource = iana_key.rsplit("/", 1)
@@ -269,7 +268,19 @@ def validate_tz(value: str) -> str:
 
 TIME_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_TIMEZONE, default=detect_tz): validate_tz,
+        cv.SplitDefault(
+            CONF_TIMEZONE,
+            esp8266=detect_tz,
+            esp32=detect_tz,
+            rp2040=detect_tz,
+            bk72xx=detect_tz,
+            rtl87xx=detect_tz,
+            ln882x=detect_tz,
+            host=detect_tz,
+        ): cv.All(
+            cv.only_with_framework(["arduino", "esp-idf", "host"]),
+            validate_tz,
+        ),
         cv.Optional(CONF_ON_TIME): automation.validate_automation(
             {
                 cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(CronTrigger),
@@ -294,7 +305,9 @@ TIME_SCHEMA = cv.Schema(
 
 
 async def setup_time_core_(time_var, config):
-    cg.add(time_var.set_timezone(config[CONF_TIMEZONE]))
+    if timezone := config.get(CONF_TIMEZONE):
+        cg.add(time_var.set_timezone(timezone))
+        cg.add_define("USE_TIME_TIMEZONE")
 
     for conf in config.get(CONF_ON_TIME, []):
         trigger = cg.new_Pvariable(conf[CONF_TRIGGER_ID], time_var)
