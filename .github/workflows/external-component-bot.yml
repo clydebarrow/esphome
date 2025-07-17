@@ -64,7 +64,7 @@ jobs:
             }
 
              async function createComment(octokit, pr, esphomeChanges, componentChanges) {
-                const commentMarker = "<!-- This comment was generated automatically by a personal bot. -->";
+                const commentMarker = "<!-- This comment was generated automatically by a GitHub workflow. -->";
                 const [owner, repo] = pr.base.repo.full_name.split('/');
                 const prNumber = pr.number;
                 let commentBody;
