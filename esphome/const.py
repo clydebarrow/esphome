@@ -1310,12 +1310,6 @@ KEY_FRAMEWORK_VERSION = "framework_version"
 KEY_NAME = "name"
 KEY_VARIANT = "variant"
 KEY_PAST_SAFE_MODE = "past_safe_mode"
-
-# Entity categories
 ENTITY_CATEGORY_NONE = ""
-
-# The entity category for configuration values/controls
 ENTITY_CATEGORY_CONFIG = "config"
-
-# The entity category for read only diagnostic values, for example RSSI, uptime or MAC Address
 ENTITY_CATEGORY_DIAGNOSTIC = "diagnostic"
