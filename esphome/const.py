@@ -1311,8 +1311,8 @@ KEY_NAME = "name"
 KEY_VARIANT = "variant"
 KEY_PAST_SAFE_MODE = "past_safe_mode"
 
-# Entity categories
 ENTITY_CATEGORY_NONE = ""
+
 
 # The entity category for configuration values/controls
 ENTITY_CATEGORY_CONFIG = "config"
