@@ -14,6 +14,8 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
+#include "esp_timer.h"
+
 namespace esphome {
 namespace i2s_audio {
 
@@ -97,7 +99,7 @@ static const std::vector<int16_t> Q15_VOLUME_SCALING_FACTORS = {
     19508, 20665, 21891, 23189, 24565, 26022, 27566, 29201, 30933, 32767};
 
 void I2SAudioSpeaker::setup() {
-  ESP_LOGCONFIG(TAG, "Setting up I2S Audio Speaker...");
+  ESP_LOGCONFIG(TAG, "Running setup");
 
   this->event_group_ = xEventGroupCreate();
 
@@ -108,29 +110,48 @@ void I2SAudioSpeaker::setup() {
   }
 }
 
+void I2SAudioSpeaker::dump_config() {
+  ESP_LOGCONFIG(TAG,
+                "Speaker:\n"
+                "  Pin: %d\n"
+                "  Buffer duration: %" PRIu32,
+                static_cast<int8_t>(this->dout_pin_), this->buffer_duration_ms_);
+  if (this->timeout_.has_value()) {
+    ESP_LOGCONFIG(TAG, "  Timeout: %" PRIu32 " ms", this->timeout_.value());
+  }
+#ifdef USE_I2S_LEGACY
+#if SOC_I2S_SUPPORTS_DAC
+  ESP_LOGCONFIG(TAG, "  Internal DAC mode: %d", static_cast<int8_t>(this->internal_dac_mode_));
+#endif
+  ESP_LOGCONFIG(TAG, "  Communication format: %d", static_cast<int8_t>(this->i2s_comm_fmt_));
+#else
+  ESP_LOGCONFIG(TAG, "  Communication format: %s", this->i2s_comm_fmt_.c_str());
+#endif
+}
+
 void I2SAudioSpeaker::loop() {
   uint32_t event_group_bits = xEventGroupGetBits(this->event_group_);
 
   if (event_group_bits & SpeakerEventGroupBits::STATE_STARTING) {
-    ESP_LOGD(TAG, "Starting Speaker");
+    ESP_LOGD(TAG, "Starting");
     this->state_ = speaker::STATE_STARTING;
     xEventGroupClearBits(this->event_group_, SpeakerEventGroupBits::STATE_STARTING);
   }
   if (event_group_bits & SpeakerEventGroupBits::STATE_RUNNING) {
-    ESP_LOGD(TAG, "Started Speaker");
+    ESP_LOGD(TAG, "Started");
     this->state_ = speaker::STATE_RUNNING;
     xEventGroupClearBits(this->event_group_, SpeakerEventGroupBits::STATE_RUNNING);
     this->status_clear_warning();
     this->status_clear_error();
   }
   if (event_group_bits & SpeakerEventGroupBits::STATE_STOPPING) {
-    ESP_LOGD(TAG, "Stopping Speaker");
+    ESP_LOGD(TAG, "Stopping");
     this->state_ = speaker::STATE_STOPPING;
     xEventGroupClearBits(this->event_group_, SpeakerEventGroupBits::STATE_STOPPING);
   }
   if (event_group_bits & SpeakerEventGroupBits::STATE_STOPPED) {
     if (!this->task_created_) {
-      ESP_LOGD(TAG, "Stopped Speaker");
+      ESP_LOGD(TAG, "Stopped");
       this->state_ = speaker::STATE_STOPPED;
       xEventGroupClearBits(this->event_group_, SpeakerEventGroupBits::ALL_BITS);
       this->speaker_task_handle_ = nullptr;
@@ -138,20 +159,19 @@ void I2SAudioSpeaker::loop() {
   }
 
   if (event_group_bits & SpeakerEventGroupBits::ERR_TASK_FAILED_TO_START) {
-    this->status_set_error("Failed to start speaker task");
+    this->status_set_error("Failed to start task");
     xEventGroupClearBits(this->event_group_, SpeakerEventGroupBits::ERR_TASK_FAILED_TO_START);
   }
 
   if (event_group_bits & SpeakerEventGroupBits::ALL_ERR_ESP_BITS) {
     uint32_t error_bits = event_group_bits & SpeakerEventGroupBits::ALL_ERR_ESP_BITS;
-    ESP_LOGW(TAG, "Error writing to I2S: %s", esp_err_to_name(err_bit_to_esp_err(error_bits)));
+    ESP_LOGW(TAG, "Writing failed: %s", esp_err_to_name(err_bit_to_esp_err(error_bits)));
     this->status_set_warning();
   }
 
   if (event_group_bits & SpeakerEventGroupBits::ERR_ESP_NOT_SUPPORTED) {
-    this->status_set_error("Failed to adjust I2S bus to match the incoming audio");
-    ESP_LOGE(TAG,
-             "Incompatible audio format: sample rate = %" PRIu32 ", channels = %" PRIu8 ", bits per sample = %" PRIu8,
+    this->status_set_error("Failed to adjust bus to match incoming audio");
+    ESP_LOGE(TAG, "Incompatible audio format: sample rate = %" PRIu32 ", channels = %u, bits per sample = %u",
              this->audio_stream_info_.get_sample_rate(), this->audio_stream_info_.get_channels(),
              this->audio_stream_info_.get_bits_per_sample());
   }
@@ -200,7 +220,7 @@ void I2SAudioSpeaker::set_mute_state(bool mute_state) {
 
 size_t I2SAudioSpeaker::play(const uint8_t *data, size_t length, TickType_t ticks_to_wait) {
   if (this->is_failed()) {
-    ESP_LOGE(TAG, "Cannot play audio, speaker failed to setup");
+    ESP_LOGE(TAG, "Setup failed; cannot play audio");
     return 0;
   }
   if (this->state_ != speaker::STATE_RUNNING && this->state_ != speaker::STATE_STARTING) {
@@ -366,25 +386,15 @@ void I2SAudioSpeaker::speaker_task(void *params) {
                             bytes_to_write, &bytes_written, pdMS_TO_TICKS(DMA_BUFFER_DURATION_MS * 5));
 #endif
 
-          uint32_t write_timestamp = micros();
+          int64_t now = esp_timer_get_time();
 
           if (bytes_written != bytes_to_write) {
             xEventGroupSetBits(this_speaker->event_group_, SpeakerEventGroupBits::ERR_ESP_INVALID_SIZE);
           }
-
           bytes_read -= bytes_written;
 
-          this_speaker->accumulated_frames_written_ += audio_stream_info.bytes_to_frames(bytes_written);
-          const uint32_t new_playback_ms =
-              audio_stream_info.frames_to_milliseconds_with_remainder(&this_speaker->accumulated_frames_written_);
-          const uint32_t remainder_us =
-              audio_stream_info.frames_to_microseconds(this_speaker->accumulated_frames_written_);
-
-          uint32_t pending_frames =
-              audio_stream_info.bytes_to_frames(bytes_read + this_speaker->audio_ring_buffer_->available());
-          const uint32_t pending_ms = audio_stream_info.frames_to_milliseconds_with_remainder(&pending_frames);
-
-          this_speaker->audio_output_callback_(new_playback_ms, remainder_us, pending_ms, write_timestamp);
+          this_speaker->audio_output_callback_(audio_stream_info.bytes_to_frames(bytes_written),
+                                               now + dma_buffers_duration_ms * 1000);
 
           tx_dma_underflow = false;
           last_data_received_time = millis();
@@ -474,7 +484,7 @@ bool I2SAudioSpeaker::send_esp_err_to_event_group_(esp_err_t err) {
 esp_err_t I2SAudioSpeaker::allocate_buffers_(size_t data_buffer_size, size_t ring_buffer_size) {
   if (this->data_buffer_ == nullptr) {
     // Allocate data buffer for temporarily storing audio from the ring buffer before writing to the I2S bus
-    ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
+    RAMAllocator<uint8_t> allocator;
     this->data_buffer_ = allocator.allocate(data_buffer_size);
   }
 
@@ -637,7 +647,16 @@ esp_err_t I2SAudioSpeaker::start_i2s_driver_(audio::AudioStreamInfo &audio_strea
     std_slot_cfg =
         I2S_STD_MSB_SLOT_DEFAULT_CONFIG((i2s_data_bit_width_t) audio_stream_info.get_bits_per_sample(), slot_mode);
   }
+#ifdef USE_ESP32_VARIANT_ESP32
+  // There seems to be a bug on the ESP32 (non-variant) platform where setting the slot bit width higher then the bits
+  // per sample causes the audio to play too fast. Setting the ws_width to the configured slot bit width seems to
+  // make it play at the correct speed while sending more bits per slot.
+  if (this->slot_bit_width_ != I2S_SLOT_BIT_WIDTH_AUTO) {
+    std_slot_cfg.ws_width = static_cast<uint32_t>(this->slot_bit_width_);
+  }
+#else
   std_slot_cfg.slot_bit_width = this->slot_bit_width_;
+#endif
   std_slot_cfg.slot_mask = slot_mask;
 
   pin_config.dout = this->dout_pin_;
@@ -679,7 +698,7 @@ void I2SAudioSpeaker::delete_task_(size_t buffer_size) {
   this->audio_ring_buffer_.reset();  // Releases ownership of the shared_ptr
 
   if (this->data_buffer_ != nullptr) {
-    ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
+    RAMAllocator<uint8_t> allocator;
     allocator.deallocate(this->data_buffer_, buffer_size);
     this->data_buffer_ = nullptr;
   }

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 import datetime
 import functools
 import gzip
@@ -17,7 +17,7 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import TYPE_CHECKING, Any, Callable, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 from urllib.parse import urlparse
 
 import tornado
@@ -601,10 +601,12 @@ class DownloadListRequestHandler(BaseHandler):
         loop = asyncio.get_running_loop()
         try:
             downloads_json = await loop.run_in_executor(None, self._get, configuration)
-        except vol.Invalid:
+        except vol.Invalid as exc:
+            _LOGGER.exception("Error while fetching downloads", exc_info=exc)
             self.send_error(404)
             return
         if downloads_json is None:
+            _LOGGER.error("Configuration %s not found", configuration)
             self.send_error(404)
             return
         self.set_status(200)
@@ -618,14 +620,17 @@ class DownloadListRequestHandler(BaseHandler):
         if storage_json is None:
             return None
 
-        config = yaml_util.load_yaml(settings.rel_path(configuration))
+        try:
+            config = yaml_util.load_yaml(settings.rel_path(configuration))
 
-        if const.CONF_EXTERNAL_COMPONENTS in config:
-            from esphome.components.external_components import (
-                do_external_components_pass,
-            )
+            if const.CONF_EXTERNAL_COMPONENTS in config:
+                from esphome.components.external_components import (
+                    do_external_components_pass,
+                )
 
-            do_external_components_pass(config)
+                do_external_components_pass(config)
+        except vol.Invalid:
+            _LOGGER.info("Could not parse `external_components`, skipping")
 
         from esphome.components.esp32 import VARIANTS as ESP32_VARIANTS
 
@@ -634,7 +639,11 @@ class DownloadListRequestHandler(BaseHandler):
 
         if platform.upper() in ESP32_VARIANTS:
             platform = "esp32"
-        elif platform in (const.PLATFORM_RTL87XX, const.PLATFORM_BK72XX):
+        elif platform in (
+            const.PLATFORM_RTL87XX,
+            const.PLATFORM_BK72XX,
+            const.PLATFORM_LN882X,
+        ):
             platform = "libretiny"
 
         try:
@@ -832,6 +841,10 @@ class BoardsRequestHandler(BaseHandler):
             from esphome.components.bk72xx.boards import BOARDS as BK72XX_BOARDS
 
             boards = BK72XX_BOARDS
+        elif platform == const.PLATFORM_LN882X:
+            from esphome.components.ln882x.boards import BOARDS as LN882X_BOARDS
+
+            boards = LN882X_BOARDS
         elif platform == const.PLATFORM_RTL87XX:
             from esphome.components.rtl87xx.boards import BOARDS as RTL87XX_BOARDS
 

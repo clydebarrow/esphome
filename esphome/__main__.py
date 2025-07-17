@@ -34,16 +34,14 @@ from esphome.const import (
     CONF_PORT,
     CONF_SUBSTITUTIONS,
     CONF_TOPIC,
-    PLATFORM_BK72XX,
     PLATFORM_ESP32,
     PLATFORM_ESP8266,
     PLATFORM_RP2040,
-    PLATFORM_RTL87XX,
     SECRETS_FILES,
 )
 from esphome.core import CORE, EsphomeError, coroutine
 from esphome.helpers import get_bool_env, indent, is_ip_address
-from esphome.log import Fore, color, setup_log
+from esphome.log import AnsiFore, color, setup_log
 from esphome.util import (
     get_serial_ports,
     list_yaml_files,
@@ -83,7 +81,7 @@ def choose_prompt(options, purpose: str = None):
                 raise ValueError
             break
         except ValueError:
-            safe_print(color(Fore.RED, f"Invalid option: '{opt}'"))
+            safe_print(color(AnsiFore.RED, f"Invalid option: '{opt}'"))
     return options[opt - 1][1]
 
 
@@ -134,6 +132,7 @@ def get_port_type(port):
 
 
 def run_miniterm(config, port, args):
+    from aioesphomeapi import LogParser
     import serial
 
     from esphome import platformio_api
@@ -158,6 +157,7 @@ def run_miniterm(config, port, args):
         ser.dtr = False
         ser.rts = False
 
+    parser = LogParser()
     tries = 0
     while tries < 5:
         try:
@@ -174,8 +174,7 @@ def run_miniterm(config, port, args):
                         .decode("utf8", "backslashreplace")
                     )
                     time_str = datetime.now().time().strftime("[%H:%M:%S]")
-                    message = time_str + line
-                    safe_print(message)
+                    safe_print(parser.parse_line(line, time_str))
 
                     backtrace_state = platformio_api.process_stacktrace(
                         config, line, backtrace_state=backtrace_state
@@ -353,7 +352,7 @@ def upload_program(config, args, host):
         if CORE.target_platform in (PLATFORM_RP2040):
             return upload_using_platformio(config, args.device)
 
-        if CORE.target_platform in (PLATFORM_BK72XX, PLATFORM_RTL87XX):
+        if CORE.is_libretiny:
             return upload_using_platformio(config, host)
 
         return 1  # Unknown target platform
@@ -593,33 +592,38 @@ def command_update_all(args):
         middle_text = f" {middle_text} "
         width = len(click.unstyle(middle_text))
         half_line = "=" * ((twidth - width) // 2)
-        click.echo(f"{half_line}{middle_text}{half_line}")
+        safe_print(f"{half_line}{middle_text}{half_line}")
 
     for f in files:
-        print(f"Updating {color(Fore.CYAN, f)}")
-        print("-" * twidth)
-        print()
-        rc = run_external_process(
-            "esphome", "--dashboard", "run", f, "--no-logs", "--device", "OTA"
-        )
+        safe_print(f"Updating {color(AnsiFore.CYAN, f)}")
+        safe_print("-" * twidth)
+        safe_print()
+        if CORE.dashboard:
+            rc = run_external_process(
+                "esphome", "--dashboard", "run", f, "--no-logs", "--device", "OTA"
+            )
+        else:
+            rc = run_external_process(
+                "esphome", "run", f, "--no-logs", "--device", "OTA"
+            )
         if rc == 0:
-            print_bar(f"[{color(Fore.BOLD_GREEN, 'SUCCESS')}] {f}")
+            print_bar(f"[{color(AnsiFore.BOLD_GREEN, 'SUCCESS')}] {f}")
             success[f] = True
         else:
-            print_bar(f"[{color(Fore.BOLD_RED, 'ERROR')}] {f}")
+            print_bar(f"[{color(AnsiFore.BOLD_RED, 'ERROR')}] {f}")
             success[f] = False
 
-        print()
-        print()
-        print()
+        safe_print()
+        safe_print()
+        safe_print()
 
-    print_bar(f"[{color(Fore.BOLD_WHITE, 'SUMMARY')}]")
+    print_bar(f"[{color(AnsiFore.BOLD_WHITE, 'SUMMARY')}]")
     failed = 0
     for f in files:
         if success[f]:
-            print(f"  - {f}: {color(Fore.GREEN, 'SUCCESS')}")
+            safe_print(f"  - {f}: {color(AnsiFore.GREEN, 'SUCCESS')}")
         else:
-            print(f"  - {f}: {color(Fore.BOLD_RED, 'FAILED')}")
+            safe_print(f"  - {f}: {color(AnsiFore.BOLD_RED, 'FAILED')}")
             failed += 1
     return failed
 
@@ -645,7 +649,7 @@ def command_rename(args, config):
         if c not in ALLOWED_NAME_CHARS:
             print(
                 color(
-                    Fore.BOLD_RED,
+                    AnsiFore.BOLD_RED,
                     f"'{c}' is an invalid character for names. Valid characters are: "
                     f"{ALLOWED_NAME_CHARS} (lowercase, no spaces)",
                 )
@@ -658,7 +662,9 @@ def command_rename(args, config):
     yaml = yaml_util.load_yaml(CORE.config_path)
     if CONF_ESPHOME not in yaml or CONF_NAME not in yaml[CONF_ESPHOME]:
         print(
-            color(Fore.BOLD_RED, "Complex YAML files cannot be automatically renamed.")
+            color(
+                AnsiFore.BOLD_RED, "Complex YAML files cannot be automatically renamed."
+            )
         )
         return 1
     old_name = yaml[CONF_ESPHOME][CONF_NAME]
@@ -681,7 +687,7 @@ def command_rename(args, config):
             )
             > 1
         ):
-            print(color(Fore.BOLD_RED, "Too many matches in YAML to safely rename"))
+            print(color(AnsiFore.BOLD_RED, "Too many matches in YAML to safely rename"))
             return 1
 
         new_raw = re.sub(
@@ -693,7 +699,7 @@ def command_rename(args, config):
 
     new_path = os.path.join(CORE.config_dir, args.name + ".yaml")
     print(
-        f"Updating {color(Fore.CYAN, CORE.config_path)} to {color(Fore.CYAN, new_path)}"
+        f"Updating {color(AnsiFore.CYAN, CORE.config_path)} to {color(AnsiFore.CYAN, new_path)}"
     )
     print()
 
@@ -702,7 +708,7 @@ def command_rename(args, config):
 
     rc = run_external_process("esphome", "config", new_path)
     if rc != 0:
-        print(color(Fore.BOLD_RED, "Rename failed. Reverting changes."))
+        print(color(AnsiFore.BOLD_RED, "Rename failed. Reverting changes."))
         os.remove(new_path)
         return 1
 
@@ -728,7 +734,7 @@ def command_rename(args, config):
     if CORE.config_path != new_path:
         os.remove(CORE.config_path)
 
-    print(color(Fore.BOLD_GREEN, "SUCCESS"))
+    print(color(AnsiFore.BOLD_GREEN, "SUCCESS"))
     print()
     return 0
 

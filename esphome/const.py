@@ -1,19 +1,71 @@
 """Constants used by esphome."""
 
-__version__ = "2025.5.0-dev"
+from enum import Enum
+
+from esphome.enum import StrEnum
+
+__version__ = "2025.8.0-dev"
 
 ALLOWED_NAME_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789-_"
 VALID_SUBSTITUTIONS_CHARACTERS = (
     "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_"
 )
 
-PLATFORM_BK72XX = "bk72xx"
-PLATFORM_ESP32 = "esp32"
-PLATFORM_ESP8266 = "esp8266"
-PLATFORM_HOST = "host"
-PLATFORM_LIBRETINY_OLDSTYLE = "libretiny"
-PLATFORM_RP2040 = "rp2040"
-PLATFORM_RTL87XX = "rtl87xx"
+
+class Platform(StrEnum):
+    """Platform identifiers for ESPHome."""
+
+    BK72XX = "bk72xx"
+    ESP32 = "esp32"
+    ESP8266 = "esp8266"
+    HOST = "host"
+    LIBRETINY_OLDSTYLE = "libretiny"
+    LN882X = "ln882x"
+    NRF52 = "nrf52"
+    RP2040 = "rp2040"
+    RTL87XX = "rtl87xx"
+
+
+class Framework(StrEnum):
+    """Framework identifiers for ESPHome."""
+
+    ARDUINO = "arduino"
+    ESP_IDF = "esp-idf"
+    NATIVE = "host"
+    ZEPHYR = "zephyr"
+
+
+class PlatformFramework(Enum):
+    """Combined platform-framework identifiers with tuple values."""
+
+    # ESP32 variants
+    ESP32_ARDUINO = (Platform.ESP32, Framework.ARDUINO)
+    ESP32_IDF = (Platform.ESP32, Framework.ESP_IDF)
+
+    # Arduino framework platforms
+    ESP8266_ARDUINO = (Platform.ESP8266, Framework.ARDUINO)
+    RP2040_ARDUINO = (Platform.RP2040, Framework.ARDUINO)
+    BK72XX_ARDUINO = (Platform.BK72XX, Framework.ARDUINO)
+    RTL87XX_ARDUINO = (Platform.RTL87XX, Framework.ARDUINO)
+    LN882X_ARDUINO = (Platform.LN882X, Framework.ARDUINO)
+
+    # Zephyr framework platforms
+    NRF52_ZEPHYR = (Platform.NRF52, Framework.ZEPHYR)
+
+    # Host platform (native)
+    HOST_NATIVE = (Platform.HOST, Framework.NATIVE)
+
+
+# Maintain backward compatibility by reassigning after enum definition
+PLATFORM_BK72XX = Platform.BK72XX
+PLATFORM_ESP32 = Platform.ESP32
+PLATFORM_ESP8266 = Platform.ESP8266
+PLATFORM_HOST = Platform.HOST
+PLATFORM_LIBRETINY_OLDSTYLE = Platform.LIBRETINY_OLDSTYLE
+PLATFORM_LN882X = Platform.LN882X
+PLATFORM_NRF52 = Platform.NRF52
+PLATFORM_RP2040 = Platform.RP2040
+PLATFORM_RTL87XX = Platform.RTL87XX
 
 
 SOURCE_FILE_EXTENSIONS = {".cpp", ".hpp", ".h", ".c", ".tcc", ".ino"}
@@ -44,6 +96,7 @@ CONF_ALL = "all"
 CONF_ALLOW_OTHER_USES = "allow_other_uses"
 CONF_ALPHA = "alpha"
 CONF_ALTITUDE = "altitude"
+CONF_ALTITUDE_COMPENSATION = "altitude_compensation"
 CONF_AMBIENT_LIGHT = "ambient_light"
 CONF_AMBIENT_PRESSURE_COMPENSATION = "ambient_pressure_compensation"
 CONF_AMBIENT_PRESSURE_COMPENSATION_SOURCE = "ambient_pressure_compensation_source"
@@ -56,6 +109,8 @@ CONF_AP = "ap"
 CONF_APPARENT_POWER = "apparent_power"
 CONF_ARDUINO_VERSION = "arduino_version"
 CONF_AREA = "area"
+CONF_AREA_ID = "area_id"
+CONF_AREAS = "areas"
 CONF_ARGS = "args"
 CONF_ASSUMED_STATE = "assumed_state"
 CONF_AT = "at"
@@ -89,6 +144,7 @@ CONF_BIT_DEPTH = "bit_depth"
 CONF_BITS_PER_SAMPLE = "bits_per_sample"
 CONF_BLOCK = "block"
 CONF_BLUE = "blue"
+CONF_BLUETOOTH = "bluetooth"
 CONF_BOARD = "board"
 CONF_BOARD_FLASH_MODE = "board_flash_mode"
 CONF_BORDER = "border"
@@ -216,12 +272,16 @@ CONF_DEST = "dest"
 CONF_DEVICE = "device"
 CONF_DEVICE_CLASS = "device_class"
 CONF_DEVICE_FACTOR = "device_factor"
+CONF_DEVICE_ID = "device_id"
+CONF_DEVICES = "devices"
 CONF_DIELECTRIC_CONSTANT = "dielectric_constant"
 CONF_DIMENSIONS = "dimensions"
 CONF_DIO_PIN = "dio_pin"
 CONF_DIR_PIN = "dir_pin"
 CONF_DIRECTION = "direction"
+CONF_DIRECTION_COMMAND_TOPIC = "direction_command_topic"
 CONF_DIRECTION_OUTPUT = "direction_output"
+CONF_DIRECTION_STATE_TOPIC = "direction_state_topic"
 CONF_DISABLE_CRC = "disable_crc"
 CONF_DISABLED = "disabled"
 CONF_DISABLED_BY_DEFAULT = "disabled_by_default"
@@ -406,6 +466,7 @@ CONF_INITIAL_OPTION = "initial_option"
 CONF_INITIAL_STATE = "initial_state"
 CONF_INITIAL_VALUE = "initial_value"
 CONF_INPUT = "input"
+CONF_INT_DATAPOINT = "int_datapoint"
 CONF_INTEGRATION_TIME = "integration_time"
 CONF_INTENSITY = "intensity"
 CONF_INTERLOCK = "interlock"
@@ -524,7 +585,9 @@ CONF_MONTH = "month"
 CONF_MONTHS = "months"
 CONF_MOSI_PIN = "mosi_pin"
 CONF_MOTION = "motion"
+CONF_MOVE_THRESHOLD = "move_threshold"
 CONF_MOVEMENT_COUNTER = "movement_counter"
+CONF_MOVING_DISTANCE = "moving_distance"
 CONF_MQTT = "mqtt"
 CONF_MQTT_ID = "mqtt_id"
 CONF_MULTIPLE = "multiple"
@@ -643,6 +706,7 @@ CONF_PAYLOAD = "payload"
 CONF_PAYLOAD_AVAILABLE = "payload_available"
 CONF_PAYLOAD_NOT_AVAILABLE = "payload_not_available"
 CONF_PERIOD = "period"
+CONF_PERMITTIVITY = "permittivity"
 CONF_PH = "ph"
 CONF_PHASE_A = "phase_a"
 CONF_PHASE_ANGLE = "phase_angle"
@@ -732,6 +796,7 @@ CONF_REFRESH = "refresh"
 CONF_RELABEL = "relabel"
 CONF_REPEAT = "repeat"
 CONF_REPOSITORY = "repository"
+CONF_RESET = "reset"
 CONF_RESET_DURATION = "reset_duration"
 CONF_RESET_PIN = "reset_pin"
 CONF_RESIZE = "resize"
@@ -831,6 +896,7 @@ CONF_STEP = "step"
 CONF_STEP_DELAY = "step_delay"
 CONF_STEP_MODE = "step_mode"
 CONF_STEP_PIN = "step_pin"
+CONF_STILL_THRESHOLD = "still_threshold"
 CONF_STOP = "stop"
 CONF_STOP_ACTION = "stop_action"
 CONF_STORE_BASELINE = "store_baseline"
@@ -959,6 +1025,7 @@ CONF_WAND_ID = "wand_id"
 CONF_WARM_WHITE = "warm_white"
 CONF_WARM_WHITE_COLOR_TEMPERATURE = "warm_white_color_temperature"
 CONF_WATCHDOG_THRESHOLD = "watchdog_threshold"
+CONF_WATCHDOG_TIMEOUT = "watchdog_timeout"
 CONF_WEB_SERVER = "web_server"
 CONF_WEB_SERVER_ID = "web_server_id"
 CONF_WEIGHT = "weight"
@@ -971,7 +1038,9 @@ CONF_WIND_DIRECTION_DEGREES = "wind_direction_degrees"
 CONF_WIND_SPEED = "wind_speed"
 CONF_WINDOW_SIZE = "window_size"
 CONF_WRITE_PIN = "write_pin"
+CONF_X = "x"
 CONF_X_GRID = "x_grid"
+CONF_Y = "y"
 CONF_Y_GRID = "y_grid"
 CONF_YEAR = "year"
 CONF_ZERO = "zero"
@@ -1084,7 +1153,7 @@ UNIT_KILOMETER_PER_HOUR = "km/h"
 UNIT_KILOVOLT_AMPS = "kVA"
 UNIT_KILOVOLT_AMPS_HOURS = "kVAh"
 UNIT_KILOVOLT_AMPS_REACTIVE = "kVAR"
-UNIT_KILOVOLT_AMPS_REACTIVE_HOURS = "kVARh"
+UNIT_KILOVOLT_AMPS_REACTIVE_HOURS = "kvarh"
 UNIT_KILOWATT = "kW"
 UNIT_KILOWATT_HOURS = "kWh"
 UNIT_LITRE = "L"
@@ -1120,18 +1189,21 @@ UNIT_VOLT = "V"
 UNIT_VOLT_AMPS = "VA"
 UNIT_VOLT_AMPS_HOURS = "VAh"
 UNIT_VOLT_AMPS_REACTIVE = "var"
-UNIT_VOLT_AMPS_REACTIVE_HOURS = "VARh"
+UNIT_VOLT_AMPS_REACTIVE_HOURS = "varh"
 UNIT_WATT = "W"
 UNIT_WATT_HOURS = "Wh"
 
 # device classes
+DEVICE_CLASS_ABSOLUTE_HUMIDITY = "absolute_humidity"
 DEVICE_CLASS_APPARENT_POWER = "apparent_power"
 DEVICE_CLASS_AQI = "aqi"
+DEVICE_CLASS_AREA = "area"
 DEVICE_CLASS_ATMOSPHERIC_PRESSURE = "atmospheric_pressure"
 DEVICE_CLASS_AWNING = "awning"
 DEVICE_CLASS_BATTERY = "battery"
 DEVICE_CLASS_BATTERY_CHARGING = "battery_charging"
 DEVICE_CLASS_BLIND = "blind"
+DEVICE_CLASS_BLOOD_GLUCOSE_CONCENTRATION = "blood_glucose_concentration"
 DEVICE_CLASS_BUTTON = "button"
 DEVICE_CLASS_CARBON_DIOXIDE = "carbon_dioxide"
 DEVICE_CLASS_CARBON_MONOXIDE = "carbon_monoxide"
@@ -1150,6 +1222,7 @@ DEVICE_CLASS_DOORBELL = "doorbell"
 DEVICE_CLASS_DURATION = "duration"
 DEVICE_CLASS_EMPTY = ""
 DEVICE_CLASS_ENERGY = "energy"
+DEVICE_CLASS_ENERGY_DISTANCE = "energy_distance"
 DEVICE_CLASS_ENERGY_STORAGE = "energy_storage"
 DEVICE_CLASS_FIRMWARE = "firmware"
 DEVICE_CLASS_FREQUENCY = "frequency"
@@ -1187,6 +1260,7 @@ DEVICE_CLASS_PRECIPITATION_INTENSITY = "precipitation_intensity"
 DEVICE_CLASS_PRESENCE = "presence"
 DEVICE_CLASS_PRESSURE = "pressure"
 DEVICE_CLASS_PROBLEM = "problem"
+DEVICE_CLASS_REACTIVE_ENERGY = "reactive_energy"
 DEVICE_CLASS_REACTIVE_POWER = "reactive_power"
 DEVICE_CLASS_RESTART = "restart"
 DEVICE_CLASS_RUNNING = "running"
@@ -1214,6 +1288,7 @@ DEVICE_CLASS_VOLUME_STORAGE = "volume_storage"
 DEVICE_CLASS_WATER = "water"
 DEVICE_CLASS_WEIGHT = "weight"
 DEVICE_CLASS_WINDOW = "window"
+DEVICE_CLASS_WIND_DIRECTION = "wind_direction"
 DEVICE_CLASS_WIND_SPEED = "wind_speed"
 
 # state classes

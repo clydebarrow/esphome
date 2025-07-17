@@ -4,18 +4,12 @@ from esphome.components.esp32 import get_esp32_variant
 from esphome.components.esp32.const import (
     VARIANT_ESP32,
     VARIANT_ESP32C3,
+    VARIANT_ESP32P4,
     VARIANT_ESP32S2,
     VARIANT_ESP32S3,
 )
 import esphome.config_validation as cv
-from esphome.const import (
-    CONF_BITS_PER_SAMPLE,
-    CONF_CHANNEL,
-    CONF_ID,
-    CONF_SAMPLE_RATE,
-    KEY_CORE,
-    KEY_FRAMEWORK_VERSION,
-)
+from esphome.const import CONF_BITS_PER_SAMPLE, CONF_CHANNEL, CONF_ID, CONF_SAMPLE_RATE
 from esphome.core import CORE
 from esphome.cpp_generator import MockObjClass
 import esphome.final_validate as fv
@@ -74,6 +68,7 @@ I2S_PORTS = {
     VARIANT_ESP32S2: 1,
     VARIANT_ESP32S3: 2,
     VARIANT_ESP32C3: 1,
+    VARIANT_ESP32P4: 3,
 }
 
 i2s_channel_fmt_t = cg.global_ns.enum("i2s_channel_fmt_t")
@@ -248,8 +243,7 @@ def _final_validate(_):
 
 
 def use_legacy():
-    framework_version = CORE.data[KEY_CORE][KEY_FRAMEWORK_VERSION]
-    if CORE.using_esp_idf and framework_version >= cv.Version(5, 0, 0):
+    if CORE.using_esp_idf:
         if not _use_legacy_driver:
             return False
     return True

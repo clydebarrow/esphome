@@ -1,9 +1,9 @@
 #include "waveshare_epaper.h"
-#include "esphome/core/log.h"
+#include <bitset>
+#include <cinttypes>
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
-#include <cinttypes>
-#include <bitset>
+#include "esphome/core/log.h"
 
 namespace esphome {
 namespace waveshare_epaper {
@@ -185,7 +185,7 @@ void WaveshareEPaper7C::setup() {
   this->initialize();
 }
 void WaveshareEPaper7C::init_internal_7c_(uint32_t buffer_length) {
-  ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
+  RAMAllocator<uint8_t> allocator;
   uint32_t small_buffer_length = buffer_length / NUM_BUFFERS;
 
   for (int i = 0; i < NUM_BUFFERS; i++) {
@@ -1004,7 +1004,7 @@ void WaveshareEPaper1P54InBV2::initialize() {
 
   this->command(0x4E);  // set RAM x address count to 0;
   this->data(0x00);
-  this->command(0x4F);  // set RAM y address count to 0X199;
+  this->command(0x4F);  // set RAM y address count to 0x199;
   this->data(0xC7);
   this->data(0x00);
 
@@ -1878,7 +1878,7 @@ void GDEY029T94::initialize() {
 
   this->command(0x4E);  // set RAM x address count to 0;
   this->data(0x00);
-  this->command(0x4F);  // set RAM y address count to 0X199;
+  this->command(0x4F);  // set RAM y address count to 0x199;
   this->command(0x00);
   this->command(0x00);
   this->wait_until_idle_();
@@ -2054,7 +2054,7 @@ void GDEW029T5::initialize() {
     this->deep_sleep_between_updates_ = true;
 
   // old buffer for partial update
-  ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
+  RAMAllocator<uint8_t> allocator;
   this->old_buffer_ = allocator.allocate(this->get_buffer_length_());
   if (this->old_buffer_ == nullptr) {
     ESP_LOGE(TAG, "Could not allocate old buffer for display!");
@@ -2070,7 +2070,7 @@ void GDEW029T5::init_full_() {
   this->init_display_();
   this->command(0x82);  // vcom_DC setting
   this->data(0x08);
-  this->command(0X50);  // VCOM AND DATA INTERVAL SETTING
+  this->command(0x50);  // VCOM AND DATA INTERVAL SETTING
   this->data(0x97);     // WBmode:VBDF 17|D7 VBDW 97 VBDB 57   WBRmode:VBDF F7 VBDW 77 VBDB 37  VBDR B7
   this->command(0x20);
   this->write_lut_(LUT_20_VCOMDC_29_5, sizeof(LUT_20_VCOMDC_29_5));
@@ -2090,7 +2090,7 @@ void GDEW029T5::init_partial_() {
   this->init_display_();
   this->command(0x82);  // vcom_DC setting
   this->data(0x08);
-  this->command(0X50);  // VCOM AND DATA INTERVAL SETTING
+  this->command(0x50);  // VCOM AND DATA INTERVAL SETTING
   this->data(0x17);     // WBmode:VBDF 17|D7 VBDW 97 VBDB 57   WBRmode:VBDF F7 VBDW 77 VBDB 37  VBDR B7
   this->command(0x20);
   this->write_lut_(LUT_20_VCOMDC_PARTIAL_29_5, sizeof(LUT_20_VCOMDC_PARTIAL_29_5));
@@ -2199,7 +2199,7 @@ void GDEW029T5::dump_config() {
 
 void GDEW0154M09::initialize() {
   this->init_internal_();
-  ExternalRAMAllocator<uint8_t> allocator(ExternalRAMAllocator<uint8_t>::ALLOW_FAILURE);
+  RAMAllocator<uint8_t> allocator;
   this->lastbuff_ = allocator.allocate(this->get_buffer_length_());
   if (this->lastbuff_ != nullptr) {
     memset(this->lastbuff_, 0xff, sizeof(uint8_t) * this->get_buffer_length_());
@@ -3132,7 +3132,7 @@ void HOT GDEY0583T81::display() {
   } else {
     // Partial out (PTOUT), makes the display exit partial mode
     this->command(0x92);
-    ESP_LOGD(TAG, "Partial update done, next full update after %d cycles",
+    ESP_LOGD(TAG, "Partial update done, next full update after %" PRIu32 " cycles",
              this->full_update_every_ - this->at_update_ - 1);
   }
 
@@ -4481,10 +4481,10 @@ void WaveshareEPaper7P5InHDB::initialize() {
   this->data(0x01);     // LUT1, for white
 
   this->command(0x18);
-  this->data(0X80);
+  this->data(0x80);
 
   this->command(0x22);
-  this->data(0XB1);  // Load Temperature and waveform setting.
+  this->data(0xB1);  // Load Temperature and waveform setting.
 
   this->command(0x20);
 
