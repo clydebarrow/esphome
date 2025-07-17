@@ -6,7 +6,6 @@ on:
 
 permissions:
   contents: read       #  Needed to checkout code
-  pull-requests: write #  Needed to comment on or modify PRs
   issues: write        #  Needed to comment on issues (if applicable)
 
 jobs:
