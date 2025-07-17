@@ -12,6 +12,7 @@ jobs:
       - name: Add external component comment
         uses: actions/github-script@v7.0.1
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
 
            // Generate external component usage instructions
@@ -74,7 +75,7 @@ jobs:
                           owner: owner,
                           repo: repo,
                           issue_number: prNumber,
-                        });
+                 });
 
                 const botComment = comments.data.find(comment =>
                  comment.body.includes(commentMarker)
@@ -134,17 +135,17 @@ jobs:
 
               return { esphomeChanges: uniqueEsphomeChanges, componentChanges: [...new Set(componentChanges)] };
              }
-                      const prDetails = await github.rest.pulls.get({
-                         owner: owner,
-                         repo: repo,
-                         pull_number: prNumber,
-                       });
+             const prNumber = context.payload.pull_request.number;
+             const { owner, repo } = context.repo;
+             const prDetails = await github.rest.pulls.get({
+                owner: owner,
+                repo: repo,
+                pull_number: prNumber,
+              });
 
-                      const {esphomeChanges, componentChanges} = await getEsphomeAndComponentChanges(github, owner, repo, prNumber);
-                      if (componentChanges.length === 0) {
-                         return new Response('No component changes', { status: 202 });
-                       }
+             const {esphomeChanges, componentChanges} = await getEsphomeAndComponentChanges(github, owner, repo, prNumber);
+             if (componentChanges.length === 0) {
+                return;
+             }
 
-                      await createComment(github, prDetails.data, esphomeChanges, componentChanges);
-                        return new Response("OK");
-                     });
+             await createComment(github, prDetails.data, esphomeChanges, componentChanges);
