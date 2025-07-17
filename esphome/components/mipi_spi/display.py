@@ -621,5 +621,4 @@ async def to_code(config):
         cg.add(var.set_writer(lambda_))
     await display.register_display(var, config)
     await spi.register_spi_device(var, config)
-    # Displays are write-only, set the SPI device to write-only as well
     cg.add(var.set_write_only(True))
