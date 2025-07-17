@@ -27,13 +27,6 @@ CODEOWNERS = ["@esphome/core"]
 adc_ns = cg.esphome_ns.namespace("adc")
 
 
-"""
-From the below patch versions (and 5.2+) ADC_ATTEN_DB_11 is deprecated and replaced with ADC_ATTEN_DB_12.
-4.4.7
-5.0.5
-5.1.3
-5.2+
-"""
 
 ATTENUATION_MODES = {
     "0db": cg.global_ns.ADC_ATTEN_DB_0,
