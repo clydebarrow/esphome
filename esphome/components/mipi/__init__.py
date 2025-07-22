@@ -338,7 +338,10 @@ class DriverChip:
         Pixel format, color order, and orientation will be set.
         Returns a tuple of the init sequence and the computed MADCTL value.
         """
-        sequence = list(self.initsequence)
+        if self.initsequence != none:
+            sequence = list(self.initsequence)
+        else:
+            sequence = (,)
         custom_sequence = config.get(CONF_INIT_SEQUENCE, [])
         sequence.extend(custom_sequence)
         # Ensure each command is a tuple
