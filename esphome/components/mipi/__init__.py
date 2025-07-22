@@ -225,7 +225,7 @@ class DriverChip:
     def __init__(
         self,
         name: str,
-        initsequence=None,
+        initsequence=list(),
         **defaults,
     ):
         name = name.upper()
@@ -338,10 +338,7 @@ class DriverChip:
         Pixel format, color order, and orientation will be set.
         Returns a tuple of the init sequence and the computed MADCTL value.
         """
-        if self.initsequence != none:
-            sequence = list(self.initsequence)
-        else:
-            sequence = (,)
+        sequence = list(self.initsequence)
         custom_sequence = config.get(CONF_INIT_SEQUENCE, [])
         sequence.extend(custom_sequence)
         # Ensure each command is a tuple
