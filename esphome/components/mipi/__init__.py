@@ -225,7 +225,7 @@ class DriverChip:
     def __init__(
         self,
         name: str,
-        initsequence=None,
+        initsequence=list(),
         **defaults,
     ):
         name = name.upper()
@@ -339,6 +339,7 @@ class DriverChip:
         Returns a tuple of the init sequence and the computed MADCTL value.
         """
         sequence = list(self.initsequence)
+        
         custom_sequence = config.get(CONF_INIT_SEQUENCE, [])
         sequence.extend(custom_sequence)
         # Ensure each command is a tuple
