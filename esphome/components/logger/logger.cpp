@@ -4,12 +4,11 @@
 #include <memory>  // For unique_ptr
 #endif
 
+#include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
-#include "esphome/core/application.h"
 
-namespace esphome {
-namespace logger {
+namespace esphome::logger {
 
 static const char *const TAG = "logger";
 
@@ -160,6 +159,8 @@ Logger::Logger(uint32_t baud_rate, size_t tx_buffer_size) : baud_rate_(baud_rate
   this->tx_buffer_ = new char[this->tx_buffer_size_ + 1];  // NOLINT
 #if defined(USE_ESP32) || defined(USE_LIBRETINY)
   this->main_task_ = xTaskGetCurrentTaskHandle();
+#elif defined(USE_ZEPHYR)
+  this->main_task_ = k_current_get();
 #endif
 }
 #ifdef USE_ESPHOME_TASK_LOG_BUFFER
@@ -172,6 +173,7 @@ void Logger::init_log_buffer(size_t total_buffer_size) {
 }
 #endif
 
+#ifndef USE_ZEPHYR
 #if defined(USE_LOGGER_USB_CDC) || defined(USE_ESP32)
 void Logger::loop() {
 #if defined(USE_LOGGER_USB_CDC) && defined(USE_ARDUINO)
@@ -186,7 +188,12 @@ void Logger::loop() {
     opened = !opened;
   }
 #endif
+  this->process_messages_();
+}
+#endif
+#endif
 
+void Logger::process_messages_() {
 #ifdef USE_ESPHOME_TASK_LOG_BUFFER
   // Process any buffered messages when available
   if (this->log_buffer_->has_messages()) {
@@ -227,12 +234,11 @@ void Logger::loop() {
   }
 #endif
 }
-#endif
 
 void Logger::set_baud_rate(uint32_t baud_rate) { this->baud_rate_ = baud_rate; }
 void Logger::set_log_level(const std::string &tag, uint8_t log_level) { this->log_levels_[tag] = log_level; }
 
-#if defined(USE_ESP32) || defined(USE_ESP8266) || defined(USE_RP2040) || defined(USE_LIBRETINY)
+#if defined(USE_ESP32) || defined(USE_ESP8266) || defined(USE_RP2040) || defined(USE_LIBRETINY) || defined(USE_ZEPHYR)
 UARTSelection Logger::get_uart() const { return this->uart_; }
 #endif
 
@@ -276,5 +282,4 @@ void Logger::set_log_level(uint8_t level) {
 
 Logger *global_logger = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-}  // namespace logger
-}  // namespace esphome
+}  // namespace esphome::logger

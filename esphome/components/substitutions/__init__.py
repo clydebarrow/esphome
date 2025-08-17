@@ -49,15 +49,14 @@ def _expand_jinja(value, orig_value, path, jinja, ignore_missing):
         try:
             # Invoke the jinja engine to evaluate the expression.
             value, err = jinja.expand(value)
-            if err is not None:
-                if not ignore_missing and "password" not in path:
-                    _LOGGER.warning(
-                        "Found '%s' (see %s) which looks like an expression,"
-                        " but could not resolve all the variables: %s",
-                        value,
-                        "->".join(str(x) for x in path),
-                        err.message,
-                    )
+            if err is not None and not ignore_missing and "password" not in path:
+                _LOGGER.warning(
+                    "Found '%s' (see %s) which looks like an expression,"
+                    " but could not resolve all the variables: %s",
+                    value,
+                    "->".join(str(x) for x in path),
+                    err.message,
+                )
         except (
             TemplateError,
             TemplateRuntimeError,
@@ -146,8 +145,11 @@ def _substitute_item(substitutions, item, path, jinja, ignore_missing):
             if sub is not None:
                 item[k] = sub
         for old, new in replace_keys:
-            item[new] = merge_config(item.get(old), item.get(new))
-            del item[old]
+            if str(new) == str(old):
+                item[new] = item[old]
+            else:
+                item[new] = merge_config(item.get(old), item.get(new))
+                del item[old]
     elif isinstance(item, str):
         sub = _expand_substitutions(substitutions, item, path, jinja, ignore_missing)
         if isinstance(sub, JinjaStr) or sub != item:

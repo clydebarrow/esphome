@@ -1,9 +1,11 @@
 #pragma once
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <string>
@@ -67,7 +69,10 @@ To bit_cast(const From &src) {
   return dst;
 }
 #endif
-using std::lerp;
+
+// clang-format off
+inline float lerp(float completion, float start, float end) = delete;  // Please use std::lerp. Notice that it has different order on arguments!
+// clang-format on
 
 // std::byteswap from C++23
 template<typename T> constexpr T byteswap(T n) {
@@ -84,6 +89,51 @@ template<> constexpr int8_t byteswap(int8_t n) { return n; }
 template<> constexpr int16_t byteswap(int16_t n) { return __builtin_bswap16(n); }
 template<> constexpr int32_t byteswap(int32_t n) { return __builtin_bswap32(n); }
 template<> constexpr int64_t byteswap(int64_t n) { return __builtin_bswap64(n); }
+
+///@}
+
+/// @name Container utilities
+///@{
+
+/// Minimal static vector - saves memory by avoiding std::vector overhead
+template<typename T, size_t N> class StaticVector {
+ public:
+  using value_type = T;
+  using iterator = typename std::array<T, N>::iterator;
+  using const_iterator = typename std::array<T, N>::const_iterator;
+  using reverse_iterator = std::reverse_iterator<iterator>;
+  using const_reverse_iterator = std::reverse_iterator<const_iterator>;
+
+ private:
+  std::array<T, N> data_{};
+  size_t count_{0};
+
+ public:
+  // Minimal vector-compatible interface - only what we actually use
+  void push_back(const T &value) {
+    if (count_ < N) {
+      data_[count_++] = value;
+    }
+  }
+
+  size_t size() const { return count_; }
+  bool empty() const { return count_ == 0; }
+
+  T &operator[](size_t i) { return data_[i]; }
+  const T &operator[](size_t i) const { return data_[i]; }
+
+  // For range-based for loops
+  iterator begin() { return data_.begin(); }
+  iterator end() { return data_.begin() + count_; }
+  const_iterator begin() const { return data_.begin(); }
+  const_iterator end() const { return data_.begin() + count_; }
+
+  // Reverse iterators
+  reverse_iterator rbegin() { return reverse_iterator(end()); }
+  reverse_iterator rend() { return reverse_iterator(begin()); }
+  const_reverse_iterator rbegin() const { return const_reverse_iterator(end()); }
+  const_reverse_iterator rend() const { return const_reverse_iterator(begin()); }
+};
 
 ///@}
 
@@ -577,21 +627,28 @@ template<typename... Ts> class CallbackManager<void(Ts...)> {
 /// Helper class to deduplicate items in a series of values.
 template<typename T> class Deduplicator {
  public:
-  /// Feeds the next item in the series to the deduplicator and returns whether this is a duplicate.
+  /// Feeds the next item in the series to the deduplicator and returns false if this is a duplicate.
   bool next(T value) {
-    if (this->has_value_) {
-      if (this->last_value_ == value)
-        return false;
+    if (this->has_value_ && !this->value_unknown_ && this->last_value_ == value) {
+      return false;
     }
     this->has_value_ = true;
+    this->value_unknown_ = false;
     this->last_value_ = value;
     return true;
   }
-  /// Returns whether this deduplicator has processed any items so far.
+  /// Returns true if the deduplicator's value was previously known.
+  bool next_unknown() {
+    bool ret = !this->value_unknown_;
+    this->value_unknown_ = true;
+    return ret;
+  }
+  /// Returns true if this deduplicator has processed any items.
   bool has_value() const { return this->has_value_; }
 
  protected:
   bool has_value_{false};
+  bool value_unknown_{false};
   T last_value_{};
 };
 
@@ -678,9 +735,26 @@ class InterruptLock {
   ~InterruptLock();
 
  protected:
-#if defined(USE_ESP8266) || defined(USE_RP2040)
+#if defined(USE_ESP8266) || defined(USE_RP2040) || defined(USE_ZEPHYR)
   uint32_t state_;
 #endif
+};
+
+/** Helper class to lock the lwIP TCPIP core when making lwIP API calls from non-TCPIP threads.
+ *
+ * This is needed on multi-threaded platforms (ESP32) when CONFIG_LWIP_TCPIP_CORE_LOCKING is enabled.
+ * It ensures thread-safe access to lwIP APIs.
+ *
+ * @note This follows the same pattern as InterruptLock - platform-specific implementations in helpers.cpp
+ */
+class LwIPLock {
+ public:
+  LwIPLock();
+  ~LwIPLock();
+
+  // Delete copy constructor and copy assignment operator to prevent accidental copying
+  LwIPLock(const LwIPLock &) = delete;
+  LwIPLock &operator=(const LwIPLock &) = delete;
 };
 
 /** Helper class to request `loop()` to be called as fast as possible.
@@ -783,7 +857,7 @@ template<class T> class RAMAllocator {
   T *reallocate(T *p, size_t n) { return this->reallocate(p, n, sizeof(T)); }
 
   T *reallocate(T *p, size_t n, size_t manual_size) {
-    size_t size = n * sizeof(T);
+    size_t size = n * manual_size;
     T *ptr = nullptr;
 #ifdef USE_ESP32
     if (this->flags_ & Flags::ALLOC_EXTERNAL) {
