@@ -23,16 +23,22 @@ std::string state_class_to_string(StateClass state_class) {
 Sensor::Sensor() : state(NAN), raw_state(NAN) {}
 
 int8_t Sensor::get_accuracy_decimals() {
-  if (this->accuracy_decimals_.has_value())
-    return *this->accuracy_decimals_;
+  if (this->sensor_flags_.has_accuracy_override)
+    return this->accuracy_decimals_;
   return 0;
 }
-void Sensor::set_accuracy_decimals(int8_t accuracy_decimals) { this->accuracy_decimals_ = accuracy_decimals; }
+void Sensor::set_accuracy_decimals(int8_t accuracy_decimals) {
+  this->accuracy_decimals_ = accuracy_decimals;
+  this->sensor_flags_.has_accuracy_override = true;
+}
 
-void Sensor::set_state_class(StateClass state_class) { this->state_class_ = state_class; }
+void Sensor::set_state_class(StateClass state_class) {
+  this->state_class_ = state_class;
+  this->sensor_flags_.has_state_class_override = true;
+}
 StateClass Sensor::get_state_class() {
-  if (this->state_class_.has_value())
-    return *this->state_class_;
+  if (this->sensor_flags_.has_state_class_override)
+    return this->state_class_;
   return StateClass::STATE_CLASS_NONE;
 }
 
@@ -90,7 +96,6 @@ void Sensor::clear_filters() {
 }
 float Sensor::get_state() const { return this->state; }
 float Sensor::get_raw_state() const { return this->raw_state; }
-std::string Sensor::unique_id() { return ""; }
 
 void Sensor::internal_send_state_to_frontend(float state) {
   this->set_has_state(true);
