@@ -11,16 +11,14 @@ class UartTransport : public transport::Transport, public UARTDevice {
  public:
   void loop() override {
     auto cnt = this->available();
-    auto pos = this->rx_data_.size();
-    if (cnt + pos > this->rx_buffer_size_) {
-      cnt = this->rx_buffer_size_ - pos;
+    if (cnt > this->rx_buffer_size_) {
+      cnt = this->rx_buffer_size_;
     }
     if (cnt > 0) {
-      this->rx_data_.resize(pos + cnt);
-      this->read_array(this->rx_data_.data() + pos, cnt);
-    }
-    if (!this->rx_data_.empty()) {
+      this->rx_data_.resize(cnt);
+      this->read_array(this->rx_data_.data(), cnt);
       this->on_receive_data_(this->rx_data_);
+      this->rx_data_.clear();
     }
   }
   void set_rx_buffer_size(size_t rx_buffer_size) { this->rx_buffer_size_ = rx_buffer_size; }
