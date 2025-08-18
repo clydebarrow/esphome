@@ -12,3 +12,5 @@ CONF_ON_RECEIVE = "on_receive"
 CONF_ON_STATE_CHANGE = "on_state_change"
 CONF_REQUEST_HEADERS = "request_headers"
 CONF_USE_PSRAM = "use_psram"
+
+ICON_CURRENT_DC = "mdi:current-dc"

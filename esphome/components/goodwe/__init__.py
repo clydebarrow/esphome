@@ -7,8 +7,15 @@ from esphome.cpp_helpers import register_component
 
 CODEOWNERS = ["@clydebarrow"]
 
+AUTO_LOAD = ["bytebuffer"]
+
 goodwe_ns = cg.esphome_ns.namespace("goodwe")
 Goodwe = goodwe_ns.class_("Goodwe", cg.PollingComponent)
+Parameter = goodwe_ns.class_("Parameter")
+
+DATA_OFFSET = 7  # Offset for data in the Goodwe protocol (length of header)
+
+CONF_GOODWE_ID = "goodwe_id"
 
 CONFIG_SCHEMA = cv.polling_component_schema("5s").extend(
     {
