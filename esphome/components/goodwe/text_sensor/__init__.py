@@ -3,7 +3,14 @@ import esphome.config_validation as cv
 from esphome.const import CONF_NAME, DEVICE_CLASS_EMPTY, ENTITY_CATEGORY_DIAGNOSTIC
 
 from ...text_sensor import new_text_sensor, text_sensor_schema
-from .. import CONF_GOODWE_ID, DATA_OFFSET, Goodwe, Parameter, goodwe_ns
+from .. import (
+    CONF_CONFIGURE_ALL,
+    CONF_GOODWE_ID,
+    DATA_OFFSET,
+    Goodwe,
+    Parameter,
+    goodwe_ns,
+)
 from .options import (
     BATTERY_MODES,
     GRID_IN_OUT_MODES,
@@ -36,6 +43,9 @@ class TextSensor:
     def get_class(self):
         return TextSensorParameter.template(self.offset + DATA_OFFSET)
 
+    def get_name(self):
+        return self.id.replace("_", " ").title()
+
     def get_schema(self):
         return cv.maybe_simple_value(
             text_sensor_schema(
@@ -57,8 +67,21 @@ SENSORS = [
     TextSensor("grid_mode", 0x106, 80, GRID_IN_OUT_MODES),
 ]
 
-CONFIG_SCHEMA = cv.Schema({cv.Optional(s.id): s.get_schema() for s in SENSORS}).extend(
-    {cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe)}
+
+CONFIG_SCHEMA = cv.Any(
+    {
+        cv.Required(CONF_CONFIGURE_ALL): True,
+        **{
+            cv.Optional(s.id, default={CONF_NAME: s.get_name()}): s.get_schema()
+            for s in SENSORS
+        },
+        cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
+    },
+    {
+        cv.Optional(CONF_CONFIGURE_ALL, default=False): False,
+        **{cv.Optional(s.id): s.get_schema() for s in SENSORS},
+        cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
+    },
 )
 
 

@@ -7,21 +7,33 @@ from esphome.const import (
     CONF_NAME,
     DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_ENERGY_STORAGE,
+    DEVICE_CLASS_FREQUENCY,
+    DEVICE_CLASS_POWER,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_VOLTAGE,
     ENTITY_CATEGORY_NONE,
     ICON_BATTERY,
     ICON_CURRENT_AC,
     ICON_FLASH,
+    ICON_POWER,
     ICON_THERMOMETER,
     STATE_CLASS_MEASUREMENT,
     UNIT_AMPERE,
     UNIT_CELSIUS,
+    UNIT_HERTZ,
     UNIT_VOLT,
+    UNIT_WATT,
 )
 
 from ...const import ICON_CURRENT_DC
-from .. import CONF_GOODWE_ID, DATA_OFFSET, Goodwe, Parameter, goodwe_ns
+from .. import (
+    CONF_CONFIGURE_ALL,
+    CONF_GOODWE_ID,
+    DATA_OFFSET,
+    Goodwe,
+    Parameter,
+    goodwe_ns,
+)
 
 SensorParameter = goodwe_ns.class_("SensorParameter", Parameter)
 BatteryCurrentParameter = goodwe_ns.class_(
@@ -54,6 +66,9 @@ class GoodweSensor:
         return SensorParameter.template(
             self.datatype, self.offset + DATA_OFFSET, self.scale
         )
+
+    def get_name(self):
+        return self.id.replace("_", " ").title()
 
     def get_schema(self):
         return cv.maybe_simple_value(
@@ -137,6 +152,42 @@ class PercentageSensor(GoodweSensor):
         )
 
 
+class PowerSensor(GoodweSensor):
+    def __init__(self, id, msgcode, offset):
+        super().__init__(
+            id,
+            msgcode,
+            offset,
+            1.0,
+            cg.uint16,
+            UNIT_WATT,
+            DEVICE_CLASS_POWER,
+            ICON_POWER,
+        )
+
+
+class IntegerSensor(GoodweSensor):
+    def __init__(
+        self,
+        id,
+        msgcode,
+        offset,
+        unit_of_measurement=None,
+        device_class=None,
+        icon=ICON_BATTERY,
+    ):
+        super().__init__(
+            id,
+            msgcode,
+            offset,
+            1.0,
+            cg.int16,
+            unit_of_measurement=unit_of_measurement,
+            device_class=device_class,
+            icon=icon,
+        )
+
+
 SENSORS = [
     VoltageSensor("pv_voltage_1", 0x106, 0),
     CurrentSensor("pv_current_1", 0x106, 2),
@@ -148,10 +199,52 @@ SENSORS = [
     VoltageSensor("grid_voltage", 0x106, 34),
     CurrentSensor("grid_current", 0x106, 36, dc=False),
     PercentageSensor("battery_charge_state", 0x106, 26),
+    PercentageSensor("battery_health", 0x106, 29),
+    IntegerSensor(
+        "battery_charge_limit",
+        0x106,
+        20,
+        unit_of_measurement=UNIT_AMPERE,
+        device_class=DEVICE_CLASS_CURRENT,
+    ),
+    IntegerSensor(
+        "battery_discharge_limit",
+        0x106,
+        22,
+        unit_of_measurement=UNIT_AMPERE,
+        device_class=DEVICE_CLASS_CURRENT,
+    ),
+    GoodweSensor(
+        "grid_frequency",
+        0x106,
+        40,
+        0.01,
+        cg.uint16,
+        unit_of_measurement=UNIT_HERTZ,
+        device_class=DEVICE_CLASS_FREQUENCY,
+        icon=ICON_CURRENT_AC,
+    ),
+    VoltageSensor("backup_voltage", 0x106, 43),
+    CurrentSensor("backup_current", 0x106, 45, dc=False),
+    PowerSensor("backup_power", 0x106, 81),
+    PowerSensor("on_grid_power", 0x106, 47),
+    PowerSensor("total_power", 0x106, 75),
 ]
 
-CONFIG_SCHEMA = cv.Schema({cv.Optional(s.id): s.get_schema() for s in SENSORS}).extend(
-    {cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe)}
+CONFIG_SCHEMA = cv.Any(
+    {
+        cv.Required(CONF_CONFIGURE_ALL): True,
+        **{
+            cv.Optional(s.id, default={CONF_NAME: s.get_name()}): s.get_schema()
+            for s in SENSORS
+        },
+        cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
+    },
+    {
+        cv.Optional(CONF_CONFIGURE_ALL, default=False): False,
+        **{cv.Optional(s.id): s.get_schema() for s in SENSORS},
+        cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
+    },
 )
 
 

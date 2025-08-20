@@ -16,6 +16,7 @@ Parameter = goodwe_ns.class_("Parameter")
 DATA_OFFSET = 7  # Offset for data in the Goodwe protocol (length of header)
 
 CONF_GOODWE_ID = "goodwe_id"
+CONF_CONFIGURE_ALL = "configure_all"
 
 CONFIG_SCHEMA = cv.polling_component_schema("5s").extend(
     {

@@ -27,7 +27,7 @@ void Goodwe::dump_config() {
 }
 void Goodwe::on_receive_(const std::vector<uint8_t> &data) {
   // for now just look for AA 55 commands
-  ESP_LOGV(TAG, "Received buffer %s", format_hex_pretty(data).c_str());
+  ESP_LOGD(TAG, "Received buffer %s", format_hex_pretty(data).c_str());
   for (auto &b : data) {
     auto pos = this->buffer_.size();
     if (pos < sizeof(RX_HDR)) {
