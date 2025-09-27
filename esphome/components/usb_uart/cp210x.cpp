@@ -1,4 +1,5 @@
-#include "USBUartComponent.h"
+#if defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3)
+#include "usb_uart.h"
 #include "usb/usb_host.h"
 #include "esphome/core/log.h"
 
@@ -42,11 +43,11 @@ static constexpr uint8_t SET_BAUDRATE = 0x1E;     // Set the baud rate.
 static constexpr uint8_t SET_CHARS = 0x19;        // Set special characters.
 static constexpr uint8_t VENDOR_SPECIFIC = 0xFF;  // Vendor specific command.
 
-std::vector<cdc_eps_t> USBUartTypeCP210X::parse_descriptors_(usb_device_handle_t dev_hdl) {
+std::vector<CdcEps> USBUartTypeCP210X::parse_descriptors(usb_device_handle_t dev_hdl) {
   const usb_config_desc_t *config_desc;
   const usb_device_desc_t *device_desc;
   int conf_offset = 0, ep_offset;
-  std::vector<cdc_eps_t> cdc_devs{};
+  std::vector<CdcEps> cdc_devs{};
 
   // Get required descriptors
   if (usb_host_get_device_descriptor(dev_hdl, &device_desc) != ESP_OK) {
@@ -88,23 +89,23 @@ std::vector<cdc_eps_t> USBUartTypeCP210X::parse_descriptors_(usb_device_handle_t
       continue;
     }
     if (in_ep->bEndpointAddress & usb_host::USB_DIR_IN) {
-      cdc_devs.push_back({cdc_eps_t{nullptr, in_ep, out_ep, data_desc->bInterfaceNumber}});
+      cdc_devs.push_back({CdcEps{nullptr, in_ep, out_ep, data_desc->bInterfaceNumber}});
     } else {
-      cdc_devs.push_back({cdc_eps_t{nullptr, out_ep, in_ep, data_desc->bInterfaceNumber}});
+      cdc_devs.push_back({CdcEps{nullptr, out_ep, in_ep, data_desc->bInterfaceNumber}});
     }
   }
   return cdc_devs;
 }
 
-void USBUartTypeCP210X::enable_channels_() {
+void USBUartTypeCP210X::enable_channels() {
   // enable the channels
   for (auto channel : this->channels_) {
-    if (!channel->initialised_)
+    if (!channel->initialised_.load())
       continue;
-    usb_host::transfer_cb_t callback = [=](const usb_host::transfer_status_t &status) {
+    usb_host::transfer_cb_t callback = [=](const usb_host::TransferStatus &status) {
       if (!status.success) {
         ESP_LOGE(TAG, "Control transfer failed, status=%s", esp_err_to_name(status.error_code));
-        channel->initialised_ = false;
+        channel->initialised_.store(false);
       }
     };
     this->control_transfer(USB_VENDOR_IFC | usb_host::USB_DIR_OUT, IFC_ENABLE, 1, channel->index_, callback);
@@ -118,7 +119,8 @@ void USBUartTypeCP210X::enable_channels_() {
     this->control_transfer(USB_VENDOR_IFC | usb_host::USB_DIR_OUT, SET_BAUDRATE, 0, channel->index_, callback,
                            baud.get_data());
   }
-  USBUartTypeCdcAcm::enable_channels_();
+  USBUartTypeCdcAcm::enable_channels();
 }
 }  // namespace usb_uart
 }  // namespace esphome
+#endif  // USE_ESP32_VARIANT_ESP32S2 || USE_ESP32_VARIANT_ESP32S3

@@ -1,15 +1,24 @@
 #pragma once
 
+// Should not be needed, but it's required to pass CI clang-tidy checks
+#if defined(USE_ESP32_VARIANT_ESP32S2) || defined(USE_ESP32_VARIANT_ESP32S3)
 #include "esphome/core/component.h"
 #include <vector>
 #include "usb/usb_host.h"
-
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include "esphome/core/lock_free_queue.h"
+#include "esphome/core/event_pool.h"
 #include <list>
 
 namespace esphome {
 namespace usb_host {
 
-static const char *TAG = "usb_host";
+static const char *const TAG = "usb_host";
+
+// Forward declarations
+struct TransferRequest;
+class USBClient;
 
 // constants for setup packet type
 static const uint8_t USB_RECIP_DEVICE = 0;
@@ -23,29 +32,57 @@ static const uint8_t USB_DIR_IN = 1 << 7;
 static const uint8_t USB_DIR_OUT = 0;
 static const size_t SETUP_PACKET_SIZE = 8;
 
-static const size_t MAX_REQUESTS = 16;  // maximum number of outstanding requests possible.
+static const size_t MAX_REQUESTS = 16;               // maximum number of outstanding requests possible.
+static constexpr size_t USB_EVENT_QUEUE_SIZE = 32;   // Size of event queue between USB task and main loop
+static constexpr size_t USB_TASK_STACK_SIZE = 4096;  // Stack size for USB task (same as ESP-IDF USB examples)
+static constexpr UBaseType_t USB_TASK_PRIORITY = 5;  // Higher priority than main loop (tskIDLE_PRIORITY + 5)
 
 // used to report a transfer status
-typedef struct {
+struct TransferStatus {
   bool success;
   uint16_t error_code;
   uint8_t *data;
   size_t data_len;
   uint8_t endpoint;
   void *user_data;
-} transfer_status_t;
+};
 
-typedef std::function<void(const transfer_status_t &)> transfer_cb_t;
+using transfer_cb_t = std::function<void(const TransferStatus &)>;
 
-// struct used to capture all data needed for a transfer
 class USBClient;
 
-typedef struct {
+// struct used to capture all data needed for a transfer
+struct TransferRequest {
   usb_transfer_t *transfer;
   transfer_cb_t callback;
-  transfer_status_t status;
+  TransferStatus status;
   USBClient *client;
-} transfer_request_t;
+};
+
+enum EventType : uint8_t {
+  EVENT_DEVICE_NEW,
+  EVENT_DEVICE_GONE,
+  EVENT_TRANSFER_COMPLETE,
+  EVENT_CONTROL_COMPLETE,
+};
+
+struct UsbEvent {
+  EventType type;
+  union {
+    struct {
+      uint8_t address;
+    } device_new;
+    struct {
+      usb_device_handle_t handle;
+    } device_gone;
+    struct {
+      TransferRequest *trq;
+    } transfer;
+  } data;
+
+  // Required for EventPool - no cleanup needed for POD types
+  void release() {}
+};
 
 // callback function type.
 
@@ -78,16 +115,27 @@ class USBClient : public Component {
   void transfer_in(uint8_t ep_address, const transfer_cb_t &callback, uint16_t length);
   void transfer_out(uint8_t ep_address, const transfer_cb_t &callback, const uint8_t *data, uint16_t length);
   void dump_config() override;
-  void release_trq(transfer_request_t *trq);
+  void release_trq(TransferRequest *trq);
   bool control_transfer(uint8_t type, uint8_t request, uint16_t value, uint16_t index, const transfer_cb_t &callback,
                         const std::vector<uint8_t> &data = {});
 
+  // Lock-free event queue and pool for USB task to main loop communication
+  // Must be public for access from static callbacks
+  LockFreeQueue<UsbEvent, USB_EVENT_QUEUE_SIZE> event_queue;
+  EventPool<UsbEvent, USB_EVENT_QUEUE_SIZE> event_pool;
+
  protected:
   bool register_();
-  transfer_request_t *get_trq_();
-  virtual void disconnect_();
-  virtual void on_connected_() {}
-  virtual void on_disconnected_() { this->init_pool(); }
+  TransferRequest *get_trq_();
+  virtual void disconnect();
+  virtual void on_connected() {}
+  virtual void on_disconnected() { this->init_pool(); }
+
+  // USB task management
+  static void usb_task_fn(void *arg);
+  void usb_task_loop();
+
+  TaskHandle_t usb_task_handle_{nullptr};
 
   usb_host_client_handle_t handle_{};
   usb_device_handle_t device_handle_{};
@@ -95,8 +143,8 @@ class USBClient : public Component {
   int state_{USB_CLIENT_INIT};
   uint16_t vid_{};
   uint16_t pid_{};
-  std::list<transfer_request_t *> trq_pool_{};
-  transfer_request_t requests_[MAX_REQUESTS]{};
+  std::list<TransferRequest *> trq_pool_{};
+  TransferRequest requests_[MAX_REQUESTS]{};
 };
 class USBHost : public Component {
  public:
@@ -110,3 +158,5 @@ class USBHost : public Component {
 
 }  // namespace usb_host
 }  // namespace esphome
+
+#endif  // USE_ESP32_VARIANT_ESP32S2 || USE_ESP32_VARIANT_ESP32S3
