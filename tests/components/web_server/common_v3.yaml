@@ -40,6 +40,4 @@ datetime:
     name: Pick a Date
     type: datetime
     optimistic: yes
-    web_server:
-      sorting_group_id: sorting_group_3
-      sorting_weight: -5
+    web_server: sorting_group_3

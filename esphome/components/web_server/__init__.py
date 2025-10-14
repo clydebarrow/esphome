@@ -40,6 +40,8 @@ AUTO_LOAD = ["json", "web_server_base"]
 CONF_SORTING_GROUP_ID = "sorting_group_id"
 CONF_SORTING_GROUPS = "sorting_groups"
 CONF_SORTING_WEIGHT = "sorting_weight"
+CONF_SORTING_ID = "sorting_id"
+KEY_IDS = "ids"
 
 
 web_server_ns = cg.esphome_ns.namespace("web_server")
@@ -123,6 +125,16 @@ def _validate_no_sorting_component(
                     )
 
 
+def _add_sorting_ref(value):
+    sorting_group_id = value.get(CONF_SORTING_GROUP_ID)
+    if sorting_group_id is not None:
+        # Add a reference to the sorting group, creating it if it doesn't exist
+        sorting_groups.setdefault(sorting_group_id, {KEY_IDS: []})[KEY_IDS].append(
+            value[CONF_SORTING_ID]
+        )
+    return value
+
+
 def _final_validate_sorting(config: ConfigType) -> ConfigType:
     if (webserver_version := config.get(CONF_VERSION)) != 3:
         _validate_no_sorting_component(
@@ -131,6 +143,21 @@ def _final_validate_sorting(config: ConfigType) -> ConfigType:
         _validate_no_sorting_component(
             CONF_SORTING_GROUP_ID, webserver_version, fv.full_config.get()
         )
+    sorting_group_list = config.get(CONF_SORTING_GROUPS, [])
+    sorting_group_ids = [g[CONF_ID].id for g in sorting_group_list]
+    for group, data in sorting_groups.items():
+        if group not in sorting_group_ids:
+            raise cv.FinalExternalInvalid(
+                f"Sorting group '{group}' is not defined by web_server config",
+                path=fv.full_config.get().get_path_for_id(data[KEY_IDS][0]),
+            )
+        # Check that all IDs in the group are unique
+        ids = data[KEY_IDS]
+        if len(ids) != len(set(ids)):
+            raise cv.FinalExternalInvalid(
+                f"Duplicate sorting IDs found in sorting group '{group}'",
+                path=[CONF_SORTING_GROUPS],
+            )
     return config
 
 
@@ -144,18 +171,17 @@ sorting_group = {
 
 WEBSERVER_SORTING_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_WEB_SERVER): cv.Schema(
-            {
-                cv.OnlyWith(CONF_WEB_SERVER_ID, "web_server"): cv.use_id(WebServer),
-                cv.Optional(CONF_SORTING_WEIGHT): cv.All(
-                    cv.requires_component("web_server"),
-                    cv.float_,
-                ),
-                cv.Optional(CONF_SORTING_GROUP_ID): cv.All(
-                    cv.requires_component("web_server"),
-                    cv.use_id(cg.int_),
-                ),
-            }
+        cv.Optional(CONF_WEB_SERVER): cv.All(
+            cv.maybe_simple_value(
+                {
+                    cv.OnlyWith(CONF_WEB_SERVER_ID, "web_server"): cv.use_id(WebServer),
+                    cv.Optional(CONF_SORTING_WEIGHT): cv.float_,
+                    cv.Optional(CONF_SORTING_GROUP_ID): cv.string,
+                    cv.GenerateID(CONF_SORTING_ID): cv.declare_id(cg.int_),
+                },
+                key=CONF_SORTING_GROUP_ID,
+            ),
+            _add_sorting_ref,
         )
     }
 )
@@ -220,7 +246,10 @@ def add_sorting_groups(web_server_var, config):
 
 
 async def add_entity_config(entity, config):
-    web_server = await cg.get_variable(config[CONF_WEB_SERVER_ID])
+    web_server_id = config.get(CONF_WEB_SERVER_ID)
+    if web_server_id is None:
+        return
+    web_server = await cg.get_variable(web_server_id)
     sorting_weight = config.get(CONF_SORTING_WEIGHT, 50)
     sorting_group_hash = hash(config.get(CONF_SORTING_GROUP_ID))
 
