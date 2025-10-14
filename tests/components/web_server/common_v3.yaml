@@ -35,6 +35,11 @@ switch:
     web_server:
       sorting_group_id: sorting_group_2
       sorting_weight: -10
+  - platform: template
+    name: "Template Switch 2"
+    optimistic: true
+    web_server:
+      sorting_weight: -10
 datetime:
   - platform: template
     name: Pick a Date

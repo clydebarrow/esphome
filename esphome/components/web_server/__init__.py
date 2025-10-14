@@ -127,7 +127,8 @@ def _validate_no_sorting_component(
 
 def _add_sorting_ref(value):
     sorting_group_id = value.get(CONF_SORTING_GROUP_ID)
-    if sorting_group_id is not None:
+    print(sorting_group_id, type(sorting_group_id))
+    if isinstance(sorting_group_id, str):
         # Add a reference to the sorting group, creating it if it doesn't exist
         sorting_groups.setdefault(sorting_group_id, {KEY_IDS: []})[KEY_IDS].append(
             value[CONF_SORTING_ID]
@@ -176,7 +177,9 @@ WEBSERVER_SORTING_SCHEMA = cv.Schema(
                 {
                     cv.OnlyWith(CONF_WEB_SERVER_ID, "web_server"): cv.use_id(WebServer),
                     cv.Optional(CONF_SORTING_WEIGHT): cv.float_,
-                    cv.Optional(CONF_SORTING_GROUP_ID): cv.string,
+                    cv.Optional(CONF_SORTING_GROUP_ID): cv.Any(
+                        cv.string_strict, cv.float_
+                    ),
                     cv.GenerateID(CONF_SORTING_ID): cv.declare_id(cg.int_),
                 },
                 key=CONF_SORTING_GROUP_ID,
@@ -250,10 +253,18 @@ async def add_entity_config(entity, config):
     if web_server_id is None:
         return
     web_server = await cg.get_variable(web_server_id)
-    sorting_weight = config.get(CONF_SORTING_WEIGHT, 50)
-    sorting_group_hash = hash(config.get(CONF_SORTING_GROUP_ID))
+    sorting_weight = config.get(CONF_SORTING_WEIGHT)
+    sorting_group_id = config.get(CONF_SORTING_GROUP_ID)
+    if sorting_weight is None:
+        if isinstance(sorting_group_id, float):
+            sorting_weight = sorting_group_id
+            sorting_group_id = None
+        else:
+            sorting_weight = 50.0
+    sorting_group_hash = hash(sorting_group_id)
 
     cg.add_define("USE_WEBSERVER_SORTING")
+    print(web_server, entity, sorting_weight, sorting_group_hash)
     cg.add(
         web_server.add_entity_config(
             entity,
