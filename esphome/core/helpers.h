@@ -168,26 +168,83 @@ template<typename T> class FixedVector {
   size_t size_{0};
   size_t capacity_{0};
 
- public:
-  FixedVector() = default;
-
-  ~FixedVector() {
-    if (data_ != nullptr) {
-      delete[] data_;
+  // Helper to destroy all elements without freeing memory
+  void destroy_elements_() {
+    // Only call destructors for non-trivially destructible types
+    if constexpr (!std::is_trivially_destructible<T>::value) {
+      for (size_t i = 0; i < size_; i++) {
+        data_[i].~T();
+      }
     }
   }
 
-  // Disable copy to avoid accidental copies
+  // Helper to destroy elements and free memory
+  void cleanup_() {
+    if (data_ != nullptr) {
+      destroy_elements_();
+      // Free raw memory
+      ::operator delete(data_);
+    }
+  }
+
+  // Helper to reset pointers after cleanup
+  void reset_() {
+    data_ = nullptr;
+    capacity_ = 0;
+    size_ = 0;
+  }
+
+ public:
+  FixedVector() = default;
+
+  ~FixedVector() { cleanup_(); }
+
+  // Disable copy operations (avoid accidental expensive copies)
   FixedVector(const FixedVector &) = delete;
   FixedVector &operator=(const FixedVector &) = delete;
 
-  // Allocate capacity - can only be called once on empty vector
-  void init(size_t n) {
-    if (data_ == nullptr && n > 0) {
-      data_ = new T[n];
-      capacity_ = n;
-      size_ = 0;
+  // Enable move semantics (allows use in move-only containers like std::vector)
+  FixedVector(FixedVector &&other) noexcept : data_(other.data_), size_(other.size_), capacity_(other.capacity_) {
+    other.reset_();
+  }
+
+  FixedVector &operator=(FixedVector &&other) noexcept {
+    if (this != &other) {
+      // Delete our current data
+      cleanup_();
+      // Take ownership of other's data
+      data_ = other.data_;
+      size_ = other.size_;
+      capacity_ = other.capacity_;
+      // Leave other in valid empty state
+      other.reset_();
     }
+    return *this;
+  }
+
+  // Allocate capacity - can be called multiple times to reinit
+  void init(size_t n) {
+    cleanup_();
+    reset_();
+    if (n > 0) {
+      // Allocate raw memory without calling constructors
+      // sizeof(T) is correct here for any type T (value types, pointers, etc.)
+      // NOLINTNEXTLINE(bugprone-sizeof-expression)
+      data_ = static_cast<T *>(::operator new(n * sizeof(T)));
+      capacity_ = n;
+    }
+  }
+
+  // Clear the vector (destroy all elements, reset size to 0, keep capacity)
+  void clear() {
+    destroy_elements_();
+    size_ = 0;
+  }
+
+  // Shrink capacity to fit current size (frees all memory)
+  void shrink_to_fit() {
+    cleanup_();
+    reset_();
   }
 
   /// Add element without bounds checking
@@ -195,16 +252,52 @@ template<typename T> class FixedVector {
   /// Silently ignores pushes beyond capacity (no exception or assertion)
   void push_back(const T &value) {
     if (size_ < capacity_) {
-      data_[size_++] = value;
+      // Use placement new to construct the object in pre-allocated memory
+      new (&data_[size_]) T(value);
+      size_++;
     }
   }
 
+  /// Add element by move without bounds checking
+  /// Caller must ensure sufficient capacity was allocated via init()
+  /// Silently ignores pushes beyond capacity (no exception or assertion)
+  void push_back(T &&value) {
+    if (size_ < capacity_) {
+      // Use placement new to move-construct the object in pre-allocated memory
+      new (&data_[size_]) T(std::move(value));
+      size_++;
+    }
+  }
+
+  /// Emplace element without bounds checking - constructs in-place
+  /// Caller must ensure sufficient capacity was allocated via init()
+  /// Returns reference to the newly constructed element
+  /// NOTE: Caller MUST ensure size_ < capacity_ before calling
+  T &emplace_back() {
+    // Use placement new to default-construct the object in pre-allocated memory
+    new (&data_[size_]) T();
+    size_++;
+    return data_[size_ - 1];
+  }
+
+  /// Access last element (no bounds checking - matches std::vector behavior)
+  /// Caller must ensure vector is not empty (size() > 0)
+  T &back() { return data_[size_ - 1]; }
+  const T &back() const { return data_[size_ - 1]; }
+
   size_t size() const { return size_; }
+  bool empty() const { return size_ == 0; }
 
   /// Access element without bounds checking (matches std::vector behavior)
   /// Caller must ensure index is valid (i < size())
   T &operator[](size_t i) { return data_[i]; }
   const T &operator[](size_t i) const { return data_[i]; }
+
+  // Iterator support for range-based for loops
+  T *begin() { return data_; }
+  T *end() { return data_ + size_; }
+  const T *begin() const { return data_; }
+  const T *end() const { return data_ + size_; }
 };
 
 ///@}
