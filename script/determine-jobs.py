@@ -43,7 +43,6 @@ from enum import StrEnum
 from functools import cache
 import json
 import os
-from pathlib import Path
 import subprocess
 import sys
 from typing import Any
@@ -53,10 +52,14 @@ from helpers import (
     CPP_FILE_EXTENSIONS,
     PYTHON_FILE_EXTENSIONS,
     changed_files,
+    filter_component_files,
     get_all_dependencies,
+    get_changed_components,
     get_component_from_path,
     get_component_test_files,
     get_components_from_integration_fixtures,
+    get_components_with_dependencies,
+    git_ls_files,
     parse_test_filename,
     root_path,
 )
@@ -162,6 +165,26 @@ def should_run_integration_tests(branch: str | None = None) -> bool:
     return False
 
 
+@cache
+def _is_clang_tidy_full_scan() -> bool:
+    """Check if clang-tidy configuration changed (requires full scan).
+
+    Returns:
+        True if full scan is needed (hash changed), False otherwise.
+    """
+    try:
+        result = subprocess.run(
+            [os.path.join(root_path, "script", "clang_tidy_hash.py"), "--check"],
+            capture_output=True,
+            check=False,
+        )
+        # Exit 0 means hash changed (full scan needed)
+        return result.returncode == 0
+    except Exception:
+        # If hash check fails, run full scan to be safe
+        return True
+
+
 def should_run_clang_tidy(branch: str | None = None) -> bool:
     """Determine if clang-tidy should run based on changed files.
 
@@ -198,17 +221,7 @@ def should_run_clang_tidy(branch: str | None = None) -> bool:
         True if clang-tidy should run, False otherwise.
     """
     # First check if clang-tidy configuration changed (full scan needed)
-    try:
-        result = subprocess.run(
-            [os.path.join(root_path, "script", "clang_tidy_hash.py"), "--check"],
-            capture_output=True,
-            check=False,
-        )
-        # Exit 0 means hash changed (full scan needed)
-        if result.returncode == 0:
-            return True
-    except Exception:
-        # If hash check fails, run clang-tidy to be safe
+    if _is_clang_tidy_full_scan():
         return True
 
     # Check if .clang-tidy.hash file itself was changed
@@ -550,16 +563,29 @@ def main() -> None:
     run_python_linters = should_run_python_linters(args.branch)
     changed_cpp_file_count = count_changed_cpp_files(args.branch)
 
-    # Get both directly changed and all changed components (with dependencies) in one call
-    script_path = Path(__file__).parent / "list-components.py"
-    cmd = [sys.executable, str(script_path), "--changed-with-deps"]
-    if args.branch:
-        cmd.extend(["-b", args.branch])
+    # Get changed components
+    # get_changed_components() returns:
+    #   None: Core files changed (need full scan)
+    #   []: No components changed
+    #   [list]: Changed components (already includes dependencies)
+    changed_components_result = get_changed_components()
 
-    result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-    component_data = json.loads(result.stdout)
-    directly_changed_components = component_data["directly_changed"]
-    changed_components = component_data["all_changed"]
+    if changed_components_result is None:
+        # Core files changed - will trigger full clang-tidy scan
+        # No specific components to test
+        changed_components = []
+        directly_changed_components = []
+        is_core_change = True
+    else:
+        # Get both directly changed and all changed (with dependencies)
+        changed = changed_files(args.branch)
+        component_files = [f for f in changed if filter_component_files(f)]
+
+        directly_changed_components = get_components_with_dependencies(
+            component_files, False
+        )
+        changed_components = get_components_with_dependencies(component_files, True)
+        is_core_change = False
 
     # Filter to only components that have test files
     # Components without tests shouldn't generate CI test jobs
@@ -570,11 +596,11 @@ def main() -> None:
     # Get directly changed components with tests (for isolated testing)
     # These will be tested WITHOUT --testing-mode in CI to enable full validation
     # (pin conflicts, etc.) since they contain the actual changes being reviewed
-    directly_changed_with_tests = [
+    directly_changed_with_tests = {
         component
         for component in directly_changed_components
         if _component_has_tests(component)
-    ]
+    }
 
     # Get dependency-only components (for grouped testing)
     dependency_only_components = [
@@ -586,13 +612,38 @@ def main() -> None:
     # Detect components for memory impact analysis (merged config)
     memory_impact = detect_memory_impact_config(args.branch)
 
+    # Determine clang-tidy mode based on actual files that will be checked
     if run_clang_tidy:
-        if changed_cpp_file_count < CLANG_TIDY_SPLIT_THRESHOLD:
-            clang_tidy_mode = "nosplit"
-        else:
+        # Full scan needed if: hash changed OR core files changed
+        is_full_scan = _is_clang_tidy_full_scan() or is_core_change
+
+        if is_full_scan:
+            # Full scan checks all files - always use split mode for efficiency
             clang_tidy_mode = "split"
+            files_to_check_count = -1  # Sentinel value for "all files"
+        else:
+            # Targeted scan - calculate actual files that will be checked
+            # This accounts for component dependencies, not just directly changed files
+            if changed_components:
+                # Count C++ files in all changed components (including dependencies)
+                all_cpp_files = list(git_ls_files(["*.cpp"]).keys())
+                component_set = set(changed_components)
+                files_to_check_count = sum(
+                    1
+                    for f in all_cpp_files
+                    if get_component_from_path(f) in component_set
+                )
+            else:
+                # If no components changed, use the simple count of changed C++ files
+                files_to_check_count = changed_cpp_file_count
+
+            if files_to_check_count < CLANG_TIDY_SPLIT_THRESHOLD:
+                clang_tidy_mode = "nosplit"
+            else:
+                clang_tidy_mode = "split"
     else:
         clang_tidy_mode = "disabled"
+        files_to_check_count = 0
 
     # Build output
     output: dict[str, Any] = {
@@ -603,7 +654,7 @@ def main() -> None:
         "python_linters": run_python_linters,
         "changed_components": changed_components,
         "changed_components_with_tests": changed_components_with_tests,
-        "directly_changed_components_with_tests": directly_changed_with_tests,
+        "directly_changed_components_with_tests": list(directly_changed_with_tests),
         "dependency_only_components_with_tests": dependency_only_components,
         "component_test_count": len(changed_components_with_tests),
         "directly_changed_count": len(directly_changed_with_tests),
