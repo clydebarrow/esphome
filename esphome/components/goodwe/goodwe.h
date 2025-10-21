@@ -41,9 +41,7 @@ class Goodwe : public PollingComponent {
   void setup() override {
     this->transport_->add([this](const std::vector<uint8_t> &data) { this->on_receive_(data); });
   }
-  void update() override {
-    // this->transport_->transmit({0xAA, 0x55, 0xC0, 0x7F, 0x01, 0x06, 0x00, 0x02, 0x45});
-  }
+  void update() override { this->transport_->transmit({0xAA, 0x55, 0xC0, 0x7F, 0x01, 0x06, 0x00, 0x02, 0x45}); }
 
   void loop() override{};
   void add_parameter(uint16_t code, Parameter *parameter) {
