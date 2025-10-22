@@ -94,7 +94,7 @@ SENSORS = [
     OptionSensor("grid_mode", COMMAND_SENSOR_DATA, 80, GRID_IN_OUT_MODES),
     TextSensor("firmware_version", COMMAND_VERSION_DATA, 0, 5),
     TextSensor("model_number", COMMAND_VERSION_DATA, 5, 10),
-    TextSensor("serial_number", COMMAND_VERSION_DATA, 33, 16),
+    TextSensor("serial_number", COMMAND_VERSION_DATA, 31, 16),
 ]
 
 

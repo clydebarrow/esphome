@@ -79,13 +79,13 @@ void Goodwe::send_command_(uint16_t cmd) {
 }
 
 void Goodwe::update() {
-  this->counter_++;
   for (auto q : this->queries_) {
     if (this->counter_ % q.second == 0) {
       this->send_command_(q.first);
       break;
     }
   }
+  this->counter_++;
 }
 }  // namespace goodwe
 
