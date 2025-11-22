@@ -11,6 +11,7 @@
 #include "esp_eth_mac.h"
 #include "esp_netif.h"
 #include "esp_mac.h"
+#include "esp_idf_version.h"
 
 namespace esphome {
 namespace ethernet {
@@ -26,6 +27,8 @@ enum EthernetType : uint8_t {
   ETHERNET_TYPE_KSZ8081RNA,
   ETHERNET_TYPE_W5500,
   ETHERNET_TYPE_OPENETH,
+  ETHERNET_TYPE_DM9051,
+  ETHERNET_TYPE_LAN8670,
 };
 
 struct ManualIP {
@@ -55,7 +58,6 @@ class EthernetComponent : public Component {
   void loop() override;
   void dump_config() override;
   float get_setup_priority() const override;
-  bool can_proceed() override;
   void on_powerdown() override { powerdown(); }
   bool is_connected();
 
@@ -75,16 +77,18 @@ class EthernetComponent : public Component {
   void set_power_pin(int power_pin);
   void set_mdc_pin(uint8_t mdc_pin);
   void set_mdio_pin(uint8_t mdio_pin);
-  void set_clk_mode(emac_rmii_clock_mode_t clk_mode, emac_rmii_clock_gpio_t clk_gpio);
+  void set_clk_pin(uint8_t clk_pin);
+  void set_clk_mode(emac_rmii_clock_mode_t clk_mode);
   void add_phy_register(PHYRegister register_value);
 #endif
   void set_type(EthernetType type);
   void set_manual_ip(const ManualIP &manual_ip);
+  void set_fixed_mac(const std::array<uint8_t, 6> &mac) { this->fixed_mac_ = mac; }
 
   network::IPAddresses get_ip_addresses();
   network::IPAddress get_dns_address(uint8_t num);
-  std::string get_use_address() const;
-  void set_use_address(const std::string &use_address);
+  const char *get_use_address() const;
+  void set_use_address(const char *use_address);
   void get_eth_mac_address_raw(uint8_t *mac);
   std::string get_eth_mac_address_pretty();
   eth_duplex_t get_duplex_mode();
@@ -99,13 +103,16 @@ class EthernetComponent : public Component {
 #endif /* LWIP_IPV6 */
 
   void start_connect_();
+  void finish_connect_();
   void dump_connect_params_();
+  void log_error_and_mark_failed_(esp_err_t err, const char *message);
+#ifdef USE_ETHERNET_KSZ8081
   /// @brief Set `RMII Reference Clock Select` bit for KSZ8081.
   void ksz8081_set_clock_reference_(esp_eth_mac_t *mac);
+#endif
   /// @brief Set arbitratry PHY registers from config.
   void write_phy_register_(esp_eth_mac_t *mac, PHYRegister register_data);
 
-  std::string use_address_;
 #ifdef USE_ETHERNET_SPI
   uint8_t clk_pin_;
   uint8_t miso_pin_;
@@ -122,10 +129,10 @@ class EthernetComponent : public Component {
   // Group all 32-bit members first
   int power_pin_{-1};
   emac_rmii_clock_mode_t clk_mode_{EMAC_CLK_EXT_IN};
-  emac_rmii_clock_gpio_t clk_gpio_{EMAC_CLK_IN_GPIO};
   std::vector<PHYRegister> phy_registers_{};
 
   // Group all 8-bit members together
+  uint8_t clk_pin_{0};
   uint8_t phy_addr_{0};
   uint8_t mdc_pin_{23};
   uint8_t mdio_pin_{18};
@@ -141,17 +148,27 @@ class EthernetComponent : public Component {
   bool got_ipv4_address_{false};
 #if LWIP_IPV6
   uint8_t ipv6_count_{0};
+  bool ipv6_setup_done_{false};
 #endif /* LWIP_IPV6 */
 
   // Pointers at the end (naturally aligned)
   esp_netif_t *eth_netif_{nullptr};
   esp_eth_handle_t eth_handle_;
   esp_eth_phy_t *phy_{nullptr};
+  optional<std::array<uint8_t, 6>> fixed_mac_;
+
+ private:
+  // Stores a pointer to a string literal (static storage duration).
+  // ONLY set from Python-generated code with string literals - never dynamic strings.
+  const char *use_address_{""};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 extern EthernetComponent *global_eth_component;
+
+#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 4, 2)
 extern "C" esp_eth_phy_t *esp_eth_phy_new_jl1101(const eth_phy_config_t *config);
+#endif
 
 }  // namespace ethernet
 }  // namespace esphome
