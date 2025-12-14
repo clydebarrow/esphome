@@ -1,20 +1,5 @@
-remote_receiver:
-  id: rcvr
-  pin: 4
-  dump: all
+packages:
+  remote_transmitter: !include ../../test_build_components/common/remote_transmitter/esp32-idf.yaml
+  remote_receiver: !include ../../test_build_components/common/remote_receiver/esp32-idf.yaml
 
-remote_transmitter:
-  pin: 2
-  carrier_duty_percent: 50%
-
-sensor:
-  - platform: template
-    id: noblex_ac_sensor
-    lambda: "return 21;"
-
-climate:
-  - platform: noblex
-    name: AC Living
-    id: noblex_ac
-    sensor: noblex_ac_sensor
-    receiver_id: rcvr
+<<: !include common.yaml

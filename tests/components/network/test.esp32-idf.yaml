@@ -1,6 +1,4 @@
-wifi:
-  ssid: MySSID
-  password: password1
+<<: !include common.yaml
 
 network:
-  enable_ipv6: true
+  enable_high_performance: true

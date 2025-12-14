@@ -1,8 +1,8 @@
 #pragma once
 
+#include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
-#include "esphome/core/automation.h"
 #include "esphome/components/climate/climate.h"
 #include "esphome/components/sensor/sensor.h"
 #include "esphome/components/output/float_output.h"
@@ -44,6 +44,8 @@ class PIDClimate : public climate::Climate, public Component {
   float get_kp() { return controller_.kp_; }
   float get_ki() { return controller_.ki_; }
   float get_kd() { return controller_.kd_; }
+  float get_min_integral() { return controller_.min_integral_; }
+  float get_max_integral() { return controller_.max_integral_; }
   float get_proportional_term() const { return controller_.proportional_term_; }
   float get_integral_term() const { return controller_.integral_term_; }
   float get_derivative_term() const { return controller_.derivative_term_; }
@@ -107,7 +109,7 @@ template<typename... Ts> class PIDAutotuneAction : public Action<Ts...> {
   void set_positive_output(float positive_output) { positive_output_ = positive_output; }
   void set_negative_output(float negative_output) { negative_output_ = negative_output; }
 
-  void play(Ts... x) {
+  void play(const Ts &...x) {
     auto tuner = make_unique<PIDAutotuner>();
     tuner->set_noiseband(this->noiseband_);
     tuner->set_output_negative(this->negative_output_);
@@ -126,7 +128,7 @@ template<typename... Ts> class PIDResetIntegralTermAction : public Action<Ts...>
  public:
   PIDResetIntegralTermAction(PIDClimate *parent) : parent_(parent) {}
 
-  void play(Ts... x) { this->parent_->reset_integral_term(); }
+  void play(const Ts &...x) { this->parent_->reset_integral_term(); }
 
  protected:
   PIDClimate *parent_;
@@ -136,7 +138,7 @@ template<typename... Ts> class PIDSetControlParametersAction : public Action<Ts.
  public:
   PIDSetControlParametersAction(PIDClimate *parent) : parent_(parent) {}
 
-  void play(Ts... x) {
+  void play(const Ts &...x) {
     auto kp = this->kp_.value(x...);
     auto ki = this->ki_.value(x...);
     auto kd = this->kd_.value(x...);

@@ -1,13 +1,9 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import automation, core
-from esphome.components import i2c
 from esphome.automation import maybe_simple_id
-from esphome.const import (
-    CONF_ID,
-    CONF_FREQUENCY,
-)
-
+import esphome.codegen as cg
+from esphome.components import i2c
+import esphome.config_validation as cv
+from esphome.const import CONF_FREQUENCY, CONF_ID
 
 CODEOWNERS = ["@X-Ryl669"]
 DEPENDENCIES = ["i2c"]
@@ -22,7 +18,6 @@ CONF_AT581X_ID = "at581x_id"
 
 
 CONF_SENSING_DISTANCE = "sensing_distance"
-CONF_SENSITIVITY = "sensitivity"
 CONF_POWERON_SELFCHECK_TIME = "poweron_selfcheck_time"
 CONF_PROTECT_TIME = "protect_time"
 CONF_TRIGGER_BASE = "trigger_base"

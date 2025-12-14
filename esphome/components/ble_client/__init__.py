@@ -1,7 +1,9 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
+from esphome import automation
 from esphome.automation import maybe_simple_id
-from esphome.components import esp32_ble_tracker, esp32_ble_client
+import esphome.codegen as cg
+from esphome.components import esp32_ble, esp32_ble_client, esp32_ble_tracker
+from esphome.components.esp32_ble import BTLoggers
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_CHARACTERISTIC_UUID,
     CONF_ID,
@@ -13,7 +15,7 @@ from esphome.const import (
     CONF_TRIGGER_ID,
     CONF_VALUE,
 )
-from esphome import automation
+from esphome.core import ID
 
 AUTO_LOAD = ["esp32_ble_client"]
 CODEOWNERS = ["@buxtronix", "@clydebarrow"]
@@ -65,11 +67,9 @@ CONF_ON_PASSKEY_NOTIFICATION = "on_passkey_notification"
 CONF_ON_NUMERIC_COMPARISON_REQUEST = "on_numeric_comparison_request"
 CONF_AUTO_CONNECT = "auto_connect"
 
-# Espressif platformio framework is built with MAX_BLE_CONN to 3, so
-# enforce this in yaml checks.
-MULTI_CONF = 3
+MULTI_CONF = True
 
-CONFIG_SCHEMA = (
+CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(BLEClient),
@@ -116,7 +116,8 @@ CONFIG_SCHEMA = (
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
-    .extend(esp32_ble_tracker.ESP_BLE_DEVICE_SCHEMA)
+    .extend(esp32_ble_tracker.ESP_BLE_DEVICE_SCHEMA),
+    esp32_ble.consume_connection_slots(1, "ble_client"),
 )
 
 CONF_BLE_CLIENT_ID = "ble_client_id"
@@ -175,8 +176,7 @@ BLE_REMOVE_BOND_ACTION_SCHEMA = cv.Schema(
 )
 async def ble_disconnect_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
-    var = cg.new_Pvariable(action_id, template_arg, parent)
-    return var
+    return cg.new_Pvariable(action_id, template_arg, parent)
 
 
 @automation.register_action(
@@ -184,8 +184,7 @@ async def ble_disconnect_to_code(config, action_id, template_arg, args):
 )
 async def ble_connect_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
-    var = cg.new_Pvariable(action_id, template_arg, parent)
-    return var
+    return cg.new_Pvariable(action_id, template_arg, parent)
 
 
 @automation.register_action(
@@ -200,7 +199,12 @@ async def ble_write_to_code(config, action_id, template_arg, args):
         templ = await cg.templatable(value, args, cg.std_vector.template(cg.uint8))
         cg.add(var.set_value_template(templ))
     else:
-        cg.add(var.set_value_simple(value))
+        # Generate static array in flash to avoid RAM copy
+        if isinstance(value, bytes):
+            value = list(value)
+        arr_id = ID(f"{action_id}_data", is_declaration=True, type=cg.uint8)
+        arr = cg.static_const_array(arr_id, cg.ArrayInitializer(*value))
+        cg.add(var.set_value_simple(arr, len(value)))
 
     if len(config[CONF_SERVICE_UUID]) == len(esp32_ble_tracker.bt_uuid16_format):
         cg.add(
@@ -282,12 +286,14 @@ async def passkey_reply_to_code(config, action_id, template_arg, args):
 )
 async def remove_bond_to_code(config, action_id, template_arg, args):
     parent = await cg.get_variable(config[CONF_ID])
-    var = cg.new_Pvariable(action_id, template_arg, parent)
-
-    return var
+    return cg.new_Pvariable(action_id, template_arg, parent)
 
 
 async def to_code(config):
+    # Register the loggers this component needs
+    esp32_ble.register_bt_logger(BTLoggers.GATT, BTLoggers.SMP)
+    cg.add_define("USE_ESP32_BLE_UUID")
+
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
     await esp32_ble_tracker.register_client(var, config)

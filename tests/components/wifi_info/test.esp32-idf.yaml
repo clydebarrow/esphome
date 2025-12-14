@@ -1,18 +1,4 @@
-wifi:
-  ssid: MySSID
-  password: password1
+packages:
+  i2c: !include ../../test_build_components/common/i2c/esp32-idf.yaml
 
-text_sensor:
-  - platform: wifi_info
-    scan_results:
-      name: Scan Results
-    ip_address:
-      name: IP Address
-    ssid:
-      name: SSID
-    bssid:
-      name: BSSID
-    mac_address:
-      name: Mac Address
-    dns_address:
-      name: DNS ADdress
+<<: !include common.yaml

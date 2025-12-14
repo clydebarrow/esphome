@@ -1,21 +1,8 @@
-wifi:
-  ssid: MySSID
-  password: password1
+substitutions:
+  verify_ssl: "false"
 
-sensor:
-  - platform: template
-    id: template_sensor1
-    lambda: |-
-      if (millis() > 10000) {
-        return 42.0;
-      } else {
-        return 0.0;
-      }
-    update_interval: 60s
+packages:
+  remote_transmitter: !include ../../test_build_components/common/remote_transmitter/esp32-idf.yaml
+  spi: !include ../../test_build_components/common/spi/esp32-idf.yaml
 
-prometheus:
-  include_internal: true
-  relabel:
-    template_sensor1:
-      id: hellow_world
-      name: Hello World
+<<: !include common.yaml

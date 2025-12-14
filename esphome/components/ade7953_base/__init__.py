@@ -1,27 +1,30 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import sensor
 from esphome import pins
+import esphome.codegen as cg
+from esphome.components import sensor
+import esphome.config_validation as cv
 from esphome.const import (
+    CONF_FREQUENCY,
     CONF_IRQ_PIN,
     CONF_VOLTAGE,
-    CONF_FREQUENCY,
-    DEVICE_CLASS_CURRENT,
+    CONF_VOLTAGE_GAIN,
     DEVICE_CLASS_APPARENT_POWER,
-    DEVICE_CLASS_POWER,
-    DEVICE_CLASS_REACTIVE_POWER,
-    DEVICE_CLASS_POWER_FACTOR,
-    DEVICE_CLASS_VOLTAGE,
+    DEVICE_CLASS_CURRENT,
     DEVICE_CLASS_FREQUENCY,
+    DEVICE_CLASS_POWER,
+    DEVICE_CLASS_POWER_FACTOR,
+    DEVICE_CLASS_REACTIVE_POWER,
+    DEVICE_CLASS_VOLTAGE,
     STATE_CLASS_MEASUREMENT,
-    UNIT_VOLT,
-    UNIT_HERTZ,
     UNIT_AMPERE,
-    UNIT_VOLT_AMPS,
-    UNIT_WATT,
-    UNIT_VOLT_AMPS_REACTIVE,
+    UNIT_HERTZ,
     UNIT_PERCENT,
+    UNIT_VOLT,
+    UNIT_VOLT_AMPS,
+    UNIT_VOLT_AMPS_REACTIVE,
+    UNIT_WATT,
 )
+
+CODEOWNERS = ["@angelnu"]
 
 CONF_CURRENT_A = "current_a"
 CONF_CURRENT_B = "current_b"
@@ -36,7 +39,6 @@ CONF_POWER_FACTOR_B = "power_factor_b"
 CONF_VOLTAGE_PGA_GAIN = "voltage_pga_gain"
 CONF_CURRENT_PGA_GAIN_A = "current_pga_gain_a"
 CONF_CURRENT_PGA_GAIN_B = "current_pga_gain_b"
-CONF_VOLTAGE_GAIN = "voltage_gain"
 CONF_CURRENT_GAIN_A = "current_gain_a"
 CONF_CURRENT_GAIN_B = "current_gain_b"
 CONF_ACTIVE_POWER_GAIN_A = "active_power_gain_a"

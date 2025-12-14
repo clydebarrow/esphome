@@ -1,9 +1,4 @@
-esp32_ble_tracker:
+packages:
+  ble: !include ../../test_build_components/common/ble/esp32-idf.yaml
 
-sensor:
-  - platform: xiaomi_miscale
-    mac_address: '5C:CA:D3:70:D4:A2'
-    weight:
-      name: "Xiaomi Mi Scale Weight"
-    impedance:
-      name: "Xiaomi Mi Scale Impedance"
+<<: !include common.yaml

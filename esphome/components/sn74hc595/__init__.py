@@ -1,13 +1,14 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
 from esphome import pins
+import esphome.codegen as cg
 from esphome.components import spi
+import esphome.config_validation as cv
 from esphome.const import (
-    CONF_ID,
-    CONF_NUMBER,
-    CONF_INVERTED,
-    CONF_DATA_PIN,
     CONF_CLOCK_PIN,
+    CONF_DATA_PIN,
+    CONF_ID,
+    CONF_INVERTED,
+    CONF_NUMBER,
+    CONF_OE_PIN,
     CONF_OUTPUT,
     CONF_TYPE,
 )
@@ -30,7 +31,6 @@ SN74HC595GPIOPin = sn74hc595_ns.class_(
 
 CONF_SN74HC595 = "sn74hc595"
 CONF_LATCH_PIN = "latch_pin"
-CONF_OE_PIN = "oe_pin"
 CONF_SR_COUNT = "sr_count"
 
 TYPE_GPIO = "gpio"
@@ -95,7 +95,7 @@ SN74HC595_PIN_SCHEMA = pins.gpio_base_schema(
     cv.int_range(min=0, max=2047),
     modes=[CONF_OUTPUT],
     mode_validator=_validate_output_mode,
-    invertable=True,
+    invertible=True,
 ).extend(
     {
         cv.Required(CONF_SN74HC595): cv.use_id(SN74HC595Component),

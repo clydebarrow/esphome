@@ -1,7 +1,6 @@
-wifi:
-  ssid: MySSID
-  password: password1
+<<: !include common_v2.yaml
 
 web_server:
-  port: 8080
-  version: 2
+  auth:
+    username: admin
+    password: password
