@@ -4,6 +4,8 @@
 
 #pragma once
 
+#include <utility>
+
 #include "esphome/components/display/display_buffer.h"
 #include "esphome/components/touchscreen/touchscreen.h"
 #include "esphome/components/display/display_color_utils.h"
@@ -29,13 +31,13 @@ static const uint8_t RFB_MAGIC[VERSION_LEN] = {
     'R', 'F', 'B', ' ', '0', '0', '3', '.', '0', '0', '3', '\n',
 };
 
-static inline uint8_t *put16_be(uint8_t *buf, uint16_t value) {
+static uint8_t *put16_be(uint8_t *buf, uint16_t value) {
   buf[0] = value >> 8;
   buf[1] = value;
   return buf + 2;
 }
 
-static inline uint8_t *put32_be(uint8_t *buf, uint32_t value) {
+static uint8_t *put32_be(uint8_t *buf, uint32_t value) {
   buf[0] = value >> 24;
   buf[1] = value >> 16;
   buf[2] = value >> 8;
@@ -43,9 +45,9 @@ static inline uint8_t *put32_be(uint8_t *buf, uint32_t value) {
   return buf + 4;
 }
 
-static inline uint16_t get16_be(const uint8_t *buf) { return buf[1] + (buf[0] << 8); }
+static uint16_t get16_be(const uint8_t *buf) { return buf[1] + (buf[0] << 8); }
 
-static inline uint16_t get32_be(const uint8_t *buf) { return buf[3] + (buf[2] << 8) + (buf[1] << 16) + (buf[0] << 24); }
+static uint16_t get32_be(const uint8_t *buf) { return buf[3] + (buf[2] << 8) + (buf[1] << 16) + (buf[0] << 24); }
 
 #if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
 static void printhex(const char *hdr, uint8_t const *buffer, size_t cnt) {
@@ -77,28 +79,28 @@ enum AuthType {
   AUTH_VNC = 0x02,
 };
 
-typedef struct circ_buf {
+using circ_buf_t = struct circ_buf {
   uint8_t data[256];
   uint8_t inp, outp;
-} circ_buf_t;
+};
 
-typedef struct {
+using rect_t = struct {
   ssize_t x_min;
   ssize_t y_min;
   ssize_t x_max;
   ssize_t y_max;
-} rect_t;
+};
 
-static inline void buf_clr(circ_buf_t &buf) {
+static void buf_clr(circ_buf_t &buf) {
   buf.inp = 0;
   buf.outp = 0;
 }
-static inline size_t buf_size(const circ_buf_t &buf) { return (size_t) (uint8_t) (buf.inp - buf.outp); }
+static size_t buf_size(const circ_buf_t &buf) { return (size_t) (uint8_t) (buf.inp - buf.outp); }
 
-static inline uint8_t buf_peek(const circ_buf_t &buf) { return buf.data[buf.outp]; }
+static uint8_t buf_peek(const circ_buf_t &buf) { return buf.data[buf.outp]; }
 
 // get data from the buffer. It is required that len be less than the available data.
-static inline void buf_copy(circ_buf_t &buf, uint8_t *dest, uint8_t len) {
+static void buf_copy(circ_buf_t &buf, uint8_t *dest, uint8_t len) {
   size_t rem = 256 - buf.outp;
   if (rem < len) {
     memcpy(dest, buf.data + buf.outp, rem);
@@ -112,7 +114,7 @@ static inline void buf_copy(circ_buf_t &buf, uint8_t *dest, uint8_t len) {
 
 // add data to the buffer. Fail if not enough room for entire copy
 
-static inline bool buf_add(circ_buf_t &buf, const uint8_t *src, uint8_t len) {
+static bool buf_add(circ_buf_t &buf, const uint8_t *src, uint8_t len) {
   if (256 - buf_size(buf) < len) {
     esph_log_w(TAG, "Could not add %d bytes to buffer", len);
     return false;
@@ -135,13 +137,13 @@ class VNCTrigger : public Trigger<>, public Parented<VNCDisplay> {};
 class VNCTouchscreen : public touchscreen::Touchscreen {
  public:
   void update_pointer(bool touching, uint16_t x, uint16_t y) {
-    if (touching != this->touching_ || (touching && (this->xpos != x || this->ypos != y))) {
+    if (touching != this->touching_ || (touching && (this->xpos_ != x || this->ypos_ != y))) {
       this->store_.touched = true;
       this->updated_ = true;
     }
     this->touching_ = touching;
-    this->xpos = x;
-    this->ypos = y;
+    this->xpos_ = x;
+    this->ypos_ = y;
   }
 
   void setup() override {
@@ -158,15 +160,15 @@ class VNCTouchscreen : public touchscreen::Touchscreen {
     }
     this->updated_ = false;
     if (this->touching_) {
-      esph_log_v(TAG, "Sending touch %d/%d", xpos, ypos);
-      add_raw_touch_position_(0, xpos, ypos);
+      esph_log_v(TAG, "Sending touch %d/%d", xpos_, ypos_);
+      add_raw_touch_position_(0, xpos_, ypos_);
     }
   }
 
   bool touching_{};
   bool updated_{true};
-  uint16_t xpos{};
-  uint16_t ypos{};
+  uint16_t xpos_{};
+  uint16_t ypos_{};
 };
 class VNCDisplay : public display::Display {
  public:
@@ -389,24 +391,24 @@ class VNCDisplay : public display::Display {
 
   display::DisplayType get_display_type() override { return display::DISPLAY_TYPE_COLOR; }
   void set_port(uint16_t port) { this->port_ = port; }
-  void set_on_connect(std::function<void()> on_connect) { this->on_connect_ = on_connect; }
-  void set_on_disconnect(std::function<void()> on_disconnect) { this->on_disconnect_ = on_disconnect; }
+  void set_on_connect(std::function<void()> on_connect) { this->on_connect_ = std::move(on_connect); }
+  void set_on_disconnect(std::function<void()> on_disconnect) { this->on_disconnect_ = std::move(on_disconnect); }
 
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
  protected:
-  uint8_t tx_buf_[4096];
+  uint8_t tx_buf_[4096]{};
   size_t tx_buflen_{};
 
   int get_height_internal() override { return this->get_height(); }
   int get_width_internal() override { return this->get_width(); }
 
-  inline size_t tx_rem_() { return sizeof(this->tx_buf_) - this->tx_buflen_; }
-  inline void tx_16(uint16_t value) {
+  size_t tx_rem_() { return sizeof(this->tx_buf_) - this->tx_buflen_; }
+  void tx_16(uint16_t value) {
     put16_be(this->tx_buf_ + this->tx_buflen_, value);
     this->tx_buflen_ += 2;
   }
-  inline void tx_8(uint8_t value) { this->tx_buf_[this->tx_buflen_++] = value; }
+  void tx_8(uint8_t value) { this->tx_buf_[this->tx_buflen_++] = value; }
   void tx_flush_() {
     if (this->tx_buflen_ != 0) {
       this->write_(this->tx_buf_, this->tx_buflen_);
@@ -497,7 +499,7 @@ class VNCDisplay : public display::Display {
     this->dirty_rect_.y_min = this->height_;
   }
 
-  inline bool is_dirty() {
+  bool is_dirty() {
     return this->dirty_rect_.x_max >= this->dirty_rect_.x_min && this->dirty_rect_.y_max >= this->dirty_rect_.y_min;
   }
 
@@ -528,10 +530,9 @@ class VNCDisplay : public display::Display {
     *sp++ = 0;                        // padding
     *sp++ = 0;
     *sp++ = 0;
-    auto name = App.get_name();
+    const auto &name = App.get_name();
     auto len = name.size();
-    if (len > 64)
-      len = 64;
+    len = std::min<size_t>(len, 64);
     sp = put32_be(sp, len);
     memcpy(sp, name.c_str(), len);
     sp += len;
@@ -639,7 +640,7 @@ class VNCDisplay : public display::Display {
           size_t textlen = get32_be(buffer + 4);
           if (textlen < 256 && buf_size(this->inq_) >= textlen) {
             buf_copy(this->inq_, buffer, textlen);
-            esph_log_d(TAG, "Received cut buffer %.*s", (unsigned) textlen, buffer);
+            esph_log_d(TAG, "Received cut buffer %.*s", (unsigned) textlen, (const char *) buffer);
           } else {
             esph_log_d(TAG, "Skipping cut buffer length %zu", textlen);
             this->skip_bytes_ = textlen;
@@ -660,14 +661,14 @@ class VNCDisplay : public display::Display {
     int err;
     size_t len;
     uint8_t buffer[128];
-    switch (state_) {
+    switch (this->state_) {
       default:
         break;
       case STATE_VERSION:
         err = this->read_(buffer, VERSION_LEN);
         if (err <= 0)
           break;
-        esph_log_d(TAG, "Read %.*s as version", err, buffer);
+        esph_log_d(TAG, "Read %.*s as version", err, (const char *) buffer);
         // this does not match the RFC, but seems to work
         buffer[0] = 0;
         buffer[1] = 0;
@@ -692,7 +693,6 @@ class VNCDisplay : public display::Display {
         buf_clr(this->inq_);
         if (this->on_connect_ != nullptr) {
           this->defer([this]() { this->on_connect_(); });
-          this->on_connect_();
           this->mark_dirty_(0, 0, this->width_, this->height_);
           this->update_frame_();
         }
@@ -703,11 +703,10 @@ class VNCDisplay : public display::Display {
           while (this->process_())
             continue;
           err = this->read_(buffer, sizeof buffer);
-          if (err > 0) {
-            buf_add(this->inq_, buffer, err);
-            continue;
-          }
-        } while (false);
+          if (err < 0)
+            break;
+          buf_add(this->inq_, buffer, err);
+        } while (true);
         break;
     }
   };
@@ -779,7 +778,7 @@ class VNCDisplay : public display::Display {
   std::function<void()> on_connect_{};
   std::function<void()> on_disconnect_{};
   std::unique_ptr<socket::Socket> client_sock_{};
-  ClientState state_;
+  ClientState state_{STATE_INVALID};
   bool internal_update_{};
   circ_buf_t inq_{};
   size_t skip_bytes_{};
