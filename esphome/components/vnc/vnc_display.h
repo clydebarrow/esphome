@@ -24,10 +24,10 @@ namespace vnc {
 
 #if defined(USE_HOST) || defined(pdTRUE)
 static const char *const TAG = "vnc";
-static const size_t VERSION_LEN = 12;
-static const size_t MAX_WRITE = 64 * 1024;
-static const size_t PIXEL_BYTES = 4;
-static const uint8_t RFB_MAGIC[VERSION_LEN] = {
+static constexpr size_t VERSION_LEN = 12;
+static constexpr size_t MAX_WRITE = 64 * 1024;
+static constexpr size_t PIXEL_BYTES = 4;
+static constexpr uint8_t RFB_MAGIC[VERSION_LEN] = {
     'R', 'F', 'B', ' ', '0', '0', '3', '.', '0', '0', '3', '\n',
 };
 
@@ -251,7 +251,7 @@ class VNCDisplay : public display::Display {
     }
     pthread_t tid;
     err = pthread_create(
-        &tid, NULL,
+        &tid, nullptr,
         [](void *arg) -> void * {
           ((VNCDisplay *) arg)->tx_task_();
           return nullptr;
@@ -328,8 +328,7 @@ class VNCDisplay : public display::Display {
     this->display_buffer_[offs++] = color.g;
     this->display_buffer_[offs++] = color.r;
     this->display_buffer_[offs] = 0;
-    if (!this->internal_update_)
-      this->mark_dirty_(x, y, 1, 1);
+    this->mark_dirty_(x, y, 1, 1);
   }
 
   void update_frame_() {
@@ -364,10 +363,7 @@ class VNCDisplay : public display::Display {
     // do color conversion pixel-by-pixel into the buffer and draw it later. If this is happening the user has not
     // configured the renderer well.
     if (this->rotation_ != display::DISPLAY_ROTATION_0_DEGREES || bitness != display::COLOR_BITNESS_888 || big_endian) {
-      this->internal_update_ = true;
-      display::Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset,
-                                       x_pad);
-      this->internal_update_ = false;
+      Display::draw_pixels_at(x_start, y_start, w, h, ptr, order, bitness, big_endian, x_offset, y_offset, x_pad);
     } else if (x_offset == 0 && x_pad == 0 && w == this->width_) {
       memcpy(this->display_buffer_ + y_start * w * PIXEL_BYTES, ptr + y_offset * w * PIXEL_BYTES, h * w * PIXEL_BYTES);
     } else {
@@ -403,7 +399,7 @@ class VNCDisplay : public display::Display {
   int get_height_internal() override { return this->get_height(); }
   int get_width_internal() override { return this->get_width(); }
 
-  size_t tx_rem_() { return sizeof(this->tx_buf_) - this->tx_buflen_; }
+  size_t tx_rem_() const { return sizeof(this->tx_buf_) - this->tx_buflen_; }
   void tx_16(uint16_t value) {
     put16_be(this->tx_buf_ + this->tx_buflen_, value);
     this->tx_buflen_ += 2;
@@ -482,14 +478,10 @@ class VNCDisplay : public display::Display {
   }
 
   void mark_dirty_(ssize_t x, ssize_t y, ssize_t w, ssize_t h) {
-    if (x < this->dirty_rect_.x_min)
-      this->dirty_rect_.x_min = x;
-    if (y < this->dirty_rect_.y_min)
-      this->dirty_rect_.y_min = y;
-    if (x + w - 1 > this->dirty_rect_.x_max)
-      this->dirty_rect_.x_max = x + w - 1;
-    if (y + h - 1 > this->dirty_rect_.y_max)
-      this->dirty_rect_.y_max = y + h - 1;
+    this->dirty_rect_.x_min = clamp_at_most(this->dirty_rect_.x_min, x);
+    this->dirty_rect_.y_min = clamp_at_most(this->dirty_rect_.y_min, y);
+    this->dirty_rect_.x_max = clamp_at_least(this->dirty_rect_.x_max, x + w - 1);
+    this->dirty_rect_.y_max = clamp_at_least(this->dirty_rect_.y_max, y + h - 1);
   }
 
   void mark_clean_() {
@@ -499,11 +491,11 @@ class VNCDisplay : public display::Display {
     this->dirty_rect_.y_min = this->height_;
   }
 
-  bool is_dirty() {
+  bool is_dirty() const {
     return this->dirty_rect_.x_max >= this->dirty_rect_.x_min && this->dirty_rect_.y_max >= this->dirty_rect_.y_min;
   }
 
-  size_t build_init(uint8_t *buffer) {
+  size_t build_init(uint8_t *buffer) const {
     uint8_t *sp = buffer;
     sp = put16_be(sp, this->width_);
     sp = put16_be(sp, this->height_);
@@ -518,7 +510,7 @@ class VNCDisplay : public display::Display {
     //    *sp++ = 5;                        // green shift
     //    *sp++ = 0;                        // blue shift
     *sp++ = 32;                       // bits per pixel
-    *sp++ = 24;                       // bit depth
+    *sp++ = 24;                       // colour depth
     *sp++ = 0;                        // little-endian
     *sp++ = 1;                        // true colour
     sp = put16_be(sp, (1 << 8) - 1);  // red max
@@ -541,7 +533,6 @@ class VNCDisplay : public display::Display {
 
   bool process_() {
     uint8_t buffer[256];
-    size_t len;
     if (buf_size(this->inq_) == 0)
       return false;
     if (this->skip_bytes_ != 0) {
@@ -577,7 +568,7 @@ class VNCDisplay : public display::Display {
       case 2:  // setencodings
         if (buf_size(this->inq_) >= 4) {
           buf_copy(this->inq_, buffer, 4);
-          len = get16_be(buffer + 2);
+          size_t len = get16_be(buffer + 2);
           if (buf_size(this->inq_) >= len * 4) {
             buf_copy(this->inq_, buffer, len * 4);
             esph_log_d(TAG, "Read %zu encoding types", len);
@@ -629,7 +620,7 @@ class VNCDisplay : public display::Display {
           uint32_t xpos = get16_be(buffer + 2);
           uint32_t ypos = get16_be(buffer + 4);
           this->touchscreens_.call((mask & 1) != 0, xpos, ypos);
-          esph_log_v(TAG, "Pointer event %X %d/%d", mask, (unsigned) xpos, (unsigned) ypos);
+          esph_log_vv(TAG, "Pointer event %X %d/%d", mask, (unsigned) xpos, (unsigned) ypos);
           return true;
         }
         break;
@@ -654,6 +645,10 @@ class VNCDisplay : public display::Display {
         buf_clr(this->inq_);
         break;
     }
+    if (buf_size(this->inq_) != 0) {
+      esph_log_w(TAG, "Still %zu bytes in queue", buf_size(this->inq_));
+    }
+
     return false;
   }
 
@@ -705,6 +700,8 @@ class VNCDisplay : public display::Display {
           err = this->read_(buffer, sizeof buffer);
           if (err < 0)
             break;
+          if (err == 0 && buf_size(this->inq_) == 0)
+            break;
           buf_add(this->inq_, buffer, err);
         } while (true);
         break;
@@ -739,7 +736,7 @@ class VNCDisplay : public display::Display {
       esph_log_e(TAG, "socket read failed: %d", errno);
       this->disconnect_();
     } else {
-      // printhex("Read", buffer, res);
+      esph_log_vv(TAG, "Read data %s", format_hex_pretty(buffer, len).c_str());
     }
     return res;
   }
@@ -751,7 +748,8 @@ class VNCDisplay : public display::Display {
       ssize_t res = this->client_sock_->write(ptr, len);
       if (res < 0) {
         if (errno == EAGAIN) {
-          delay(1);
+          esph_log_v(TAG, "Socket write delayed, writing %zu bytes", len);
+          delay(5);
           continue;
         }
         esph_log_e(TAG, "socket write failed: %d", errno);
@@ -762,7 +760,11 @@ class VNCDisplay : public display::Display {
       len -= res;
       ptr += res;
     }
-    // printhex("Wrote", buffer, total);
+    if (total < 100) {
+      esph_log_v(TAG, "Wrote data %s", format_hex_pretty(buffer, total).c_str());
+    } else {
+      esph_log_v(TAG, "Wrote %zu bytes", total);
+    }
     return total;
   }
 
@@ -779,7 +781,6 @@ class VNCDisplay : public display::Display {
   std::function<void()> on_disconnect_{};
   std::unique_ptr<socket::Socket> client_sock_{};
   ClientState state_{STATE_INVALID};
-  bool internal_update_{};
   circ_buf_t inq_{};
   size_t skip_bytes_{};
 #if USE_HOST
