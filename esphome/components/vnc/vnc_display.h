@@ -5,6 +5,7 @@
 #pragma once
 
 #include <utility>
+#include <string>
 
 #include "esphome/components/display/display_buffer.h"
 #include "esphome/components/touchscreen/touchscreen.h"
@@ -19,7 +20,6 @@
 
 namespace esphome {
 namespace vnc {
-
 // this code only works on FreeRTOS or Posix host.
 
 #if defined(USE_HOST) || defined(pdTRUE)
@@ -28,7 +28,7 @@ static constexpr size_t VERSION_LEN = 12;
 static constexpr size_t MAX_WRITE = 64 * 1024;
 static constexpr size_t PIXEL_BYTES = 4;
 static constexpr uint8_t RFB_MAGIC[VERSION_LEN] = {
-    'R', 'F', 'B', ' ', '0', '0', '3', '.', '0', '0', '3', '\n',
+    'R', 'F', 'B', ' ', '0', '0', '3', '.', '0', '0', '7', '\n',
 };
 
 static uint8_t *put16_be(uint8_t *buf, uint16_t value) {
@@ -47,21 +47,9 @@ static uint8_t *put32_be(uint8_t *buf, uint32_t value) {
 
 static uint16_t get16_be(const uint8_t *buf) { return buf[1] + (buf[0] << 8); }
 
-static uint16_t get32_be(const uint8_t *buf) { return buf[3] + (buf[2] << 8) + (buf[1] << 16) + (buf[0] << 24); }
-
-#if ESPHOME_LOG_LEVEL >= ESPHOME_LOG_LEVEL_VERBOSE
-static void printhex(const char *hdr, uint8_t const *buffer, size_t cnt) {
-  char strbuf[256];
-  snprintf(strbuf, sizeof strbuf, "%s %zu bytes ", hdr, cnt);
-  for (size_t i = 0; i != cnt; i++) {
-    size_t len = strlen(strbuf);
-    if (len >= sizeof strbuf - 4)
-      break;
-    snprintf(strbuf + len, sizeof strbuf - len, "%02X ", buffer[i]);
-  }
-  esph_log_d(TAG, "%s", strbuf);
+static uint32_t get32_be(const uint8_t *buf) {
+  return (uint32_t) buf[3] + ((uint32_t) buf[2] << 8) + ((uint32_t) buf[1] << 16) + ((uint32_t) buf[0] << 24);
 }
-#endif
 
 enum ClientState {
   STATE_INVALID,
@@ -73,10 +61,15 @@ enum ClientState {
   STATE_CLOSING
 };
 
+static const char *const state_names[] = {
+    "INVALID", "VERSION", "AUTH", "AUTH_RESPONSE", "INIT", "READY", "CLOSING",
+};
+
 enum AuthType {
   AUTH_FAILED = 0x00,
   AUTH_NONE = 0x01,
   AUTH_VNC = 0x02,
+  AUTH_TIGHT = 0x10,
 };
 
 using circ_buf_t = struct circ_buf {
@@ -95,7 +88,8 @@ static void buf_clr(circ_buf_t &buf) {
   buf.inp = 0;
   buf.outp = 0;
 }
-static size_t buf_size(const circ_buf_t &buf) { return (size_t) (uint8_t) (buf.inp - buf.outp); }
+
+static size_t buf_size(const circ_buf_t &buf) { return (uint8_t) (buf.inp - buf.outp); }
 
 static uint8_t buf_peek(const circ_buf_t &buf) { return buf.data[buf.outp]; }
 
@@ -126,12 +120,13 @@ static bool buf_add(circ_buf_t &buf, const uint8_t *src, uint8_t len) {
     len -= rem;
     buf.inp = 0;
   }
-  memcpy(buf.data + buf.inp, src, rem);
+  memcpy(buf.data + buf.inp, src, len);
   buf.inp += len;
   return true;
 }
 
 class VNCDisplay;
+
 class VNCTrigger : public Trigger<>, public Parented<VNCDisplay> {};
 
 class VNCTouchscreen : public touchscreen::Touchscreen {
@@ -170,11 +165,15 @@ class VNCTouchscreen : public touchscreen::Touchscreen {
   uint16_t xpos_{};
   uint16_t ypos_{};
 };
+
 class VNCDisplay : public display::Display {
  public:
   void add_touchscreen(VNCTouchscreen *tp) {
     this->touchscreens_.add([=](bool touching, uint16_t x, uint16_t y) { tp->update_pointer(touching, x, y); });
   }
+
+  void set_username(const std::string &u) { this->username_ = u; }
+  void set_password(const std::string &p) { this->password_ = p; }
 
   void end_socket_() {
     this->disconnect_();
@@ -334,7 +333,7 @@ class VNCDisplay : public display::Display {
   void update_frame_() {
     if (this->is_dirty()) {
       if (this->state_ == STATE_READY) {
-        if (sendRect(this->dirty_rect_))
+        if (this->sendRect(this->dirty_rect_))
           this->mark_clean_();
       }
     }
@@ -400,11 +399,18 @@ class VNCDisplay : public display::Display {
   int get_width_internal() override { return this->get_width(); }
 
   size_t tx_rem_() const { return sizeof(this->tx_buf_) - this->tx_buflen_; }
+
+  void set_state_(ClientState state) {
+    this->state_ = state;
+    ESP_LOGD(TAG, "Set state to %s", state_names[state]);
+  }
   void tx_16(uint16_t value) {
     put16_be(this->tx_buf_ + this->tx_buflen_, value);
     this->tx_buflen_ += 2;
   }
+
   void tx_8(uint8_t value) { this->tx_buf_[this->tx_buflen_++] = value; }
+
   void tx_flush_() {
     if (this->tx_buflen_ != 0) {
       this->write_(this->tx_buf_, this->tx_buflen_);
@@ -456,6 +462,7 @@ class VNCDisplay : public display::Display {
 #endif
     }
   }
+
   // pack the given window into the framebuffer. Flush if required.
   void send_framebuffer(size_t x_start, size_t y_start, size_t w, size_t h) {
     esph_log_v(TAG, "Send_framebuffer w/h %zu/%zu, txbuflen %zu", w, h, this->tx_buflen_);
@@ -468,12 +475,29 @@ class VNCDisplay : public display::Display {
     tx_16(0);  // raw encoding
     tx_16(0);
     for (size_t y = 0; y != h; y++) {
-      auto bytes = w * PIXEL_BYTES;
-      if (this->tx_rem_() < bytes)
-        this->tx_flush_();
-      memcpy(this->tx_buf_ + this->tx_buflen_,
-             this->display_buffer_ + ((y + y_start) * this->width_ + x_start) * PIXEL_BYTES, w * PIXEL_BYTES);
-      this->tx_buflen_ += bytes;
+      auto src = this->display_buffer_ + ((y + y_start) * this->width_ + x_start) * PIXEL_BYTES;
+      if (!this->big_endian_pixels_) {
+        auto bytes = w * PIXEL_BYTES;
+        if (this->tx_rem_() < bytes)
+          this->tx_flush_();
+        memcpy(this->tx_buf_ + this->tx_buflen_, src, bytes);
+        this->tx_buflen_ += bytes;
+      } else {
+        // Convert B,G,R,0 -> 0,R,G,B for big-endian pixel order
+        for (size_t x = 0; x != w; x++) {
+          if (this->tx_rem_() < 4)
+            this->tx_flush_();
+          const uint8_t b = src[0];
+          const uint8_t g = src[1];
+          const uint8_t r = src[2];
+          this->tx_buf_[this->tx_buflen_ + 0] = 0;
+          this->tx_buf_[this->tx_buflen_ + 1] = r;
+          this->tx_buf_[this->tx_buflen_ + 2] = g;
+          this->tx_buf_[this->tx_buflen_ + 3] = b;
+          this->tx_buflen_ += 4;
+          src += 4;
+        }
+      }
     }
   }
 
@@ -554,12 +578,24 @@ class VNCDisplay : public display::Display {
           uint8_t depth = buffer[5];
           bool big_endian = buffer[6] != 0;
           bool true_color = buffer[7] != 0;
-          esph_log_v(TAG, "pixel format: bits %d, depth %d, %s endian, true_color: %s", bits_per_pixel, depth,
-                     big_endian ? "Big" : "Little", true_color ? "Yes" : "No");
-          if (buffer[4] != 32 || buffer[5] != 24 || buffer[6] != 0 || buffer[7] == 0) {
-            esph_log_w(TAG, "Requested color format is not compatible.");
-            buf_clr(this->inq_);
-            return false;
+          uint16_t rmax = get16_be(buffer + 8);
+          uint16_t gmax = get16_be(buffer + 10);
+          uint16_t bmax = get16_be(buffer + 12);
+          uint8_t rshift = buffer[14];
+          uint8_t gshift = buffer[15];
+          uint8_t bshift = buffer[16];
+          esph_log_v(TAG,
+                     "pixel format: bits %d, depth %d, %s endian, true_color: %s, rmax=%u gmax=%u bmax=%u rsh=%u "
+                     "gsh=%u bsh=%u",
+                     bits_per_pixel, depth, big_endian ? "Big" : "Little", true_color ? "Yes" : "No", (unsigned) rmax,
+                     (unsigned) gmax, (unsigned) bmax, rshift, gshift, bshift);
+          bool supported = (bits_per_pixel == 32 && depth == 24 && true_color && rmax == 255 && gmax == 255 &&
+                            bmax == 255 && rshift == 16 && gshift == 8 && bshift == 0);
+          if (supported) {
+            this->big_endian_pixels_ = big_endian;
+          } else {
+            esph_log_w(TAG,
+                       "Requested color format not supported; keeping server format 32bpp 24b depth little-endian.");
           }
           return true;
         }
@@ -654,36 +690,191 @@ class VNCDisplay : public display::Display {
 
   void client_loop_() {
     int err;
-    size_t len;
     uint8_t buffer[128];
     switch (this->state_) {
       default:
         break;
-      case STATE_VERSION:
+      case STATE_VERSION: {
         err = this->read_(buffer, VERSION_LEN);
         if (err <= 0)
           break;
         esph_log_d(TAG, "Read %.*s as version", err, (const char *) buffer);
-        // this does not match the RFC, but seems to work
-        buffer[0] = 0;
-        buffer[1] = 0;
-        buffer[2] = 0;
-        buffer[3] = AUTH_NONE;
-        err = this->write_(buffer, 4);
+        // RFB 3.7 security types list
+        uint8_t types[3];
+        size_t ntypes = 0;
+        bool creds_both = (!this->username_.empty() && !this->password_.empty());
+        // If both username and password are configured and non-empty, do NOT offer NoAuth
+        if (!creds_both) {
+          types[ntypes++] = AUTH_NONE;
+        }
+        // Offer Tight if any credential is configured (allows testing with empty fields if desired)
+        if (!this->username_.empty() || !this->password_.empty()) {
+          types[ntypes++] = AUTH_TIGHT;  // Tight/Unix-Login
+        }
+        // Ensure we always offer at least one type
+        if (ntypes == 0) {
+          types[ntypes++] = AUTH_NONE;
+        }
+        uint8_t out[8];
+        out[0] = (uint8_t) ntypes;
+        memcpy(out + 1, types, ntypes);
+        err = this->write_(out, 1 + ntypes);
         if (err < 0)
           break;
         this->state_ = STATE_AUTH;
         break;
+      }
 
-      case STATE_AUTH:
+      case STATE_AUTH: {
+        // 3.7: client selects one security type (1 byte)
+        if (this->auth_progress_ == 0) {
+          err = this->read_(buffer, 1);
+          if (err <= 0)
+            break;
+          this->selected_sec_type_ = buffer[0];
+          esph_log_i(TAG, "Client selected security type %d", (int) this->selected_sec_type_);
+          if (this->selected_sec_type_ == AUTH_NONE) {
+            // RFB 3.7: server must send SecurityResult=OK before ClientInit
+            uint8_t secres[4];
+            put32_be(secres, 0);
+            err = this->write_(secres, sizeof secres);
+            if (err < 0)
+              break;
+            this->state_ = STATE_INIT;  // wait for ClientInit
+            break;
+          } else if (this->selected_sec_type_ == AUTH_TIGHT) {
+            // Send tunneling caps (none) and auth caps (Unix Login)
+            uint8_t caps[4 + 4 + 16];
+            put32_be(caps + 0, 0);             // nTunnelTypes = 0
+            put32_be(caps + 4, 1);             // nAuthTypes = 1
+            put32_be(caps + 8, 129);           // code = Unix Login
+            memcpy(caps + 12, "TGHT", 4);      // vendor
+            memcpy(caps + 16, "ULGNAUTH", 8);  // signature
+            err = this->write_(caps, sizeof caps);
+            if (err < 0)
+              break;
+            this->auth_progress_ = 1;  // wait for auth scheme request
+            this->auth_expected_ = 4;
+            this->auth_buflen_ = 0;
+            break;
+          } else {
+            esph_log_w(TAG, "Unsupported security type %d", (int) this->selected_sec_type_);
+            this->disconnect_();
+            break;
+          }
+        }
+        if (this->selected_sec_type_ == AUTH_TIGHT) {
+          // Tight sub-negotiation state machine
+          if (this->auth_progress_ == 1) {
+            // read 4-byte auth scheme code
+            int got = this->read_(this->auth_buf_ + this->auth_buflen_, this->auth_expected_ - this->auth_buflen_);
+            if (got <= 0)
+              break;
+            this->auth_buflen_ += got;
+            if (this->auth_buflen_ < this->auth_expected_)
+              break;
+            uint32_t code = get32_be(this->auth_buf_);
+            if (code != 129) {
+              esph_log_w(TAG, "Client requested unsupported Tight auth code %u", (unsigned) code);
+              this->disconnect_();
+              break;
+            }
+            this->auth_progress_ = 2;  // read username length
+            this->auth_buflen_ = 0;
+            this->auth_expected_ = 4;
+          }
+          if (this->auth_progress_ == 2) {
+            int got = this->read_(this->auth_buf_ + this->auth_buflen_, this->auth_expected_ - this->auth_buflen_);
+            if (got <= 0)
+              break;
+            this->auth_buflen_ += got;
+            if (this->auth_buflen_ < this->auth_expected_)
+              break;
+            this->tight_user_.clear();
+            this->tight_pass_.clear();
+            this->tight_next_len_ = get32_be(this->auth_buf_);
+            this->auth_progress_ = 3;  // read username string
+            this->auth_buflen_ = 0;
+            this->auth_expected_ = this->tight_next_len_;
+          }
+          if (this->auth_progress_ == 3) {
+            int got = this->read_(this->auth_tmp_,
+                                  std::min<size_t>(sizeof this->auth_tmp_, this->auth_expected_ - this->auth_buflen_));
+            if (got <= 0)
+              break;
+            this->tight_user_.append((const char *) this->auth_tmp_, got);
+            this->auth_buflen_ += got;
+            if (this->auth_buflen_ < this->auth_expected_)
+              break;
+            this->auth_progress_ = 4;  // read password length
+            this->auth_buflen_ = 0;
+            this->auth_expected_ = 4;
+          }
+          if (this->auth_progress_ == 4) {
+            int got = this->read_(this->auth_buf_ + this->auth_buflen_, this->auth_expected_ - this->auth_buflen_);
+            if (got <= 0)
+              break;
+            this->auth_buflen_ += got;
+            if (this->auth_buflen_ < this->auth_expected_)
+              break;
+            this->tight_next_len_ = get32_be(this->auth_buf_);
+            this->auth_progress_ = 5;  // read password string
+            this->auth_buflen_ = 0;
+            this->auth_expected_ = this->tight_next_len_;
+          }
+          if (this->auth_progress_ == 5) {
+            int got = this->read_(this->auth_tmp_,
+                                  std::min<size_t>(sizeof this->auth_tmp_, this->auth_expected_ - this->auth_buflen_));
+            if (got <= 0)
+              break;
+            this->tight_pass_.append((const char *) this->auth_tmp_, got);
+            this->auth_buflen_ += got;
+            if (this->auth_buflen_ < this->auth_expected_)
+              break;
+
+            esph_log_d(TAG, "Tight auth received user '%.*s' (%zu bytes)",
+                       (int) std::min<size_t>(this->tight_user_.size(), 32), this->tight_user_.c_str(),
+                       this->tight_user_.size());
+            bool ok = (this->tight_user_ == this->username_) && (this->tight_pass_ == this->password_);
+            if (!ok) {
+              esph_log_w(TAG, "Authentication failed for user '%s'", this->tight_user_.c_str());
+              // Send SecurityResult failure (non-zero) then disconnect
+              uint8_t secres[8];
+              put32_be(secres, 1);
+              // Optionally send reason length 0 (no message)
+              put32_be(secres + 4, 0);
+              this->write_(secres, sizeof secres);
+              this->disconnect_();
+              break;
+            }
+            // Success -> send SecurityResult=OK and proceed to ClientInit
+            {
+              uint8_t secres[4];
+              put32_be(secres, 0);
+              err = this->write_(secres, sizeof secres);
+              if (err < 0)
+                break;
+            }
+            this->state_ = STATE_INIT;
+            this->auth_progress_ = 0;
+            this->auth_buflen_ = 0;
+            this->auth_expected_ = 0;
+          }
+        }
+        break;
+      }
+
+      case STATE_INIT: {
+        // Wait for ClientInit (1 byte shared-flag), then send ServerInit
         err = this->read_(buffer, 1);
         if (err <= 0)
           break;
-        esph_log_i(TAG, "Client requested authentication %d", buffer[0]);
-        len = build_init(buffer);
-        err = this->write_(buffer, len);
+        size_t init_len = build_init(buffer);
+        // Send ServerInit (no Tight extras appended)
+        err = this->write_(buffer, init_len);
         if (err < 0)
           break;
+        break;
         this->state_ = STATE_READY;
         buf_clr(this->inq_);
         if (this->on_connect_ != nullptr) {
@@ -692,6 +883,7 @@ class VNCDisplay : public display::Display {
           this->update_frame_();
         }
         break;
+      }
 
       case STATE_READY:
         do {
@@ -731,7 +923,7 @@ class VNCDisplay : public display::Display {
   ssize_t read_(uint8_t *buffer, size_t len) {
     ssize_t res = this->client_sock_->read(buffer, len);
     if (res < 0) {
-      if (errno == EAGAIN)
+      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == ETIMEDOUT)
         return 0;
       esph_log_e(TAG, "socket read failed: %d", errno);
       this->disconnect_();
@@ -744,6 +936,9 @@ class VNCDisplay : public display::Display {
   ssize_t write_(const uint8_t *buffer, size_t len) {
     const uint8_t *ptr = buffer;
     size_t total = 0;
+    if (len < 50) {
+      ESP_LOGV(TAG, "Write data %s", format_hex_pretty(buffer, len).c_str());
+    }
     while (len != 0) {
       ssize_t res = this->client_sock_->write(ptr, len);
       if (res < 0) {
@@ -783,6 +978,21 @@ class VNCDisplay : public display::Display {
   ClientState state_{STATE_INVALID};
   circ_buf_t inq_{};
   size_t skip_bytes_{};
+  // Pixel format state
+  bool big_endian_pixels_{};  // default false (little-endian)
+  // Auth/config
+  std::string username_{};
+  std::string password_{};
+  uint8_t selected_sec_type_{AUTH_NONE};
+  // Tight auth handshake state
+  uint8_t auth_buf_[8]{};
+  size_t auth_buflen_{};
+  size_t auth_expected_{};
+  uint8_t auth_tmp_[128]{};
+  uint8_t auth_progress_{};  // 0=await select,1=await scheme,2=uname len,3=uname,4=pass len,5=pass
+  size_t tight_next_len_{};
+  std::string tight_user_{};
+  std::string tight_pass_{};
 #if USE_HOST
   pthread_mutex_t mutex_{};
   std::vector<rect_t> queue_{};
@@ -791,6 +1001,5 @@ class VNCDisplay : public display::Display {
 #endif
 };
 #endif
-
 }  // namespace vnc
 }  // namespace esphome

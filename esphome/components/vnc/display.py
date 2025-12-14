@@ -1,20 +1,23 @@
-import esphome.codegen as cg
-import esphome.config_validation as cv
-from esphome.components import display
 from esphome import automation
-from esphome.core import Lambda
+import esphome.codegen as cg
+from esphome.components import display
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_DIMENSIONS,
-    CONF_WIDTH,
     CONF_HEIGHT,
-    CONF_LAMBDA,
-    CONF_PAGES,
     CONF_ID,
-    CONF_PORT,
+    CONF_LAMBDA,
     CONF_ON_CONNECT,
-    CONF_TRIGGER_ID,
     CONF_ON_DISCONNECT,
+    CONF_PAGES,
+    CONF_PASSWORD,
+    CONF_PORT,
+    CONF_TRIGGER_ID,
+    CONF_USERNAME,
+    CONF_WIDTH,
 )
+from esphome.core import Lambda
+
 from . import VNCDisplay, VNCTrigger
 
 DEPENDENCIES = ["network"]
@@ -44,10 +47,11 @@ CONFIG_SCHEMA = cv.All(
                     cv.GenerateID(CONF_TRIGGER_ID): cv.declare_id(VNCTrigger),
                 }
             ),
+            cv.Optional(CONF_USERNAME, default="esphome"): cv.string,
+            cv.Optional(CONF_PASSWORD): cv.string,
         }
     ).extend(cv.polling_component_schema("1s")),
     cv.has_at_most_one_key(CONF_PAGES, CONF_LAMBDA),
-    cv.requires_component("network"),
 )
 
 
@@ -56,6 +60,10 @@ async def to_code(config):
     cg.add_define("CONFIG_HTTPD_WS_SUPPORT", 1)
     await display.register_display(var, config)
     cg.add(var.set_port(config[CONF_PORT]))
+
+    cg.add(var.set_username(config[CONF_USERNAME]))
+    if password := config.get(CONF_PASSWORD):
+        cg.add(var.set_password(password))
 
     if lambconf := config.get(CONF_LAMBDA):
         lambda_ = await cg.process_lambda(
@@ -89,7 +97,7 @@ async def to_code(config):
 
     dimensions = config[CONF_DIMENSIONS]
     if isinstance(dimensions, dict):
-        cg.add(var.set_dimensions(dimensions[CONF_WIDTH], dimensions[CONF_HEIGHT]))
+        (width, height) = dimensions[CONF_WIDTH], dimensions[CONF_HEIGHT]
     else:
         (width, height) = dimensions
-        cg.add(var.set_dimensions(width, height))
+    cg.add(var.set_dimensions(width, height))
