@@ -127,7 +127,6 @@ bool HOT EPaperSpectraE6::transfer_data() {
   const size_t buffer_length = this->buffer_length_;
   if (this->current_data_index_ == 0) {
     this->command(0x10);
-    last_transfer_time = millis();
   }
 
   size_t buf_idx = 0;
@@ -155,7 +154,6 @@ bool HOT EPaperSpectraE6::transfer_data() {
     this->end_data_();
   }
   this->current_data_index_ = 0;
-  ESP_LOGV(TAG, "Sent data in %" PRIu32 " ms", millis() - last_transfer_time);
   return true;
 }
 }  // namespace esphome::epaper_spi

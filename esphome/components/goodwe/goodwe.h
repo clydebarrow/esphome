@@ -56,6 +56,7 @@ class Goodwe : public PollingComponent {
   std::map<uint16_t, std::vector<Parameter *> > parameters_{};
   uint16_t counter_{0};
   std::vector<std::pair<uint16_t, uint16_t> > queries_{};
+  uint8_t arm_version_{0};
 
   void on_receive_(const std::vector<uint8_t> &data);
   void send_command_(uint16_t cmd);

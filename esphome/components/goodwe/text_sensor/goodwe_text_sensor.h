@@ -7,7 +7,6 @@ namespace esphome::goodwe {
 template<size_t OFFSET, size_t LENGTH> class TextSensorParameter : public Parameter, public text_sensor::TextSensor {
  public:
   TextSensorParameter(const char *type) : Parameter(type) {}
-  ~TextSensorParameter() override = default;
 
   void decode(bytebuffer::ByteBuffer &data) override {
     if (data.get_limit() < OFFSET + LENGTH) {
@@ -17,7 +16,14 @@ template<size_t OFFSET, size_t LENGTH> class TextSensorParameter : public Parame
     }
     std::array<uint8_t, LENGTH> bytes{};
     data.get_bytes(bytes.data(), LENGTH, OFFSET);
-    this->publish_state({bytes.begin(), bytes.end()});
+    if (LENGTH == 1) {
+      char version = bytes[0] - '0';
+      if (version > 9)
+        version -= 'A' - '0';
+      this->publish_state(str_sprintf("%d", version));
+    } else {
+      this->publish_state({bytes.begin(), bytes.end()});
+    }
   }
 
  protected:
@@ -27,7 +33,6 @@ template<size_t OFFSET, size_t LENGTH> class TextSensorParameter : public Parame
 template<size_t OFFSET> class OptionSensorParameter : public Parameter, public text_sensor::TextSensor {
  public:
   OptionSensorParameter(const char *type) : Parameter(type) {}
-  ~OptionSensorParameter() override = default;
 
   void decode(bytebuffer::ByteBuffer &data) override {
     if (data.get_limit() <= OFFSET) {

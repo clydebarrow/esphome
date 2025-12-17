@@ -4,11 +4,11 @@
 
 namespace esphome {
 namespace goodwe {
-static constexpr size_t MAX_MSG_LEN = 255 + 9;
 static constexpr uint8_t RX_HDR[] = {0xAA, 0x55, 0x7F, 0xC0};
 static constexpr size_t RESPONSE_CODE = 4;
 static constexpr size_t LENGTH_POS = 6;
 static constexpr size_t CHKSUM_LEN = 2;
+static constexpr uint16_t CMD_VERSION = 0x102;
 
 void Goodwe::dump_config() {
   ESP_LOGCONFIG(TAG, "Goodwe:");
@@ -64,6 +64,13 @@ void Goodwe::process_data_() {
   }
   auto msgcode = packet.get_uint16(RESPONSE_CODE) & ~0x80;  // remove the response bit
   ESP_LOGD(TAG, "Processing message with code %04X", msgcode);
+  if (msgcode == CMD_VERSION) {
+    this->arm_version_ = packet.get_uint8(4) - '0';
+    if (this->arm_version_ > 9) {
+      this->arm_version_ -= 'A' - '0';
+    }
+    ESP_LOGD(TAG, "ARM version %d", this->arm_version_);
+  }
   for (auto *p : this->parameters_[msgcode]) {
     p->decode(packet);
   }
