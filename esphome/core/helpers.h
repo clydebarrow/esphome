@@ -8,9 +8,11 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <concepts>
 
 #include "esphome/core/optional.h"
 
@@ -108,6 +110,23 @@ template<> constexpr int64_t byteswap(int64_t n) { return __builtin_bswap64(n); 
 
 /// @name Container utilities
 ///@{
+
+/// Lightweight read-only view over a const array stored in RODATA (will typically be in flash memory)
+/// Avoids copying data from flash to RAM by keeping a pointer to the flash data.
+/// Similar to std::span but with minimal overhead for embedded systems.
+
+template<typename T> class ConstVector {
+ public:
+  constexpr ConstVector(const T *data, size_t size) : data_(data), size_(size) {}
+
+  const constexpr T &operator[](size_t i) const { return data_[i]; }
+  constexpr size_t size() const { return size_; }
+  constexpr bool empty() const { return size_ == 0; }
+
+ protected:
+  const T *data_;
+  size_t size_;
+};
 
 /// Minimal static vector - saves memory by avoiding std::vector overhead
 template<typename T, size_t N> class StaticVector {
@@ -223,6 +242,9 @@ template<typename T> class FixedVector {
     other.reset_();
   }
 
+  // Allow conversion to std::vector
+  operator std::vector<T>() const { return {data_, data_ + size_}; }
+
   FixedVector &operator=(FixedVector &&other) noexcept {
     if (this != &other) {
       // Delete our current data
@@ -247,6 +269,8 @@ template<typename T> class FixedVector {
   }
 
   // Allocate capacity - can be called multiple times to reinit
+  // IMPORTANT: After calling init(), you MUST use push_back() to add elements.
+  // Direct assignment via operator[] does NOT update the size counter.
   void init(size_t n) {
     cleanup_();
     reset_();
@@ -304,6 +328,11 @@ template<typename T> class FixedVector {
     return data_[size_ - 1];
   }
 
+  /// Access first element (no bounds checking - matches std::vector behavior)
+  /// Caller must ensure vector is not empty (size() > 0)
+  T &front() { return data_[0]; }
+  const T &front() const { return data_[0]; }
+
   /// Access last element (no bounds checking - matches std::vector behavior)
   /// Caller must ensure vector is not empty (size() > 0)
   T &back() { return data_[size_ - 1]; }
@@ -316,6 +345,11 @@ template<typename T> class FixedVector {
   /// Caller must ensure index is valid (i < size())
   T &operator[](size_t i) { return data_[i]; }
   const T &operator[](size_t i) const { return data_[i]; }
+
+  /// Access element with bounds checking (matches std::vector behavior)
+  /// Note: No exception thrown on out of bounds - caller must ensure index is valid
+  T &at(size_t i) { return data_[i]; }
+  const T &at(size_t i) const { return data_[i]; }
 
   // Iterator support for range-based for loops
   T *begin() { return data_; }
@@ -344,8 +378,23 @@ uint16_t crc16be(const uint8_t *data, uint16_t len, uint16_t crc = 0, uint16_t p
                  bool refout = false);
 
 /// Calculate a FNV-1 hash of \p str.
+/// Note: FNV-1a (fnv1a_hash) is preferred for new code due to better avalanche characteristics.
 uint32_t fnv1_hash(const char *str);
 inline uint32_t fnv1_hash(const std::string &str) { return fnv1_hash(str.c_str()); }
+
+/// FNV-1 32-bit offset basis
+constexpr uint32_t FNV1_OFFSET_BASIS = 2166136261UL;
+/// FNV-1 32-bit prime
+constexpr uint32_t FNV1_PRIME = 16777619UL;
+
+/// Extend a FNV-1a hash with additional string data.
+uint32_t fnv1a_hash_extend(uint32_t hash, const char *str);
+inline uint32_t fnv1a_hash_extend(uint32_t hash, const std::string &str) {
+  return fnv1a_hash_extend(hash, str.c_str());
+}
+/// Calculate a FNV-1a hash of \p str.
+inline uint32_t fnv1a_hash(const char *str) { return fnv1a_hash_extend(FNV1_OFFSET_BASIS, str); }
+inline uint32_t fnv1a_hash(const std::string &str) { return fnv1a_hash(str.c_str()); }
 
 /// Return a random 32-bit unsigned integer.
 uint32_t random_uint32();
@@ -481,6 +530,17 @@ std::string __attribute__((format(printf, 1, 2))) str_sprintf(const char *fmt, .
 /// @return The concatenated string: name + sep + suffix
 std::string make_name_with_suffix(const std::string &name, char sep, const char *suffix_ptr, size_t suffix_len);
 
+/// Optimized string concatenation: name + separator + suffix (const char* overload)
+/// Uses a fixed stack buffer to avoid heap allocations.
+/// @param name The base name string
+/// @param name_len Length of the name
+/// @param sep Single character separator
+/// @param suffix_ptr Pointer to the suffix characters
+/// @param suffix_len Length of the suffix
+/// @return The concatenated string: name + sep + suffix
+std::string make_name_with_suffix(const char *name, size_t name_len, char sep, const char *suffix_ptr,
+                                  size_t suffix_len);
+
 ///@}
 
 /// @name Parsing & formatting
@@ -577,6 +637,17 @@ template<typename T, enable_if_t<std::is_unsigned<T>::value, int> = 0> optional<
 /// Parse a hex-encoded null-terminated string (starting with the most significant byte) into an unsigned integer.
 template<typename T, enable_if_t<std::is_unsigned<T>::value, int> = 0> optional<T> parse_hex(const std::string &str) {
   return parse_hex<T>(str.c_str(), str.length());
+}
+
+/// Parse a hex character to its nibble value (0-15), returns 255 on invalid input
+constexpr uint8_t parse_hex_char(char c) {
+  if (c >= '0' && c <= '9')
+    return c - '0';
+  if (c >= 'A' && c <= 'F')
+    return c - 'A' + 10;
+  if (c >= 'a' && c <= 'f')
+    return c - 'a' + 10;
+  return 255;
 }
 
 /// Convert a nibble (0-15) to lowercase hex char
@@ -1011,11 +1082,27 @@ class HighFrequencyLoopRequester {
 /// Get the device MAC address as raw bytes, written into the provided byte array (6 bytes).
 void get_mac_address_raw(uint8_t *mac);  // NOLINT(readability-non-const-parameter)
 
+/// Buffer size for MAC address in lowercase hex notation (12 hex chars + null terminator)
+constexpr size_t MAC_ADDRESS_BUFFER_SIZE = 13;
+
+/// Buffer size for MAC address in colon-separated uppercase hex notation (17 chars + null terminator)
+constexpr size_t MAC_ADDRESS_PRETTY_BUFFER_SIZE = 18;
+
 /// Get the device MAC address as a string, in lowercase hex notation.
 std::string get_mac_address();
 
 /// Get the device MAC address as a string, in colon-separated uppercase hex notation.
 std::string get_mac_address_pretty();
+
+/// Get the device MAC address into the given buffer, in lowercase hex notation.
+/// Assumes buffer length is MAC_ADDRESS_BUFFER_SIZE (12 digits for hexadecimal representation followed by null
+/// terminator).
+void get_mac_address_into_buffer(std::span<char, MAC_ADDRESS_BUFFER_SIZE> buf);
+
+/// Get the device MAC address into the given buffer, in colon-separated uppercase hex notation.
+/// Buffer must be exactly MAC_ADDRESS_PRETTY_BUFFER_SIZE bytes (17 for "XX:XX:XX:XX:XX:XX" + null terminator).
+/// Returns pointer to the buffer for convenience.
+const char *get_mac_address_pretty_into_buffer(std::span<char, MAC_ADDRESS_PRETTY_BUFFER_SIZE> buf);
 
 #ifdef USE_ESP32
 /// Set the MAC address to use from the provided byte array (6 bytes).
@@ -1152,7 +1239,26 @@ template<class T> class RAMAllocator {
 
 template<class T> using ExternalRAMAllocator = RAMAllocator<T>;
 
-/// @}
+/**
+ * Functions to constrain the range of arithmetic values.
+ */
+
+template<typename T, typename U>
+concept comparable_with = requires(T a, U b) {
+  { a > b } -> std::convertible_to<bool>;
+  { a < b } -> std::convertible_to<bool>;
+};
+
+template<std::totally_ordered T, comparable_with<T> U> T clamp_at_least(T value, U min) {
+  if (value < min)
+    return min;
+  return value;
+}
+template<std::totally_ordered T, comparable_with<T> U> T clamp_at_most(T value, U max) {
+  if (value > max)
+    return max;
+  return value;
+}
 
 /// @name Internal functions
 ///@{
