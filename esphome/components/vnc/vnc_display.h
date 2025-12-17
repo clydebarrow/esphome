@@ -28,7 +28,7 @@ static constexpr size_t VERSION_LEN = 12;
 static constexpr size_t MAX_WRITE = 64 * 1024;
 static constexpr size_t PIXEL_BYTES = 4;
 static constexpr uint8_t RFB_MAGIC[VERSION_LEN] = {
-    'R', 'F', 'B', ' ', '0', '0', '3', '.', '0', '0', '7', '\n',
+    'R', 'F', 'B', ' ', '0', '0', '3', '.', '0', '0', '8', '\n',
 };
 
 static uint8_t *put16_be(uint8_t *buf, uint16_t value) {
@@ -300,7 +300,7 @@ class VNCDisplay : public display::Display {
         if (err < 0)
           this->disconnect_();
         else
-          this->state_ = STATE_VERSION;
+          this->set_state_(STATE_VERSION);
       }
     }
     this->client_loop_();
@@ -322,6 +322,7 @@ class VNCDisplay : public display::Display {
   void draw_pixel_at(int x, int y, Color color) override {
     if (x < 0 || y < 0 || x >= this->width_ || y >= this->height_)
       return;
+    assert(PIXEL_BYTES == 4);
     size_t offs = (x + y * this->width_) * PIXEL_BYTES;
     this->display_buffer_[offs++] = color.b;
     this->display_buffer_[offs++] = color.g;
@@ -420,7 +421,7 @@ class VNCDisplay : public display::Display {
 
   void tx_task_() {
     rect_t rp;
-    struct timespec ts {};
+    timespec ts{};
     std::vector<rect_t> vec{};
     for (;;) {  // NOLINT
 #if USE_HOST
@@ -431,8 +432,8 @@ class VNCDisplay : public display::Display {
         pthread_mutex_unlock(&this->mutex_);
       }
       if (!vec.empty()) {
-        this->tx_8(0);
-        this->tx_8(0);
+        this->tx_8(0);  // frame buffer update
+        this->tx_8(0);  // padding
         this->tx_16(vec.size());
         for (auto r : vec) {
           this->send_framebuffer(r.x_min, r.y_min, r.x_max - r.x_min + 1, r.y_max - r.y_min + 1);
@@ -533,8 +534,7 @@ class VNCDisplay : public display::Display {
     //    *sp++ = 5+6;                       // red shift
     //    *sp++ = 5;                        // green shift
     //    *sp++ = 0;                        // blue shift
-    *sp++ = 32;                       // bits per pixel
-    *sp++ = 24;                       // colour depth
+    *sp++ = PIXEL_BYTES * 8, *sp++ = PIXEL_BYTES * 8,
     *sp++ = 0;                        // little-endian
     *sp++ = 1;                        // true colour
     sp = put16_be(sp, (1 << 8) - 1);  // red max
@@ -591,9 +591,7 @@ class VNCDisplay : public display::Display {
                      (unsigned) gmax, (unsigned) bmax, rshift, gshift, bshift);
           bool supported = (bits_per_pixel == 32 && depth == 24 && true_color && rmax == 255 && gmax == 255 &&
                             bmax == 255 && rshift == 16 && gshift == 8 && bshift == 0);
-          if (supported) {
-            this->big_endian_pixels_ = big_endian;
-          } else {
+          if (!supported) {
             esph_log_w(TAG,
                        "Requested color format not supported; keeping server format 32bpp 24b depth little-endian.");
           }
@@ -721,7 +719,7 @@ class VNCDisplay : public display::Display {
         err = this->write_(out, 1 + ntypes);
         if (err < 0)
           break;
-        this->state_ = STATE_AUTH;
+        this->set_state_(STATE_AUTH);
         break;
       }
 
@@ -740,7 +738,7 @@ class VNCDisplay : public display::Display {
             err = this->write_(secres, sizeof secres);
             if (err < 0)
               break;
-            this->state_ = STATE_INIT;  // wait for ClientInit
+            this->set_state_(STATE_INIT);
             break;
           } else if (this->selected_sec_type_ == AUTH_TIGHT) {
             // Send tunneling caps (none) and auth caps (Unix Login)
@@ -855,7 +853,7 @@ class VNCDisplay : public display::Display {
               if (err < 0)
                 break;
             }
-            this->state_ = STATE_INIT;
+            this->set_state_(STATE_INIT);
             this->auth_progress_ = 0;
             this->auth_buflen_ = 0;
             this->auth_expected_ = 0;
@@ -869,13 +867,13 @@ class VNCDisplay : public display::Display {
         err = this->read_(buffer, 1);
         if (err <= 0)
           break;
+        esph_log_d(TAG, "ClientInit shared flag %d", buffer[0]);
         size_t init_len = build_init(buffer);
         // Send ServerInit (no Tight extras appended)
         err = this->write_(buffer, init_len);
         if (err < 0)
           break;
-        break;
-        this->state_ = STATE_READY;
+        this->set_state_(STATE_READY);
         buf_clr(this->inq_);
         if (this->on_connect_ != nullptr) {
           this->defer([this]() { this->on_connect_(); });
@@ -905,19 +903,8 @@ class VNCDisplay : public display::Display {
     if (this->client_sock_ != nullptr) {
       this->client_sock_->close();
       this->client_sock_ = nullptr;
-      this->state_ = STATE_INVALID;
+      this->set_state_(STATE_INVALID);
     }
-  }
-
-  void write_pixels(size_t x, size_t y, size_t width, size_t height, const uint8_t *buffer) {
-    uint8_t header[12];
-    put16_be(header + 0, x);
-    put16_be(header + 2, y);
-    put16_be(header + 4, width);
-    put16_be(header + 6, height);
-    put32_be(header + 8, 0);  // raw encoding
-    this->write_(header, sizeof header);
-    this->write_(buffer, width * height * PIXEL_BYTES);
   }
 
   ssize_t read_(uint8_t *buffer, size_t len) {
@@ -936,9 +923,6 @@ class VNCDisplay : public display::Display {
   ssize_t write_(const uint8_t *buffer, size_t len) {
     const uint8_t *ptr = buffer;
     size_t total = 0;
-    if (len < 50) {
-      ESP_LOGV(TAG, "Write data %s", format_hex_pretty(buffer, len).c_str());
-    }
     while (len != 0) {
       ssize_t res = this->client_sock_->write(ptr, len);
       if (res < 0) {
@@ -957,8 +941,6 @@ class VNCDisplay : public display::Display {
     }
     if (total < 100) {
       esph_log_v(TAG, "Wrote data %s", format_hex_pretty(buffer, total).c_str());
-    } else {
-      esph_log_v(TAG, "Wrote %zu bytes", total);
     }
     return total;
   }
