@@ -3,8 +3,10 @@ from esphome.components import transport
 from esphome.components.transport import CONF_TRANSPORT
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
-from esphome.core import TimePeriod
+from esphome.core import CORE, TimePeriod
 from esphome.cpp_helpers import register_component
+
+DOMAIN = "goodwe"
 
 CODEOWNERS = ["@clydebarrow"]
 
@@ -15,6 +17,7 @@ Goodwe = goodwe_ns.class_("Goodwe", cg.PollingComponent)
 Parameter = goodwe_ns.class_("Parameter")
 
 DATA_OFFSET = 7  # Offset for data in the Goodwe protocol (length of header)
+KEY_MSGS = "msgs"
 
 CONF_GOODWE_ID = "goodwe_id"
 CONF_CONFIGURE_ALL = "configure_all"
@@ -61,8 +64,22 @@ CONFIG_SCHEMA = cv.All(
 )
 
 
+def add_message_code(msgcode):
+    """
+    Add a message code to the set of required messages to poll
+    :param msgcode:
+    :return:
+    """
+    msgs = CORE.data.setdefault(DOMAIN, {}).setdefault(KEY_MSGS, set())
+    msgs.add(msgcode)
+
+
 async def to_code(config):
-    intervals = [(x[1], config[x[0]].total_milliseconds) for x in INTERVALS]
+    messages = {
+        x: 13000 for x in CORE.data.setdefault(DOMAIN, {}).setdefault(KEY_MSGS, set())
+    }
+    messages.update({x[1]: config[x[0]].total_milliseconds for x in INTERVALS})
+    intervals = [(msg, interval) for msg, interval in messages.items()]
     intervals.sort(key=lambda x: x[1], reverse=True)
     base_interval = intervals[-1][1]
     tvar = await cg.get_variable(config[CONF_TRANSPORT])
@@ -70,4 +87,6 @@ async def to_code(config):
     await register_component(var, config)
     cg.add(var.set_update_interval(base_interval))
     for code, interval in intervals:
-        cg.add(var.add_query(code, int((interval + base_interval - 1) / base_interval)))
+        cg.add(
+            var.add_message(code, int((interval + base_interval - 1) / base_interval))
+        )

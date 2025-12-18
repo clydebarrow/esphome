@@ -1,5 +1,10 @@
 import esphome.codegen as cg
-from esphome.components.goodwe import COMMAND_SENSOR_DATA, COMMAND_VERSION_DATA
+from esphome.components.goodwe import (
+    COMMAND_SENSOR_DATA,
+    COMMAND_SETTINGS_DATA,
+    COMMAND_VERSION_DATA,
+)
+from esphome.components.goodwe.text_sensor.options import WORK_MODES
 from esphome.components.text_sensor import new_text_sensor, text_sensor_schema
 import esphome.config_validation as cv
 from esphome.const import CONF_NAME, DEVICE_CLASS_EMPTY, ENTITY_CATEGORY_DIAGNOSTIC
@@ -16,9 +21,9 @@ from .options import (
     BATTERY_MODES,
     GRID_IN_OUT_MODES,
     GRID_MODES,
+    INVERTER_MODES,
     LOAD_MODES,
     PV_MODES,
-    WORK_MODES,
 )
 
 TextSensorParameter = goodwe_ns.class_("TextSensorParameter", Parameter)
@@ -90,8 +95,9 @@ SENSORS = [
     OptionSensor("battery_mode", COMMAND_SENSOR_DATA, 30, BATTERY_MODES),
     OptionSensor("grid_state", COMMAND_SENSOR_DATA, 42, GRID_MODES),
     OptionSensor("load_mode", COMMAND_SENSOR_DATA, 51, LOAD_MODES),
-    OptionSensor("inverter_mode", COMMAND_SENSOR_DATA, 51, WORK_MODES),
+    OptionSensor("inverter_mode", COMMAND_SENSOR_DATA, 51, INVERTER_MODES),
     OptionSensor("grid_mode", COMMAND_SENSOR_DATA, 80, GRID_IN_OUT_MODES),
+    OptionSensor("work_mode", COMMAND_SETTINGS_DATA, 67, WORK_MODES),
     TextSensor("firmware_version", COMMAND_VERSION_DATA, 0, 4),
     TextSensor("arm_version", COMMAND_VERSION_DATA, 4, 1),
     TextSensor("model_number", COMMAND_VERSION_DATA, 5, 10),

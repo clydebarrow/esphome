@@ -42,12 +42,14 @@ PV_MODES = (
     "Panels connected, producing power",
 )
 
-WORK_MODES = (
+INVERTER_MODES = (
     "Standby",
     "Normal",
     "Error",
     "Check Mode",
 )
+
+WORK_MODES = ("General", "Off-Grid", "Backup", "Eco")
 
 SAFETY_COUNTRIES: dict[int, str] = {
     0: "Italy",

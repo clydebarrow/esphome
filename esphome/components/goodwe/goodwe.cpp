@@ -12,9 +12,10 @@ static constexpr uint16_t CMD_VERSION = 0x102;
 
 void Goodwe::dump_config() {
   ESP_LOGCONFIG(TAG, "Goodwe:");
-  for (auto &pair : this->parameters_) {
-    ESP_LOGCONFIG(TAG, "  Msg %04X:", pair.first);
-    for (auto *p : pair.second) {
+  for (auto &message : this->messages_) {
+    ESP_LOGCONFIG(TAG, "  Msg %04X:", message.first);
+    ESP_LOGCONFIG(TAG, "  Interval %ds:", message.second.interval_);
+    for (auto p : message.second.parameters_) {
       p->dump_config();
     }
   }
@@ -46,7 +47,7 @@ void Goodwe::on_receive_(const std::vector<uint8_t> &data) {
   }
 }
 
-static uint16_t calc_check(std::vector<uint8_t> &buffer, size_t size) {
+static uint16_t calc_check(const std::vector<uint8_t> &buffer, size_t size) {
   uint16_t checksum = 0;
   for (size_t i = 0; i != size; i++) {
     checksum += buffer[i];
@@ -71,12 +72,15 @@ void Goodwe::process_data_() {
     }
     ESP_LOGD(TAG, "ARM version %d", this->arm_version_);
   }
-  for (auto *p : this->parameters_[msgcode]) {
-    p->decode(packet);
+  auto message = this->messages_.find(msgcode);
+  if (message != this->messages_.end()) {
+    message->second.decode(packet);
+  } else {
+    ESP_LOGE(TAG, "Unrecognised message code %X", msgcode);
   }
 }
 
-void Goodwe::send_command_(uint16_t cmd) {
+void Goodwe::send_command_(uint16_t cmd) const {
   std::vector<uint8_t> buffer{0xAA, 0x55, 0xC0, 0x7F, (uint8_t) (cmd >> 8), (uint8_t) cmd, 0x00};
   auto checksum = calc_check(buffer, buffer.size());
   buffer.push_back(checksum >> 8);

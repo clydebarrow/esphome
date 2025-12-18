@@ -5,7 +5,7 @@
 #include "esphome/components/sensor/sensor.h"
 
 namespace esphome::goodwe {
-template<typename T, size_t OFFSET, float SCALE> class SensorParameter : public Parameter, public sensor::Sensor {
+template<typename T, uint16_t OFFSET, float SCALE> class SensorParameter : public Parameter, public sensor::Sensor {
   static_assert(std::is_floating_point_v<T> || std::is_integral_v<T>, "T must be a floating point or integral type");
   static_assert(sizeof(T) <= sizeof(uint32_t), "T must be 32 bits or less");
 
@@ -21,7 +21,19 @@ template<typename T, size_t OFFSET, float SCALE> class SensorParameter : public 
   void dump_config() override { LOG_SENSOR("    ", this->type_, this); }
 };
 
-template<size_t DATA_OFFSET, size_t SIGN_OFFSET, float SCALE>
+template<uint16_t OFFSET> class BinarySensorParameter : public Parameter, public binary_sensor::BinarySensor {
+ public:
+  BinarySensorParameter(const char *type) : Parameter(type) {}
+
+  void decode(bytebuffer::ByteBuffer &data) override {
+    auto value = data.get<uint16_t>(OFFSET);
+    this->publish_state(value != 0);
+    ESP_LOGV(TAG, "Decoded binary sensor value: %s for parameter at offset %04X", TRUEFALSE(value), OFFSET);
+  }
+
+  void dump_config() override { LOG_BINARY_SENSOR("    ", this->type_, this); }
+};
+template<uint16_t DATA_OFFSET, uint16_t SIGN_OFFSET, float SCALE>
 class BatteryCurrentParameter : public SensorParameter<uint16_t, DATA_OFFSET, SCALE> {
  public:
   BatteryCurrentParameter(const char *type) : SensorParameter<uint16_t, DATA_OFFSET, SCALE>(type) {}

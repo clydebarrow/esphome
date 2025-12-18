@@ -1,7 +1,7 @@
 import math
 
 import esphome.codegen as cg
-from esphome.components.sensor import new_sensor, sensor_schema
+from esphome.components.sensor import Sensor, new_sensor, sensor_schema
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_NAME,
@@ -11,6 +11,7 @@ from esphome.const import (
     DEVICE_CLASS_POWER,
     DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_VOLTAGE,
+    ENTITY_CATEGORY_DIAGNOSTIC,
     ENTITY_CATEGORY_NONE,
     ICON_BATTERY,
     ICON_CURRENT_AC,
@@ -24,18 +25,23 @@ from esphome.const import (
     UNIT_VOLT,
     UNIT_WATT,
 )
+from esphome.core import CORE
 
 from ...const import ICON_CURRENT_DC
 from .. import (
+    COMMAND_SENSOR_DATA,
+    COMMAND_SETTINGS_DATA,
     CONF_CONFIGURE_ALL,
     CONF_GOODWE_ID,
     DATA_OFFSET,
+    DOMAIN,
+    KEY_MSGS,
     Goodwe,
     Parameter,
     goodwe_ns,
 )
 
-SensorParameter = goodwe_ns.class_("SensorParameter", Parameter)
+SensorParameter = goodwe_ns.class_("SensorParameter", Parameter, Sensor)
 BatteryCurrentParameter = goodwe_ns.class_(
     "BatteryCurrentParameter", SensorParameter, Parameter
 )
@@ -52,6 +58,8 @@ class GoodweSensor:
         unit_of_measurement,
         device_class,
         icon,
+        state_class=STATE_CLASS_MEASUREMENT,
+        entity_category=ENTITY_CATEGORY_NONE,
     ):
         self.id = id
         self.msgcode = msgcode
@@ -61,6 +69,8 @@ class GoodweSensor:
         self.unit_of_measurement = unit_of_measurement
         self.device_class = device_class
         self.icon = icon
+        self.state_class = state_class
+        self.entity_category = entity_category
 
     def get_class(self):
         return SensorParameter.template(
@@ -71,17 +81,38 @@ class GoodweSensor:
         return self.id.replace("_", " ").title()
 
     def get_schema(self):
-        return cv.maybe_simple_value(
-            sensor_schema(
-                self.get_class(),
-                unit_of_measurement=self.unit_of_measurement,
-                device_class=self.device_class,
-                state_class=STATE_CLASS_MEASUREMENT,
-                entity_category=ENTITY_CATEGORY_NONE,
-                icon=self.icon,
-                accuracy_decimals=int(math.log10(1.0 / self.scale)),
-            ),
-            key=CONF_NAME,
+        def validator(value):
+            # Add message code to set for parent to process
+            msgs = CORE.data.setdefault(DOMAIN, {}).setdefault(KEY_MSGS, set())
+            msgs.add(self.msgcode)
+            return cv.maybe_simple_value(
+                sensor_schema(
+                    self.get_class(),
+                    unit_of_measurement=self.unit_of_measurement,
+                    device_class=self.device_class,
+                    state_class=self.state_class,
+                    entity_category=self.entity_category,
+                    icon=self.icon,
+                    accuracy_decimals=int(math.log10(1.0 / self.scale)),
+                ),
+                key=CONF_NAME,
+            )(value)
+
+        return validator
+
+
+class SettingSensor(GoodweSensor):
+    def __init__(self, id, offset, scale=1.0):
+        super().__init__(
+            id,
+            COMMAND_SETTINGS_DATA,
+            offset,
+            scale,
+            cg.int16,
+            cv.UNDEFINED,
+            cv.UNDEFINED,
+            ICON_BATTERY,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
         )
 
 
@@ -173,15 +204,16 @@ class IntegerSensor(GoodweSensor):
         msgcode,
         offset,
         unit_of_measurement=None,
-        device_class=None,
+        device_class=cv.UNDEFINED,
         icon=ICON_BATTERY,
+        datatype=cg.int16,
     ):
         super().__init__(
             id,
             msgcode,
             offset,
             1.0,
-            cg.int16,
+            datatype,
             unit_of_measurement=unit_of_measurement,
             device_class=device_class,
             icon=icon,
@@ -189,34 +221,34 @@ class IntegerSensor(GoodweSensor):
 
 
 SENSORS = [
-    VoltageSensor("pv_voltage_1", 0x106, 0),
-    CurrentSensor("pv_current_1", 0x106, 2),
-    VoltageSensor("pv_voltage_2", 0x106, 5),
-    CurrentSensor("pv_current_2", 0x106, 7),
-    TemperatureSensor("battery_temperature", 0x106, 16),
-    VoltageSensor("battery_voltage", 0x106, 10),
-    BatteryCurrentSensor("battery_current", 0x106, 18, 30),
-    VoltageSensor("grid_voltage", 0x106, 34),
-    CurrentSensor("grid_current", 0x106, 36, dc=False),
-    PercentageSensor("battery_charge_state", 0x106, 26),
-    PercentageSensor("battery_health", 0x106, 29),
+    VoltageSensor("pv_voltage_1", COMMAND_SENSOR_DATA, 0),
+    CurrentSensor("pv_current_1", COMMAND_SENSOR_DATA, 2),
+    VoltageSensor("pv_voltage_2", COMMAND_SENSOR_DATA, 5),
+    CurrentSensor("pv_current_2", COMMAND_SENSOR_DATA, 7),
+    TemperatureSensor("battery_temperature", COMMAND_SENSOR_DATA, 16),
+    VoltageSensor("battery_voltage", COMMAND_SENSOR_DATA, 10),
+    BatteryCurrentSensor("battery_current", COMMAND_SENSOR_DATA, 18, 30),
+    VoltageSensor("grid_voltage", COMMAND_SENSOR_DATA, 34),
+    CurrentSensor("grid_current", COMMAND_SENSOR_DATA, 36, dc=False),
+    PercentageSensor("battery_charge_state", COMMAND_SENSOR_DATA, 26),
+    PercentageSensor("battery_health", COMMAND_SENSOR_DATA, 29),
     IntegerSensor(
         "battery_charge_limit",
-        0x106,
+        COMMAND_SENSOR_DATA,
         20,
         unit_of_measurement=UNIT_AMPERE,
         device_class=DEVICE_CLASS_CURRENT,
     ),
     IntegerSensor(
         "battery_discharge_limit",
-        0x106,
+        COMMAND_SENSOR_DATA,
         22,
         unit_of_measurement=UNIT_AMPERE,
         device_class=DEVICE_CLASS_CURRENT,
     ),
     GoodweSensor(
         "grid_frequency",
-        0x106,
+        COMMAND_SENSOR_DATA,
         40,
         0.01,
         cg.uint16,
@@ -224,11 +256,28 @@ SENSORS = [
         device_class=DEVICE_CLASS_FREQUENCY,
         icon=ICON_CURRENT_AC,
     ),
-    VoltageSensor("backup_voltage", 0x106, 43),
-    CurrentSensor("backup_current", 0x106, 45, dc=False),
-    PowerSensor("backup_power", 0x106, 81),
-    PowerSensor("on_grid_power", 0x106, 47),
-    PowerSensor("total_power", 0x106, 75),
+    VoltageSensor("backup_voltage", COMMAND_SENSOR_DATA, 43),
+    CurrentSensor("backup_current", COMMAND_SENSOR_DATA, 45, dc=False),
+    PowerSensor("backup_power", COMMAND_SENSOR_DATA, 81),
+    PowerSensor("on_grid_power", COMMAND_SENSOR_DATA, 47),
+    PowerSensor("total_power", COMMAND_SENSOR_DATA, 75),
+    IntegerSensor(
+        "grid_export_limit",
+        COMMAND_SETTINGS_DATA,
+        52,
+        UNIT_WATT,
+        device_class=DEVICE_CLASS_POWER,
+    ),
+    # Settings
+    SettingSensor("capacity", 22),
+    SettingSensor("charge_voltage", 24, scale=0.1),
+    SettingSensor("charge_current", 26),
+    SettingSensor("discharge_current", 28),
+    SettingSensor("discharge_voltage", 30, scale=0.1),
+    SettingSensor("bp_bms_protocol", 40),
+    SettingSensor("power_factor", 42),
+    SettingSensor("battery_soc_protection", 56),
+    SettingSensor("grid_quality_check", 68),
 ]
 
 CONFIG_SCHEMA = cv.Any(
