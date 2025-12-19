@@ -76,6 +76,7 @@ SENSORS = [
     BooleanSensor("battery_activated", COMMAND_SETTINGS_DATA, 34),
     BooleanSensor("bp_off_grid_charge", COMMAND_SETTINGS_DATA, 36),
     BooleanSensor("bp_pv_discharge", COMMAND_SETTINGS_DATA, 38),
+    BooleanSensor("export_limited", COMMAND_SETTINGS_DATA, 18),
 ]
 
 CONFIG_SCHEMA = cv.Any(

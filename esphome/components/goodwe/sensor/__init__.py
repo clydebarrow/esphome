@@ -278,7 +278,7 @@ SENSORS = [
     SettingSensor("discharge_voltage", 30, scale=0.1, unit_of_measurement=UNIT_VOLT),
     SettingSensor("discharge_limit", 32, unit_of_measurement=UNIT_PERCENT),
     SettingSensor("bp_bms_protocol", 40),
-    SettingSensor("power_factor", 42),
+    SettingSensor("power_factor", 42, scale=0.01),
     SettingSensor("battery_soc_protection", 56),
     SettingSensor("grid_quality_check", 68),
 ]
