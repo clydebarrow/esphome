@@ -1,5 +1,7 @@
 #include "goodwe.h"
 #include <cinttypes>
+
+#include "esphome/core/hal.h"
 #include "esphome/components/bytebuffer/bytebuffer.h"
 
 namespace esphome {
@@ -9,6 +11,8 @@ static constexpr size_t RESPONSE_CODE = 4;
 static constexpr size_t LENGTH_POS = 6;
 static constexpr size_t CHKSUM_LEN = 2;
 static constexpr uint16_t CMD_VERSION = 0x102;
+static constexpr uint16_t CMD_SETTINGS = 0x109;
+static constexpr uint16_t SET_PREFIX = 0x300;  // Settings are 0x300 + offset
 
 void Goodwe::dump_config() {
   ESP_LOGCONFIG(TAG, "Goodwe:");
@@ -42,7 +46,6 @@ void Goodwe::on_receive_(const std::vector<uint8_t> &data) {
       ESP_LOGD(TAG, "Received %s", format_hex_pretty(this->buffer_).c_str());
       this->process_data_();
       this->buffer_.clear();
-      continue;
     }
   }
 }
@@ -78,18 +81,51 @@ void Goodwe::process_data_() {
   } else {
     ESP_LOGE(TAG, "Unrecognised message code %X", msgcode);
   }
+  if (msgcode == this->last_command_) {
+    this->last_command_ = 0;
+    if ((msgcode & 0xF00) == SET_PREFIX) {
+      // have just set something, query data to make sure it took effect.
+      this->send_command_(CMD_SETTINGS);
+    }
+  }
 }
 
-void Goodwe::send_command_(uint16_t cmd) const {
-  std::vector<uint8_t> buffer{0xAA, 0x55, 0xC0, 0x7F, (uint8_t) (cmd >> 8), (uint8_t) cmd, 0x00};
+void Goodwe::send_command_(uint16_t cmd, std::optional<std::vector<uint8_t>> data) {
+  std::vector<uint8_t> buffer{0xAA, 0x55, 0xC0, 0x7F};
+  buffer.push_back(cmd >> 8);
+  buffer.push_back(cmd);
+  if (data.has_value()) {
+    auto &bytes = data.value();
+    buffer.push_back(bytes.size());
+    buffer.insert(buffer.end(), bytes.begin(), bytes.end());
+  } else {
+    buffer.push_back(0);
+  }
   auto checksum = calc_check(buffer, buffer.size());
   buffer.push_back(checksum >> 8);
   buffer.push_back(checksum);
   this->transport_->transmit(buffer);
-  ESP_LOGV(TAG, "Sending command %s", format_hex_pretty(buffer).c_str());
+  this->last_command_ = cmd;
+  this->last_command_time_ = millis();
+  ESP_LOGD(TAG, "Sending command %s", format_hex_pretty(buffer).c_str());
+}
+
+bool Goodwe::is_waiting() {
+  if (this->last_command_ != 0) {
+    auto duration = millis() - this->last_command_time_;
+    if (duration < COMMAND_TIMEOUT_MS) {
+      return true;
+    }
+    ESP_LOGW(TAG, "Command %04X did not respond", this->last_command_);
+    this->last_command_ = 0;
+  }
+  return false;
 }
 
 void Goodwe::update() {
+  if (is_waiting())
+    return;
+
   for (auto q : this->queries_) {
     if (this->counter_ % q.second == 0) {
       this->send_command_(q.first);
@@ -97,6 +133,17 @@ void Goodwe::update() {
     }
   }
   this->counter_++;
+}
+
+void Goodwe::loop() {
+  if (is_waiting())
+    return;
+  for (auto *setting : this->settings_) {
+    if (setting->should_send()) {
+      this->send_command_(setting->get_cmd_code(), setting->get_data());
+      return;
+    }
+  }
 }
 }  // namespace goodwe
 

@@ -1,9 +1,4 @@
 import esphome.codegen as cg
-from esphome.components.binary_sensor import (
-    BinarySensor,
-    binary_sensor_schema,
-    new_binary_sensor,
-)
 from esphome.components.goodwe import (
     COMMAND_SETTINGS_DATA,
     CONF_CONFIGURE_ALL,
@@ -14,40 +9,39 @@ from esphome.components.goodwe import (
     add_message_code,
     goodwe_ns,
 )
+from esphome.components.switch import Switch, new_switch, switch_schema
 import esphome.config_validation as cv
-from esphome.const import (
-    CONF_NAME,
-    ENTITY_CATEGORY_NONE,
-    ICON_BATTERY,
-    STATE_CLASS_MEASUREMENT,
-)
+from esphome.const import CONF_NAME, ENTITY_CATEGORY_CONFIG
 
-BinarySensorParameter = goodwe_ns.class_(
-    "BinarySensorParameter", Parameter, BinarySensor
-)
+SwitchParameter = goodwe_ns.class_("SwitchParameter", Parameter, Switch)
+
+ICON_SWITCH = "mdi:toggle-switch"
 
 
-class BooleanSensor:
+class SwitchSetting:
     def __init__(
         self,
         id,
-        msgcode,
-        offset,
-        icon=ICON_BATTERY,
+        msgcode: int,
+        offset: int,
+        write_code: int,
+        icon=ICON_SWITCH,
         device_class=cv.UNDEFINED,
-        state_class=STATE_CLASS_MEASUREMENT,
-        entity_category=ENTITY_CATEGORY_NONE,
+        state_class=cv.UNDEFINED,
+        entity_category=ENTITY_CATEGORY_CONFIG,
     ):
         self.id = id
         self.msgcode = msgcode
         self.offset = offset
+        self.write_code = write_code
         self.icon = icon
         self.device_class = device_class
         self.state_class = state_class
         self.entity_category = entity_category
 
     def get_class(self):
-        return BinarySensorParameter.template(self.offset + DATA_OFFSET)
+        print(self.offset + DATA_OFFSET, self.write_code)
+        return SwitchParameter.template(self.offset + DATA_OFFSET, self.write_code)
 
     def get_name(self):
         return self.id.replace("_", " ").title()
@@ -57,7 +51,7 @@ class BooleanSensor:
             # Add message code to set for parent to process
             add_message_code(self.msgcode)
             return cv.maybe_simple_value(
-                binary_sensor_schema(
+                switch_schema(
                     self.get_class(),
                     device_class=self.device_class,
                     entity_category=self.entity_category,
@@ -69,13 +63,8 @@ class BooleanSensor:
         return validator
 
 
-SENSORS = [
-    BooleanSensor("backup_supply", COMMAND_SETTINGS_DATA, 12),
-    BooleanSensor("off-grid_charge", COMMAND_SETTINGS_DATA, 14),
-    BooleanSensor("shadow_scan", COMMAND_SETTINGS_DATA, 16),
-    BooleanSensor("battery_activated", COMMAND_SETTINGS_DATA, 34),
-    BooleanSensor("bp_off_grid_charge", COMMAND_SETTINGS_DATA, 36),
-    BooleanSensor("bp_pv_discharge", COMMAND_SETTINGS_DATA, 38),
+SWITCHES = [
+    SwitchSetting("export_limited", COMMAND_SETTINGS_DATA, 19, write_code=0x353),
 ]
 
 CONFIG_SCHEMA = cv.Any(
@@ -83,13 +72,13 @@ CONFIG_SCHEMA = cv.Any(
         cv.Required(CONF_CONFIGURE_ALL): True,
         **{
             cv.Optional(s.id, default={CONF_NAME: s.get_name()}): s.get_schema()
-            for s in SENSORS
+            for s in SWITCHES
         },
         cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
     },
     {
         cv.Optional(CONF_CONFIGURE_ALL, default=False): False,
-        **{cv.Optional(s.id): s.get_schema() for s in SENSORS},
+        **{cv.Optional(s.id): s.get_schema() for s in SWITCHES},
         cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
     },
 )
@@ -97,7 +86,7 @@ CONFIG_SCHEMA = cv.Any(
 
 async def to_code(config):
     parent = await cg.get_variable(config[CONF_GOODWE_ID])
-    for sensor in SENSORS:
+    for sensor in SWITCHES:
         if sensor.id in config:
-            var = await new_binary_sensor(config[sensor.id], sensor.id)
-            cg.add(parent.add_parameter(sensor.msgcode, var))
+            var = await new_switch(config[sensor.id], sensor.id)
+            cg.add(parent.add_setting(sensor.msgcode, var))

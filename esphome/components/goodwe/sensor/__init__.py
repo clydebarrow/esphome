@@ -22,12 +22,14 @@ from esphome.const import (
     UNIT_AMPERE,
     UNIT_CELSIUS,
     UNIT_HERTZ,
+    UNIT_PERCENT,
     UNIT_VOLT,
     UNIT_WATT,
 )
 from esphome.core import CORE
 
 from ...const import ICON_CURRENT_DC
+from ...daly_bms.sensor import UNIT_AMPERE_HOUR
 from .. import (
     COMMAND_SENSOR_DATA,
     COMMAND_SETTINGS_DATA,
@@ -102,14 +104,14 @@ class GoodweSensor:
 
 
 class SettingSensor(GoodweSensor):
-    def __init__(self, id, offset, scale=1.0):
+    def __init__(self, id, offset, scale=1.0, unit_of_measurement=cv.UNDEFINED):
         super().__init__(
             id,
             COMMAND_SETTINGS_DATA,
             offset,
             scale,
             cg.int16,
-            cv.UNDEFINED,
+            unit_of_measurement,
             cv.UNDEFINED,
             ICON_BATTERY,
             entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
@@ -269,11 +271,12 @@ SENSORS = [
         device_class=DEVICE_CLASS_POWER,
     ),
     # Settings
-    SettingSensor("capacity", 22),
-    SettingSensor("charge_voltage", 24, scale=0.1),
-    SettingSensor("charge_current", 26),
-    SettingSensor("discharge_current", 28),
-    SettingSensor("discharge_voltage", 30, scale=0.1),
+    SettingSensor("capacity", 22, unit_of_measurement=UNIT_AMPERE_HOUR),
+    SettingSensor("charge_voltage", 24, scale=0.1, unit_of_measurement=UNIT_VOLT),
+    SettingSensor("charge_current", 26, unit_of_measurement=UNIT_AMPERE),
+    SettingSensor("discharge_current", 28, unit_of_measurement=UNIT_AMPERE),
+    SettingSensor("discharge_voltage", 30, scale=0.1, unit_of_measurement=UNIT_VOLT),
+    SettingSensor("discharge_limit", 32, unit_of_measurement=UNIT_PERCENT),
     SettingSensor("bp_bms_protocol", 40),
     SettingSensor("power_factor", 42),
     SettingSensor("battery_soc_protection", 56),
