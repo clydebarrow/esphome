@@ -75,7 +75,7 @@ class SwitchSetting:
 
 
 SWITCHES = [
-    SwitchSetting("backup_supply", COMMAND_SETTINGS_DATA, 12, write_code=0x327),
+    SwitchSetting("backup_supply_off", COMMAND_SETTINGS_DATA, 12, write_code=0x327),
     # SwitchSetting("shadow_scan", COMMAND_SETTINGS_DATA, 17, write_code=0x328), # Not yet working
     SwitchSetting("grid_export_limited", COMMAND_SETTINGS_DATA, 19, write_code=0x353),
 ]
