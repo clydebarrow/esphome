@@ -8,10 +8,12 @@
 #include <map>
 #include <optional>
 
+#include "esphome/core/hal.h"
+
 namespace esphome {
 namespace goodwe {
 static const char *TAG = "goodwe";
-static const uint32_t COMMAND_TIMEOUT_MS = 2000;
+static constexpr uint32_t COMMAND_TIMEOUT_MS = 2000;
 
 /**
  * Base class for parameters read using Goodwe protocol.
@@ -39,7 +41,7 @@ class Setting : public Parameter {
 
   // method to get a command to be sent. An empty buffer will not be sent, so means nothing to do.
   virtual std::vector<uint8_t> get_data() = 0;
-  uint16_t get_cmd_code() { return cmd_code_; }
+  uint16_t get_cmd_code() const { return cmd_code_; }
   virtual bool should_send() = 0;
 
  protected:
@@ -47,21 +49,34 @@ class Setting : public Parameter {
 };
 
 class Message {
-  friend class Goodwe;
-
  public:
   Message(uint16_t code, uint16_t interval) : code_(code), interval_(interval) {}
 
   void add_parameter(Parameter *parameter) { this->parameters_.push_back(parameter); }
 
-  void decode(bytebuffer::ByteBuffer &data) {
+  void decode(bytebuffer::ByteBuffer &data) const {
     for (auto *p : this->parameters_)
       p->decode(data);
   }
 
+  bool should_send() {
+    auto now = millis();
+    uint32_t elapsed = now - this->last_time_;
+    if (elapsed > this->interval_ * 1000) {
+      this->last_time_ = now;
+      return true;
+    }
+    return false;
+  }
+
+  uint16_t get_code() const { return this->code_; }
+  uint16_t get_interval() const { return this->interval_; }
+  std::vector<Parameter *> &get_parameters() { return this->parameters_; }
+
  protected:
   uint16_t code_;
   uint16_t interval_;
+  uint32_t last_time_{};
   std::vector<Parameter *> parameters_{};
 };
 
@@ -78,15 +93,12 @@ class Goodwe : public PollingComponent {
 
   void loop() override;
 
-  void add_message(uint16_t code, uint16_t interval) {
-    this->messages_.emplace(code, Message(code, interval));
-    this->queries_.emplace_back(code, interval);
-  }
+  void add_message(uint16_t code, uint16_t interval) { this->messages_.emplace(code, new Message(code, interval)); }
 
   void add_parameter(uint16_t code, Parameter *parameter) {
     auto message = this->messages_.find(code);
     if (message != this->messages_.end())
-      message->second.add_parameter(parameter);
+      message->second->add_parameter(parameter);
   }
   void add_setting(uint16_t code, Setting *setting) {
     this->add_parameter(code, setting);
@@ -97,8 +109,7 @@ class Goodwe : public PollingComponent {
 
  protected:
   transport::Transport *transport_;
-  std::vector<std::pair<uint16_t, uint16_t>> queries_{};
-  std::map<uint16_t, Message> messages_{};
+  std::map<uint16_t, Message *> messages_{};
   std::vector<Setting *> settings_{};
   uint8_t arm_version_{0};
   uint16_t counter_{0};

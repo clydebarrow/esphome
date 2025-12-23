@@ -18,8 +18,8 @@ void Goodwe::dump_config() {
   ESP_LOGCONFIG(TAG, "Goodwe:");
   for (auto &message : this->messages_) {
     ESP_LOGCONFIG(TAG, "  Msg %04X:", message.first);
-    ESP_LOGCONFIG(TAG, "  Interval %ds:", message.second.interval_);
-    for (auto p : message.second.parameters_) {
+    ESP_LOGCONFIG(TAG, "  Interval %ds:", message.second->get_interval());
+    for (auto p : message.second->get_parameters()) {
       p->dump_config();
     }
   }
@@ -77,7 +77,7 @@ void Goodwe::process_data_() {
   }
   auto message = this->messages_.find(msgcode);
   if (message != this->messages_.end()) {
-    message->second.decode(packet);
+    message->second->decode(packet);
   } else {
     ESP_LOGE(TAG, "Unrecognised message code %X", msgcode);
   }
@@ -125,29 +125,22 @@ bool Goodwe::is_waiting() {
 void Goodwe::update() {
   if (is_waiting())
     return;
-  this->counter_++;
-  if (this->counter_ & 1) {
-    for (auto *setting : this->settings_) {
-      if (setting->should_send()) {
-        this->send_command_(setting->get_cmd_code(), setting->get_data());
-        return;
-      }
+  for (auto *setting : this->settings_) {
+    if (setting->should_send()) {
+      this->send_command_(setting->get_cmd_code(), setting->get_data());
+      return;
     }
-    return;
   }
 
-  for (auto q : this->queries_) {
-    if (this->counter_ % q.second == 0) {
+  for (auto q : this->messages_) {
+    if (q.second->should_send()) {
       this->send_command_(q.first);
       break;
     }
   }
 }
 
-void Goodwe::loop() {
-  if (is_waiting())
-    return;
-}
+void Goodwe::loop() {}
 }  // namespace goodwe
 
 }  // namespace esphome

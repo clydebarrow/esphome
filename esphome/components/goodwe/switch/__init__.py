@@ -25,8 +25,6 @@ class SwitchSetting:
         msgcode: int,
         offset: int,
         write_code: int,
-        off_data: int,
-        on_data: int,
         read_data: int = 1,
         icon=ICON_SWITCH,
         device_class=cv.UNDEFINED,
@@ -37,8 +35,6 @@ class SwitchSetting:
         self.msgcode = msgcode
         self.offset = offset
         self.write_code = write_code
-        self.off_data = off_data
-        self.on_data = on_data
         self.read_data = read_data
         self.icon = icon
         self.device_class = device_class
@@ -49,8 +45,6 @@ class SwitchSetting:
         return SwitchParameter.template(
             self.offset + DATA_OFFSET,
             self.write_code,
-            self.off_data,
-            self.on_data,
             self.read_data,
         )
 
@@ -86,16 +80,16 @@ SWITCHES = [
         COMMAND_SETTINGS_DATA,
         12,
         write_code=0x327,
-        off_data=0x20,
-        on_data=0x30,
+        # off_data=0x20,
+        # on_data=0x30,
     ),
     SwitchSetting(
         "shadow_scan",
         COMMAND_SETTINGS_DATA,
         16,
         write_code=0x328,
-        off_data=0x8000,
-        on_data=0x8080,
+        # off_data=0x8000,
+        # on_data=0x8080,
         read_data=2,
     ),
     SwitchSetting(
@@ -103,8 +97,8 @@ SWITCHES = [
         COMMAND_SETTINGS_DATA,
         18,
         write_code=0x353,
-        off_data=0x1000,
-        on_data=0x1010,
+        # off_data=0x1000,
+        # on_data=0x1010,
     ),
 ]
 

@@ -7,14 +7,16 @@
 
 namespace esphome::goodwe {
 
-template<uint16_t OFFSET, uint16_t WRITE_CMD, uint16_t OFF_DATA, uint16_t ON_DATA, uint16_t READ_DATA>
+template<uint16_t OFFSET, uint16_t WRITE_CMD, uint16_t READ_DATA>
 class SwitchParameter : public Setting, public switch_::Switch {
  public:
   SwitchParameter(const char *type) : Setting(type, WRITE_CMD) {}
 
   std::vector<uint8_t> get_data() override {
-    auto data = this->new_state_ ? ON_DATA : OFF_DATA;
-    return std::vector{(uint8_t) (data >> 8), (uint8_t) data};
+    this->publish_state(this->new_state_);
+    auto data = this->new_state_ ? 1 : 0;
+    this->dirty_ = false;
+    return std::vector{(uint8_t) data};
   }
 
   bool should_send() override { return this->dirty_; }

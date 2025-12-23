@@ -12,6 +12,7 @@ template<uint16_t OFFSET, uint16_t WRITE_CMD> class NumberParameter : public Set
   NumberParameter(const char *type) : Setting(type, WRITE_CMD) {}
 
   std::vector<uint8_t> get_data() override {
+    this->publish_state(this->new_state_);
     auto value = (int16_t) this->new_state_;
     ESP_LOGD(TAG, "State %f, value %d", this->new_state_, value);
     return std::vector{(uint8_t) (value >> 8), (uint8_t) value};
