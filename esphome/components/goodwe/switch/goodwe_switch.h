@@ -7,18 +7,14 @@
 
 namespace esphome::goodwe {
 
-template<uint16_t OFFSET, uint16_t WRITE_CMD, uint16_t LENGTH, uint16_t DATA>
+template<uint16_t OFFSET, uint16_t WRITE_CMD, uint16_t OFF_DATA, uint16_t ON_DATA, uint16_t READ_DATA>
 class SwitchParameter : public Setting, public switch_::Switch {
  public:
   SwitchParameter(const char *type) : Setting(type, WRITE_CMD) {}
 
   std::vector<uint8_t> get_data() override {
-    if (LENGTH == 1)
-      return std::vector{(uint8_t) (this->new_state_ ? DATA : 0x00)};
-    if (LENGTH == 2)
-      if (this->new_state_)
-        return std::vector{(uint8_t) (DATA >> 8), (uint8_t) DATA};
-    return std::vector<uint8_t>{0, 0};
+    auto data = this->new_state_ ? ON_DATA : OFF_DATA;
+    return std::vector{(uint8_t) (data >> 8), (uint8_t) data};
   }
 
   bool should_send() override { return this->dirty_; }
@@ -26,18 +22,16 @@ class SwitchParameter : public Setting, public switch_::Switch {
 
  protected:
   void decode(bytebuffer::ByteBuffer &data) override {
-    bool value;
-    if (LENGTH == 1)
-      value = data.get<uint8_t>(OFFSET) != 0;
-    else
-      value = data.get<uint16_t>(OFFSET) != 0;
+    auto intdata = data.get<uint16_t>(OFFSET);
+    auto value = (intdata & READ_DATA) != 0;
     if (value == this->new_state_) {
+      this->publish_state(value);
       this->dirty_ = false;
     }
     if (value != this->state) {
       this->publish_state(value);
     }
-    ESP_LOGD(TAG, "Decoded switch value: %s for parameter at offset %04X", TRUEFALSE(value), OFFSET);
+    ESP_LOGD(TAG, "Decoded switch value: 0x%04X/%s for parameter at offset %u", intdata, TRUEFALSE(value), OFFSET);
   }
 
   void write_state(bool value) override {

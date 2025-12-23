@@ -33,6 +33,7 @@ class BooleanSensor:
         id,
         msgcode,
         offset,
+        on_data=1,
         icon=ICON_BATTERY,
         device_class=cv.UNDEFINED,
         state_class=STATE_CLASS_MEASUREMENT,
@@ -41,13 +42,14 @@ class BooleanSensor:
         self.id = id
         self.msgcode = msgcode
         self.offset = offset
+        self.on_data = on_data
         self.icon = icon
         self.device_class = device_class
         self.state_class = state_class
         self.entity_category = entity_category
 
     def get_class(self):
-        return BinarySensorParameter.template(self.offset + DATA_OFFSET)
+        return BinarySensorParameter.template(self.offset + DATA_OFFSET, self.on_data)
 
     def get_name(self):
         return self.id.replace("_", " ").title()
@@ -70,9 +72,9 @@ class BooleanSensor:
 
 
 SENSORS = [
-    BooleanSensor("backup_supply_off", COMMAND_SETTINGS_DATA, 12),
+    BooleanSensor("backup_supply", COMMAND_SETTINGS_DATA, 12),
     BooleanSensor("off-grid_charge", COMMAND_SETTINGS_DATA, 14),
-    BooleanSensor("shadow_scan", COMMAND_SETTINGS_DATA, 16),
+    BooleanSensor("shadow_scan", COMMAND_SETTINGS_DATA, 16, on_data=2),
     BooleanSensor("battery_activated", COMMAND_SETTINGS_DATA, 34),
     BooleanSensor("bp_off_grid_charge", COMMAND_SETTINGS_DATA, 36),
     BooleanSensor("bp_pv_discharge", COMMAND_SETTINGS_DATA, 38),

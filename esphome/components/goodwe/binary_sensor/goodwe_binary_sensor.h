@@ -4,13 +4,14 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 
 namespace esphome::goodwe {
-template<uint16_t OFFSET> class BinarySensorParameter : public Parameter, public binary_sensor::BinarySensor {
+template<uint16_t OFFSET, uint16_t ON_DATA>
+class BinarySensorParameter : public Parameter, public binary_sensor::BinarySensor {
  public:
   BinarySensorParameter(const char *type) : Parameter(type) {}
 
   void decode(bytebuffer::ByteBuffer &data) override {
     auto value = data.get<uint16_t>(OFFSET);
-    this->publish_state(value != 0);
+    this->publish_state((value & ON_DATA) != 0);
     ESP_LOGV(TAG, "Decoded binary sensor value: %s for parameter at offset %04X", TRUEFALSE(value), OFFSET);
   }
 

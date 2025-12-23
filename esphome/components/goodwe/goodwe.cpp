@@ -125,6 +125,16 @@ bool Goodwe::is_waiting() {
 void Goodwe::update() {
   if (is_waiting())
     return;
+  this->counter_++;
+  if (this->counter_ & 1) {
+    for (auto *setting : this->settings_) {
+      if (setting->should_send()) {
+        this->send_command_(setting->get_cmd_code(), setting->get_data());
+        return;
+      }
+    }
+    return;
+  }
 
   for (auto q : this->queries_) {
     if (this->counter_ % q.second == 0) {
@@ -132,18 +142,11 @@ void Goodwe::update() {
       break;
     }
   }
-  this->counter_++;
 }
 
 void Goodwe::loop() {
   if (is_waiting())
     return;
-  for (auto *setting : this->settings_) {
-    if (setting->should_send()) {
-      this->send_command_(setting->get_cmd_code(), setting->get_data());
-      return;
-    }
-  }
 }
 }  // namespace goodwe
 
