@@ -14,13 +14,17 @@ template<uint16_t OFFSET, uint16_t WRITE_CMD> class NumberParameter : public Set
   std::vector<uint8_t> get_data() override {
     this->publish_state(this->new_state_);
     auto value = (int16_t) this->new_state_;
-    ESP_LOGD(TAG, "State %f, value %d", this->new_state_, value);
+    ESP_LOGD(TAG, "State %f, value %d, max_value=%f", this->new_state_, value, this->traits.get_max_value());
+    if (this->traits.get_max_value() <= 255)
+      return std::vector(1, (uint8_t) value);
     return std::vector{(uint8_t) (value >> 8), (uint8_t) value};
   }
 
   bool should_send() override {
-    if (!std::isfinite(this->new_state_) || !this->has_state())
+    ESP_LOGD(TAG, "state = %f, new_state=%f", this->state, this->new_state_);
+    if (!std::isfinite(this->new_state_) || !this->has_state()) {
       return false;
+    }
     return this->new_state_ != this->state;
   }
   void dump_config() override { LOG_NUMBER("    ", this->type_, this); }
@@ -29,10 +33,7 @@ template<uint16_t OFFSET, uint16_t WRITE_CMD> class NumberParameter : public Set
   void decode(bytebuffer::ByteBuffer &data) override {
     auto value = data.get<uint16_t>(OFFSET);
     ESP_LOGD(TAG, "Decoded number value: %d for parameter at offset %04X", value, OFFSET);
-    if (value != this->state) {
-      this->publish_state(value);
-      this->new_state_ = value;
-    }
+    this->publish_state(value);
   }
 
   void control(float value) override { this->new_state_ = value; }

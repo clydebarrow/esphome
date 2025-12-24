@@ -13,8 +13,10 @@ from esphome.components.number import Number, new_number, number_schema
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_NAME,
+    DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_POWER,
     ENTITY_CATEGORY_CONFIG,
+    UNIT_PERCENT,
     UNIT_WATT,
 )
 
@@ -87,6 +89,17 @@ NUMBERS = [
         write_code=0x335,
         device_class=DEVICE_CLASS_POWER,
         unit_of_measurement=UNIT_WATT,
+    ),
+    NumberSetting(
+        "discharge_limit",
+        COMMAND_SETTINGS_DATA,
+        32,
+        min_value=0,
+        max_value=100,
+        step=1,
+        write_code=0x560,
+        device_class=DEVICE_CLASS_BATTERY,
+        unit_of_measurement=UNIT_PERCENT,
     ),
 ]
 
