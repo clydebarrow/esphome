@@ -66,7 +66,7 @@ static void dump_field(std::string &out, const char *field_name, float value, in
 static void dump_field(std::string &out, const char *field_name, uint64_t value, int indent = 2) {
   char buffer[64];
   append_field_prefix(out, field_name, indent);
-  snprintf(buffer, 64, "%llu", value);
+  snprintf(buffer, 64, "%" PRIu64, value);
   append_with_newline(out, buffer);
 }
 
@@ -85,6 +85,12 @@ static void dump_field(std::string &out, const char *field_name, const std::stri
 static void dump_field(std::string &out, const char *field_name, StringRef value, int indent = 2) {
   append_field_prefix(out, field_name, indent);
   append_quoted_string(out, value);
+  out.append("\n");
+}
+
+static void dump_field(std::string &out, const char *field_name, const char *value, int indent = 2) {
+  append_field_prefix(out, field_name, indent);
+  out.append("'").append(value).append("'");
   out.append("\n");
 }
 
@@ -173,6 +179,8 @@ template<> const char *proto_enum_to_string<enums::SensorStateClass>(enums::Sens
       return "STATE_CLASS_TOTAL_INCREASING";
     case enums::STATE_CLASS_TOTAL:
       return "STATE_CLASS_TOTAL";
+    case enums::STATE_CLASS_MEASUREMENT_ANGLE:
+      return "STATE_CLASS_MEASUREMENT_ANGLE";
     default:
       return "UNKNOWN";
   }
@@ -200,7 +208,7 @@ template<> const char *proto_enum_to_string<enums::LogLevel>(enums::LogLevel val
       return "UNKNOWN";
   }
 }
-#ifdef USE_API_SERVICES
+#ifdef USE_API_USER_DEFINED_ACTIONS
 template<> const char *proto_enum_to_string<enums::ServiceArgType>(enums::ServiceArgType value) {
   switch (value) {
     case enums::SERVICE_ARG_TYPE_BOOL:
@@ -219,6 +227,20 @@ template<> const char *proto_enum_to_string<enums::ServiceArgType>(enums::Servic
       return "SERVICE_ARG_TYPE_FLOAT_ARRAY";
     case enums::SERVICE_ARG_TYPE_STRING_ARRAY:
       return "SERVICE_ARG_TYPE_STRING_ARRAY";
+    default:
+      return "UNKNOWN";
+  }
+}
+template<> const char *proto_enum_to_string<enums::SupportsResponseType>(enums::SupportsResponseType value) {
+  switch (value) {
+    case enums::SUPPORTS_RESPONSE_NONE:
+      return "SUPPORTS_RESPONSE_NONE";
+    case enums::SUPPORTS_RESPONSE_OPTIONAL:
+      return "SUPPORTS_RESPONSE_OPTIONAL";
+    case enums::SUPPORTS_RESPONSE_ONLY:
+      return "SUPPORTS_RESPONSE_ONLY";
+    case enums::SUPPORTS_RESPONSE_STATUS:
+      return "SUPPORTS_RESPONSE_STATUS";
     default:
       return "UNKNOWN";
   }
@@ -326,6 +348,47 @@ template<> const char *proto_enum_to_string<enums::ClimatePreset>(enums::Climate
   }
 }
 #endif
+#ifdef USE_WATER_HEATER
+template<> const char *proto_enum_to_string<enums::WaterHeaterMode>(enums::WaterHeaterMode value) {
+  switch (value) {
+    case enums::WATER_HEATER_MODE_OFF:
+      return "WATER_HEATER_MODE_OFF";
+    case enums::WATER_HEATER_MODE_ECO:
+      return "WATER_HEATER_MODE_ECO";
+    case enums::WATER_HEATER_MODE_ELECTRIC:
+      return "WATER_HEATER_MODE_ELECTRIC";
+    case enums::WATER_HEATER_MODE_PERFORMANCE:
+      return "WATER_HEATER_MODE_PERFORMANCE";
+    case enums::WATER_HEATER_MODE_HIGH_DEMAND:
+      return "WATER_HEATER_MODE_HIGH_DEMAND";
+    case enums::WATER_HEATER_MODE_HEAT_PUMP:
+      return "WATER_HEATER_MODE_HEAT_PUMP";
+    case enums::WATER_HEATER_MODE_GAS:
+      return "WATER_HEATER_MODE_GAS";
+    default:
+      return "UNKNOWN";
+  }
+}
+#endif
+template<>
+const char *proto_enum_to_string<enums::WaterHeaterCommandHasField>(enums::WaterHeaterCommandHasField value) {
+  switch (value) {
+    case enums::WATER_HEATER_COMMAND_HAS_NONE:
+      return "WATER_HEATER_COMMAND_HAS_NONE";
+    case enums::WATER_HEATER_COMMAND_HAS_MODE:
+      return "WATER_HEATER_COMMAND_HAS_MODE";
+    case enums::WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE:
+      return "WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE";
+    case enums::WATER_HEATER_COMMAND_HAS_STATE:
+      return "WATER_HEATER_COMMAND_HAS_STATE";
+    case enums::WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE_LOW:
+      return "WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE_LOW";
+    case enums::WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE_HIGH:
+      return "WATER_HEATER_COMMAND_HAS_TARGET_TEMPERATURE_HIGH";
+    default:
+      return "UNKNOWN";
+  }
+}
 #ifdef USE_NUMBER
 template<> const char *proto_enum_to_string<enums::NumberMode>(enums::NumberMode value) {
   switch (value) {
@@ -655,10 +718,26 @@ template<> const char *proto_enum_to_string<enums::UpdateCommand>(enums::UpdateC
   }
 }
 #endif
+#ifdef USE_ZWAVE_PROXY
+template<> const char *proto_enum_to_string<enums::ZWaveProxyRequestType>(enums::ZWaveProxyRequestType value) {
+  switch (value) {
+    case enums::ZWAVE_PROXY_REQUEST_TYPE_SUBSCRIBE:
+      return "ZWAVE_PROXY_REQUEST_TYPE_SUBSCRIBE";
+    case enums::ZWAVE_PROXY_REQUEST_TYPE_UNSUBSCRIBE:
+      return "ZWAVE_PROXY_REQUEST_TYPE_UNSUBSCRIBE";
+    case enums::ZWAVE_PROXY_REQUEST_TYPE_HOME_ID_CHANGE:
+      return "ZWAVE_PROXY_REQUEST_TYPE_HOME_ID_CHANGE";
+    default:
+      return "UNKNOWN";
+  }
+}
+#endif
 
 void HelloRequest::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "HelloRequest");
-  dump_field(out, "client_info", this->client_info);
+  out.append("  client_info: ");
+  out.append(format_hex_pretty(this->client_info, this->client_info_len));
+  out.append("\n");
   dump_field(out, "api_version_major", this->api_version_major);
   dump_field(out, "api_version_minor", this->api_version_minor);
 }
@@ -669,8 +748,18 @@ void HelloResponse::dump_to(std::string &out) const {
   dump_field(out, "server_info", this->server_info_ref_);
   dump_field(out, "name", this->name_ref_);
 }
-void ConnectRequest::dump_to(std::string &out) const { dump_field(out, "password", this->password); }
-void ConnectResponse::dump_to(std::string &out) const { dump_field(out, "invalid_password", this->invalid_password); }
+#ifdef USE_API_PASSWORD
+void AuthenticationRequest::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "AuthenticationRequest");
+  out.append("  password: ");
+  out.append(format_hex_pretty(this->password, this->password_len));
+  out.append("\n");
+}
+void AuthenticationResponse::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "AuthenticationResponse");
+  dump_field(out, "invalid_password", this->invalid_password);
+}
+#endif
 void DisconnectRequest::dump_to(std::string &out) const { out.append("DisconnectRequest {}"); }
 void DisconnectResponse::dump_to(std::string &out) const { out.append("DisconnectResponse {}"); }
 void PingRequest::dump_to(std::string &out) const { out.append("PingRequest {}"); }
@@ -748,6 +837,12 @@ void DeviceInfoResponse::dump_to(std::string &out) const {
   out.append("  area: ");
   this->area.dump_to(out);
   out.append("\n");
+#endif
+#ifdef USE_ZWAVE_PROXY
+  dump_field(out, "zwave_proxy_feature_flags", this->zwave_proxy_feature_flags);
+#endif
+#ifdef USE_ZWAVE_PROXY
+  dump_field(out, "zwave_home_id", this->zwave_home_id);
 #endif
 }
 void ListEntitiesRequest::dump_to(std::string &out) const { out.append("ListEntitiesRequest {}"); }
@@ -869,7 +964,9 @@ void FanCommandRequest::dump_to(std::string &out) const {
   dump_field(out, "has_speed_level", this->has_speed_level);
   dump_field(out, "speed_level", this->speed_level);
   dump_field(out, "has_preset_mode", this->has_preset_mode);
-  dump_field(out, "preset_mode", this->preset_mode);
+  out.append("  preset_mode: ");
+  out.append(format_hex_pretty(this->preset_mode, this->preset_mode_len));
+  out.append("\n");
 #ifdef USE_DEVICES
   dump_field(out, "device_id", this->device_id);
 #endif
@@ -886,7 +983,7 @@ void ListEntitiesLightResponse::dump_to(std::string &out) const {
   }
   dump_field(out, "min_mireds", this->min_mireds);
   dump_field(out, "max_mireds", this->max_mireds);
-  for (const auto &it : this->effects) {
+  for (const auto &it : *this->effects) {
     dump_field(out, "effects", it, 4);
   }
   dump_field(out, "disabled_by_default", this->disabled_by_default);
@@ -945,7 +1042,9 @@ void LightCommandRequest::dump_to(std::string &out) const {
   dump_field(out, "has_flash_length", this->has_flash_length);
   dump_field(out, "flash_length", this->flash_length);
   dump_field(out, "has_effect", this->has_effect);
-  dump_field(out, "effect", this->effect);
+  out.append("  effect: ");
+  out.append(format_hex_pretty(this->effect, this->effect_len));
+  out.append("\n");
 #ifdef USE_DEVICES
   dump_field(out, "device_id", this->device_id);
 #endif
@@ -1057,7 +1156,7 @@ void SubscribeLogsResponse::dump_to(std::string &out) const {
 void NoiseEncryptionSetKeyRequest::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "NoiseEncryptionSetKeyRequest");
   out.append("  key: ");
-  out.append(format_hex_pretty(reinterpret_cast<const uint8_t *>(this->key.data()), this->key.size()));
+  out.append(format_hex_pretty(this->key, this->key_len));
   out.append("\n");
 }
 void NoiseEncryptionSetKeyResponse::dump_to(std::string &out) const { dump_field(out, "success", this->success); }
@@ -1071,8 +1170,8 @@ void HomeassistantServiceMap::dump_to(std::string &out) const {
   dump_field(out, "key", this->key_ref_);
   dump_field(out, "value", this->value);
 }
-void HomeassistantServiceResponse::dump_to(std::string &out) const {
-  MessageDumpHelper helper(out, "HomeassistantServiceResponse");
+void HomeassistantActionRequest::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "HomeassistantActionRequest");
   dump_field(out, "service", this->service_ref_);
   for (const auto &it : this->data) {
     out.append("  data: ");
@@ -1090,6 +1189,28 @@ void HomeassistantServiceResponse::dump_to(std::string &out) const {
     out.append("\n");
   }
   dump_field(out, "is_event", this->is_event);
+#ifdef USE_API_HOMEASSISTANT_ACTION_RESPONSES
+  dump_field(out, "call_id", this->call_id);
+#endif
+#ifdef USE_API_HOMEASSISTANT_ACTION_RESPONSES_JSON
+  dump_field(out, "wants_response", this->wants_response);
+#endif
+#ifdef USE_API_HOMEASSISTANT_ACTION_RESPONSES_JSON
+  dump_field(out, "response_template", this->response_template);
+#endif
+}
+#endif
+#ifdef USE_API_HOMEASSISTANT_ACTION_RESPONSES
+void HomeassistantActionResponse::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "HomeassistantActionResponse");
+  dump_field(out, "call_id", this->call_id);
+  dump_field(out, "success", this->success);
+  dump_field(out, "error_message", this->error_message);
+#ifdef USE_API_HOMEASSISTANT_ACTION_RESPONSES_JSON
+  out.append("  response_data: ");
+  out.append(format_hex_pretty(this->response_data, this->response_data_len));
+  out.append("\n");
+#endif
 }
 #endif
 #ifdef USE_API_HOMEASSISTANT_STATES
@@ -1104,14 +1225,26 @@ void SubscribeHomeAssistantStateResponse::dump_to(std::string &out) const {
 }
 void HomeAssistantStateResponse::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "HomeAssistantStateResponse");
-  dump_field(out, "entity_id", this->entity_id);
-  dump_field(out, "state", this->state);
-  dump_field(out, "attribute", this->attribute);
+  out.append("  entity_id: ");
+  out.append(format_hex_pretty(this->entity_id, this->entity_id_len));
+  out.append("\n");
+  out.append("  state: ");
+  out.append(format_hex_pretty(this->state, this->state_len));
+  out.append("\n");
+  out.append("  attribute: ");
+  out.append(format_hex_pretty(this->attribute, this->attribute_len));
+  out.append("\n");
 }
 #endif
 void GetTimeRequest::dump_to(std::string &out) const { out.append("GetTimeRequest {}"); }
-void GetTimeResponse::dump_to(std::string &out) const { dump_field(out, "epoch_seconds", this->epoch_seconds); }
-#ifdef USE_API_SERVICES
+void GetTimeResponse::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "GetTimeResponse");
+  dump_field(out, "epoch_seconds", this->epoch_seconds);
+  out.append("  timezone: ");
+  out.append(format_hex_pretty(this->timezone, this->timezone_len));
+  out.append("\n");
+}
+#ifdef USE_API_USER_DEFINED_ACTIONS
 void ListEntitiesServicesArgument::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "ListEntitiesServicesArgument");
   dump_field(out, "name", this->name_ref_);
@@ -1126,6 +1259,7 @@ void ListEntitiesServicesResponse::dump_to(std::string &out) const {
     it.dump_to(out);
     out.append("\n");
   }
+  dump_field(out, "supports_response", static_cast<enums::SupportsResponseType>(this->supports_response));
 }
 void ExecuteServiceArgument::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "ExecuteServiceArgument");
@@ -1135,7 +1269,7 @@ void ExecuteServiceArgument::dump_to(std::string &out) const {
   dump_field(out, "string_", this->string_);
   dump_field(out, "int_", this->int_);
   for (const auto it : this->bool_array) {
-    dump_field(out, "bool_array", it, 4);
+    dump_field(out, "bool_array", static_cast<bool>(it), 4);
   }
   for (const auto &it : this->int_array) {
     dump_field(out, "int_array", it, 4);
@@ -1155,6 +1289,25 @@ void ExecuteServiceRequest::dump_to(std::string &out) const {
     it.dump_to(out);
     out.append("\n");
   }
+#ifdef USE_API_USER_DEFINED_ACTION_RESPONSES
+  dump_field(out, "call_id", this->call_id);
+#endif
+#ifdef USE_API_USER_DEFINED_ACTION_RESPONSES
+  dump_field(out, "return_response", this->return_response);
+#endif
+}
+#endif
+#ifdef USE_API_USER_DEFINED_ACTION_RESPONSES
+void ExecuteServiceResponse::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "ExecuteServiceResponse");
+  dump_field(out, "call_id", this->call_id);
+  dump_field(out, "success", this->success);
+  dump_field(out, "error_message", this->error_message_ref_);
+#ifdef USE_API_USER_DEFINED_ACTION_RESPONSES_JSON
+  out.append("  response_data: ");
+  out.append(format_hex_pretty(this->response_data, this->response_data_len));
+  out.append("\n");
+#endif
 }
 #endif
 #ifdef USE_CAMERA
@@ -1232,6 +1385,7 @@ void ListEntitiesClimateResponse::dump_to(std::string &out) const {
 #ifdef USE_DEVICES
   dump_field(out, "device_id", this->device_id);
 #endif
+  dump_field(out, "feature_flags", this->feature_flags);
 }
 void ClimateStateResponse::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "ClimateStateResponse");
@@ -1269,16 +1423,69 @@ void ClimateCommandRequest::dump_to(std::string &out) const {
   dump_field(out, "has_swing_mode", this->has_swing_mode);
   dump_field(out, "swing_mode", static_cast<enums::ClimateSwingMode>(this->swing_mode));
   dump_field(out, "has_custom_fan_mode", this->has_custom_fan_mode);
-  dump_field(out, "custom_fan_mode", this->custom_fan_mode);
+  out.append("  custom_fan_mode: ");
+  out.append(format_hex_pretty(this->custom_fan_mode, this->custom_fan_mode_len));
+  out.append("\n");
   dump_field(out, "has_preset", this->has_preset);
   dump_field(out, "preset", static_cast<enums::ClimatePreset>(this->preset));
   dump_field(out, "has_custom_preset", this->has_custom_preset);
-  dump_field(out, "custom_preset", this->custom_preset);
+  out.append("  custom_preset: ");
+  out.append(format_hex_pretty(this->custom_preset, this->custom_preset_len));
+  out.append("\n");
   dump_field(out, "has_target_humidity", this->has_target_humidity);
   dump_field(out, "target_humidity", this->target_humidity);
 #ifdef USE_DEVICES
   dump_field(out, "device_id", this->device_id);
 #endif
+}
+#endif
+#ifdef USE_WATER_HEATER
+void ListEntitiesWaterHeaterResponse::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "ListEntitiesWaterHeaterResponse");
+  dump_field(out, "object_id", this->object_id_ref_);
+  dump_field(out, "key", this->key);
+  dump_field(out, "name", this->name_ref_);
+#ifdef USE_ENTITY_ICON
+  dump_field(out, "icon", this->icon_ref_);
+#endif
+  dump_field(out, "disabled_by_default", this->disabled_by_default);
+  dump_field(out, "entity_category", static_cast<enums::EntityCategory>(this->entity_category));
+#ifdef USE_DEVICES
+  dump_field(out, "device_id", this->device_id);
+#endif
+  dump_field(out, "min_temperature", this->min_temperature);
+  dump_field(out, "max_temperature", this->max_temperature);
+  dump_field(out, "target_temperature_step", this->target_temperature_step);
+  for (const auto &it : *this->supported_modes) {
+    dump_field(out, "supported_modes", static_cast<enums::WaterHeaterMode>(it), 4);
+  }
+  dump_field(out, "supported_features", this->supported_features);
+}
+void WaterHeaterStateResponse::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "WaterHeaterStateResponse");
+  dump_field(out, "key", this->key);
+  dump_field(out, "current_temperature", this->current_temperature);
+  dump_field(out, "target_temperature", this->target_temperature);
+  dump_field(out, "mode", static_cast<enums::WaterHeaterMode>(this->mode));
+#ifdef USE_DEVICES
+  dump_field(out, "device_id", this->device_id);
+#endif
+  dump_field(out, "state", this->state);
+  dump_field(out, "target_temperature_low", this->target_temperature_low);
+  dump_field(out, "target_temperature_high", this->target_temperature_high);
+}
+void WaterHeaterCommandRequest::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "WaterHeaterCommandRequest");
+  dump_field(out, "key", this->key);
+  dump_field(out, "has_fields", this->has_fields);
+  dump_field(out, "mode", static_cast<enums::WaterHeaterMode>(this->mode));
+  dump_field(out, "target_temperature", this->target_temperature);
+#ifdef USE_DEVICES
+  dump_field(out, "device_id", this->device_id);
+#endif
+  dump_field(out, "state", this->state);
+  dump_field(out, "target_temperature_low", this->target_temperature_low);
+  dump_field(out, "target_temperature_high", this->target_temperature_high);
 }
 #endif
 #ifdef USE_NUMBER
@@ -1350,7 +1557,9 @@ void SelectStateResponse::dump_to(std::string &out) const {
 void SelectCommandRequest::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "SelectCommandRequest");
   dump_field(out, "key", this->key);
-  dump_field(out, "state", this->state);
+  out.append("  state: ");
+  out.append(format_hex_pretty(this->state, this->state_len));
+  out.append("\n");
 #ifdef USE_DEVICES
   dump_field(out, "device_id", this->device_id);
 #endif
@@ -1622,7 +1831,7 @@ void BluetoothGATTWriteRequest::dump_to(std::string &out) const {
   dump_field(out, "handle", this->handle);
   dump_field(out, "response", this->response);
   out.append("  data: ");
-  out.append(format_hex_pretty(reinterpret_cast<const uint8_t *>(this->data.data()), this->data.size()));
+  out.append(format_hex_pretty(this->data, this->data_len));
   out.append("\n");
 }
 void BluetoothGATTReadDescriptorRequest::dump_to(std::string &out) const {
@@ -1635,7 +1844,7 @@ void BluetoothGATTWriteDescriptorRequest::dump_to(std::string &out) const {
   dump_field(out, "address", this->address);
   dump_field(out, "handle", this->handle);
   out.append("  data: ");
-  out.append(format_hex_pretty(reinterpret_cast<const uint8_t *>(this->data.data()), this->data.size()));
+  out.append(format_hex_pretty(this->data, this->data_len));
   out.append("\n");
 }
 void BluetoothGATTNotifyRequest::dump_to(std::string &out) const {
@@ -1704,6 +1913,7 @@ void BluetoothScannerStateResponse::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "BluetoothScannerStateResponse");
   dump_field(out, "state", static_cast<enums::BluetoothScannerState>(this->state));
   dump_field(out, "mode", static_cast<enums::BluetoothScannerMode>(this->mode));
+  dump_field(out, "configured_mode", static_cast<enums::BluetoothScannerMode>(this->configured_mode));
 }
 void BluetoothScannerSetModeRequest::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "BluetoothScannerSetModeRequest");
@@ -1787,8 +1997,25 @@ void VoiceAssistantWakeWord::dump_to(std::string &out) const {
     dump_field(out, "trained_languages", it, 4);
   }
 }
+void VoiceAssistantExternalWakeWord::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "VoiceAssistantExternalWakeWord");
+  dump_field(out, "id", this->id);
+  dump_field(out, "wake_word", this->wake_word);
+  for (const auto &it : this->trained_languages) {
+    dump_field(out, "trained_languages", it, 4);
+  }
+  dump_field(out, "model_type", this->model_type);
+  dump_field(out, "model_size", this->model_size);
+  dump_field(out, "model_hash", this->model_hash);
+  dump_field(out, "url", this->url);
+}
 void VoiceAssistantConfigurationRequest::dump_to(std::string &out) const {
-  out.append("VoiceAssistantConfigurationRequest {}");
+  MessageDumpHelper helper(out, "VoiceAssistantConfigurationRequest");
+  for (const auto &it : this->external_wake_words) {
+    out.append("  external_wake_words: ");
+    it.dump_to(out);
+    out.append("\n");
+  }
 }
 void VoiceAssistantConfigurationResponse::dump_to(std::string &out) const {
   MessageDumpHelper helper(out, "VoiceAssistantConfigurationResponse");
@@ -1968,7 +2195,7 @@ void ListEntitiesEventResponse::dump_to(std::string &out) const {
   dump_field(out, "disabled_by_default", this->disabled_by_default);
   dump_field(out, "entity_category", static_cast<enums::EntityCategory>(this->entity_category));
   dump_field(out, "device_class", this->device_class_ref_);
-  for (const auto &it : this->event_types) {
+  for (const auto &it : *this->event_types) {
     dump_field(out, "event_types", it, 4);
   }
 #ifdef USE_DEVICES
@@ -2095,6 +2322,21 @@ void UpdateCommandRequest::dump_to(std::string &out) const {
 #ifdef USE_DEVICES
   dump_field(out, "device_id", this->device_id);
 #endif
+}
+#endif
+#ifdef USE_ZWAVE_PROXY
+void ZWaveProxyFrame::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "ZWaveProxyFrame");
+  out.append("  data: ");
+  out.append(format_hex_pretty(this->data, this->data_len));
+  out.append("\n");
+}
+void ZWaveProxyRequest::dump_to(std::string &out) const {
+  MessageDumpHelper helper(out, "ZWaveProxyRequest");
+  dump_field(out, "type", static_cast<enums::ZWaveProxyRequestType>(this->type));
+  out.append("  data: ");
+  out.append(format_hex_pretty(this->data, this->data_len));
+  out.append("\n");
 }
 #endif
 

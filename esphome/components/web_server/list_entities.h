@@ -5,25 +5,24 @@
 #include "esphome/core/component.h"
 #include "esphome/core/component_iterator.h"
 namespace esphome {
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
 namespace web_server_idf {
 class AsyncEventSource;
 }
 #endif
 namespace web_server {
 
-#ifdef USE_ARDUINO
+#if !defined(USE_ESP32) && defined(USE_ARDUINO)
 class DeferredUpdateEventSource;
 #endif
 class WebServer;
 
 class ListEntitiesIterator : public ComponentIterator {
  public:
-#ifdef USE_ARDUINO
-  ListEntitiesIterator(const WebServer *ws, DeferredUpdateEventSource *es);
-#endif
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
   ListEntitiesIterator(const WebServer *ws, esphome::web_server_idf::AsyncEventSource *es);
+#elif defined(USE_ARDUINO)
+  ListEntitiesIterator(const WebServer *ws, DeferredUpdateEventSource *es);
 #endif
   virtual ~ListEntitiesIterator();
 #ifdef USE_BINARY_SENSOR
@@ -80,6 +79,9 @@ class ListEntitiesIterator : public ComponentIterator {
 #ifdef USE_ALARM_CONTROL_PANEL
   bool on_alarm_control_panel(alarm_control_panel::AlarmControlPanel *obj) override;
 #endif
+#ifdef USE_WATER_HEATER
+  bool on_water_heater(water_heater::WaterHeater *obj) override;
+#endif
 #ifdef USE_EVENT
   bool on_event(event::Event *obj) override;
 #endif
@@ -90,11 +92,10 @@ class ListEntitiesIterator : public ComponentIterator {
 
  protected:
   const WebServer *web_server_;
-#ifdef USE_ARDUINO
-  DeferredUpdateEventSource *events_;
-#endif
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
   esphome::web_server_idf::AsyncEventSource *events_;
+#elif USE_ARDUINO
+  DeferredUpdateEventSource *events_;
 #endif
 };
 
