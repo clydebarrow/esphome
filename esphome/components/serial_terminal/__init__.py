@@ -5,14 +5,7 @@ import esphome.codegen as cg
 from esphome.components import uart, web_server_base
 from esphome.components.web_server_base import CONF_WEB_SERVER_BASE_ID
 import esphome.config_validation as cv
-from esphome.const import (
-    CONF_BAUD_RATE,
-    CONF_ID,
-    CONF_PORT,
-    CONF_UART_ID,
-    PLATFORM_ESP32,
-    PLATFORM_ESP8266,
-)
+from esphome.const import CONF_ID, CONF_UART_ID, PLATFORM_ESP32, PLATFORM_ESP8266
 from esphome.core import CORE
 
 CODEOWNERS = ["@esphome/core"]

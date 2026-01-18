@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ESPHome Serial Terminal</title>
+    <style>
+        body {
+            font-family: 'Courier New', monospace;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #1e1e1e;
+            color: #d4d4d4;
+        }
+        h1 {
+            color: #4ec9b0;
+        }
+        .controls {
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #2d2d30;
+            border-radius: 5px;
+        }
+        .controls label {
+            display: inline-block;
+            width: 120px;
+            margin-right: 10px;
+        }
+        .controls input, .controls select, .controls button {
+            padding: 5px 10px;
+            margin: 5px 0;
+            background-color: #3e3e42;
+            color: #d4d4d4;
+            border: 1px solid #555;
+            border-radius: 3px;
+        }
+        .controls button {
+            cursor: pointer;
+            background-color: #0e639c;
+            color: white;
+            border: none;
+        }
+        .controls button:hover {
+            background-color: #1177bb;
+        }
+        .controls button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        .terminal-container {
+            background-color: #000;
+            padding: 15px;
+            border-radius: 5px;
+            height: 400px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+        .terminal-output {
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            color: #0f0;
+        }
+        .terminal-input-container {
+            display: flex;
+            gap: 10px;
+        }
+        .terminal-input-container input {
+            flex: 1;
+            padding: 10px;
+            font-family: 'Courier New', monospace;
+            background-color: #2d2d30;
+            color: #d4d4d4;
+            border: 1px solid #555;
+            border-radius: 3px;
+        }
+        .terminal-input-container button {
+            padding: 10px 20px;
+            background-color: #0e639c;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .terminal-input-container button:hover {
+            background-color: #1177bb;
+        }
+        .terminal-input-container button:disabled {
+            background-color: #555;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 3px;
+        }
+        .status.connected {
+            background-color: #1e5128;
+            color: #a0e7a0;
+        }
+        .status.disconnected {
+            background-color: #5a1e1e;
+            color: #e7a0a0;
+        }
+        .status.connecting {
+            background-color: #5a4e1e;
+            color: #e7d4a0;
+        }
+    </style>
+</head>
+<body>
+    <h1>ESPHome Serial Terminal</h1>
+    
+    <div class="controls">
+        <div>
+            <label for="device-ip">Device IP:</label>
+            <input type="text" id="device-ip" value="192.168.1.100" placeholder="192.168.1.100">
+        </div>
+        <div>
+            <label for="port">Port:</label>
+            <input type="number" id="port" value="80" min="1" max="65535">
+        </div>
+        <div>
+            <label for="path">WebSocket Path:</label>
+            <input type="text" id="path" value="/serial" placeholder="/serial">
+        </div>
+        <div>
+            <button id="connect-btn" onclick="connect()">Connect</button>
+            <button id="disconnect-btn" onclick="disconnect()" disabled>Disconnect</button>
+            <button onclick="clearTerminal()">Clear Terminal</button>
+        </div>
+    </div>
+
+    <div id="status" class="status disconnected">Status: Disconnected</div>
+
+    <div class="terminal-container" id="terminal">
+        <div class="terminal-output" id="output">Waiting for connection...</div>
+    </div>
+
+    <div class="terminal-input-container">
+        <input type="text" id="input" placeholder="Type command here and press Enter..." disabled>
+        <button id="send-btn" onclick="sendData()" disabled>Send</button>
+    </div>
+
+    <script>
+        let ws = null;
+        let isConnected = false;
+
+        function updateStatus(status, className) {
+            const statusEl = document.getElementById('status');
+            statusEl.textContent = `Status: ${status}`;
+            statusEl.className = `status ${className}`;
+        }
+
+        function updateButtons() {
+            document.getElementById('connect-btn').disabled = isConnected;
+            document.getElementById('disconnect-btn').disabled = !isConnected;
+            document.getElementById('input').disabled = !isConnected;
+            document.getElementById('send-btn').disabled = !isConnected;
+        }
+
+        function appendOutput(text, className = '') {
+            const output = document.getElementById('output');
+            const span = document.createElement('span');
+            span.textContent = text;
+            if (className) {
+                span.className = className;
+            }
+            output.appendChild(span);
+            
+            // Auto-scroll to bottom
+            const container = document.getElementById('terminal');
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function clearTerminal() {
+            document.getElementById('output').textContent = '';
+        }
+
+        function connect() {
+            const ip = document.getElementById('device-ip').value;
+            const port = document.getElementById('port').value;
+            const path = document.getElementById('path').value;
+            const url = `ws://${ip}:${port}${path}`;
+
+            updateStatus('Connecting...', 'connecting');
+            appendOutput(`\nConnecting to ${url}...\n`, 'info');
+
+            try {
+                ws = new WebSocket(url);
+
+                ws.onopen = () => {
+                    isConnected = true;
+                    updateStatus('Connected', 'connected');
+                    updateButtons();
+                    appendOutput('Connected to serial terminal!\n', 'success');
+                };
+
+                ws.onmessage = (event) => {
+                    appendOutput(event.data);
+                };
+
+                ws.onerror = (error) => {
+                    appendOutput(`\nWebSocket error: ${error}\n`, 'error');
+                    updateStatus('Error', 'disconnected');
+                };
+
+                ws.onclose = () => {
+                    isConnected = false;
+                    updateStatus('Disconnected', 'disconnected');
+                    updateButtons();
+                    appendOutput('\nDisconnected from serial terminal.\n', 'info');
+                    ws = null;
+                };
+            } catch (error) {
+                updateStatus('Connection failed', 'disconnected');
+                appendOutput(`\nFailed to connect: ${error}\n`, 'error');
+            }
+        }
+
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+
+        function sendData() {
+            const input = document.getElementById('input');
+            const data = input.value;
+            
+            if (data && ws && isConnected) {
+                ws.send(data);
+                appendOutput(`> ${data}\n`, 'sent');
+                input.value = '';
+            }
+        }
+
+        // Send data on Enter key press
+        document.getElementById('input').addEventListener('keypress', (event) => {
+            if (event.key === 'Enter') {
+                sendData();
+            }
+        });
+
+        // Auto-focus input on load
+        window.addEventListener('load', () => {
+            updateButtons();
+        });
+    </script>
+</body>
+</html>
