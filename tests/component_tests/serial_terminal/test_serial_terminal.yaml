@@ -1,0 +1,76 @@
+# Test configuration for serial_terminal component
+#
+# This file validates the serial_terminal component configuration
+# and ensures it compiles correctly for ESP32 platform.
+
+esphome:
+  name: test-serial-terminal
+  friendly_name: "Serial Terminal Test"
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+# Enable logging
+logger:
+  level: DEBUG
+  # Use a different UART for logging to avoid conflicts
+  hardware_uart: UART0
+
+# Network connectivity
+wifi:
+  ssid: "TestSSID"
+  password: "TestPassword"
+  ap:
+    ssid: "Serial Terminal Test"
+    password: "12345678"
+
+# Web server components
+web_server_base:
+  id: web_server_base_id
+
+web_server:
+  port: 80
+  log: false  # Disable log streaming to avoid UART conflicts
+
+# UART configuration for serial terminal
+uart:
+  - id: uart_serial_1
+    tx_pin: GPIO1
+    rx_pin: GPIO3
+    baud_rate: 115200
+    stop_bits: 1
+    data_bits: 8
+    parity: NONE
+  
+  # Second UART for testing multiple terminals
+  - id: uart_serial_2
+    tx_pin: GPIO17
+    rx_pin: GPIO16
+    baud_rate: 9600
+
+# Serial terminal configuration
+serial_terminal:
+  web_server_base_id: web_server_base_id
+  serial_terminals:
+    # First serial terminal on /serial
+    - id: serial_term_1
+      uart_id: uart_serial_1
+      path: "/serial"
+    
+    # Second serial terminal on /serial2
+    - id: serial_term_2
+      uart_id: uart_serial_2
+      path: "/serial2"
+
+# Optional: Add a simple binary sensor for testing
+binary_sensor:
+  - platform: gpio
+    name: "Test Button"
+    pin:
+      number: GPIO0
+      inverted: true
+      mode:
+        input: true
+        pullup: true
