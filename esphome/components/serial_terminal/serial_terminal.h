@@ -7,12 +7,14 @@
 #ifdef USE_ESP32
 #include <esp_http_server.h>
 #include "esphome/components/web_server_idf/web_server_idf.h"
+#include "esphome/core/helpers.h"
 #elif defined(USE_ESP8266)
 #include "esphome/components/web_server_base/web_server_base.h"
 #endif
 
 #include <string>
 #include <vector>
+#include <atomic>
 #include <mutex>
 
 namespace esphome {
@@ -31,16 +33,13 @@ namespace serial_terminal {
  */
 class SerialTerminal : public Component, public web_server_idf::AsyncWebHandler {
  public:
-  SerialTerminal() = default;
+  SerialTerminal(uart::UARTComponent *uart, const std::string &path, httpd_handle_t server, size_t buffer_size)
+      : uart_(uart), path_(path), server_(server), tx_buffer_size_(buffer_size) {}
 
   void setup() override;
   void loop() override;
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::LATE; }
-
-  void set_uart(uart::UARTComponent *uart) { this->uart_ = uart; }
-  void set_path(const std::string &path) { this->path_ = path; }
-  void set_server(httpd_handle_t server) { this->server_ = server; }
 
   // AsyncWebHandler interface
   bool canHandle(web_server_idf::AsyncWebServerRequest *request) const override;
@@ -84,17 +83,20 @@ class SerialTerminal : public Component, public web_server_idf::AsyncWebHandler 
    */
   void remove_client_(int fd);
 
-  uart::UARTComponent *uart_{nullptr};
-  httpd_handle_t server_{nullptr};
-  std::string path_{"/serial"};
+  uart::UARTComponent *uart_;
+  httpd_handle_t server_;
+  std::string path_;
+  size_t tx_buffer_size_;
 
   // Thread-safe client management
+  // Using atomic count to quickly check if we have clients without locking
+  std::atomic<size_t> clients_count_{0};
   std::mutex clients_mutex_;
   std::vector<int> clients_;  // Active WebSocket client file descriptors
 
-  // Thread-safe message queue for WebSocket -> UART
+  // Message queue for WebSocket -> UART (single producer from WebSocket handler, single consumer in loop)
   std::mutex tx_queue_mutex_;
-  std::vector<uint8_t> tx_queue_;  // Data received from WebSocket, waiting to be sent to UART
+  FixedVector<uint8_t> tx_queue_;
 
   // Buffer for UART -> WebSocket
   static constexpr size_t RX_BUFFER_SIZE = 512;
@@ -110,20 +112,16 @@ class SerialTerminal : public Component, public web_server_idf::AsyncWebHandler 
  */
 class SerialTerminal : public Component {
  public:
-  SerialTerminal() = default;
+  SerialTerminal(uart::UARTComponent *uart, const std::string &path) : uart_(uart), path_(path) {}
 
   void setup() override {}
   void loop() override {}
   void dump_config() override;
   float get_setup_priority() const override { return setup_priority::LATE; }
 
-  void set_uart(uart::UARTComponent *uart) { this->uart_ = uart; }
-  void set_path(const std::string &path) { this->path_ = path; }
-  void set_server(void *server) {}  // Not used on ESP8266
-
  protected:
-  uart::UARTComponent *uart_{nullptr};
-  std::string path_{"/serial"};
+  uart::UARTComponent *uart_;
+  std::string path_;
 };
 #endif
 

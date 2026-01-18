@@ -27,6 +27,9 @@ void SerialTerminal::setup() {
     return;
   }
 
+  // Initialize tx_queue_ with configured buffer size
+  this->tx_queue_.reserve(this->tx_buffer_size_);
+
   // Register WebSocket handler with ESP-IDF HTTP server
   const httpd_uri_t ws_handler_config = {
       .uri = this->path_.c_str(),
@@ -58,6 +61,7 @@ void SerialTerminal::loop() {
 void SerialTerminal::dump_config() {
   ESP_LOGCONFIG(TAG, "Serial Terminal:");
   ESP_LOGCONFIG(TAG, "  Path: %s", this->path_.c_str());
+  ESP_LOGCONFIG(TAG, "  Buffer Size: %zu", this->tx_buffer_size_);
   ESP_LOGCONFIG(TAG, "  UART: %p", (void *) this->uart_);
   if (this->uart_ != nullptr) {
     ESP_LOGCONFIG(TAG, "  Baud Rate: %" PRIu32, this->uart_->get_baud_rate());
@@ -120,8 +124,20 @@ esp_err_t SerialTerminal::ws_handler(httpd_req_t *req) {
 
   // Handle data frames (TEXT or BINARY)
   if (ws_pkt.len > 0) {
-    std::vector<uint8_t> buf(ws_pkt.len);
-    ws_pkt.payload = buf.data();
+    // Use stack buffer for small frames, heap for large ones
+    constexpr size_t STACK_BUF_SIZE = 256;
+    uint8_t stack_buf[STACK_BUF_SIZE];
+    std::vector<uint8_t> heap_buf;
+    uint8_t *buf;
+    
+    if (ws_pkt.len <= STACK_BUF_SIZE) {
+      buf = stack_buf;
+    } else {
+      heap_buf.resize(ws_pkt.len);
+      buf = heap_buf.data();
+    }
+    
+    ws_pkt.payload = buf;
     
     ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
     if (ret != ESP_OK) {
@@ -136,6 +152,7 @@ esp_err_t SerialTerminal::ws_handler(httpd_req_t *req) {
       std::lock_guard<std::mutex> lock(self->clients_mutex_);
       if (std::find(self->clients_.begin(), self->clients_.end(), fd) == self->clients_.end()) {
         self->clients_.push_back(fd);
+        self->clients_count_.store(self->clients_.size(), std::memory_order_release);
         ESP_LOGI(TAG, "Added WebSocket client fd %d, total clients: %d", fd, self->clients_.size());
       }
     }
@@ -143,7 +160,12 @@ esp_err_t SerialTerminal::ws_handler(httpd_req_t *req) {
     // Queue data to be sent to UART in the main loop
     {
       std::lock_guard<std::mutex> lock(self->tx_queue_mutex_);
-      self->tx_queue_.insert(self->tx_queue_.end(), buf.begin(), buf.begin() + ws_pkt.len);
+      // Check if we have space
+      if (self->tx_queue_.size() + ws_pkt.len <= self->tx_buffer_size_) {
+        self->tx_queue_.insert(self->tx_queue_.end(), buf, buf + ws_pkt.len);
+      } else {
+        ESP_LOGW(TAG, "TX queue full, dropping %d bytes", ws_pkt.len);
+      }
     }
   }
 
@@ -155,14 +177,8 @@ void SerialTerminal::send_uart_to_websocket_() {
     return;
   }
 
-  // Check if we have any clients
-  bool has_clients = false;
-  {
-    std::lock_guard<std::mutex> lock(this->clients_mutex_);
-    has_clients = !this->clients_.empty();
-  }
-
-  if (!has_clients) {
+  // Quick check without lock if we have any clients
+  if (this->clients_count_.load(std::memory_order_acquire) == 0) {
     return;
   }
 
@@ -195,6 +211,7 @@ void SerialTerminal::send_uart_to_websocket_() {
     if (ret != ESP_OK) {
       ESP_LOGW(TAG, "Failed to send to WebSocket client fd %d: %s, removing client", fd, esp_err_to_name(ret));
       it = this->clients_.erase(it);
+      this->clients_count_.store(this->clients_.size(), std::memory_order_release);
     } else {
       ++it;
     }
@@ -206,7 +223,7 @@ void SerialTerminal::process_websocket_to_uart_() {
     return;
   }
 
-  std::vector<uint8_t> data_to_send;
+  FixedVector<uint8_t> data_to_send;
   
   // Get queued data
   {
@@ -214,7 +231,8 @@ void SerialTerminal::process_websocket_to_uart_() {
     if (this->tx_queue_.empty()) {
       return;
     }
-    data_to_send.swap(this->tx_queue_);
+    data_to_send = std::move(this->tx_queue_);
+    this->tx_queue_.clear();
   }
 
   // Send to UART
@@ -241,6 +259,7 @@ void SerialTerminal::remove_client_(int fd) {
   auto it = std::find(this->clients_.begin(), this->clients_.end(), fd);
   if (it != this->clients_.end()) {
     this->clients_.erase(it);
+    this->clients_count_.store(this->clients_.size(), std::memory_order_release);
     ESP_LOGI(TAG, "Removed WebSocket client fd %d, remaining clients: %d", fd, this->clients_.size());
   }
 }
