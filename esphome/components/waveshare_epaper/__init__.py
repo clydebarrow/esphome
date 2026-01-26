@@ -1,6 +1,5 @@
-CODEOWNERS = ["@clydebarrow"]
-
 DOMAIN = "waveshare_epaper"
+CODEOWNERS = ["@clydebarrow"]
 
 DEPRECATED_COMPONENT = """
 The 'waveshare_epaper' component is deprecated and no new models will be added to it.
