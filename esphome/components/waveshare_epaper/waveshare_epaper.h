@@ -26,7 +26,6 @@ class WaveshareEPaperBase : public display::DisplayBuffer,
   virtual void deep_sleep() = 0;
 
   void update() override;
-
   void setup() override;
 
   void on_safe_shutdown() override;
