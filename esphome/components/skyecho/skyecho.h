@@ -105,7 +105,7 @@ class SkyEcho : public PollingComponent {
     socklen_t addr_len = sizeof from_addr;
     auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
     if (len >= 0) {
-      esph_log_d(TAG, "Received %d bytes", len);
+      ESP_LOGV(TAG, "Received %d bytes", len);
       gdl90GetBlocks(
           buf, len,
           [this](const gdlDataPacket_t *packet, in_addr *srcAddr) -> void { this->block_callback(packet, srcAddr); },
@@ -116,32 +116,32 @@ class SkyEcho : public PollingComponent {
   void processPacket(gdl90Data_t *packet, struct in_addr *srcAddr) {
     switch (packet->id) {
       case GDL90_HEARTBEAT:
-        esph_log_d(TAG, "Heartbeat @%d GPSvalid %s", (int) packet->heartbeat.timeStamp,
-                   packet->heartbeat.gpsPosValid ? "true" : "false");
+        ESP_LOGV(TAG, "Heartbeat @%d GPSvalid %s", (int) packet->heartbeat.timeStamp,
+                 packet->heartbeat.gpsPosValid ? "true" : "false");
         this->setHeartbeat(&packet->heartbeat);
         break;
 
       case GDL90_OWNSHIP_REPORT:
-        esph_log_d(TAG, "Ownship report");
+        ESP_LOGV(TAG, "Ownship report");
         this->setOwnshipPosition(&packet->positionReport);
         break;
 
       case GDL90_TRAFFIC_REPORT:
-        esph_log_d(TAG, "Traffic report");
+        ESP_LOGV(TAG, "Traffic report");
         this->processTraffic(&packet->positionReport);
         break;
 
       case GDL90_OWNSHIP_GEO_ALT:
-        esph_log_d(TAG, "Geo Alt: %.1f m", packet->ownshipAltitude.geoAltitude);
+        ESP_LOGV(TAG, "Geo Alt: %.1f m", packet->ownshipAltitude.geoAltitude);
         this->ownship_altitude_ = packet->ownshipAltitude;
         break;
 
       case GDL90_FOREFLIGHT_ID:
-        esph_log_d(TAG, "Foreflight ID: %s", packet->foreflightId.name);
+        ESP_LOGV(TAG, "Foreflight ID: %s", packet->foreflightId.name);
         break;
 
       default:
-        ESP_LOGI(TAG, "Received unhandled packet type %d", packet->id);
+        ESP_LOGD(TAG, "Received unhandled packet type %d", packet->id);
         break;
     }
   }
@@ -149,7 +149,7 @@ class SkyEcho : public PollingComponent {
   void block_callback(const gdlDataPacket_t *packet, in_addr *srcAddr) {
     gdl90Data_t data;
     if (packet->err != GDL90_ERR_NONE) {
-      ESP_LOGI(TAG, "DecodeBlock failed - %s: id %d, len %d", gdl90ErrorMessage(packet->err), packet->data[0],
+      ESP_LOGD(TAG, "DecodeBlock failed - %s: id %d, len %d", gdl90ErrorMessage(packet->err), packet->data[0],
                packet->len);
     } else {
       memset(&data, 0, sizeof(data));
@@ -157,7 +157,7 @@ class SkyEcho : public PollingComponent {
       if (err == GDL90_ERR_NONE) {
         processPacket(&data, srcAddr);
       } else
-        ESP_LOGI(TAG, "Decode packet id %d failed with err %s", data.id, gdl90ErrorMessage(err));
+        ESP_LOGD(TAG, "Decode packet id %d failed with err %s", data.id, gdl90ErrorMessage(err));
     }
   }
 
@@ -170,7 +170,7 @@ class SkyEcho : public PollingComponent {
       socket::set_sockaddr(&addr, sizeof(addr), {"255.255.255.255"}, pingPorts[i]);
       auto err = this->ping_socket_->sendto(pingPayload, strlen(pingPayload), 0, &addr, sizeof(addr));
       if (err < 0) {
-        esph_log_e(TAG, "Sendto failed on port %d with err %d", pingPorts[i], err);
+        ESP_LOGD(TAG, "Sendto failed on port %d with err %d", pingPorts[i], err);
       }
     }
   }
@@ -179,8 +179,8 @@ class SkyEcho : public PollingComponent {
   void setOwnshipPosition(const gdl90PositionReport_t *position) {
     this->ownship_.report = *position;
     this->ownship_.timestampMs = millis();
-    esph_log_i(TAG, "Ownship: lat=%.4f lon=%.4f alt=%.0fm spd=%.0fm/s", position->latitude, position->longitude,
-               position->altitude, position->groundSpeed);
+    ESP_LOGV(TAG, "Ownship: lat=%.4f lon=%.4f alt=%.0fm spd=%.0fm/s", position->latitude, position->longitude,
+             position->altitude, position->groundSpeed);
   }
 
   void setHeartbeat(const gdl90Heartbeat_t *heartbeat) { this->heartbeat_ = *heartbeat; }
@@ -241,7 +241,7 @@ class SkyEcho : public PollingComponent {
     float distance = trafficDistance(&this->ownship_.report, report);
 
     // Check if target is already in our list
-    for (size_t i = 0; i < MAX_TRAFFIC_TRACKED; i++) {
+    for (size_t i = 0; i != MAX_TRAFFIC_TRACKED; i++) {
       if (this->traffic_[i].report.addressType == report->addressType &&
           this->traffic_[i].report.address == report->address) {
         this->updateTraffic(&this->traffic_[i], report, distance);
