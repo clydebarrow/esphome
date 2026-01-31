@@ -4,9 +4,12 @@ from esphome.const import CONF_ID
 
 CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["network"]
+AUTO_LOAD = ["socket"]
 
 skyecho_ns = cg.esphome_ns.namespace("skyecho")
 SkyEchoComponent = skyecho_ns.class_("SkyEcho", cg.PollingComponent)
+
+CONF_SKYECHO_ID = "skyecho_id"
 
 
 CONFIG_SCHEMA = cv.All(
