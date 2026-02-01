@@ -8,7 +8,7 @@
 namespace esphome {
 namespace skyecho {
 
-static const char *const TAG_TEXT = "skyecho.text_sensor";
+static const char *const TAG = "skyecho.text_sensor";
 
 // Accuracy map based on NACp values (in meters)
 static const int ACCURACY_MAP[] = {
@@ -26,7 +26,7 @@ static const int ACCURACY_MAP[] = {
     3,      // 11: < 3 m
 };
 
-void SkyEchoTextSensor::dump_config() { ESP_LOGCONFIG(TAG_TEXT, "SkyEcho Text Sensor"); }
+void SkyEchoTextSensor::dump_config() { ESP_LOGCONFIG(TAG, "SkyEcho Text Sensor"); }
 
 int SkyEchoTextSensor::get_accuracy(int nacP) {
   if (nacP < 0 || nacP >= (int) (sizeof(ACCURACY_MAP) / sizeof(ACCURACY_MAP[0])))
