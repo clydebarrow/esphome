@@ -7,6 +7,7 @@
 #include "esphome/components/uart/uart.h"
 #include "flarm.h"
 #include "gdl90.h"
+#include <cmath>
 
 namespace esphome {
 namespace skyecho {
@@ -32,7 +33,14 @@ class SkyEcho : public PollingComponent {
     // Set up FLARM parser callbacks
     this->flarm_parser_.set_pflau_callback([this](const FlarmPflau &data) { this->process_flarm_pflau_(data); });
     this->flarm_parser_.set_pflaa_callback([this](const FlarmPflaa &data) { this->process_flarm_pflaa_(data); });
+    this->flarm_parser_.set_ownship_callback(
+        [this](const OwnshipPosition &data) { this->process_flarm_ownship_(data); });
   }
+
+  /**
+   * Get current ownship position from FLARM GPS
+   */
+  const OwnshipPosition &get_flarm_ownship() const { return this->flarm_parser_.get_ownship(); }
 
   void setup() override {
     this->socket_ = socket::socket_ip(SOCK_DGRAM, IPPROTO_UDP);
@@ -157,7 +165,7 @@ class SkyEcho : public PollingComponent {
     socklen_t addr_len = sizeof from_addr;
     auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
     if (len >= 0) {
-      esph_log_d(TAG, "Received %d bytes from GDL90", len);
+      esph_log_v(TAG, "Received %d bytes from GDL90", len);
       gdl90GetBlocks(
           buf, len,
           [this](const gdlDataPacket_t *packet, in_addr *srcAddr) -> void { this->block_callback(packet, srcAddr); },
@@ -177,7 +185,7 @@ class SkyEcho : public PollingComponent {
         break;
     }
     if (idx != 0) {
-      ESP_LOGD(TAG, "Processing %d bytes from FLARM UART", idx);
+      esph_log_vv(TAG, "Processing %d bytes from FLARM UART", idx);
       this->flarm_parser_.process_bytes(buf, idx);
     }
   }
@@ -193,15 +201,42 @@ class SkyEcho : public PollingComponent {
   }
 
   void process_flarm_pflaa_(const FlarmPflaa &data) {
+    const OwnshipPosition &ownship = this->flarm_parser_.get_ownship();
+
     esph_log_d(TAG, "FLARM PFLAA: ID=%06X alarm=%d N=%d E=%d V=%d", data.id, data.alarm_level, data.relative_north,
                data.relative_east, data.relative_vertical);
-    if (data.track_valid) {
-      esph_log_d(TAG, "  Track=%d, GS=%u, VS=%d, type=%d", data.track, data.ground_speed, data.climb_rate,
-                 data.aircraft_type);
+
+    // Convert relative position to absolute if we have ownship position
+    if (ownship.position_valid && data.east_valid) {
+      // Approximate conversion: 1 degree latitude = 111,111 meters
+      // 1 degree longitude = 111,111 * cos(latitude) meters
+      float lat_offset = data.relative_north / 111111.0f;
+      float lon_offset = data.relative_east / (111111.0f * cosf(ownship.latitude * M_PI / 180.0f));
+
+      float target_lat = ownship.latitude + lat_offset;
+      float target_lon = ownship.longitude + lon_offset;
+      float target_alt = (ownship.altitude_msl_valid ? ownship.altitude_msl : 0) + data.relative_vertical;
+
+      esph_log_d(TAG, "  Absolute position: lat=%.6f, lon=%.6f, alt=%.0f m", target_lat, target_lon, target_alt);
+
+      if (data.track_valid) {
+        esph_log_d(TAG, "  Track=%d, GS=%u, VS=%d, type=%d", data.track, data.ground_speed, data.climb_rate,
+                   data.aircraft_type);
+      }
+      // TODO: Add to merged traffic list
+    } else {
+      esph_log_d(TAG, "  (No ownship position - relative only)");
     }
-    // TODO: Merge FLARM traffic with SkyEcho/GDL90 traffic
-    // Convert FLARM relative position to absolute position using ownship position
-    // and add to traffic list
+  }
+
+  void process_flarm_ownship_(const OwnshipPosition &data) {
+    esph_log_d(TAG, "FLARM Ownship: lat=%.6f, lon=%.6f, alt_msl=%.1f m, alt_baro=%.1f m", data.latitude, data.longitude,
+               data.altitude_msl, data.altitude_baro);
+    if (data.speed_valid) {
+      esph_log_d(TAG, "  Speed=%.1f m/s, Track=%.1f deg", data.ground_speed, data.track);
+    }
+    // Store ownship position for traffic position calculation
+    // The position is already stored in flarm_parser_.ownship_
   }
 
   std::unique_ptr<socket::Socket> socket_{};
