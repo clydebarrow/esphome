@@ -133,6 +133,43 @@ void SkyEchoTextSensor::generate_pgrmz(std::string &output) {
   output += sentence;
 }
 
+int SkyEchoTextSensor::gdl90_to_flarm_type(emitterCategory_t category) {
+  // Convert GDL90 emitter category to FLARM aircraft type
+  // FLARM types: 0=unknown, 1=glider, 2=tow, 3=heli, 4=parachute, 5=drop, 6=hang-glider,
+  //              7=para-glider, 8=powered, 9=jet, A=UFO, B=balloon, C=airship, D=UAV, F=static
+  switch (category) {
+    case Glider:
+      return 1;  // glider/motor glider
+    case Rotorcraft:
+      return 3;  // helicopter/rotorcraft
+    case Parachute:
+      return 4;  // parachute
+    case HangGlider:
+      return 6;  // hang glider
+    case Balloon:
+      return 0xB;  // balloon
+    case UAV:
+      return 0xD;  // UAV
+    case Fighter:
+      return 9;  // jet aircraft
+    case Heavy:
+    case Large:
+    case HighVortex:
+      return 9;  // jet aircraft
+    case Light:
+    case Small:
+      return 8;  // powered aircraft
+    case Obstacle:
+    case ObstacleCluster:
+    case ObstacleLine:
+    case SurfaceEmergency:
+    case SurfaceService:
+      return 0xF;  // static object
+    default:
+      return 0;  // unknown
+  }
+}
+
 void SkyEchoTextSensor::generate_pflaa(std::string &output) {
   ownship_t ownship;
 
@@ -157,6 +194,9 @@ void SkyEchoTextSensor::generate_pflaa(std::string &output) {
     int ground_speed_kmh = (int) (traffic[i].report.groundSpeed * 3.6f);
     int climb_rate_ms = (int) traffic[i].report.verticalSpeed;
 
+    // Convert GDL90 category to FLARM aircraft type
+    int flarm_type = this->gdl90_to_flarm_type(traffic[i].report.category);
+
     // PFLAA format:
     // $PFLAA,<AlarmLevel>,<RelativeNorth>,<RelativeEast>,<RelativeVertical>,
     //        <IDType>,<ID>,<Track>,<TurnRate>,<GroundSpeed>,<ClimbRate>,<AcftType>
@@ -165,7 +205,7 @@ void SkyEchoTextSensor::generate_pflaa(std::string &output) {
              rel_north, rel_east, rel_vert,
              1,  // ID type (1 = ICAO)
              (unsigned int) traffic[i].report.address, (int) traffic[i].report.track, ground_speed_kmh, climb_rate_ms,
-             (unsigned int) traffic[i].report.category);
+             flarm_type);
 
     std::string sentence = this->nmea_buf_;
     this->add_checksum(sentence);

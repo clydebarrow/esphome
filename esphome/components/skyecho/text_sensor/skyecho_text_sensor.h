@@ -28,6 +28,7 @@ class SkyEchoTextSensor : public text_sensor::TextSensor, public PollingComponen
   uint8_t calculate_checksum(const char *sentence);
   void add_checksum(std::string &sentence);
   int get_accuracy(int nacP);
+  int gdl90_to_flarm_type(emitterCategory_t category);
 };
 
 }  // namespace skyecho
