@@ -4,6 +4,8 @@
 #include "esphome/core/component.h"
 #include "esphome/components/network/util.h"
 #include "esphome/components/socket/socket.h"
+#include "esphome/components/uart/uart.h"
+#include "flarm.h"
 #include "gdl90.h"
 
 namespace esphome {
@@ -17,9 +19,20 @@ static const char *pingPayload = "{\"App\": \"TraffiX\","
 
 class SkyEcho : public PollingComponent {
  public:
-  void dump_config() override {}
+  void dump_config() override {
+    if (this->flarm_uart_ != nullptr) {
+      ESP_LOGCONFIG(TAG, "  FLARM UART: configured");
+    }
+  }
   void update() override {}
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
+
+  void set_flarm_uart(uart::UARTComponent *uart) {
+    this->flarm_uart_ = uart;
+    // Set up FLARM parser callbacks
+    this->flarm_parser_.set_pflau_callback([this](const FlarmPflau &data) { this->process_flarm_pflau_(data); });
+    this->flarm_parser_.set_pflaa_callback([this](const FlarmPflaa &data) { this->process_flarm_pflaa_(data); });
+  }
 
   void setup() override {
     this->socket_ = socket::socket_ip(SOCK_DGRAM, IPPROTO_UDP);
@@ -56,19 +69,11 @@ class SkyEcho : public PollingComponent {
   }
 
   void loop() override {
-    uint8_t buf[1024];
-    if (!network::is_connected())
-      return;
-    sockaddr_in from_addr;
-    socklen_t addr_len = sizeof from_addr;
-    auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
-    if (len >= 0) {
-      esph_log_d(TAG, "Received %d bytes", len);
-      gdl90GetBlocks(
-          buf, len,
-          [this](const gdlDataPacket_t *packet, in_addr *srcAddr) -> void { this->block_callback(packet, srcAddr); },
-          &from_addr.sin_addr);
-    }
+    // Process GDL90 UDP data
+    this->process_gdl90_();
+
+    // Process FLARM UART data
+    this->process_flarm_uart_();
   }
 
   void processPacket(gdl90Data_t *packet, struct in_addr *srcAddr) {
@@ -143,8 +148,66 @@ class SkyEcho : public PollingComponent {
       }
     }
   }
+
+  void process_gdl90_() {
+    uint8_t buf[1024];
+    if (!network::is_connected())
+      return;
+    sockaddr_in from_addr;
+    socklen_t addr_len = sizeof from_addr;
+    auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
+    if (len >= 0) {
+      esph_log_d(TAG, "Received %d bytes from GDL90", len);
+      gdl90GetBlocks(
+          buf, len,
+          [this](const gdlDataPacket_t *packet, in_addr *srcAddr) -> void { this->block_callback(packet, srcAddr); },
+          &from_addr.sin_addr);
+    }
+  }
+
+  void process_flarm_uart_() {
+    if (this->flarm_uart_ == nullptr)
+      return;
+
+    uint8_t buf[128];
+    uint8_t idx = 0;
+    while (this->flarm_uart_->available()) {
+      this->flarm_uart_->read_byte(buf + idx);
+      if (++idx == sizeof buf)
+        break;
+    }
+    if (idx != 0) {
+      ESP_LOGD(TAG, "Processing %d bytes from FLARM UART", idx);
+      this->flarm_parser_.process_bytes(buf, idx);
+    }
+  }
+
+  void process_flarm_pflau_(const FlarmPflau &data) {
+    esph_log_d(TAG, "FLARM PFLAU: rx=%d tx=%d gps=%d power=%d alarm=%d", data.rx, data.tx, data.gps, data.power,
+               data.alarm_level);
+    if (data.id_valid) {
+      esph_log_d(TAG, "  Target ID: %06X, bearing=%d, vertical=%d, distance=%u", data.id, data.relative_bearing,
+                 data.relative_vertical, data.relative_distance);
+    }
+    // TODO: Merge FLARM status with SkyEcho status
+  }
+
+  void process_flarm_pflaa_(const FlarmPflaa &data) {
+    esph_log_d(TAG, "FLARM PFLAA: ID=%06X alarm=%d N=%d E=%d V=%d", data.id, data.alarm_level, data.relative_north,
+               data.relative_east, data.relative_vertical);
+    if (data.track_valid) {
+      esph_log_d(TAG, "  Track=%d, GS=%u, VS=%d, type=%d", data.track, data.ground_speed, data.climb_rate,
+                 data.aircraft_type);
+    }
+    // TODO: Merge FLARM traffic with SkyEcho/GDL90 traffic
+    // Convert FLARM relative position to absolute position using ownship position
+    // and add to traffic list
+  }
+
   std::unique_ptr<socket::Socket> socket_{};
   std::unique_ptr<socket::Socket> ping_socket_{};
+  uart::UARTComponent *flarm_uart_{nullptr};
+  FlarmParser flarm_parser_;
 };
 
 }  // namespace skyecho
