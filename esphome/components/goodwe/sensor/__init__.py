@@ -1,6 +1,7 @@
 import math
 
 import esphome.codegen as cg
+from esphome.components.const import ICON_CURRENT_DC, ICON_SOLAR_POWER, UNIT_AMPERE_HOUR
 from esphome.components.sensor import Sensor, new_sensor, sensor_schema
 import esphome.config_validation as cv
 from esphome.const import (
@@ -28,9 +29,6 @@ from esphome.const import (
 )
 from esphome.core import CORE, Lambda
 
-from ...const import ICON_CURRENT_DC
-from ...daly_bms.sensor import UNIT_AMPERE_HOUR
-from ...pipsolar.sensor import ICON_SOLAR_POWER
 from .. import (
     COMMAND_SENSOR_DATA,
     COMMAND_SETTINGS_DATA,
