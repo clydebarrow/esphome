@@ -22,7 +22,6 @@ from esphome.const import (
     UNIT_AMPERE,
     UNIT_CELSIUS,
     UNIT_HERTZ,
-    UNIT_KILOWATT,
     UNIT_PERCENT,
     UNIT_VOLT,
     UNIT_WATT,
@@ -325,28 +324,25 @@ class ComputedSensor:
 COMPUTED_SENSORS = [
     ComputedSensor(
         "pv_power_1",
-        compute_fn=lambda parent: (parent.pv_voltage_1 * parent.pv_current_1) / 1000.0,
-        unit_of_measurement=UNIT_KILOWATT,
+        compute_fn=lambda parent: parent.pv_voltage_1 * parent.pv_current_1,
+        unit_of_measurement=UNIT_WATT,
         device_class=DEVICE_CLASS_POWER,
         icon=ICON_SOLAR_POWER,
     ),
     ComputedSensor(
         "pv_power_2",
-        compute_fn=lambda parent: (parent.pv_voltage_1 * parent.pv_current_1) / 1000.0,
-        unit_of_measurement=UNIT_KILOWATT,
+        compute_fn=lambda parent: parent.pv_voltage_1 * parent.pv_current_1,
+        unit_of_measurement=UNIT_WATT,
         device_class=DEVICE_CLASS_POWER,
         icon=ICON_SOLAR_POWER,
     ),
     ComputedSensor(
         "pv_power",
         compute_fn=lambda parent: (
-            (
-                parent.pv_voltage_1 * parent.pv_current_1
-                + parent.pv_voltage_2 * parent.pv_current_2
-            )
-            / 1000.0
+            parent.pv_voltage_1 * parent.pv_current_1
+            + parent.pv_voltage_2 * parent.pv_current_2
         ),
-        unit_of_measurement=UNIT_KILOWATT,
+        unit_of_measurement=UNIT_WATT,
         device_class=DEVICE_CLASS_POWER,
         icon=ICON_SOLAR_POWER,
     ),
