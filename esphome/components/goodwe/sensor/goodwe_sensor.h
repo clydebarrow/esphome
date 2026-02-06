@@ -36,4 +36,21 @@ class BatteryCurrentParameter : public SensorParameter<uint16_t, DATA_OFFSET, SC
   }
 };
 
+class ComputedSensorParameter : public sensor::Sensor, public Parameter {
+ public:
+  ComputedSensorParameter(const char *type, std::function<float()> compute_value)
+      : Parameter(type), compute_value_(compute_value) {}
+
+  void decode(bytebuffer::ByteBuffer &data) override {
+    float value = this->compute_value_();
+    this->publish_state(value);
+    ESP_LOGV(TAG, "Computed sensor value: %f for parameter type %s", value, this->type_);
+  }
+
+  void dump_config() override { LOG_SENSOR("    ", this->type_, this); }
+
+ protected:
+  std::function<float()> compute_value_;
+};
+
 }  // namespace esphome::goodwe

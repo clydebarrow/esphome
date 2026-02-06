@@ -22,14 +22,16 @@ from esphome.const import (
     UNIT_AMPERE,
     UNIT_CELSIUS,
     UNIT_HERTZ,
+    UNIT_KILOWATT,
     UNIT_PERCENT,
     UNIT_VOLT,
     UNIT_WATT,
 )
-from esphome.core import CORE
+from esphome.core import CORE, Lambda
 
 from ...const import ICON_CURRENT_DC
 from ...daly_bms.sensor import UNIT_AMPERE_HOUR
+from ...pipsolar.sensor import ICON_SOLAR_POWER
 from .. import (
     COMMAND_SENSOR_DATA,
     COMMAND_SETTINGS_DATA,
@@ -47,6 +49,9 @@ SensorParameter = goodwe_ns.class_("SensorParameter", Parameter, Sensor)
 BatteryCurrentParameter = goodwe_ns.class_(
     "BatteryCurrentParameter", SensorParameter, Parameter
 )
+ComputedSensorParameter = goodwe_ns.class_("ComputedSensorParameter", Sensor)
+
+CONF_PV_POWER = "pv_power"
 
 
 class GoodweSensor:
@@ -283,18 +288,82 @@ SENSORS = [
     SettingSensor("grid_quality_check", 68),
 ]
 
+
+class ComputedSensor:
+    def __init__(
+        self,
+        id,
+        compute_fn,
+        unit_of_measurement,
+        state_class=STATE_CLASS_MEASUREMENT,
+        device_class=cv.UNDEFINED,
+        icon=ICON_BATTERY,
+    ):
+        self.id = id
+        self.compute_fn = compute_fn
+        self.unit_of_measurement = unit_of_measurement
+        self.state_class = state_class
+        self.device_class = device_class
+        self.icon = icon
+
+    def get_name(self):
+        return self.id.replace("_", " ").title()
+
+    def get_schema(self):
+        return cv.maybe_simple_value(
+            sensor_schema(
+                ComputedSensorParameter,
+                unit_of_measurement=self.unit_of_measurement,
+                state_class=self.state_class,
+                device_class=self.device_class,
+                icon=self.icon,
+            ),
+            key=CONF_NAME,
+        )
+
+
+COMPUTED_SENSORS = [
+    ComputedSensor(
+        "pv_power_1",
+        compute_fn=lambda parent: (parent.pv_voltage_1 * parent.pv_current_1) / 1000.0,
+        unit_of_measurement=UNIT_KILOWATT,
+        device_class=DEVICE_CLASS_POWER,
+        icon=ICON_SOLAR_POWER,
+    ),
+    ComputedSensor(
+        "pv_power_2",
+        compute_fn=lambda parent: (parent.pv_voltage_1 * parent.pv_current_1) / 1000.0,
+        unit_of_measurement=UNIT_KILOWATT,
+        device_class=DEVICE_CLASS_POWER,
+        icon=ICON_SOLAR_POWER,
+    ),
+    ComputedSensor(
+        "pv_power",
+        compute_fn=lambda parent: (
+            (
+                parent.pv_voltage_1 * parent.pv_current_1
+                + parent.pv_voltage_2 * parent.pv_current_2
+            )
+            / 1000.0
+        ),
+        unit_of_measurement=UNIT_KILOWATT,
+        device_class=DEVICE_CLASS_POWER,
+        icon=ICON_SOLAR_POWER,
+    ),
+]
+
 CONFIG_SCHEMA = cv.Any(
     {
         cv.Required(CONF_CONFIGURE_ALL): True,
         **{
             cv.Optional(s.id, default={CONF_NAME: s.get_name()}): s.get_schema()
-            for s in SENSORS
+            for s in SENSORS + COMPUTED_SENSORS
         },
         cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
     },
     {
         cv.Optional(CONF_CONFIGURE_ALL, default=False): False,
-        **{cv.Optional(s.id): s.get_schema() for s in SENSORS},
+        **{cv.Optional(s.id): s.get_schema() for s in SENSORS + COMPUTED_SENSORS},
         cv.GenerateID(CONF_GOODWE_ID): cv.use_id(Goodwe),
     },
 )
@@ -306,3 +375,13 @@ async def to_code(config):
         if sensor.id in config:
             var = await new_sensor(config[sensor.id], sensor.id)
             cg.add(parent.add_parameter(sensor.msgcode, var))
+    for sensor in COMPUTED_SENSORS:
+        if sensor.id in config:
+            var = await new_sensor(
+                config[sensor.id],
+                sensor.id,
+                await cg.process_lambda(
+                    Lambda(f"return {sensor.compute_fn(parent)};"), parameters=[]
+                ),
+            )
+            cg.add(parent.add_parameter(COMMAND_SENSOR_DATA, var))

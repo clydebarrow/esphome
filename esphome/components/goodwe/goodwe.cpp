@@ -11,6 +11,7 @@ static constexpr size_t RESPONSE_CODE = 4;
 static constexpr size_t LENGTH_POS = 6;
 static constexpr size_t CHKSUM_LEN = 2;
 static constexpr uint16_t CMD_VERSION = 0x102;
+static constexpr uint16_t CMD_SENSORDATA = 0x106;
 static constexpr uint16_t CMD_SETTINGS = 0x109;
 static constexpr uint16_t SET_PREFIX = 0x300;  // Settings are 0x300 + offset
 
@@ -74,7 +75,15 @@ void Goodwe::process_data_() {
       this->arm_version_ -= 'A' - '0';
     }
     ESP_LOGD(TAG, "ARM version %d", this->arm_version_);
+  } else if (msgcode == CMD_SENSORDATA) {
+    this->pv_voltage_1 = packet.get_uint16(7) * 0.1f;
+    this->pv_current_1 = packet.get_uint16(9) * 0.1f;
+    this->pv_voltage_2 = packet.get_uint16(12) * 0.1f;
+    this->pv_current_2 = packet.get_uint16(14) * 0.1f;
+    ESP_LOGD(TAG, "PV1 voltage %.1fV current %.1fA", this->pv_voltage_1, this->pv_current_1);
+    ESP_LOGD(TAG, "PV2 voltage %.1fV current %.1fA", this->pv_voltage_2, this->pv_current_2);
   }
+  ESP_LOGD(TAG, "Sensor data counter %d", this->counter_);
   auto message = this->messages_.find(msgcode);
   if (message != this->messages_.end()) {
     message->second->decode(packet);

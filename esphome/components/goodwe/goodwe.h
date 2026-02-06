@@ -106,6 +106,10 @@ class Goodwe : public PollingComponent {
   }
 
   void dump_config() override;
+  float pv_voltage_1{0};
+  float pv_voltage_2{0};
+  float pv_current_1{0};
+  float pv_current_2{0};
 
  protected:
   transport::Transport *transport_;
