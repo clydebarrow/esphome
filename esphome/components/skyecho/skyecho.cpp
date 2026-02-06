@@ -1,6 +1,4 @@
 #include "skyecho.h"
-#include "text_sensor/skyecho_text_sensor.h"
-#include "text_sensor/skyecho_traffic_list_sensor.h"
 
 namespace esphome {
 namespace skyecho {
@@ -74,16 +72,6 @@ void SkyEcho::update() {
   // Generate simulated data if no real data is being received
   this->generate_simulated_ownship();
   this->generate_simulated_traffic();
-
-  // Trigger update on all registered text sensors
-  for (auto *sensor : this->text_sensors_) {
-    sensor->update();
-  }
-
-  // Trigger update on all registered traffic list sensors
-  for (auto *sensor : this->traffic_list_sensors_) {
-    sensor->update();
-  }
 }
 
 bool SkyEcho::getOwnshipPosition(ownship_t *position) {
@@ -157,7 +145,7 @@ void SkyEcho::ping_() {
     return;
   for (size_t i = 0; i != LWIP_ARRAYSIZE(pingPorts); i++) {
     struct sockaddr addr;
-    socket::set_sockaddr(&addr, sizeof(addr), {"255.255.255.255"}, pingPorts[i]);
+    socket::set_sockaddr(&addr, sizeof(addr), "255.255.255.255", pingPorts[i]);
     auto err = this->ping_socket_->sendto(pingPayload, strlen(pingPayload), 0, &addr, sizeof(addr));
     if (err < 0) {
       ESP_LOGD(TAG, "Sendto failed on port %d with err %d", pingPorts[i], err);

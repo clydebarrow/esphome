@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "../skyecho.h"
+#include "../traffic_manager.h"
 
 namespace esphome {
 namespace skyecho {
@@ -12,12 +13,13 @@ class SkyEchoTrafficListSensor : public text_sensor::TextSensor, public PollingC
   void set_parent(SkyEcho *parent) { this->parent_ = parent; }
   void setup() override {}
   void dump_config() override;
-  void update();
+  void update() override;
 
  protected:
   SkyEcho *parent_{nullptr};
 
-  const char *get_category_name(emitterCategory_t category);
+  static const char *get_category_name(AircraftCategory category);
+  static const char *get_source_name(TrafficSource source);
 };
 
 }  // namespace skyecho

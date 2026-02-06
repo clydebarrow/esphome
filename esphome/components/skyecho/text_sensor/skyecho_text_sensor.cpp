@@ -133,37 +133,39 @@ void SkyEchoTextSensor::generate_pgrmz(std::string &output) {
   output += sentence;
 }
 
-int SkyEchoTextSensor::gdl90_to_flarm_type(emitterCategory_t category) {
-  // Convert GDL90 emitter category to FLARM aircraft type
+int SkyEchoTextSensor::category_to_flarm_type(AircraftCategory category) {
+  // Convert unified aircraft category to FLARM aircraft type
   // FLARM types: 0=unknown, 1=glider, 2=tow, 3=heli, 4=parachute, 5=drop, 6=hang-glider,
   //              7=para-glider, 8=powered, 9=jet, A=UFO, B=balloon, C=airship, D=UAV, F=static
   switch (category) {
-    case Glider:
+    case CATEGORY_GLIDER:
       return 1;  // glider/motor glider
-    case Rotorcraft:
+    case CATEGORY_TOW_PLANE:
+      return 2;  // tow plane
+    case CATEGORY_ROTORCRAFT:
       return 3;  // helicopter/rotorcraft
-    case Parachute:
+    case CATEGORY_PARACHUTE:
       return 4;  // parachute
-    case HangGlider:
+    case CATEGORY_DROP_PLANE:
+      return 5;  // drop plane
+    case CATEGORY_HANG_GLIDER:
       return 6;  // hang glider
-    case Balloon:
-      return 0xB;  // balloon
-    case UAV:
-      return 0xD;  // UAV
-    case Fighter:
-      return 9;  // jet aircraft
-    case Heavy:
-    case Large:
-    case HighVortex:
-      return 9;  // jet aircraft
-    case Light:
-    case Small:
+    case CATEGORY_PARAGLIDER:
+      return 7;  // paraglider
+    case CATEGORY_LIGHT:
+    case CATEGORY_SMALL:
       return 8;  // powered aircraft
-    case Obstacle:
-    case ObstacleCluster:
-    case ObstacleLine:
-    case SurfaceEmergency:
-    case SurfaceService:
+    case CATEGORY_LARGE:
+    case CATEGORY_HIGH_VORTEX:
+    case CATEGORY_HEAVY:
+    case CATEGORY_FIGHTER:
+      return 9;  // jet aircraft
+    case CATEGORY_BALLOON:
+      return 0xB;  // balloon
+    case CATEGORY_UAV:
+      return 0xD;  // UAV
+    case CATEGORY_SURFACE_EMERGENCY:
+    case CATEGORY_SURFACE_SERVICE:
       return 0xF;  // static object
     default:
       return 0;  // unknown
@@ -171,41 +173,52 @@ int SkyEchoTextSensor::gdl90_to_flarm_type(emitterCategory_t category) {
 }
 
 void SkyEchoTextSensor::generate_pflaa(std::string &output) {
-  ownship_t ownship;
+  // Get merged traffic from TrafficManager
+  const TrafficManager &tm = this->parent_->get_traffic_manager();
+  const std::vector<Traffic> &traffic_list = tm.get_traffic();
 
-  if (!this->parent_->getOwnshipPosition(&ownship)) {
-    return;  // No valid position
-  }
-
-  traffic_t traffic[MAX_TRAFFIC_TRACKED];
-  this->parent_->getTraffic(traffic, MAX_TRAFFIC_TRACKED);
-
-  // Generate PFLAA sentence for each active traffic target
-  for (size_t i = 0; i < MAX_TRAFFIC_TRACKED; i++) {
-    if (!traffic[i].active)
+  // Generate PFLAA sentence for each traffic target
+  for (const auto &t : traffic_list) {
+    // Use relative position if available, otherwise skip (need ownship for PFLAA)
+    if (!t.relative_valid && !t.position_valid)
       continue;
 
-    // Calculate relative positions
-    int rel_north = (int) trafficNorthing(&ownship.report, &traffic[i].report);
-    int rel_east = (int) trafficEasting(&ownship.report, &traffic[i].report);
-    int rel_vert = (int) (traffic[i].report.altitude - ownship.report.altitude);
+    int rel_north, rel_east, rel_vert;
 
-    // Convert speeds from m/s to km/h for FLARM format
-    int ground_speed_kmh = (int) (traffic[i].report.groundSpeed * 3.6f);
-    int climb_rate_ms = (int) traffic[i].report.verticalSpeed;
+    if (t.relative_valid) {
+      rel_north = t.relative_north;
+      rel_east = t.relative_east;
+      rel_vert = t.relative_vertical;
+    } else {
+      // Fall back to calculating from absolute position if ownship is available
+      ownship_t ownship;
+      if (!this->parent_->getOwnshipPosition(&ownship))
+        continue;
 
-    // Convert GDL90 category to FLARM aircraft type
-    int flarm_type = this->gdl90_to_flarm_type(traffic[i].report.category);
+      // Calculate relative position from absolute coordinates
+      float lat_diff = t.latitude - ownship.report.latitude;
+      float lon_diff = t.longitude - ownship.report.longitude;
+      rel_north = static_cast<int>(lat_diff * 111111.0f);
+      rel_east = static_cast<int>(lon_diff * 111111.0f * cosf(ownship.report.latitude * M_PI / 180.0f));
+      rel_vert = static_cast<int>(t.altitude - ownship.report.altitude);
+    }
+
+    // Convert speeds from m/s to km/h for FLARM format (FLARM uses m/s*10 but some displays expect km/h)
+    int ground_speed = t.speed_valid ? static_cast<int>(t.ground_speed * 10) : 0;  // dm/s
+    int climb_rate = t.climb_valid ? static_cast<int>(t.climb_rate * 10) : 0;      // dm/s
+
+    // Convert category to FLARM aircraft type
+    int flarm_type = category_to_flarm_type(t.category);
+
+    // Determine ID type based on source
+    int id_type = (t.id_type == static_cast<uint8_t>(FLARM_ID_ICAO) || t.source == SOURCE_GDL90) ? 1 : 2;
 
     // PFLAA format:
     // $PFLAA,<AlarmLevel>,<RelativeNorth>,<RelativeEast>,<RelativeVertical>,
     //        <IDType>,<ID>,<Track>,<TurnRate>,<GroundSpeed>,<ClimbRate>,<AcftType>
-    snprintf(this->nmea_buf_, sizeof(this->nmea_buf_), "$PFLAA,%d,%d,%d,%d,%d,%06X,%d,,%d,%d,%X",
-             0,  // alarm level (0 = no alarm)
-             rel_north, rel_east, rel_vert,
-             1,  // ID type (1 = ICAO)
-             (unsigned int) traffic[i].report.address, (int) traffic[i].report.track, ground_speed_kmh, climb_rate_ms,
-             flarm_type);
+    snprintf(this->nmea_buf_, sizeof(this->nmea_buf_), "$PFLAA,%d,%d,%d,%d,%d,%06X,%d,,%d,%d,%X", t.alarm_level,
+             rel_north, rel_east, rel_vert, id_type, t.id, t.track_valid ? static_cast<int>(t.track) : 0, ground_speed,
+             climb_rate, flarm_type);
 
     std::string sentence = this->nmea_buf_;
     this->add_checksum(sentence);

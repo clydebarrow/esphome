@@ -1,56 +1,70 @@
 #include "skyecho_traffic_list_sensor.h"
 #include "esphome/core/log.h"
 #include <cstdio>
+#include <algorithm>
 
 namespace esphome {
 namespace skyecho {
 
 static const char *const TAG_TRAFFIC = "skyecho.traffic_list";
 
-void SkyEchoTrafficListSensor::dump_config() { ESP_LOGCONFIG(TAG_TRAFFIC, "SkyEcho Traffic List Sensor"); }
+void SkyEchoTrafficListSensor::dump_config() { ESP_LOGCONFIG(TAG_TRAFFIC, "SkyEcho Traffic List Sensor (merged)"); }
 
-const char *SkyEchoTrafficListSensor::get_category_name(emitterCategory_t category) {
+const char *SkyEchoTrafficListSensor::get_category_name(AircraftCategory category) {
   switch (category) {
-    case None:
-      return "None";
-    case Light:
+    case CATEGORY_UNKNOWN:
+      return "Unknown";
+    case CATEGORY_LIGHT:
       return "Light";
-    case Small:
+    case CATEGORY_SMALL:
       return "Small";
-    case Large:
+    case CATEGORY_LARGE:
       return "Large";
-    case HighVortex:
+    case CATEGORY_HIGH_VORTEX:
       return "HighVortex";
-    case Heavy:
+    case CATEGORY_HEAVY:
       return "Heavy";
-    case Fighter:
+    case CATEGORY_FIGHTER:
       return "Fighter";
-    case Rotorcraft:
+    case CATEGORY_ROTORCRAFT:
       return "Heli";
-    case Glider:
+    case CATEGORY_GLIDER:
       return "Glider";
-    case Balloon:
+    case CATEGORY_BALLOON:
       return "Balloon";
-    case Parachute:
+    case CATEGORY_PARACHUTE:
       return "Parachute";
-    case HangGlider:
+    case CATEGORY_HANG_GLIDER:
       return "HangGlider";
-    case UAV:
+    case CATEGORY_PARAGLIDER:
+      return "Paraglider";
+    case CATEGORY_UAV:
       return "UAV";
-    case Spaceship:
+    case CATEGORY_SPACESHIP:
       return "Spaceship";
-    case SurfaceEmergency:
+    case CATEGORY_SURFACE_EMERGENCY:
       return "Emergency";
-    case SurfaceService:
+    case CATEGORY_SURFACE_SERVICE:
       return "Service";
-    case Obstacle:
-      return "Obstacle";
-    case ObstacleCluster:
-      return "ObstCluster";
-    case ObstacleLine:
-      return "ObstLine";
+    case CATEGORY_TOW_PLANE:
+      return "TowPlane";
+    case CATEGORY_DROP_PLANE:
+      return "DropPlane";
     default:
       return "Unknown";
+  }
+}
+
+const char *SkyEchoTrafficListSensor::get_source_name(TrafficSource source) {
+  switch (source) {
+    case SOURCE_FLARM:
+      return "F";
+    case SOURCE_GDL90:
+      return "G";
+    case SOURCE_MERGED:
+      return "M";
+    default:
+      return "?";
   }
 }
 
@@ -59,48 +73,61 @@ void SkyEchoTrafficListSensor::update() {
     return;
   }
 
-  // Get all traffic, sorted by distance (nearest first)
-  traffic_t traffic[MAX_TRAFFIC_TRACKED];
-  this->parent_->getTraffic(traffic, MAX_TRAFFIC_TRACKED);
+  // Get merged traffic from TrafficManager
+  const TrafficManager &tm = this->parent_->get_traffic_manager();
+  const std::vector<Traffic> &traffic_list = tm.get_traffic();
+
+  // Create a sorted copy by distance
+  std::vector<const Traffic *> sorted_traffic;
+  sorted_traffic.reserve(traffic_list.size());
+  for (const auto &t : traffic_list) {
+    sorted_traffic.push_back(&t);
+  }
+  std::sort(sorted_traffic.begin(), sorted_traffic.end(),
+            [](const Traffic *a, const Traffic *b) { return a->distance_m < b->distance_m; });
 
   std::string output;
-  int active_count = 0;
+  size_t count = sorted_traffic.size();
 
-  // Build the traffic list
-  for (size_t i = 0; i < MAX_TRAFFIC_TRACKED; i++) {
-    if (!traffic[i].active)
-      continue;
-
-    active_count++;
-
-    // Format: Type | Callsign | Address | Distance | Altitude | Speed
-    char line[128];
-
-    // Get altitude relative to ownship if available
-    ownship_t ownship;
-    float rel_altitude = traffic[i].report.altitude;
-    if (this->parent_->getOwnshipPosition(&ownship)) {
-      rel_altitude = traffic[i].report.altitude - ownship.report.altitude;
-    }
-
-    // Convert speeds to more readable units
-    float speed_kmh = traffic[i].report.groundSpeed * 3.6f;  // m/s to km/h
-    float distance_km = traffic[i].distance / 1000.0f;       // m to km
-
-    snprintf(line, sizeof(line), "%s | %s | %06X | %.1fkm | %+.0fm | %.0fkm/h\n",
-             this->get_category_name(traffic[i].report.category), traffic[i].report.callsign,
-             (unsigned int) traffic[i].report.address, distance_km, rel_altitude, speed_kmh);
-
-    output += line;
-  }
-
-  // If no traffic, show message
-  if (active_count == 0) {
+  if (count == 0) {
     output = "No traffic detected";
   } else {
-    // Add header
-    std::string header = "Traffic: " + std::to_string(active_count) + "\n";
-    output = header + output;
+    // Add header with count
+    char header[64];
+    snprintf(header, sizeof(header), "Traffic: %zu\n", count);
+    output = header;
+
+    // Build the traffic list (limit to reasonable display size)
+    size_t display_count = std::min(count, static_cast<size_t>(15));
+    for (size_t i = 0; i < display_count; i++) {
+      const Traffic *t = sorted_traffic[i];
+
+      // Format: [Source] Type | Callsign | Address | Distance | RelAlt | Speed
+      char line[128];
+
+      // Convert speeds to more readable units
+      float speed_kmh = t->speed_valid ? t->ground_speed * 3.6f : 0;  // m/s to km/h
+      float distance_km = t->distance_m / 1000.0f;                    // m to km
+
+      // Show relative vertical if available, otherwise absolute altitude
+      float display_alt = t->relative_valid ? static_cast<float>(t->relative_vertical) : t->altitude;
+      const char *alt_prefix = t->relative_valid ? "" : "@";
+
+      // Format callsign or use hex ID
+      const char *callsign = t->callsign[0] != '\0' ? t->callsign : "------";
+
+      snprintf(line, sizeof(line), "[%s] %s | %s | %06X | %.1fkm | %s%+.0fm | %.0fkm/h\n", get_source_name(t->source),
+               get_category_name(t->category), callsign, t->id, distance_km, alt_prefix, display_alt, speed_kmh);
+
+      output += line;
+    }
+
+    // Show if more traffic exists
+    if (count > display_count) {
+      char more[32];
+      snprintf(more, sizeof(more), "... +%zu more\n", count - display_count);
+      output += more;
+    }
   }
 
   // Publish the traffic list

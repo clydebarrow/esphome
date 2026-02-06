@@ -2,15 +2,12 @@
 
 #include "esphome/core/log.h"
 #include "esphome/core/component.h"
-#include "esphome/core/hal.h"
-#include "esphome/components/network/util.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/uart/uart.h"
 #include "flarm.h"
 #include "gdl90.h"
 #include "traffic_manager.h"
 #include <algorithm>
-#include <cmath>
 
 namespace esphome {
 namespace skyecho {
@@ -49,11 +46,7 @@ class SkyEcho : public PollingComponent {
   void update() override;
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
-  void register_text_sensor(class SkyEchoTextSensor *sensor) { this->text_sensors_.push_back(sensor); }
-  void register_traffic_list_sensor(class SkyEchoTrafficListSensor *sensor) {
-    this->traffic_list_sensors_.push_back(sensor);
-  }
-  void set_simulate_switch(class SkyEchoSimulateSwitch *switch_component) { this->simulate_switch_ = switch_component; }
+  void register_listener(PollingComponent *sensor) { this->listeners_.push_back(sensor); }
   void set_simulate(bool simulate) { this->simulate_ = simulate; }
 
   // FLARM UART configuration
@@ -123,19 +116,15 @@ class SkyEcho : public PollingComponent {
   traffic_t traffic_[MAX_TRAFFIC_TRACKED]{};
 
   // Text sensors
-  std::vector<class SkyEchoTextSensor *> text_sensors_{};
-  std::vector<class SkyEchoTrafficListSensor *> traffic_list_sensors_{};
-
-  // Simulate switch
-  class SkyEchoSimulateSwitch *simulate_switch_{nullptr};
+  std::vector<PollingComponent *> listeners_{};
 
   // Configuration
   bool simulate_{false};
 
   // FLARM support
   uart::UARTComponent *flarm_uart_{nullptr};
-  FlarmParser flarm_parser_;
-  TrafficManager traffic_manager_;
+  FlarmParser flarm_parser_{};
+  TrafficManager traffic_manager_{};
 };
 
 }  // namespace skyecho

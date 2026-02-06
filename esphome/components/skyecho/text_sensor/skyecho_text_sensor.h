@@ -3,6 +3,7 @@
 #include "esphome/core/component.h"
 #include "esphome/components/text_sensor/text_sensor.h"
 #include "../skyecho.h"
+#include "../traffic_manager.h"
 
 namespace esphome {
 namespace skyecho {
@@ -16,7 +17,7 @@ class SkyEchoTextSensor : public text_sensor::TextSensor, public PollingComponen
 
  protected:
   SkyEcho *parent_{nullptr};
-  char nmea_buf_[256];
+  char nmea_buf_[256]{};
 
   // NMEA sentence generators
   void generate_gpgga(std::string &output);
@@ -28,7 +29,7 @@ class SkyEchoTextSensor : public text_sensor::TextSensor, public PollingComponen
   uint8_t calculate_checksum(const char *sentence);
   void add_checksum(std::string &sentence);
   int get_accuracy(int nacP);
-  int gdl90_to_flarm_type(emitterCategory_t category);
+  static int category_to_flarm_type(AircraftCategory category);
 };
 
 }  // namespace skyecho
