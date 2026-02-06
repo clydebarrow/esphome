@@ -7,6 +7,7 @@
 #include "esphome/components/uart/uart.h"
 #include "flarm.h"
 #include "gdl90.h"
+#include "traffic_manager.h"
 #include <cmath>
 
 namespace esphome {
@@ -42,6 +43,16 @@ class SkyEcho : public PollingComponent {
    */
   const OwnshipPosition &get_flarm_ownship() const { return this->flarm_parser_.get_ownship(); }
 
+  /**
+   * Get the traffic manager for access to merged traffic list
+   */
+  const TrafficManager &get_traffic_manager() const { return this->traffic_manager_; }
+
+  /**
+   * Set callback for traffic updates
+   */
+  void set_traffic_callback(TrafficCallback callback) { this->traffic_manager_.set_callback(std::move(callback)); }
+
   void setup() override {
     this->socket_ = socket::socket_ip(SOCK_DGRAM, IPPROTO_UDP);
     this->ping_socket_ = socket::socket_ip(SOCK_DGRAM, IPPROTO_UDP);
@@ -74,6 +85,7 @@ class SkyEcho : public PollingComponent {
       return;
     }
     this->set_interval("ping", 10000, [this]() { this->ping_(); });
+    this->set_interval("traffic_cleanup", 1000, [this]() { this->traffic_manager_.cleanup(); });
   }
 
   void loop() override {
@@ -93,13 +105,13 @@ class SkyEcho : public PollingComponent {
         break;
 
       case GDL90_OWNSHIP_REPORT:
-        esph_log_d(TAG, "Ownship report");
-        // setOwnshipPosition(&packet->positionReport);
+        esph_log_d(TAG, "Ownship report: lat=%.6f, lon=%.6f, alt=%.0f m", packet->positionReport.latitude,
+                   packet->positionReport.longitude, packet->positionReport.altitude);
+        this->update_ownship_from_gdl90_(packet->positionReport);
         break;
       case GDL90_TRAFFIC_REPORT:
-        esph_log_d(TAG, "Traffic report");
-        // lastTrafficMs = (uint32_t) (esp_timer_get_time() / 1000);
-        // processTraffic(&packet->positionReport);
+        esph_log_d(TAG, "Traffic report: ID=%06X", packet->positionReport.address);
+        this->traffic_manager_.update_from_gdl90(packet->positionReport);
         break;
 
       case GDL90_OWNSHIP_GEO_ALT:
@@ -201,32 +213,10 @@ class SkyEcho : public PollingComponent {
   }
 
   void process_flarm_pflaa_(const FlarmPflaa &data) {
-    const OwnshipPosition &ownship = this->flarm_parser_.get_ownship();
-
     esph_log_d(TAG, "FLARM PFLAA: ID=%06X alarm=%d N=%d E=%d V=%d", data.id, data.alarm_level, data.relative_north,
                data.relative_east, data.relative_vertical);
-
-    // Convert relative position to absolute if we have ownship position
-    if (ownship.position_valid && data.east_valid) {
-      // Approximate conversion: 1 degree latitude = 111,111 meters
-      // 1 degree longitude = 111,111 * cos(latitude) meters
-      float lat_offset = data.relative_north / 111111.0f;
-      float lon_offset = data.relative_east / (111111.0f * cosf(ownship.latitude * M_PI / 180.0f));
-
-      float target_lat = ownship.latitude + lat_offset;
-      float target_lon = ownship.longitude + lon_offset;
-      float target_alt = (ownship.altitude_msl_valid ? ownship.altitude_msl : 0) + data.relative_vertical;
-
-      esph_log_d(TAG, "  Absolute position: lat=%.6f, lon=%.6f, alt=%.0f m", target_lat, target_lon, target_alt);
-
-      if (data.track_valid) {
-        esph_log_d(TAG, "  Track=%d, GS=%u, VS=%d, type=%d", data.track, data.ground_speed, data.climb_rate,
-                   data.aircraft_type);
-      }
-      // TODO: Add to merged traffic list
-    } else {
-      esph_log_d(TAG, "  (No ownship position - relative only)");
-    }
+    // Feed to traffic manager for merging
+    this->traffic_manager_.update_from_flarm(data);
   }
 
   void process_flarm_ownship_(const OwnshipPosition &data) {
@@ -235,14 +225,34 @@ class SkyEcho : public PollingComponent {
     if (data.speed_valid) {
       esph_log_d(TAG, "  Speed=%.1f m/s, Track=%.1f deg", data.ground_speed, data.track);
     }
-    // Store ownship position for traffic position calculation
-    // The position is already stored in flarm_parser_.ownship_
+    // Update traffic manager with ownship position for relative-to-absolute conversion
+    this->traffic_manager_.set_ownship(data);
+  }
+
+  void update_ownship_from_gdl90_(const gdl90PositionReport_t &report) {
+    // Update ownship from GDL90 if we don't have FLARM GPS
+    const OwnshipPosition &flarm_ownship = this->flarm_parser_.get_ownship();
+    if (!flarm_ownship.position_valid) {
+      OwnshipPosition ownship{};
+      ownship.latitude = report.latitude;
+      ownship.longitude = report.longitude;
+      ownship.altitude_msl = report.altitude;
+      ownship.ground_speed = report.groundSpeed;
+      ownship.track = report.track;
+      ownship.position_valid = true;
+      ownship.altitude_msl_valid = true;
+      ownship.speed_valid = true;
+      ownship.track_valid = report.isHeading;
+      ownship.timestamp_ms = millis();
+      this->traffic_manager_.set_ownship(ownship);
+    }
   }
 
   std::unique_ptr<socket::Socket> socket_{};
   std::unique_ptr<socket::Socket> ping_socket_{};
   uart::UARTComponent *flarm_uart_{nullptr};
   FlarmParser flarm_parser_;
+  TrafficManager traffic_manager_;
 };
 
 }  // namespace skyecho
