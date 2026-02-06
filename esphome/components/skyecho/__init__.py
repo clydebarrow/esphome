@@ -5,11 +5,14 @@ from esphome.const import CONF_ID
 
 CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["network"]
+AUTO_LOAD = ["socket"]
 
 CONF_FLARM_UART = "flarm_uart"
 
 skyecho_ns = cg.esphome_ns.namespace("skyecho")
 SkyEchoComponent = skyecho_ns.class_("SkyEcho", cg.PollingComponent)
+
+CONF_SKYECHO_ID = "skyecho_id"
 
 
 def validate_uart_optional(config):
