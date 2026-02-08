@@ -7,6 +7,7 @@ import esphome.config_validation as cv
 from esphome.const import (
     CONF_NAME,
     DEVICE_CLASS_CURRENT,
+    DEVICE_CLASS_ENERGY,
     DEVICE_CLASS_ENERGY_STORAGE,
     DEVICE_CLASS_FREQUENCY,
     DEVICE_CLASS_POWER,
@@ -20,9 +21,11 @@ from esphome.const import (
     ICON_POWER,
     ICON_THERMOMETER,
     STATE_CLASS_MEASUREMENT,
+    STATE_CLASS_TOTAL_INCREASING,
     UNIT_AMPERE,
     UNIT_CELSIUS,
     UNIT_HERTZ,
+    UNIT_KILOWATT_HOURS,
     UNIT_PERCENT,
     UNIT_VOLT,
     UNIT_WATT,
@@ -41,6 +44,8 @@ from .. import (
     Parameter,
     goodwe_ns,
 )
+
+ICON_ENERGY = "mdi:lightning-bolt"
 
 SensorParameter = goodwe_ns.class_("SensorParameter", Parameter, Sensor)
 BatteryCurrentParameter = goodwe_ns.class_(
@@ -201,6 +206,21 @@ class PowerSensor(GoodweSensor):
         )
 
 
+class EnergySensor(GoodweSensor):
+    def __init__(self, id, msgcode, offset, length=2):
+        super().__init__(
+            id,
+            msgcode,
+            offset,
+            0.1,
+            cg.uint16 if length == 2 else cg.uint32,
+            UNIT_KILOWATT_HOURS,
+            DEVICE_CLASS_ENERGY,
+            ICON_ENERGY,
+            state_class=STATE_CLASS_TOTAL_INCREASING,
+        )
+
+
 class IntegerSensor(GoodweSensor):
     def __init__(
         self,
@@ -265,6 +285,7 @@ SENSORS = [
     PowerSensor("backup_power", COMMAND_SENSOR_DATA, 81),
     PowerSensor("on_grid_power", COMMAND_SENSOR_DATA, 47),
     PowerSensor("total_power", COMMAND_SENSOR_DATA, 75),
+    EnergySensor("daily_energy", COMMAND_SENSOR_DATA, 67),
     IntegerSensor(
         "grid_export_limit",
         COMMAND_SETTINGS_DATA,

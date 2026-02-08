@@ -116,7 +116,6 @@ class Goodwe : public PollingComponent {
   std::map<uint16_t, Message *> messages_{};
   std::vector<Setting *> settings_{};
   uint8_t arm_version_{0};
-  uint16_t counter_{0};
   std::vector<uint8_t> buffer_;
   uint16_t last_command_{};
   uint32_t last_command_time_{0};

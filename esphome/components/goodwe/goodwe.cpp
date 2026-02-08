@@ -80,10 +80,7 @@ void Goodwe::process_data_() {
     this->pv_current_1 = packet.get_uint16(9) * 0.1f;
     this->pv_voltage_2 = packet.get_uint16(12) * 0.1f;
     this->pv_current_2 = packet.get_uint16(14) * 0.1f;
-    ESP_LOGD(TAG, "PV1 voltage %.1fV current %.1fA", this->pv_voltage_1, this->pv_current_1);
-    ESP_LOGD(TAG, "PV2 voltage %.1fV current %.1fA", this->pv_voltage_2, this->pv_current_2);
   }
-  ESP_LOGD(TAG, "Sensor data counter %d", this->counter_);
   auto message = this->messages_.find(msgcode);
   if (message != this->messages_.end()) {
     message->second->decode(packet);

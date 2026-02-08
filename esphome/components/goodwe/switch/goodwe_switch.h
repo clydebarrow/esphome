@@ -33,7 +33,7 @@ class SwitchParameter : public Setting, public switch_::Switch {
     if (value != this->state) {
       this->publish_state(value);
     }
-    ESP_LOGD(TAG, "Decoded switch value: 0x%04X/%s for parameter at offset %u", intdata, TRUEFALSE(value), OFFSET);
+    ESP_LOGV(TAG, "Decoded switch value: 0x%04X/%s for parameter at offset %u", intdata, TRUEFALSE(value), OFFSET);
   }
 
   void write_state(bool value) override {
