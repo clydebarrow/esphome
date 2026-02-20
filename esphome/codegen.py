@@ -31,6 +31,7 @@ from esphome.cpp_generator import (  # noqa: F401
     get_variable,
     get_variable_with_full_id,
     is_template,
+    literal,
     new_Pvariable,
     new_variable,
     process_lambda,
