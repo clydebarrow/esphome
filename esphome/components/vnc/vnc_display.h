@@ -295,7 +295,7 @@ class VNCDisplay : public display::Display {
         tv.tv_usec = 1000;
         // this->client_sock_->setblocking(false);
         this->client_sock_->setsockopt(SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-        esph_log_d(TAG, "Accepted %s", this->client_sock_->getpeername().c_str());
+        // esph_log_d(TAG, "Accepted %s", this->client_sock_->getpeername().c_str()); //
         int err = this->write_(RFB_MAGIC, sizeof RFB_MAGIC);
         if (err < 0)
           this->disconnect_();
