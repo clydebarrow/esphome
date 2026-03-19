@@ -209,16 +209,7 @@ class LvglComponent : public PollingComponent {
   void set_resume_trigger(Trigger<> *trigger) { this->resume_callback_ = trigger; }
   void set_draw_start_trigger(Trigger<> *trigger) { this->draw_start_callback_ = trigger; }
   void set_draw_end_trigger(Trigger<> *trigger) { this->draw_end_callback_ = trigger; }
-  void set_rotation(display::DisplayRotation rotation) {
-    if (!this->uses_rotation_) {
-      ESP_LOGW(TAG, "Display rotation cannot be changed unless rotation was enabled during setup.");
-      return;
-    }
-    this->rotation_ = rotation;
-    this->set_resolution_();
-    lv_obj_update_layout(this->get_screen_active());
-    lv_obj_invalidate(this->get_screen_active());
-  }
+  void set_rotation(display::DisplayRotation rotation);
   display::DisplayRotation get_rotation() const { return this->rotation_; }
   void rotate_coordinates(int32_t &x, int32_t &y) const;
 

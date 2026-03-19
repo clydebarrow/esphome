@@ -83,6 +83,17 @@ std::string lv_event_code_name_for(lv_event_t *event) {
   return buf;
 }
 
+void LvglComponent::set_rotation(display::DisplayRotation rotation) {
+  if (!this->uses_rotation_) {
+    ESP_LOGW(TAG, "Display rotation cannot be changed unless rotation was enabled during setup.");
+    return;
+  }
+  this->rotation_ = rotation;
+  this->set_resolution_();
+  lv_obj_update_layout(this->get_screen_active());
+  lv_obj_invalidate(this->get_screen_active());
+}
+
 void LvglComponent::rotate_coordinates(int32_t &x, int32_t &y) const {
   switch (this->rotation_) {
     default:
