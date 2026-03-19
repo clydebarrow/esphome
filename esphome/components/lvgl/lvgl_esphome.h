@@ -152,7 +152,6 @@ class LvglComponent : public PollingComponent {
  public:
   LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh, int draw_rounding,
                 bool resume_on_input, bool update_when_display_idle);
-  void set_resolution_() const;
   static void static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -223,6 +222,7 @@ class LvglComponent : public PollingComponent {
   void rotate_coordinates(int32_t &x, int32_t &y) const;
 
  protected:
+  void set_resolution_() const;
   void draw_end_();
   // Not checking for non-null callback since the
   // LVGL callback that calls it is not set in that case
