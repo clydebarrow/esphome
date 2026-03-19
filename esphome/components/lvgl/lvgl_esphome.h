@@ -151,7 +151,7 @@ class LvglComponent : public PollingComponent {
 
  public:
   LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh, int draw_rounding,
-                bool resume_on_input, bool update_when_display_idle);
+                bool resume_on_input, bool update_when_display_idle, bool uses_rotation);
   static void static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -210,13 +210,14 @@ class LvglComponent : public PollingComponent {
   void set_draw_start_trigger(Trigger<> *trigger) { this->draw_start_callback_ = trigger; }
   void set_draw_end_trigger(Trigger<> *trigger) { this->draw_end_callback_ = trigger; }
   void set_rotation(display::DisplayRotation rotation) {
-    this->rotation_ = rotation;
-    this->uses_rotation_ = true;
-    if (this->draw_buf_ != nullptr) {
-      this->set_resolution_();
-      lv_obj_update_layout(this->get_screen_active());
-      lv_obj_invalidate(this->get_screen_active());
+    if (!this->uses_rotation_) {
+      ESP_LOGW(TAG, "Display rotation cannot be changed unless rotation was enabled during setup.");
+      return;
     }
+    this->rotation_ = rotation;
+    this->set_resolution_();
+    lv_obj_update_layout(this->get_screen_active());
+    lv_obj_invalidate(this->get_screen_active());
   }
   display::DisplayRotation get_rotation() const { return this->rotation_; }
   void rotate_coordinates(int32_t &x, int32_t &y) const;
@@ -257,7 +258,7 @@ class LvglComponent : public PollingComponent {
   Trigger<> *draw_end_callback_{};
   void *rotate_buf_{};
   display::DisplayRotation rotation_{display::DISPLAY_ROTATION_0_DEGREES};
-  bool uses_rotation_{false};
+  bool uses_rotation_;
 };
 
 class IdleTrigger : public Trigger<> {

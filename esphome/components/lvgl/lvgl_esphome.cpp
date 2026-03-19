@@ -569,13 +569,14 @@ void LvglComponent::write_random_() {
  *                         presses a key or clicks on the screen.
  */
 LvglComponent::LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh,
-                             int draw_rounding, bool resume_on_input, bool update_when_display_idle)
+                             int draw_rounding, bool resume_on_input, bool update_when_display_idle, bool uses_rotation)
     : draw_rounding(draw_rounding),
       displays_(std::move(displays)),
       buffer_frac_(buffer_frac),
       full_refresh_(full_refresh),
       resume_on_input_(resume_on_input),
-      update_when_display_idle_(update_when_display_idle) {
+      update_when_display_idle_(update_when_display_idle),
+      uses_rotation_(uses_rotation) {
   this->disp_ = lv_display_create(240, 240);
 }
 

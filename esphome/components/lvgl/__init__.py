@@ -9,7 +9,7 @@ from esphome.components.const import (
     CONF_COLOR_DEPTH,
     CONF_DRAW_ROUNDING,
 )
-from esphome.components.display import DISPLAY_ROTATIONS, Display, validate_rotation
+from esphome.components.display import Display, validate_rotation
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
     add_idf_component,
@@ -323,11 +323,10 @@ async def to_code(configs):
             config[CONF_DRAW_ROUNDING],
             config[df.CONF_RESUME_ON_INPUT],
             config[df.CONF_UPDATE_WHEN_DISPLAY_IDLE],
+            CONF_ROTATION in config or df.get_options().get(CONF_ROTATION) is True,
         )
         await cg.register_component(lv_component, config)
-        if (
-            rotation := config.get(CONF_ROTATION, DISPLAY_ROTATIONS[0])
-        ) or df.get_options().get(CONF_ROTATION):
+        if rotation := config.get(CONF_ROTATION):
             cg.add(lv_component.set_rotation(rotation))
         Widget.create(config[CONF_ID], lv_component, LvScrActType(), config)
 
