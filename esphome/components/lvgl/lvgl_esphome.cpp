@@ -579,7 +579,7 @@ LvglComponent::LvglComponent(std::vector<display::Display *> displays, float buf
   this->disp_ = lv_display_create(240, 240);
 }
 
-void LvglComponent::set_resolution_() {
+void LvglComponent::set_resolution_() const {
   int32_t width = this->width_;
   int32_t height = this->height_;
   if (this->rotation_ == display::DISPLAY_ROTATION_90_DEGREES ||

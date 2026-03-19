@@ -152,7 +152,7 @@ class LvglComponent : public PollingComponent {
  public:
   LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh, int draw_rounding,
                 bool resume_on_input, bool update_when_display_idle);
-  void set_resolution_();
+  void set_resolution_() const;
   static void static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -215,7 +215,6 @@ class LvglComponent : public PollingComponent {
     this->uses_rotation_ = true;
     if (this->draw_buf_ != nullptr) {
       this->set_resolution_();
-      lv_obj_send_event(this->get_screen_active(), LV_EVENT_SIZE_CHANGED, nullptr);
       lv_obj_update_layout(this->get_screen_active());
       lv_obj_invalidate(this->get_screen_active());
     }

@@ -200,12 +200,15 @@ def _validate_rotation(value):
 
 
 @automation.register_action(
-    "lvgl.set_rotation",
+    "lvgl.display.set_rotation",
     ObjUpdateAction,
-    LVGL_SCHEMA.extend(
-        {
-            cv.Required(CONF_ROTATION): _validate_rotation,
-        }
+    cv.maybe_simple_value(
+        LVGL_SCHEMA.extend(
+            {
+                cv.Required(CONF_ROTATION): _validate_rotation,
+            }
+        ),
+        key=CONF_ROTATION,
     ),
     synchronous=True,
 )
