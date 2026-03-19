@@ -92,14 +92,12 @@ void LvglComponent::rotate_coordinates(int32_t &x, int32_t &y) const {
       x = this->width_ - x - 1;
       y = this->height_ - y - 1;
       break;
-      ;
     }
     case display::DISPLAY_ROTATION_270_DEGREES: {
       auto tmp = x;
       x = this->height_ - y - 1;
       y = tmp;
       break;
-      ;
     }
     case display::DISPLAY_ROTATION_90_DEGREES: {
       auto tmp = y;
