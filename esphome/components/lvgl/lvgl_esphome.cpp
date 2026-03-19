@@ -89,9 +89,11 @@ void LvglComponent::set_rotation(display::DisplayRotation rotation) {
     return;
   }
   this->rotation_ = rotation;
-  this->set_resolution_();
-  lv_obj_update_layout(this->get_screen_active());
-  lv_obj_invalidate(this->get_screen_active());
+  if (this->is_ready()) {
+    this->set_resolution_();
+    lv_obj_update_layout(this->get_screen_active());
+    lv_obj_invalidate(this->get_screen_active());
+  }
 }
 
 void LvglComponent::rotate_coordinates(int32_t &x, int32_t &y) const {
