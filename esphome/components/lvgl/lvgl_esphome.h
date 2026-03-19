@@ -152,6 +152,7 @@ class LvglComponent : public PollingComponent {
  public:
   LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh, int draw_rounding,
                 bool resume_on_input, bool update_when_display_idle);
+  void set_resolution_();
   static void static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -207,11 +208,22 @@ class LvglComponent : public PollingComponent {
   // rounding factor to align bounds of update area when drawing
   size_t draw_rounding{2};
 
-  display::DisplayRotation rotation{display::DISPLAY_ROTATION_0_DEGREES};
   void set_pause_trigger(Trigger<> *trigger) { this->pause_callback_ = trigger; }
   void set_resume_trigger(Trigger<> *trigger) { this->resume_callback_ = trigger; }
   void set_draw_start_trigger(Trigger<> *trigger) { this->draw_start_callback_ = trigger; }
   void set_draw_end_trigger(Trigger<> *trigger) { this->draw_end_callback_ = trigger; }
+  void set_rotation(display::DisplayRotation rotation) {
+    this->rotation_ = rotation;
+    this->uses_rotation_ = true;
+    if (this->draw_buf_ != nullptr) {
+      this->set_resolution_();
+      lv_obj_send_event(this->get_screen_active(), LV_EVENT_SIZE_CHANGED, nullptr);
+      lv_obj_update_layout(this->get_screen_active());
+      lv_obj_invalidate(this->get_screen_active());
+    }
+  }
+  display::DisplayRotation get_rotation() const { return this->rotation_; }
+  void rotate_coordinates(int32_t &x, int32_t &y);
 
  protected:
   void draw_end_();
@@ -247,6 +259,8 @@ class LvglComponent : public PollingComponent {
   Trigger<> *draw_start_callback_{};
   Trigger<> *draw_end_callback_{};
   void *rotate_buf_{};
+  display::DisplayRotation rotation_{display::DISPLAY_ROTATION_0_DEGREES};
+  bool uses_rotation_{false};
 };
 
 class IdleTrigger : public Trigger<> {

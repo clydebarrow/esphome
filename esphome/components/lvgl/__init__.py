@@ -9,7 +9,7 @@ from esphome.components.const import (
     CONF_COLOR_DEPTH,
     CONF_DRAW_ROUNDING,
 )
-from esphome.components.display import Display
+from esphome.components.display import DISPLAY_ROTATIONS, Display, validate_rotation
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
     add_idf_component,
@@ -37,6 +37,7 @@ from esphome.const import (
     CONF_ON_BOOT,
     CONF_ON_IDLE,
     CONF_PAGES,
+    CONF_ROTATION,
     CONF_TIMEOUT,
     CONF_TRIGGER_ID,
 )
@@ -183,6 +184,10 @@ def final_validation(config_list):
                 raise cv.Invalid(
                     "Using lambda: or pages: in display config is not compatible with LVGL"
                 )
+            if display.get(CONF_ROTATION):
+                df.LOGGER.warning(
+                    f"use of '{CONF_ROTATION}' in the display config will not affect LVGL"
+                )
             if display.get(CONF_AUTO_CLEAR_ENABLED) is True:
                 raise cv.Invalid(
                     "Using auto_clear_enabled: true in display config not compatible with LVGL"
@@ -320,6 +325,10 @@ async def to_code(configs):
             config[df.CONF_UPDATE_WHEN_DISPLAY_IDLE],
         )
         await cg.register_component(lv_component, config)
+        if (
+            rotation := config.get(CONF_ROTATION, DISPLAY_ROTATIONS[0])
+        ) or df.get_options().get(CONF_ROTATION):
+            cg.add(lv_component.set_rotation(rotation))
         Widget.create(config[CONF_ID], lv_component, LvScrActType(), config)
 
         lv_scr_act = get_screen_active(lv_component)
@@ -463,6 +472,7 @@ LVGL_SCHEMA = cv.All(
                 ): cv.boolean,
                 cv.Optional(CONF_DRAW_ROUNDING, default=2): cv.positive_int,
                 cv.Optional(CONF_BUFFER_SIZE, default=0): cv.percentage,
+                cv.Optional(CONF_ROTATION): validate_rotation,
                 cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
                     *df.LV_LOG_LEVELS, upper=True
                 ),
