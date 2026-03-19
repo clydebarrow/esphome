@@ -586,7 +586,8 @@ void LvglComponent::set_resolution_() const {
       this->rotation_ == display::DISPLAY_ROTATION_270_DEGREES) {
     std::swap(width, height);
   }
-  ESP_LOGD(TAG, "Setting resolution to %ld x %ld (rotation %d)", width, height, (int) this->rotation_);
+  ESP_LOGD(TAG, "Setting resolution to %u x %u (rotation %d)", (unsigned) width, (unsigned) height,
+           (int) this->rotation_);
   lv_display_set_resolution(this->disp_, width, height);
 }
 void LvglComponent::setup() {

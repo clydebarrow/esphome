@@ -186,7 +186,7 @@ def final_validation(config_list):
                 )
             if display.get(CONF_ROTATION):
                 df.LOGGER.warning(
-                    f"use of '{CONF_ROTATION}' in the display config will not affect LVGL"
+                    f"use of '{CONF_ROTATION}' in the display config will not affect LVGL; use '{CONF_ROTATION}' in the LVGL config instead"
                 )
             if display.get(CONF_AUTO_CLEAR_ENABLED) is True:
                 raise cv.Invalid(
