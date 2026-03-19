@@ -83,10 +83,10 @@ std::string lv_event_code_name_for(lv_event_t *event) {
   return buf;
 }
 
-void LvglComponent::rotate_coordinates(int32_t &x, int32_t &y) {
+void LvglComponent::rotate_coordinates(int32_t &x, int32_t &y) const {
   switch (this->rotation_) {
     default:
-      return;
+      break;
 
     case display::DISPLAY_ROTATION_180_DEGREES: {
       x = this->width_ - x - 1;
@@ -94,19 +94,18 @@ void LvglComponent::rotate_coordinates(int32_t &x, int32_t &y) {
       break;
       ;
     }
-    case display::DISPLAY_ROTATION_90_DEGREES: {
+    case display::DISPLAY_ROTATION_270_DEGREES: {
       auto tmp = x;
-      x = this->width_ - y - 1;
+      x = this->height_ - y - 1;
       y = tmp;
       break;
       ;
     }
-    case display::DISPLAY_ROTATION_270_DEGREES: {
+    case display::DISPLAY_ROTATION_90_DEGREES: {
       auto tmp = y;
-      y = this->height_ - x - 1;
+      y = this->width_ - x - 1;
       x = tmp;
       break;
-      ;
     }
   }
 }
@@ -249,7 +248,7 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
         }
       }
       y1 = x1;
-      x1 = this->height_ - area->y1 - height;
+      x1 = this->width_ - area->y1 - height;
       height = width;
       width = height_rounded;
       break;
@@ -271,7 +270,7 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
         }
       }
       x1 = y1;
-      y1 = this->width_ - area->x1 - width;
+      y1 = this->height_ - area->x1 - width;
       height = width;
       width = height_rounded;
       break;
@@ -319,11 +318,9 @@ LVTouchListener::LVTouchListener(uint16_t long_press_time, uint16_t long_press_r
   lv_indev_set_read_cb(this->drv_, [](lv_indev_t *d, lv_indev_data_t *data) {
     auto *l = static_cast<LVTouchListener *>(lv_indev_get_user_data(d));
     if (l->touch_pressed_) {
-      int32_t x = l->touch_point_.x;
-      int32_t y = l->touch_point_.y;
-      l->parent_->rotate_coordinates(x, y);
       data->point.x = l->touch_point_.x;
       data->point.y = l->touch_point_.y;
+      l->parent_->rotate_coordinates(data->point.x, data->point.y);
       data->state = LV_INDEV_STATE_PRESSED;
     } else {
       data->state = LV_INDEV_STATE_RELEASED;

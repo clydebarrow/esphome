@@ -221,7 +221,7 @@ class LvglComponent : public PollingComponent {
     }
   }
   display::DisplayRotation get_rotation() const { return this->rotation_; }
-  void rotate_coordinates(int32_t &x, int32_t &y);
+  void rotate_coordinates(int32_t &x, int32_t &y) const;
 
  protected:
   void draw_end_();
