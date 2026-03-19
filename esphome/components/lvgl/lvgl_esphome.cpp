@@ -578,6 +578,7 @@ void LvglComponent::write_random_() {
  *                      multiple of 2, and so on.
  * @param resume_on_input if true, this component will resume rendering when the user
  *                         presses a key or clicks on the screen.
+ * @param uses_rotation if a rotate buffer should be allocated.
  */
 LvglComponent::LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh,
                              int draw_rounding, bool resume_on_input, bool update_when_display_idle, bool uses_rotation)
