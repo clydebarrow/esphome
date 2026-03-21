@@ -84,7 +84,7 @@ std::string lv_event_code_name_for(lv_event_t *event) {
 }
 
 void LvglComponent::set_rotation(display::DisplayRotation rotation) {
-  if (!this->uses_rotation_) {
+  if (this->rotation_type_ == RotationType::ROTATION_UNUSED) {
     ESP_LOGW(TAG, "Display rotation cannot be changed unless rotation was enabled during setup.");
     return;
   }
@@ -250,48 +250,51 @@ void LvglComponent::draw_buffer_(const lv_area_t *area, lv_color_data *ptr) {
   auto height_rounded = (height + this->draw_rounding - 1) / this->draw_rounding * this->draw_rounding;
   auto x1 = area->x1;
   auto y1 = area->y1;
-  lv_color_data *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
-  switch (this->rotation_) {
-    case display::DISPLAY_ROTATION_90_DEGREES:
-      for (lv_coord_t x = height; x-- != 0;) {
-        for (lv_coord_t y = 0; y != width; y++) {
-          dst[y * height_rounded + x] = *ptr++;
+  if (this->rotation_type_ == RotationType::ROTATION_SOFTWARE) {
+    lv_color_data *dst = reinterpret_cast<lv_color_data *>(this->rotate_buf_);
+    switch (this->rotation_) {
+      case display::DISPLAY_ROTATION_90_DEGREES:
+        for (lv_coord_t x = height; x-- != 0;) {
+          for (lv_coord_t y = 0; y != width; y++) {
+            dst[y * height_rounded + x] = *ptr++;
+          }
         }
-      }
-      y1 = x1;
-      x1 = this->width_ - area->y1 - height;
-      height = width;
-      width = height_rounded;
-      break;
+        y1 = x1;
+        x1 = this->width_ - area->y1 - height;
+        height = width;
+        width = height_rounded;
+        break;
 
-    case display::DISPLAY_ROTATION_180_DEGREES:
-      for (lv_coord_t y = height; y-- != 0;) {
-        for (lv_coord_t x = width; x-- != 0;) {
-          dst[y * width + x] = *ptr++;
+      case display::DISPLAY_ROTATION_180_DEGREES:
+        for (lv_coord_t y = height; y-- != 0;) {
+          for (lv_coord_t x = width; x-- != 0;) {
+            dst[y * width + x] = *ptr++;
+          }
         }
-      }
-      x1 = this->width_ - x1 - width;
-      y1 = this->height_ - y1 - height;
-      break;
+        x1 = this->width_ - x1 - width;
+        y1 = this->height_ - y1 - height;
+        break;
 
-    case display::DISPLAY_ROTATION_270_DEGREES:
-      for (lv_coord_t x = 0; x != height; x++) {
-        for (lv_coord_t y = width; y-- != 0;) {
-          dst[y * height_rounded + x] = *ptr++;
+      case display::DISPLAY_ROTATION_270_DEGREES:
+        for (lv_coord_t x = 0; x != height; x++) {
+          for (lv_coord_t y = width; y-- != 0;) {
+            dst[y * height_rounded + x] = *ptr++;
+          }
         }
-      }
-      x1 = y1;
-      y1 = this->height_ - area->x1 - width;
-      height = width;
-      width = height_rounded;
-      break;
+        x1 = y1;
+        y1 = this->height_ - area->x1 - width;
+        height = width;
+        width = height_rounded;
+        break;
 
-    default:
-      dst = ptr;
-      break;
+      default:
+        dst = ptr;
+        break;
+    }
+    ptr = dst;
   }
   for (auto *display : this->displays_) {
-    display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) dst, display::COLOR_ORDER_RGB, LV_BITNESS,
+    display->draw_pixels_at(x1, y1, width, height, (const uint8_t *) ptr, display::COLOR_ORDER_RGB, LV_BITNESS,
                             this->big_endian_);
   }
 }
@@ -300,8 +303,8 @@ void LvglComponent::flush_cb_(lv_display_t *disp_drv, const lv_area_t *area, uin
   if (!this->is_paused()) {
     auto now = millis();
     this->draw_buffer_(area, reinterpret_cast<lv_color_data *>(color_p));
-    ESP_LOGV(TAG, "flush_cb, area=%d/%d, %d/%d took %dms", area->x1, area->y1, lv_area_get_width(area),
-             lv_area_get_height(area), (int) (millis() - now));
+    ESP_LOGV(TAG, "flush_cb, area=%" PRIu32 "/%" PRIu32 ", %" PRIu32 "/%" PRIu32 " took %dms", area->x1, area->y1,
+             lv_area_get_width(area), lv_area_get_height(area), (int) (millis() - now));
   }
   lv_display_flush_ready(disp_drv);
 }
@@ -581,14 +584,15 @@ void LvglComponent::write_random_() {
  * @param uses_rotation if a rotate buffer should be allocated.
  */
 LvglComponent::LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh,
-                             int draw_rounding, bool resume_on_input, bool update_when_display_idle, bool uses_rotation)
+                             int draw_rounding, bool resume_on_input, bool update_when_display_idle,
+                             RotationType rotation_type)
     : draw_rounding(draw_rounding),
       displays_(std::move(displays)),
       buffer_frac_(buffer_frac),
       full_refresh_(full_refresh),
       resume_on_input_(resume_on_input),
       update_when_display_idle_(update_when_display_idle),
-      uses_rotation_(uses_rotation) {
+      rotation_type_(rotation_type) {
   this->disp_ = lv_display_create(240, 240);
 }
 
@@ -601,6 +605,10 @@ void LvglComponent::set_resolution_() const {
   }
   ESP_LOGD(TAG, "Setting resolution to %u x %u (rotation %d)", (unsigned) width, (unsigned) height,
            (int) this->rotation_);
+  if (this->rotation_type_ == RotationType::ROTATION_HARDWARE) {
+    for (auto *display : this->displays_)
+      display->set_rotation(this->rotation_);
+  }
   lv_display_set_resolution(this->disp_, width, height);
 }
 void LvglComponent::setup() {
@@ -641,7 +649,7 @@ void LvglComponent::setup() {
   lv_display_add_event_cb(this->disp_, rounder_cb, LV_EVENT_INVALIDATE_AREA, this);
   lv_display_set_buffers(this->disp_, this->draw_buf_, nullptr, buf_bytes,
                          this->full_refresh_ ? LV_DISPLAY_RENDER_MODE_FULL : LV_DISPLAY_RENDER_MODE_PARTIAL);
-  if (this->uses_rotation_) {
+  if (this->rotation_type_ == RotationType::ROTATION_SOFTWARE) {
     this->rotate_buf_ = static_cast<lv_color_t *>(lv_alloc_draw_buf(buf_bytes, false));  // NOLINT
     if (this->rotate_buf_ == nullptr) {
       this->status_set_error(LOG_STR("Memory allocation failure"));

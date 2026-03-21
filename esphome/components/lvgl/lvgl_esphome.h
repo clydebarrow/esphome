@@ -145,13 +145,18 @@ template<typename... Ts> class ObjUpdateAction : public Action<Ts...> {
 #ifdef USE_LVGL_ANIMIMG
 void lv_animimg_stop(lv_obj_t *obj);
 #endif  // USE_LVGL_ANIMIMG
+enum RotationType : uint8_t {
+  ROTATION_UNUSED,
+  ROTATION_SOFTWARE,
+  ROTATION_HARDWARE,
+};
 
 class LvglComponent : public PollingComponent {
   constexpr static const char *const TAG = "lvgl";
 
  public:
   LvglComponent(std::vector<display::Display *> displays, float buffer_frac, bool full_refresh, int draw_rounding,
-                bool resume_on_input, bool update_when_display_idle, bool uses_rotation);
+                bool resume_on_input, bool update_when_display_idle, RotationType rotation_type);
   static void static_flush_cb(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *color_p);
 
   float get_setup_priority() const override { return setup_priority::PROCESSOR; }
@@ -249,7 +254,7 @@ class LvglComponent : public PollingComponent {
   Trigger<> *draw_end_callback_{};
   void *rotate_buf_{};
   display::DisplayRotation rotation_{display::DISPLAY_ROTATION_0_DEGREES};
-  bool uses_rotation_;
+  RotationType rotation_type_;
 };
 
 class IdleTrigger : public Trigger<> {

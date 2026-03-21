@@ -9,7 +9,7 @@ from esphome.components.const import (
     CONF_COLOR_DEPTH,
     CONF_DRAW_ROUNDING,
 )
-from esphome.components.display import Display, validate_rotation
+from esphome.components.display import Display, get_display_metadata, validate_rotation
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
     add_idf_component,
@@ -71,7 +71,15 @@ from .schemas import (
 from .styles import styles_to_code, theme_to_code
 from .touchscreens import touchscreen_schema, touchscreens_to_code
 from .trigger import add_on_boot_triggers, generate_triggers
-from .types import IdleTrigger, PlainTrigger, lv_font_t, lv_group_t, lv_style_t, lvgl_ns
+from .types import (
+    IdleTrigger,
+    PlainTrigger,
+    RotationType,
+    lv_font_t,
+    lv_group_t,
+    lv_style_t,
+    lvgl_ns,
+)
 from .widgets import (
     LvScrActType,
     Widget,
@@ -315,6 +323,17 @@ async def to_code(configs):
         displays = [
             await cg.get_variable(display) for display in config[df.CONF_DISPLAYS]
         ]
+        use_hardware_rotation = all(
+            get_display_metadata(str(disp)).has_hardware_rotation for disp in displays
+        )
+        if CONF_ROTATION in config or df.get_options().get(CONF_ROTATION) is True:
+            rotation_type = (
+                RotationType.ROTATION_HARDWARE
+                if use_hardware_rotation
+                else RotationType.ROTATION_SOFTWARE
+            )
+        else:
+            rotation_type = RotationType.ROTATION_UNUSED
         lv_component = cg.new_Pvariable(
             config[CONF_ID],
             displays,
@@ -323,7 +342,7 @@ async def to_code(configs):
             config[CONF_DRAW_ROUNDING],
             config[df.CONF_RESUME_ON_INPUT],
             config[df.CONF_UPDATE_WHEN_DISPLAY_IDLE],
-            CONF_ROTATION in config or df.get_options().get(CONF_ROTATION) is True,
+            rotation_type,
         )
         await cg.register_component(lv_component, config)
         if rotation := config.get(CONF_ROTATION):
