@@ -618,9 +618,9 @@ void LvglComponent::set_resolution_() const {
 void LvglComponent::setup() {
   auto *display = this->displays_[0];
   auto rounding = this->draw_rounding;
-  // cater for displays with dimensions that don't divide by the required rounding
   this->width_ = display->get_native_width();
   this->height_ = display->get_native_height();
+  // cater for displays with dimensions that don't divide by the required rounding
   auto width = (this->width_ + rounding - 1) / rounding * rounding;
   auto height = (this->height_ + rounding - 1) / rounding * rounding;
   auto frac = this->buffer_frac_;

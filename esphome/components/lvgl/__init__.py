@@ -187,6 +187,7 @@ def final_validation(config_list):
     for config in config_list:
         if (pages := config.get(CONF_PAGES)) and all(p[df.CONF_SKIP] for p in pages):
             raise cv.Invalid("At least one page must not be skipped")
+        uses_rotation = CONF_ROTATION in config
         for display_id in config[df.CONF_DISPLAYS]:
             path = global_config.get_path_for_id(display_id)[:-1]
             display = global_config.get_config_for_path(path)
@@ -194,9 +195,10 @@ def final_validation(config_list):
                 raise cv.Invalid(
                     "Using lambda: or pages: in display config is not compatible with LVGL"
                 )
-            if display.get(CONF_ROTATION):
+            # treating 0 as false is intended here.
+            if uses_rotation and display.get(CONF_ROTATION):
                 df.LOGGER.warning(
-                    "use of 'rotation' in the display config will not affect LVGL; use 'rotation' in the LVGL config instead"
+                    "use of 'rotation' in both LVGL and the display config is not recommended"
                 )
             if display.get(CONF_AUTO_CLEAR_ENABLED) is True:
                 raise cv.Invalid(
