@@ -157,6 +157,10 @@ void LvglComponent::dump_config() {
                 "  Rotation: %d\n"
                 "  Draw rounding: %d",
                 this->width_, this->height_, 100 / this->buffer_frac_, this->rotation_, (int) this->draw_rounding);
+  if (this->rotation_type_ != ROTATION_UNUSED) {
+    ESP_LOGCONFIG(TAG, "  Rotation type: %s",
+                  this->rotation_type_ == RotationType::ROTATION_SOFTWARE ? "software" : "hardware via display driver");
+  }
 }
 
 void LvglComponent::set_paused(bool paused, bool show_snow) {

@@ -333,14 +333,15 @@ async def to_code(configs):
         rotation_type = RotationType.ROTATION_UNUSED
         # options will have CONF_ROTATION true if rotation is changed in an automation.
         if CONF_ROTATION in config or df.get_options().get(CONF_ROTATION) is True:
-            rotation_type = (
-                RotationType.ROTATION_HARDWARE
-                if all(
-                    get_display_metadata(str(disp)).has_hardware_rotation
-                    for disp in displays
-                )
-                else RotationType.ROTATION_SOFTWARE
-            )
+            if all(
+                get_display_metadata(str(disp)).has_hardware_rotation
+                for disp in displays
+            ):
+                rotation_type = RotationType.ROTATION_HARDWARE
+                df.LOGGER.info("Using hardware rotation via display driver")
+            else:
+                rotation_type = RotationType.ROTATION_SOFTWARE
+                df.LOGGER.info("Using software rotation")
         lv_component = cg.new_Pvariable(
             config[CONF_ID],
             displays,
