@@ -338,10 +338,10 @@ async def to_code(configs):
                 for disp in displays
             ):
                 rotation_type = RotationType.ROTATION_HARDWARE
-                df.LOGGER.info("Using hardware rotation via display driver")
+                df.LOGGER.info("LVGL will use hardware rotation via display driver")
             else:
                 rotation_type = RotationType.ROTATION_SOFTWARE
-                df.LOGGER.info("Using software rotation")
+                df.LOGGER.info("LVGL will use software rotation")
         lv_component = cg.new_Pvariable(
             config[CONF_ID],
             displays,
