@@ -130,7 +130,6 @@ def _validate_no_sorting_component(
 
 def _add_sorting_ref(value):
     sorting_group_id = value.get(CONF_SORTING_GROUP_ID)
-    print(sorting_group_id, type(sorting_group_id))
     if isinstance(sorting_group_id, str):
         # Add a reference to the sorting group, creating it if it doesn't exist
         sorting_groups.setdefault(sorting_group_id, {KEY_IDS: []})[KEY_IDS].append(
@@ -283,7 +282,6 @@ async def add_entity_config(entity, config):
     sorting_group_hash = hash(sorting_group_id)
 
     cg.add_define("USE_WEBSERVER_SORTING")
-    print(web_server, entity, sorting_weight, sorting_group_hash)
     cg.add(
         web_server.add_entity_config(
             entity,
