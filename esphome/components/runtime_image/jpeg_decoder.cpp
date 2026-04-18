@@ -40,7 +40,15 @@ static int draw_callback(JPEGDRAW *jpeg) {
     for (size_t x = 0; x < width; x++) {
       auto rg = decode_value(jpeg->pPixels[position++]);
       auto ba = decode_value(jpeg->pPixels[position++]);
+      // Check if we are on a platform where JPEGDEC uses SIMD (NEON/SSE)
+      // and stores in Little-Endian (resulting in BGRA)
+#if defined(__x86_64__) || defined(__i386__) || defined(__ARM_NEON) || defined(__ARM_NEON__)
+      // This covers Intel Macs, Apple Silicon Macs, and optimized Linux hosts
+      Color color(ba[1], rg[0], rg[1], ba[0]);
+#else
+      // This covers ESP32 (Scalar/Custom SIMD) and generic ARM/RISC-V
       Color color(rg[1], rg[0], ba[1], ba[0]);
+#endif
 
       if (!decoder) {
         ESP_LOGE(TAG, "Decoder pointer is null!");
