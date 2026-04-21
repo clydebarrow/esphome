@@ -290,7 +290,8 @@ void SicomComponent::update() {
     this->process_message_(data);
   }
   if (this->next_device_ == 0) {
-    ESP_LOGD(TAG, "Sending All Call, available data: %d", this->available());
+    if (this->debug_)
+      ESP_LOGD(TAG, "Sending All Call, available data: %d", this->available());
     this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
     this->next_device_ = 1;
     return;
@@ -300,7 +301,8 @@ void SicomComponent::update() {
     return;
   }
   if (this->next_device_ == this->devices_.size() + 1) {
-    ESP_LOGD(TAG, "Available data for device %u", this->available());
+    if (this->debug_)
+      ESP_LOGD(TAG, "Available data for device %u", this->available());
   }
   this->send_poll_();
   this->next_device_++;
@@ -383,7 +385,20 @@ void SicomComponent::send_message_(uint8_t address, uint8_t cmd) {
   this->send_message_(address, message);
 }
 
-void SicomComponent::dump_config() { ESP_LOGCONFIG(TAG, "Sicom"); }
+void SicomComponent::dump_config() {
+  ESP_LOGCONFIG(TAG, "Sicom");
+  ESP_LOGCONFIG(TAG, "  Known devices: %u", this->devices_.size());
+  for (size_t i = 0; i != this->devices_.size(); i++) {
+    const auto *device = this->devices_[i];
+    const auto state = device->get_state();
+    const char *state_name = "Unknown";
+    if (state <= DEVICE_ENROLLED) {
+      state_name = DEVICE_STATES[state];
+    }
+    ESP_LOGCONFIG(TAG, "  - Address %u: id=%02X serial=%08" PRIX32 " state=%s", i + 1, device->get_id(),
+                  device->get_serial_number(), state_name);
+  }
+}
 
 }  // namespace sicom
 }  // namespace esphome

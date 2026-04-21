@@ -9,6 +9,7 @@ from esphome.const import (
     CONF_CURRENT,
     CONF_DEBUG,
     CONF_DEVICE,
+    CONF_DEVICES,
     CONF_ID,
     CONF_INDEX,
     CONF_STATUS,
@@ -32,7 +33,6 @@ SicomSensor = sicom_ns.class_("SicomSensor")
 DataType = sicom_ns.enum("DataType")
 
 CONF_SICOM_ID = "sicom_id"
-CONF_DEVICES = "devices"
 CONF_TX_ENABLE_PIN = "tx_enable_pin"
 CONF_SICOM_SENSOR_ID = "sicom_sensor_id"
 
@@ -40,7 +40,7 @@ CONF_SICOM_SENSOR_ID = "sicom_sensor_id"
 def get_type(size, signed):
     if size == 2:
         return DataType.SIGNED16 if signed else DataType.UNSIGNED16
-    elif size == 4:
+    if size == 4:
         return DataType.SIGNED32 if signed else DataType.UNSIGNED32
     raise ValueError(f"Invalid size {size} for signed {signed}")
 
@@ -57,7 +57,7 @@ class SicomDeviceType:
     def __init__(
         self,
         name,
-        id,
+        id_,
         voltage_count=0,
         voltage_offset=0,
         voltage_size=2,
@@ -75,7 +75,7 @@ class SicomDeviceType:
         resistance_increment=0,
     ):
         self.name = name
-        self.id = id
+        self.id_ = id_
         self.sensors = {}
         voltage_increment = voltage_increment or voltage_size
         voltage_type = get_type(voltage_size, True)
@@ -115,7 +115,7 @@ class SicomDeviceType:
 SI_DEVICES = [
     SicomDeviceType(
         "SCQ25T",
-        id=0x2,
+        id_=0x2,
         voltage_count=3,
         voltage_offset=28,
         current_count=4,
@@ -123,10 +123,11 @@ SI_DEVICES = [
         current_size=2,
         resistance_count=4,
         resistance_offset=34,
+        current_scale=0.01,
     ),
     SicomDeviceType(
         "ST107",
-        id=3,
+        id_=3,
         voltage_count=4,
         voltage_offset=4,
         resistance_count=4,
@@ -134,7 +135,7 @@ SI_DEVICES = [
     ),
     SicomDeviceType(
         "SC301",
-        id=0xE,
+        id_=0xE,
         voltage_count=2,
         voltage_offset=13,
         voltage_increment=3,
@@ -144,7 +145,7 @@ SI_DEVICES = [
     ),
     SicomDeviceType(
         "SC303",
-        id=0x10,
+        id_=0x10,
         voltage_count=2,
         voltage_offset=14,
         resistance_count=3,
@@ -234,7 +235,7 @@ async def to_code(config):
     for device in config[CONF_DEVICES]:
         dtype = SI_DEVICES_MAP[device[CONF_TYPE]]
         sicom_devices[device[CONF_ID]] = dtype
-        device_var = cg.new_Pvariable(device[CONF_ID], dtype.id)
+        device_var = cg.new_Pvariable(device[CONF_ID], dtype.id_)
         if serial_number := device.get(CONF_SERIAL_NUMBER):
             cg.add(device_var.set_serial_number(serial_number))
         cg.add(var.add_device(device_var))
