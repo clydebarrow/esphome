@@ -5,12 +5,12 @@
 namespace esphome {
 namespace sicom {
 
-static const char *TAG = "sicom";
+static const char *const TAG = "sicom";
 static const uint32_t BAUD_RATE = 115200;
 static const uint16_t SYMBOL_LENGTH = 16;
 static const size_t MAX_DEVICES = 32;
 
-static const uint16_t crc_table[256] = {
+static const uint16_t CRC_TABLE[256] = {
     0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf, 0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5,
     0xe97e, 0xf8f7, 0x0919, 0x1890, 0x2a0b, 0x3b82, 0x4f3d, 0x5eb4, 0x6c2f, 0x7da6, 0x8551, 0x94d8, 0xa643, 0xb7ca,
     0xc375, 0xd2fc, 0xe067, 0xf1ee, 0x1232, 0x03bb, 0x3120, 0x20a9, 0x5416, 0x459f, 0x7704, 0x668d, 0x9e7a, 0x8ff3,
@@ -31,12 +31,12 @@ static const uint16_t crc_table[256] = {
     0x97e0, 0x8669, 0x7787, 0x660e, 0x5495, 0x451c, 0x31a3, 0x202a, 0x12b1, 0x0338, 0xfbcf, 0xea46, 0xd8dd, 0xc954,
     0xbdeb, 0xac62, 0x9ef9, 0x8f70};
 
-static uint16_t calculateCRC16(const std::vector<uint8_t> &data) {
+static uint16_t calculate_crc16(const std::vector<uint8_t> &data) {
   uint16_t crc = 0x0000;  // Initial value
 
   for (uint8_t byte : data) {
     uint8_t tbl_idx = ((crc >> 8) ^ byte);
-    crc = (crc_table[tbl_idx] ^ (crc << 8));
+    crc = (CRC_TABLE[tbl_idx] ^ (crc << 8));
   }
   return crc;
 }
@@ -57,7 +57,7 @@ static const size_t TYPE_OFFS = 2;
 static const size_t CMD_OFFS = 3;
 static const size_t SERIAL_OFFS = 4;
 
-static const char *DEVICE_STATES[] = {
+static const char *const DEVICE_STATES[] = {
     "Unseen",
     "Enrolling",
     "Enrolled",
@@ -65,7 +65,7 @@ static const char *DEVICE_STATES[] = {
 
 static void add_crc(std::vector<uint8_t> &data) {
   data[LEN_OFFS] = data.size() + 1;
-  auto crc = calculateCRC16(data);
+  auto crc = calculate_crc16(data);
   data.push_back(crc >> 8);
   data.push_back(crc & 0xFF);
 }
@@ -114,7 +114,7 @@ void SicomComponent::setup() {
   rmt_tx_channel_config_t channel{};
   channel.clk_src = RMT_CLK_SRC_DEFAULT;
   channel.resolution_hz = BAUD_RATE * SYMBOL_LENGTH;
-  channel.gpio_num = (gpio_num_t) this->tx_pin_;
+  channel.gpio_num = static_cast<gpio_num_t>(this->tx_pin_);
   channel.flags.with_dma = 0;
   channel.mem_block_symbols = 96;
   channel.trans_queue_depth = 1;
@@ -180,11 +180,13 @@ std::vector<uint8_t> SicomComponent::read_message_() {
       return {};
     buffer.push_back(byte);
   }
-  if (this->debug_)
-    ESP_LOGD(TAG, "Received message: %s", format_hex_pretty(buffer).c_str());
-  if (calculateCRC16(buffer) == 0)
+  char buf[128];
+  if (this->debug_) {
+    ESP_LOGD(TAG, "Received message: %s", format_hex_pretty_to(buf, sizeof(buf), buffer.data(), buffer.size()));
+  }
+  if (calculate_crc16(buffer) == 0)
     return buffer;
-  ESP_LOGD(TAG, "Failed checksum; message: %s", format_hex_pretty(buffer).c_str());
+  ESP_LOGD(TAG, "Failed checksum: %s", format_hex_pretty_to(buf, sizeof(buf), buffer.data(), buffer.size()));
   return {};
 }
 
@@ -274,8 +276,9 @@ bool SicomComponent::process_message_(std::vector<uint8_t> &buffer) {
     this->devices_[index]->decode(buffer);
     return true;
   }
-  ESP_LOGD(TAG, "Unknown cmd: %02X for address %d, data %s", buffer[CMD_OFFS], buffer[ADDR_OFFS],
-           format_hex_pretty(buffer).c_str());
+  char buf[128];
+  ESP_LOGD(TAG, "Unknown command %02X for address %d, data: %s", buffer[CMD_OFFS], buffer[ADDR_OFFS],
+           format_hex_pretty_to(buf, sizeof(buf), buffer.data(), buffer.size()));
   return false;
 }
 
@@ -369,7 +372,8 @@ void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "Failed to transmit message, err=%s", esp_err_to_name(err));
   } else if (this->debug_) {
-    ESP_LOGD(TAG, "Sent message: %s", format_hex_pretty(data).c_str());
+    char buf[128];
+    ESP_LOGD(TAG, "Sent message: %s", format_hex_pretty_to(buf, sizeof(buf), data.data(), data.size()));
   }
 }
 
