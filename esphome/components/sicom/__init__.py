@@ -217,7 +217,7 @@ CONFIG_SCHEMA = cv.All(
             ),
         }
     ),
-    cv.only_with_esp_idf,
+    cv.only_on_esp32,
     cv.require_framework_version(esp_idf=cv.Version(5, 1, 0)),
     validate_config,
 )
