@@ -4,7 +4,7 @@ from esphome.components.binary_sensor import binary_sensor_schema, new_binary_se
 from esphome.components.sun_gtil2.text_sensor import CONF_SERIAL_NUMBER
 from esphome.components.uart import IDFUARTComponent, UARTDevice, register_uart_device
 import esphome.config_validation as cv
-from esphome.config_validation import polling_component_schema
+from esphome.config_validation import COMPONENT_SCHEMA
 from esphome.const import (
     CONF_CURRENT,
     CONF_DEBUG,
@@ -186,7 +186,7 @@ def validate_config(config):
 
 
 CONFIG_SCHEMA = cv.All(
-    polling_component_schema("30ms").extend(
+    COMPONENT_SCHEMA.extend(
         {
             cv.GenerateID(CONF_UART_ID): cv.use_id(IDFUARTComponent),
             cv.GenerateID(): cv.declare_id(SicomComponent),

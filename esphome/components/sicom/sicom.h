@@ -39,7 +39,7 @@ class SicomSensor {
     this->length_ = (size_t) data_type / 4;
   }
 
-  bool decode(ByteBuffer &buffer);
+  bool decode(ByteBuffer &buffer) const;
   void invalidate() { this->sensor_->publish_state(NAN); }
 
  protected:
@@ -59,7 +59,7 @@ class SicomDevice {
 
   void invalidate();
 
-  void decode(std::vector<uint8_t> &data);
+  void decode(const std::vector<uint8_t> &data);
 
   uint8_t get_id() const { return id_; }
   void set_serial_number(uint32_t serial_number) { this->serial_number_ = serial_number; }
@@ -68,38 +68,44 @@ class SicomDevice {
   bool is_enrolling() const { return this->state_ == DEVICE_ENROLLING; }
   void set_state(DeviceState state);
   DeviceState get_state() const { return this->state_; }
+  void set_address(uint8_t address) { this->address_ = address; }
+  uint8_t get_address() const { return this->address_; }
 
  protected:
   uint32_t serial_number_{};
   uint8_t id_;
+  uint8_t address_{};
   DeviceState state_{DEVICE_UNSEEN};
   std::vector<SicomSensor *> sensors_{};
   binary_sensor::BinarySensor *status_sensor_{nullptr};
   uint32_t last_data_time_{};
 };
 
-class SicomComponent : public uart::UARTDevice, public PollingComponent {
+class SicomComponent : public uart::UARTDevice, public Component {
  public:
   // void setup() override;
   void setup() override;
   bool try_read_(uint8_t *data);
-  void update() override;
-  void send_enrol_message_(SicomDevice *device, uint8_t address);
-  bool enrol_device_(std::vector<uint8_t> &data);
-  bool process_message_(std::vector<uint8_t> &buffer);
+  void loop() override;
+  void send_enrol_message_(const SicomDevice *device) const;
+  bool enrol_device_(const std::vector<uint8_t> &data);
+  bool process_message_(const std::vector<uint8_t> &buffer);
   void dump_config() override;
 
-  void add_device(SicomDevice *device) { this->devices_.push_back(device); }
+  void add_device(SicomDevice *device) {
+    this->devices_.push_back(device);
+    device->set_address(this->devices_.size());
+  }
   void set_debug(bool debug) { this->debug_ = debug; }
   void set_tx_pin(uint8_t tx_pin) { this->tx_pin_ = tx_pin; }
   void set_tx_enable_pin(GPIOPin *tx_enable_pin) { this->tx_enable_pin_ = tx_enable_pin; }
 
  protected:
   std::vector<uint8_t> read_message_();
-  void send_message_(uint8_t address, std::vector<uint8_t> data);
-  void send_message_(uint8_t address, uint8_t cmd);
-  bool confirm_enrolment_(const std::vector<uint8_t> &data);
-  void send_poll_();
+  void send_message_(uint8_t address, std::vector<uint8_t> data) const;
+  void send_message_(uint8_t address, uint8_t cmd) const;
+  bool confirm_enrolment_(const std::vector<uint8_t> &data) const;
+  void send_poll_(const SicomDevice *device) const;
   void start_input_();
   bool input_started_{};
   bool debug_{};

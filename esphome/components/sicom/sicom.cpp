@@ -6,9 +6,9 @@ namespace esphome {
 namespace sicom {
 
 static const char *const TAG = "sicom";
-static const uint32_t BAUD_RATE = 115200;
-static const uint16_t SYMBOL_LENGTH = 16;
-static const size_t MAX_DEVICES = 32;
+static constexpr uint32_t BAUD_RATE = 115200;
+static constexpr uint16_t SYMBOL_LENGTH = 16;
+static constexpr size_t MAX_DEVICES = 32;
 
 static const uint16_t CRC_TABLE[256] = {
     0x0000, 0x1189, 0x2312, 0x329b, 0x4624, 0x57ad, 0x6536, 0x74bf, 0x8c48, 0x9dc1, 0xaf5a, 0xbed3, 0xca6c, 0xdbe5,
@@ -41,27 +41,42 @@ static uint16_t calculate_crc16(const std::vector<uint8_t> &data) {
   return crc;
 }
 
-static const uint8_t BROADCAST_ADDRESS = 0xFA;
-static const uint8_t REQUEST_DATA_MSG = 0x0A;
-static const uint8_t REPLY_DATA_MSG = 0xA0;
-static const uint8_t ALL_CALL_MSG = 0x31;
-static const uint8_t ENTROL_MSG = 0x20;
-static const uint8_t DEVICE_HELLO = 0xC0;
-static const uint8_t DEVICE_ACK = 0xC1;
+static constexpr uint8_t BROADCAST_ADDRESS = 0xFA;
+static constexpr uint8_t REQUEST_DATA_MSG = 0x0A;
+static constexpr uint8_t REPLY_DATA_MSG = 0xA0;
+static constexpr uint8_t ALL_CALL_MSG = 0x31;
+static constexpr uint8_t ENROL_MSG = 0x20;
+static constexpr uint8_t DEVICE_HELLO = 0xC0;
+static constexpr uint8_t DEVICE_ACK = 0xC1;
 
-static const size_t MAX_MSG_LEN = 64;
-static const size_t MIN_MSG_LEN = 5;
-static const size_t ADDR_OFFS = 0;
-static const size_t LEN_OFFS = 1;
-static const size_t TYPE_OFFS = 2;
-static const size_t CMD_OFFS = 3;
-static const size_t SERIAL_OFFS = 4;
+static constexpr size_t MAX_MSG_LEN = 64;
+static constexpr size_t MIN_MSG_LEN = 5;
+static constexpr size_t ADDR_OFFS = 0;
+static constexpr size_t LEN_OFFS = 1;
+static constexpr size_t TYPE_OFFS = 2;
+static constexpr size_t CMD_OFFS = 3;
+static constexpr size_t SERIAL_OFFS = 4;
 
-static const char *const DEVICE_STATES[] = {
+static const constexpr char *const DEVICE_STATES[] = {
     "Unseen",
     "Enrolling",
     "Enrolled",
 };
+
+static const char *get_device_type(uint8_t device_type) {
+  switch (device_type) {
+    case 0x02:
+      return "SCQ25T";
+    case 0x03:
+      return "ST107";
+    case 0x0E:
+      return "SC301";
+    case 0x10:
+      return "SC303";
+    default:
+      return "Unknown";
+  }
+}
 
 static void add_crc(std::vector<uint8_t> &data) {
   data[LEN_OFFS] = data.size() + 1;
@@ -70,7 +85,7 @@ static void add_crc(std::vector<uint8_t> &data) {
   data.push_back(crc & 0xFF);
 }
 
-bool SicomSensor::decode(ByteBuffer &buffer) {
+bool SicomSensor::decode(ByteBuffer &buffer) const {
   if (buffer.get_limit() < this->offset_ + this->length_) {
     return false;
   }
@@ -191,78 +206,84 @@ std::vector<uint8_t> SicomComponent::read_message_() {
 }
 
 void SicomDevice::set_state(DeviceState state) {
-  this->state_ = state;
-  this->last_data_time_ = millis();
-  ESP_LOGD(TAG, "Device %" PRIX32 " state: %s", this->serial_number_, DEVICE_STATES[this->state_]);
+  if (this->state_ != state) {
+    this->state_ = state;
+    this->last_data_time_ = millis();
+    ESP_LOGD(TAG, "Device %" PRIX32 " type %s state: %s", this->serial_number_, get_device_type(this->id_),
+             DEVICE_STATES[this->state_]);
+  }
 }
 
-void SicomComponent::send_enrol_message_(SicomDevice *device, uint8_t address) {
+void SicomComponent::send_enrol_message_(const SicomDevice *device) const {
   ByteBuffer message = ByteBuffer(6, BIG);
-  message.put_uint8(ENTROL_MSG);
+  message.put_uint8(ENROL_MSG);
   message.put_uint32(device->get_serial_number());
-  message.put_uint8(address);
+  message.put_uint8(device->get_address());
   this->send_message_(BROADCAST_ADDRESS, message.get_data());
 }
 
-bool SicomComponent::enrol_device_(std::vector<uint8_t> &data) {
+bool SicomComponent::enrol_device_(const std::vector<uint8_t> &data) {
   if (data.size() != 10 || data[CMD_OFFS] != DEVICE_HELLO)
     return false;
   auto buffer = ByteBuffer::wrap(data, LITTLE);
   auto serial = buffer.get_uint32(4);
   auto id = buffer.get_uint8(2);
-  ESP_LOGD(TAG, "Device Hello: id=%02X, serial=%08" PRIX32, id, serial);
+  ESP_LOGD(TAG, "Device Hello: id=%02X (%s), serial=%08" PRIX32, id, get_device_type(id), serial);
   for (auto i = 0; i != this->devices_.size(); i++) {
     auto device = this->devices_[i];
     auto device_serial = device->get_serial_number();
     if (device->get_id() == id && (device_serial == 0 || device_serial == serial)) {
-      ESP_LOGD(TAG, "Device found: address=%u, id=%02X, serial=%08" PRIX32, i + 1, id, serial);
+      ESP_LOGD(TAG, "Device found: address=%u, id=%02X (%s), serial=%08" PRIX32, i + 1, id, get_device_type(id),
+               serial);
       device->set_state(DEVICE_ENROLLING);
       device->set_serial_number(serial);
+      this->send_poll_(device);
       return true;
     }
   }
   auto *new_device = new SicomDevice(id);  // NOLINT
   new_device->set_serial_number(serial);
   new_device->set_state(DEVICE_ENROLLING);
-  this->devices_.push_back(std::move(new_device));
-  ESP_LOGD(TAG, "New device: address=%u, id=%02X, serial=%08" PRIX32, this->devices_.size(), id, serial);
+  this->add_device(new_device);
+  ESP_LOGD(TAG, "New device: address=%u, id=%02X (%s), serial=%08" PRIX32, this->devices_.size(), id,
+           get_device_type(id), serial);
+  this->next_device_ = this->devices_.size();
+  this->send_poll_(new_device);
   return true;
 }
 
-bool SicomComponent::confirm_enrolment_(const std::vector<uint8_t> &data) {
+bool SicomComponent::confirm_enrolment_(const std::vector<uint8_t> &data) const {
   if (data.size() == 10 && data[CMD_OFFS] == DEVICE_ACK) {
     auto buffer = ByteBuffer::wrap(data, LITTLE);
     auto id = data[TYPE_OFFS];
     uint8_t index = data[ADDR_OFFS] - 1;
     auto serial = buffer.get_uint32(SERIAL_OFFS);
-    ESP_LOGD(TAG, "Device Enrolled: address=%u, id=%02X, serial=%08" PRIX32, index, id, serial);
+    ESP_LOGD(TAG, "Device Enrolled: address=%u, type=%s, serial=%08" PRIX32, index, get_device_type(id), serial);
     if (index >= this->devices_.size())
       return false;
     auto device = this->devices_[index];
     if (device->get_id() == id && device->get_serial_number() == serial) {
       device->set_state(DEVICE_ENROLLED);
+      this->send_poll_(device);
       return true;
     }
   }
   return false;
 }
 
-void SicomComponent::send_poll_() {
-  if (this->next_device_ > this->devices_.size())
-    return;
-  auto device = this->devices_[this->next_device_ - 1];
+void SicomComponent::send_poll_(const SicomDevice *device) const {
   switch (device->get_state()) {
     case DEVICE_ENROLLED:
-      this->send_message_(this->next_device_, REQUEST_DATA_MSG);
+      this->send_message_(device->get_address(), REQUEST_DATA_MSG);
       break;
     case DEVICE_ENROLLING:
-      this->send_enrol_message_(device, this->next_device_);
+      this->send_enrol_message_(device);
     default:
       break;
   }
 }
 
-bool SicomComponent::process_message_(std::vector<uint8_t> &buffer) {
+bool SicomComponent::process_message_(const std::vector<uint8_t> &buffer) {
   if (buffer.size() < MIN_MSG_LEN)
     return false;
   if (this->enrol_device_(buffer))
@@ -282,33 +303,28 @@ bool SicomComponent::process_message_(std::vector<uint8_t> &buffer) {
   return false;
 }
 
-void SicomComponent::update() {
+void SicomComponent::loop() {
   while (this->available() != 0) {
     auto data = this->read_message_();
     if (data.empty())
       break;
-    this->process_message_(data);
+    if (this->process_message_(data))
+      return;
   }
-  if (this->next_device_ == 0) {
+  if (this->next_device_ == MAX_DEVICES) {
+    // send ALL_CALL then wait around 1/2 second before polling known devices again. This gives time
+    // for a device to respond and be enrolled before anything else transmits.
     if (this->debug_)
       ESP_LOGD(TAG, "Sending All Call, available data: %d", this->available());
     this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
-    this->next_device_ = 1;
-    return;
-  }
-  if (this->next_device_ == MAX_DEVICES) {
-    this->next_device_ = 0;
-    return;
-  }
-  if (this->next_device_ == this->devices_.size() + 1) {
-    if (this->debug_)
-      ESP_LOGD(TAG, "Available data for device %u", this->available());
-  }
-  this->send_poll_();
+  } else if (this->next_device_ < this->devices_.size())
+    this->send_poll_(this->devices_[this->next_device_]);
   this->next_device_++;
+  if (this->next_device_ == MAX_DEVICES * 2)
+    this->next_device_ = 0;
 }
 
-void SicomDevice::decode(std::vector<uint8_t> &data) {
+void SicomDevice::decode(const std::vector<uint8_t> &data) {
   auto buffer = ByteBuffer::wrap(data, BIG);
   for (auto *sensor : this->sensors_) {
     sensor->decode(buffer);
@@ -326,7 +342,7 @@ void SicomDevice::decode(std::vector<uint8_t> &data) {
  * @param address The address of the device to send the message to.
  * @param data The data to send. Passed by value to allow modification.
  */
-void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
+void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) const {
   data.insert(data.begin(), data.size() + 1);
   data.insert(data.begin(), address);
   add_crc(data);
@@ -355,16 +371,6 @@ void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
   if (this->tx_enable_pin_ != nullptr) {
     this->tx_enable_pin_->digital_write(true);
   }
-  /*
-  // flush the input buffer
-  auto buffered = this->available();
-  if (buffered != 0) {
-    ESP_LOGD(TAG, "Flushing %d bytes from input buffer", buffered);
-    uint8_t byte;
-    while (buffered--)
-      this->read_byte(&byte);
-  }
-  */
   auto err = rmt_transmit(this->channel_, this->encoder_, symbols.data(), symbols.size() * sizeof(rmt_symbol_word_t),
                           &this->transmit_config_);
   rmt_tx_wait_all_done(this->channel_, 10);
@@ -379,7 +385,7 @@ void SicomComponent::send_message_(uint8_t address, std::vector<uint8_t> data) {
   }
 }
 
-void SicomComponent::send_message_(uint8_t address, uint8_t cmd) {
+void SicomComponent::send_message_(uint8_t address, uint8_t cmd) const {
   std::vector<uint8_t> message{};
   message.push_back(cmd);
   this->send_message_(address, message);
@@ -395,8 +401,8 @@ void SicomComponent::dump_config() {
     if (state <= DEVICE_ENROLLED) {
       state_name = DEVICE_STATES[state];
     }
-    ESP_LOGCONFIG(TAG, "  - Address %u: id=%02X serial=%08" PRIX32 " state=%s", i + 1, device->get_id(),
-                  device->get_serial_number(), state_name);
+    ESP_LOGCONFIG(TAG, "  - Address %u: type=%s serial=%08" PRIX32 " state=%s", i + 1,
+                  get_device_type(device->get_id()), device->get_serial_number(), state_name);
   }
 }
 
