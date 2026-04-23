@@ -2,26 +2,26 @@ import esphome.codegen as cg
 from esphome.components import sensor
 from esphome.components.ags10.sensor import CONF_RESISTANCE
 from esphome.components.daly_bms.sensor import ICON_CURRENT_DC
-from esphome.components.sicom import (
-    CONF_SICOM_SENSOR_ID,
-    SICOM_SENSOR_SCHEMA,
-    sicom_devices,
-)
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_CURRENT,
     CONF_DEVICE,
     CONF_INDEX,
+    CONF_TEMPERATURE,
     CONF_TYPE,
     CONF_VOLTAGE,
     DEVICE_CLASS_CURRENT,
+    DEVICE_CLASS_TEMPERATURE,
     DEVICE_CLASS_VOLTAGE,
     ICON_FLASH,
     STATE_CLASS_MEASUREMENT,
     UNIT_AMPERE,
+    UNIT_CELSIUS,
     UNIT_OHM,
     UNIT_VOLT,
 )
+
+from . import CONF_SICOM_SENSOR_ID, SICOM_SENSOR_SCHEMA, sicom_devices
 
 DEPENDENCIES = ["sicom"]
 ICON_RESISTOR = "mdi:resistor"
@@ -48,6 +48,12 @@ CONFIG_SCHEMA = cv.typed_schema(
             unit_of_measurement=UNIT_AMPERE,
             icon=ICON_CURRENT_DC,
             accuracy_decimals=2,
+        ).extend(SICOM_SENSOR_SCHEMA),
+        CONF_TEMPERATURE: sensor.sensor_schema(
+            device_class=DEVICE_CLASS_TEMPERATURE,
+            state_class=STATE_CLASS_MEASUREMENT,
+            unit_of_measurement=UNIT_CELSIUS,
+            accuracy_decimals=1,
         ).extend(SICOM_SENSOR_SCHEMA),
     }
 )

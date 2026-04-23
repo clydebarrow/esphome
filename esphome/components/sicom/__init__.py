@@ -13,6 +13,7 @@ from esphome.const import (
     CONF_ID,
     CONF_INDEX,
     CONF_STATUS,
+    CONF_TEMPERATURE,
     CONF_TX_PIN,
     CONF_TYPE,
     CONF_UART_ID,
@@ -105,6 +106,17 @@ class SicomDeviceType:
             SicomValue(
                 resistance_offset + offset * resistance_increment,
                 resistance_type,
+                resistance_scale,
+                resistance_increment,
+            )
+            for offset in range(resistance_count)
+        ]
+        # Temperature sensors reuse the resistance readings but apply an
+        # NTC 3950 conversion on the device.
+        self.sensors[CONF_TEMPERATURE] = [
+            SicomValue(
+                resistance_offset + offset * resistance_increment,
+                DataType.NTC3950,
                 resistance_scale,
                 resistance_increment,
             )

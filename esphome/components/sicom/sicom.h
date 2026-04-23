@@ -29,6 +29,7 @@ enum DeviceState {
 enum DataType {
   SIGNED16 = 8,
   UNSIGNED16 = 9,
+  NTC3950 = 10,
   SIGNED32 = 16,
   UNSIGNED32 = 17,
 };
