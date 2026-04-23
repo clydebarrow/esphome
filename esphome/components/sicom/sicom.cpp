@@ -86,43 +86,6 @@ static void add_crc(std::vector<uint8_t> &data) {
   data.push_back(crc & 0xFF);
 }
 
-bool SicomSensor::decode(ByteBuffer &buffer) const {
-  if (buffer.get_limit() < this->offset_ + this->length_) {
-    return false;
-  }
-  float value = NAN;
-  switch (this->data_type_) {
-    case SIGNED16:
-      value = buffer.get_int16(this->offset_) * this->scale_;
-      break;
-    case UNSIGNED16:
-      value = buffer.get_uint16(this->offset_) * this->scale_;
-      break;
-    case SIGNED32:
-      value = buffer.get_int32(this->offset_) * this->scale_;
-      break;
-    case UNSIGNED32:
-      value = buffer.get_uint32(this->offset_) * this->scale_;
-      break;
-    case NTC3950: {
-      // Standard 3950 NTC thermistor: B=3950, R0=10kOhm at T0=25C.
-      // T(K) = 1 / (1/T0 + (1/B) * ln(R/R0)); T(C) = T(K) - 273.15.
-      float resistance = buffer.get_uint16(this->offset_) * this->scale_;
-      if (resistance > 0.0f) {
-        constexpr float T0 = 298.15f;
-        constexpr float R0 = 10000.0f;
-        constexpr float BETA = 3950.0f;
-        value = 1.0f / (1.0f / T0 + logf(resistance / R0) / BETA) - 273.15f;
-      }
-      break;
-    }
-    default:
-      break;
-  }
-
-  this->sensor_->publish_state(value);
-  return true;
-}
 void SicomDevice::invalidate() {
   auto elapsed = millis() - this->last_data_time_;
   if (elapsed > 4000) {

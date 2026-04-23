@@ -30,7 +30,7 @@ sicom_ns = cg.esphome_ns.namespace("sicom")
 SicomComponent = sicom_ns.class_("SicomComponent", cg.Component, UARTDevice)
 
 SicomDevice = sicom_ns.class_("SicomDevice")
-SicomSensor = sicom_ns.class_("SicomSensor")
+SicomSensor = sicom_ns.class_("SicomSensorImpl")
 DataType = sicom_ns.enum("DataType")
 
 CONF_SICOM_ID = "sicom_id"

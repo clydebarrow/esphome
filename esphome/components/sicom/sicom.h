@@ -17,7 +17,6 @@
 
 namespace esphome {
 namespace sicom {
-
 using namespace bytebuffer;
 
 enum DeviceState {
@@ -35,22 +34,53 @@ enum DataType {
 };
 class SicomSensor {
  public:
-  SicomSensor(sensor::Sensor *sensor, size_t offset, DataType data_type, float scale)
-      : sensor_(sensor), offset_(offset), data_type_(data_type), scale_(scale) {
-    this->length_ = (size_t) data_type / 4;
-  }
-
-  bool decode(ByteBuffer &buffer) const;
+  SicomSensor(sensor::Sensor *sensor) : sensor_(sensor) {}
+  virtual bool decode(ByteBuffer &buffer) const = 0;
   void invalidate() { this->sensor_->publish_state(NAN); }
 
  protected:
   sensor::Sensor *sensor_;
-  size_t offset_;
-  DataType data_type_;
-  float scale_;
-  size_t length_;
 };
 
+template<DataType DATA_TYPE, size_t OFFSET, float SCALE> class SicomSensorImpl : public SicomSensor {
+  static constexpr float LENGTH = DATA_TYPE / 4;
+
+ public:
+  SicomSensorImpl(sensor::Sensor *sensor) : SicomSensor(sensor) {}
+
+  bool decode(ByteBuffer &buffer) const override {
+    if (buffer.get_limit() < OFFSET + LENGTH) {
+      return false;
+    }
+    float value = NAN;
+    if constexpr (DATA_TYPE == SIGNED16) {
+      value = buffer.get_int16(OFFSET) * SCALE;
+    }
+    if constexpr (DATA_TYPE == UNSIGNED16) {
+      value = buffer.get_uint16(OFFSET) * SCALE;
+    }
+    if constexpr (DATA_TYPE == SIGNED32) {
+      value = buffer.get_int32(OFFSET) * SCALE;
+    }
+    if constexpr (DATA_TYPE == UNSIGNED32) {
+      value = buffer.get_uint32(OFFSET) * SCALE;
+    }
+    if constexpr (DATA_TYPE == NTC3950) {
+      // Standard 3950 NTC thermistor: B=3950, R0=10kOhm at T0=25C.
+      // T(K) = 1 / (1/T0 + (1/B) * ln(R/R0)); T(C) = T(K) - 273.15.
+      float resistance = buffer.get_uint16(OFFSET) * SCALE;
+      if (resistance > 0.0f) {
+        constexpr float T0 = 298.15f;
+        constexpr float R0 = 10000.0f;
+        constexpr float BETA = 3950.0f;
+        value = 1.0f / (1.0f / T0 + logf(resistance / R0) / BETA) - 273.15f;
+      }
+    }
+
+    this->sensor_->publish_state(value);
+    return true;
+  }
+};
 class SicomDevice {
  public:
   SicomDevice(uint8_t id) : id_(id) {}

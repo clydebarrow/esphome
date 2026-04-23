@@ -20,6 +20,7 @@ from esphome.const import (
     UNIT_OHM,
     UNIT_VOLT,
 )
+from esphome.cpp_generator import TemplateArguments
 
 from . import CONF_SICOM_SENSOR_ID, SICOM_SENSOR_SCHEMA, sicom_devices
 
@@ -71,7 +72,9 @@ async def to_code(config):
     stype = sensors[index]
     var = await sensor.new_sensor(config)
     sicom_sensor_var = cg.new_Pvariable(
-        config[CONF_SICOM_SENSOR_ID], var, stype.offset, stype.data_type, stype.scale
+        config[CONF_SICOM_SENSOR_ID],
+        TemplateArguments(stype.data_type, stype.offset, stype.scale),
+        var,
     )
     cg.add(paren.add_sensor(sicom_sensor_var))
     return var
