@@ -202,9 +202,12 @@ class CanbusBmsComponent : public Action<std::vector<uint8_t>, uint32_t, bool>, 
   uint32_t get_warnings() override;
   uint32_t get_requests() override;
 
+ protected:
+  void play(const std::vector<uint8_t> &data, const uint32_t &, const bool &) override;
+
+ public:
   void set_canbus(canbus::Canbus *canbus) { this->canbus_ = canbus; }
   // called when a CAN Bus message is received
-  void play(std::vector<uint8_t> data, uint32_t can_id, bool remote_transmission_request) override;
   float get_setup_priority() const override;
 
   // add a list of sensors that are encoded in a given message.
