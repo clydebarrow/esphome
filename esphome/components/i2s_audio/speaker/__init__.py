@@ -26,18 +26,22 @@ from .. import (
     i2s_audio_component_schema,
     i2s_audio_ns,
     register_i2s_audio_component,
+    validate_mclk_divisible_by_3,
 )
 
 AUTO_LOAD = ["audio"]
 CODEOWNERS = ["@jesserockz", "@kahrendt"]
 DEPENDENCIES = ["i2s_audio"]
 
-I2SAudioSpeaker = i2s_audio_ns.class_(
-    "I2SAudioSpeaker", cg.Component, speaker.Speaker, I2SAudioOut
+I2SAudioSpeakerBase = i2s_audio_ns.class_(
+    "I2SAudioSpeakerBase", cg.Component, speaker.Speaker, I2SAudioOut
 )
+I2SAudioSpeaker = i2s_audio_ns.class_("I2SAudioSpeaker", I2SAudioSpeakerBase)
 
 CONF_DAC_TYPE = "dac_type"
 CONF_I2S_COMM_FMT = "i2s_comm_fmt"
+
+I2SCommFmt = i2s_audio_ns.enum("I2SCommFmt", is_class=True)
 
 i2s_dac_mode_t = cg.global_ns.enum("i2s_dac_mode_t")
 INTERNAL_DAC_OPTIONS = {
@@ -60,7 +64,7 @@ I2C_COMM_FMT_OPTIONS = {
     "pcm_long": i2s_comm_format_t.I2S_COMM_FORMAT_PCM_LONG,
 }
 
-NO_INTERNAL_DAC_VARIANTS = [esp32.const.VARIANT_ESP32S2]
+INTERNAL_DAC_VARIANTS = [esp32.VARIANT_ESP32]
 
 
 def _set_num_channels_from_config(config):
@@ -98,11 +102,16 @@ def _set_stream_limits(config):
 
 
 def _validate_esp32_variant(config):
-    if config[CONF_DAC_TYPE] != "internal":
-        return config
     variant = esp32.get_esp32_variant()
-    if variant in NO_INTERNAL_DAC_VARIANTS:
-        raise cv.Invalid(f"{variant} does not have an internal DAC")
+    if config[CONF_DAC_TYPE] == "internal":
+        if variant not in INTERNAL_DAC_VARIANTS:
+            raise cv.Invalid(f"{variant} does not have an internal DAC")
+    elif (
+        variant == esp32.VARIANT_ESP32
+        and config.get(CONF_BITS_PER_SAMPLE) == 8
+        and config.get(CONF_CHANNEL) in (CONF_MONO, CONF_LEFT, CONF_RIGHT)
+    ):
+        raise cv.Invalid("8-bit mono mode is not supported on ESP32")
     return config
 
 
@@ -143,8 +152,8 @@ CONFIG_SCHEMA = cv.All(
                     cv.Required(
                         CONF_I2S_DOUT_PIN
                     ): pins.internal_gpio_output_pin_number,
-                    cv.Optional(CONF_I2S_COMM_FMT, default="stand_i2s"): cv.enum(
-                        I2C_COMM_FMT_OPTIONS, lower=True
+                    cv.Optional(CONF_I2S_COMM_FMT, default="stand_i2s"): cv.one_of(
+                        *I2C_COMM_FMT_OPTIONS, lower=True
                     ),
                 }
             ),
@@ -154,7 +163,20 @@ CONFIG_SCHEMA = cv.All(
     _validate_esp32_variant,
     _set_num_channels_from_config,
     _set_stream_limits,
+    validate_mclk_divisible_by_3,
 )
+
+
+def _final_validate(config):
+    if config[CONF_DAC_TYPE] == "internal":
+        raise cv.Invalid(
+            "Internal DAC is no longer supported. Use an external I2S DAC instead."
+        )
+    if config[CONF_I2S_COMM_FMT] == "stand_max":
+        raise cv.Invalid("I2S standard max format is no longer supported.")
+
+
+FINAL_VALIDATE_SCHEMA = _final_validate
 
 
 async def to_code(config):
@@ -163,11 +185,13 @@ async def to_code(config):
     await register_i2s_audio_component(var, config)
     await speaker.register_speaker(var, config)
 
-    if config[CONF_DAC_TYPE] == "internal":
-        cg.add(var.set_internal_dac_mode(config[CONF_CHANNEL]))
-    else:
-        cg.add(var.set_dout_pin(config[CONF_I2S_DOUT_PIN]))
-        cg.add(var.set_i2s_comm_fmt(config[CONF_I2S_COMM_FMT]))
+    cg.add(var.set_dout_pin(config[CONF_I2S_DOUT_PIN]))
+    fmt = I2SCommFmt.STANDARD  # equals stand_i2s, stand_pcm_long, i2s_msb, pcm_long
+    if config[CONF_I2S_COMM_FMT] in ["stand_msb", "i2s_lsb"]:
+        fmt = I2SCommFmt.MSB
+    elif config[CONF_I2S_COMM_FMT] in ["stand_pcm_short", "pcm_short", "pcm"]:
+        fmt = I2SCommFmt.PCM
+    cg.add(var.set_i2s_comm_fmt(fmt))
     if config[CONF_TIMEOUT] != CONF_NEVER:
         cg.add(var.set_timeout(config[CONF_TIMEOUT]))
     cg.add(var.set_buffer_duration(config[CONF_BUFFER_DURATION]))

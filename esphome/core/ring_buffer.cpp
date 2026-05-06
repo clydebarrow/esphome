@@ -1,11 +1,9 @@
 #include "ring_buffer.h"
 
-#include "esphome/core/helpers.h"
-#include "esphome/core/log.h"
-
 #ifdef USE_ESP32
 
-#include "helpers.h"
+#include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
 
 namespace esphome {
 
@@ -14,17 +12,20 @@ static const char *const TAG = "ring_buffer";
 RingBuffer::~RingBuffer() {
   if (this->handle_ != nullptr) {
     vRingbufferDelete(this->handle_);
-    RAMAllocator<uint8_t> allocator(RAMAllocator<uint8_t>::ALLOW_FAILURE);
+    RAMAllocator<uint8_t> allocator;
     allocator.deallocate(this->storage_, this->size_);
   }
 }
 
-std::unique_ptr<RingBuffer> RingBuffer::create(size_t len) {
+std::unique_ptr<RingBuffer> RingBuffer::create(size_t len, MemoryPreference preference) {
   std::unique_ptr<RingBuffer> rb = make_unique<RingBuffer>();
 
   rb->size_ = len;
 
-  RAMAllocator<uint8_t> allocator(RAMAllocator<uint8_t>::ALLOW_FAILURE);
+  const uint8_t type = (preference == MemoryPreference::INTERNAL_FIRST) ? RAMAllocator<uint8_t>::PREFER_INTERNAL
+                                                                        : RAMAllocator<uint8_t>::NONE;
+
+  RAMAllocator<uint8_t> allocator(type);
   rb->storage_ = allocator.allocate(rb->size_);
   if (rb->storage_ == nullptr) {
     return nullptr;
@@ -35,6 +36,14 @@ std::unique_ptr<RingBuffer> RingBuffer::create(size_t len) {
 
   return rb;
 }
+
+void *RingBuffer::receive_acquire(size_t &length, size_t max_length, TickType_t ticks_to_wait) {
+  length = 0;
+  void *buffer_data = xRingbufferReceiveUpTo(this->handle_, &length, ticks_to_wait, max_length);
+  return buffer_data;
+}
+
+void RingBuffer::receive_release(void *item) { vRingbufferReturnItem(this->handle_, item); }
 
 size_t RingBuffer::read(void *data, size_t len, TickType_t ticks_to_wait) {
   size_t bytes_read = 0;
@@ -78,9 +87,13 @@ size_t RingBuffer::write(const void *data, size_t len) {
   return this->write_without_replacement(data, len, 0);
 }
 
-size_t RingBuffer::write_without_replacement(const void *data, size_t len, TickType_t ticks_to_wait) {
+size_t RingBuffer::write_without_replacement(const void *data, size_t len, TickType_t ticks_to_wait,
+                                             bool write_partial) {
   if (!xRingbufferSend(this->handle_, data, len, ticks_to_wait)) {
-    // Couldn't fit all the data, so only write what will fit
+    if (!write_partial) {
+      return 0;  // Not enough space available and not allowed to write partial data
+    }
+    // Couldn't fit all the data, write what will fit
     size_t free = std::min(this->free(), len);
     if (xRingbufferSend(this->handle_, data, free, 0)) {
       return free;
