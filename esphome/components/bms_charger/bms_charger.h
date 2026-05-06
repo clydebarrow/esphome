@@ -109,7 +109,6 @@ class BmsChargerComponent : public PollingComponent, public Action<std::vector<u
         protocol_{protocol} {}
 
   // called when a CAN Bus message is received
-  void play(std::vector<uint8_t> data, uint32_t can_id, bool remote_transmission_request) override;
 
   void send_status(std::vector<float> &voltages, std::vector<float> &currents, std::vector<float> &temperatures) const;
   void update() override;
@@ -147,6 +146,7 @@ class BmsChargerComponent : public PollingComponent, public Action<std::vector<u
   uint8_t last_charge_{};
 
   bool get_switch_state_(SwitchType type) { return this->switches_.count(type) != 0 && this->switches_[type]->state_; }
+  void play(const std::vector<uint8_t> &data, const uint32_t &can_id, const bool &remote_transmission_request) override;
 };
 
 }  // namespace bms_charger
