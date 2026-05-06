@@ -118,7 +118,7 @@ void CanbusBmsComponent::update_alarms_() {
 }
 
 // called when a message is received from the associated CANBUS component
-void CanbusBmsComponent::play(std::vector<uint8_t> data, uint32_t can_id, bool remote_transmission_request) {
+void CanbusBmsComponent::play(const std::vector<uint8_t> &data, const uint32_t &can_id, const bool &) {
   bool handled = false;
   if (this->debug_)
     ESP_LOGI(TAG, "%s: Received id 0x%02X, len %zu", this->name_, can_id, data.size());
