@@ -1,42 +1,121 @@
 #pragma once
 
-#include <deque>
+#include <list>
 #include <vector>
 
+#include "esphome/components/display/display.h"
+#include "esphome/components/display/display_color_utils.h"
+#include "esphome/components/uart/uart.h"
 #include "esphome/core/defines.h"
+#include "esphome/core/string_ref.h"
 #include "esphome/core/time.h"
 
-#include "esphome/components/uart/uart.h"
+#ifdef USE_NEXTION_WAVEFORM
+#include "esphome/core/helpers.h"
+#endif  // USE_NEXTION_WAVEFORM
+
 #include "nextion_base.h"
 #include "nextion_component.h"
-#include "esphome/components/display/display_color_utils.h"
 
 #ifdef USE_NEXTION_TFT_UPLOAD
-#ifdef ARDUINO
 #ifdef USE_ESP32
-#include <HTTPClient.h>
-#endif  // USE_ESP32
-#ifdef USE_ESP8266
+#include <esp_http_client.h>
+#elif defined(USE_ESP8266)
 #include <ESP8266HTTPClient.h>
 #include <WiFiClientSecure.h>
-#endif  // USE_ESP8266
-#elif defined(USE_ESP_IDF)
-#include <esp_http_client.h>
-#endif  // ARDUINO vs ESP-IDF
+#endif  // USE_ESP32 vs USE_ESP8266
 #endif  // USE_NEXTION_TFT_UPLOAD
 
-namespace esphome {
-namespace nextion {
+namespace esphome::nextion {
 
 class Nextion;
 class NextionComponentBase;
 
-using nextion_writer_t = std::function<void(Nextion &)>;
+using nextion_writer_t = display::DisplayWriter<Nextion>;
 
-static const std::string COMMAND_DELIMITER{static_cast<char>(255), static_cast<char>(255), static_cast<char>(255)};
+#ifdef USE_NEXTION_COMMAND_SPACING
+class NextionCommandPacer {
+ public:
+  /**
+   * @brief Creates command pacer with initial spacing
+   * @param initial_spacing Initial time between commands in milliseconds
+   */
+  explicit NextionCommandPacer(uint8_t initial_spacing = 0) : spacing_ms_(initial_spacing) {}
+
+  /**
+   * @brief Set the minimum time between commands
+   * @param spacing_ms Spacing in milliseconds
+   */
+  void set_spacing(uint8_t spacing_ms) { spacing_ms_ = spacing_ms; }
+
+  /**
+   * @brief Get current command spacing
+   * @return Current spacing in milliseconds
+   */
+  uint8_t get_spacing() const { return spacing_ms_; }
+
+  /**
+   * @brief Check if enough time has passed to send the next command.
+   * @param now Current timestamp in milliseconds (use App.get_loop_component_start_time()
+   *            for consistency with the rest of the queue timing).
+   * @return true if the spacing interval has elapsed since the last command was sent.
+   */
+  bool can_send(uint32_t now) const { return (now - last_command_time_) >= spacing_ms_; }
+
+  /**
+   * @brief Record the transmit timestamp for the most recently sent command.
+   * @param now Current timestamp in milliseconds, as returned by
+   *            App.get_loop_component_start_time(). Must use the same clock
+   *            source as can_send() to avoid unsigned underflow.
+   */
+  void mark_sent(uint32_t now) { last_command_time_ = now; }
+
+ private:
+  uint8_t spacing_ms_;
+  uint32_t last_command_time_{0};
+};
+#endif  // USE_NEXTION_COMMAND_SPACING
 
 class Nextion : public NextionBase, public PollingComponent, public uart::UARTDevice {
  public:
+#ifdef USE_NEXTION_MAX_COMMANDS_PER_LOOP
+  /**
+   * @brief Set the maximum number of commands to process in each loop iteration
+   * @param value Maximum number of commands (default: 20)
+   *
+   * Limiting the number of commands per loop helps prevent stack overflows
+   * when a large number of commands are queued at once, especially during boot.
+   */
+  inline void set_max_commands_per_loop(uint16_t value) { this->max_commands_per_loop_ = value; }
+
+  /**
+   * @brief Get the current maximum number of commands allowed per loop iteration
+   * @return Configured command limit per loop
+   */
+  inline uint16_t get_max_commands_per_loop() const { return this->max_commands_per_loop_; }
+#endif  // USE_NEXTION_MAX_COMMANDS_PER_LOOP
+#ifdef USE_NEXTION_MAX_QUEUE_SIZE
+  /**
+   * @brief Set the maximum allowed queue size
+   * @param size Max number of entries allowed in nextion_queue_
+   */
+  inline void set_max_queue_size(size_t size) { this->max_queue_size_ = size; }
+
+  /**
+   * @brief Get the maximum allowed queue size
+   * @return Current limit (0 = unlimited)
+   */
+  inline size_t get_max_queue_size() const { return this->max_queue_size_; }
+#endif  // USE_NEXTION_MAX_QUEUE_SIZE
+
+#ifdef USE_NEXTION_COMMAND_SPACING
+  /**
+   * @brief Set the command spacing for the display
+   * @param spacing_ms Time in milliseconds between commands
+   */
+  void set_command_spacing(uint32_t spacing_ms) { this->command_pacer_.set_spacing(spacing_ms); }
+#endif  // USE_NEXTION_COMMAND_SPACING
+
   /**
    * Set the text of a component to a static string.
    * @param component The component name.
@@ -50,6 +129,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * This will set the `txt` property of the component `textview` to `Hello World`.
    */
   void set_component_text(const char *component, const char *text);
+
   /**
    * Set the text of a component to a formatted string
    * @param component The component name.
@@ -66,6 +146,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * For example when `uptime_sensor` = 506, then, `The uptime is: 506` will be displayed.
    */
   void set_component_text_printf(const char *component, const char *format, ...) __attribute__((format(printf, 3, 4)));
+
   /**
    * Set the integer value of a component
    * @param component The component name.
@@ -78,7 +159,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * This will change the property `value` of the component `gauge` to 50.
    */
-  void set_component_value(const char *component, int value);
+  void set_component_value(const char *component, int32_t value);
+
   /**
    * Set the picture of an image component.
    * @param component The component name.
@@ -91,7 +173,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * This will change the image of the component `pic` to the image with ID `4`.
    */
-  void set_component_picture(const char *component, uint8_t picture_id);
+  void set_component_picture(const char *component, uint8_t picture_id) { set_component_picc(component, picture_id); };
+
   /**
    * Set the background color of a component.
    * @param component The component name.
@@ -107,6 +190,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Nextion HMI colors.
    */
   void set_component_background_color(const char *component, uint16_t color);
+
   /**
    * Set the background color of a component.
    * @param component The component name.
@@ -121,6 +205,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
   void set_component_background_color(const char *component, const char *color);
+
   /**
    * Set the background color of a component.
    * @param component The component name.
@@ -135,6 +220,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * This will change the background color of the component `button` to blue.
    */
   void set_component_background_color(const char *component, Color color) override;
+
   /**
    * Set the pressed background color of a component.
    * @param component The component name.
@@ -151,6 +237,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Nextion HMI colors.
    */
   void set_component_pressed_background_color(const char *component, uint16_t color);
+
   /**
    * Set the pressed background color of a component.
    * @param component The component name.
@@ -166,6 +253,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
   void set_component_pressed_background_color(const char *component, const char *color);
+
   /**
    * Set the pressed background color of a component.
    * @param component The component name.
@@ -181,6 +269,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * is shown when the component is pressed.
    */
   void set_component_pressed_background_color(const char *component, Color color) override;
+
   /**
    * Set the foreground color of a component.
    * @param component The component name.
@@ -196,6 +285,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Nextion HMI colors.
    */
   void set_component_foreground_color(const char *component, uint16_t color);
+
   /**
    * Set the foreground color of a component.
    * @param component The component name.
@@ -210,6 +300,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
   void set_component_foreground_color(const char *component, const char *color);
+
   /**
    * Set the foreground color of a component.
    * @param component The component name.
@@ -223,6 +314,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * This will change the foreground color of the component `button` to black.
    */
   void set_component_foreground_color(const char *component, Color color) override;
+
   /**
    * Set the pressed foreground color of a component.
    * @param component The component name.
@@ -239,6 +331,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Nextion HMI colors.
    */
   void set_component_pressed_foreground_color(const char *component, uint16_t color);
+
   /**
    * Set the pressed foreground color of a component.
    * @param component The component name.
@@ -254,6 +347,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
   void set_component_pressed_foreground_color(const char *component, const char *color);
+
   /**
    * Set the pressed foreground color of a component.
    * @param component The component name.
@@ -282,7 +376,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * This will change the picture id of the component `textview`.
    */
-  void set_component_pic(const char *component, uint8_t pic_id);
+  void set_component_pic(const char *component, uint16_t pic_id);
+
   /**
    * Set the background picture id of component.
    * @param component The component name.
@@ -295,7 +390,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * This will change the background picture id of the component `textview`.
    */
-  void set_component_picc(const char *component, uint8_t pic_id);
+  void set_component_picc(const char *component, uint16_t pic_id);
 
   /**
    * Set the font color of a component.
@@ -312,6 +407,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Nextion HMI colors.
    */
   void set_component_font_color(const char *component, uint16_t color);
+
   /**
    * Set the font color of a component.
    * @param component The component name.
@@ -326,6 +422,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
   void set_component_font_color(const char *component, const char *color);
+
   /**
    * Set the font color of a component.
    * @param component The component name.
@@ -339,6 +436,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * This will change the font color of the component `textview` to black.
    */
   void set_component_font_color(const char *component, Color color) override;
+
   /**
    * Set the pressed font color of a component.
    * @param component The component name.
@@ -354,6 +452,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Nextion HMI colors.
    */
   void set_component_pressed_font_color(const char *component, uint16_t color);
+
   /**
    * Set the pressed font color of a component.
    * @param component The component name.
@@ -368,6 +467,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
   void set_component_pressed_font_color(const char *component, const char *color);
+
   /**
    * Set the pressed font color of a component.
    * @param component The component name.
@@ -381,6 +481,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * This will change the pressed font color of the component `button` to black.
    */
   void set_component_pressed_font_color(const char *component, Color color) override;
+
   /**
    * Set the coordinates of a component on screen.
    * @param component The component name.
@@ -394,7 +495,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * This will move the position of the component `pic` to the x coordinate `55` and y coordinate `100`.
    */
-  void set_component_coordinates(const char *component, int x, int y);
+  void set_component_coordinates(const char *component, uint16_t x, uint16_t y);
+
   /**
    * Set the font id for a component.
    * @param component The component name.
@@ -408,6 +510,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Changes the font of the component named `textveiw`. Font IDs are set in the Nextion Editor.
    */
   void set_component_font(const char *component, uint8_t font_id) override;
+
   /**
    * Send the current time to the nextion display.
    * @param time The time instance to send (get this with id(my_time).now() ).
@@ -426,6 +529,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Switches to the page named `main`. Pages are named in the Nextion Editor.
    */
   void goto_page(const char *page);
+
   /**
    * Show the page with a given id.
    * @param page The id of the page.
@@ -438,6 +542,24 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Switches to the page named `main`. Pages are named in the Nextion Editor.
    */
   void goto_page(uint8_t page);
+
+  /**
+   * Set the visibility of a component.
+   *
+   * @param component The component name.
+   * @param show True to show the component, false to hide it.
+   *
+   * @see show_component()
+   * @see hide_component()
+   *
+   * Example:
+   * ```cpp
+   * it.set_component_visibility("textview", true);   // Equivalent to show_component("textview")
+   * it.set_component_visibility("textview", false);  // Equivalent to hide_component("textview")
+   * ```
+   */
+  void set_component_visibility(const char *component, bool show) override;
+
   /**
    * Hide a component.
    * @param component The component name.
@@ -450,6 +572,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Hides the component named `button`.
    */
   void hide_component(const char *component) override;
+
   /**
    * Show a component.
    * @param component The component name.
@@ -462,6 +585,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Shows the component named `button`.
    */
   void show_component(const char *component) override;
+
   /**
    * Enable touch for a component.
    * @param component The component name.
@@ -474,6 +598,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Enables touch for component named `button`.
    */
   void enable_component_touch(const char *component);
+
   /**
    * Disable touch for a component.
    * @param component The component name.
@@ -486,14 +611,19 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Disables touch for component named `button`.
    */
   void disable_component_touch(const char *component);
+
+#ifdef USE_NEXTION_WAVEFORM
   /**
    * Add waveform data to a waveform component
    * @param component_id The integer component id.
    * @param channel_number The channel number to write to.
    * @param value The value to write.
    */
-  void add_waveform_data(int component_id, uint8_t channel_number, uint8_t value);
-  void open_waveform_channel(int component_id, uint8_t channel_number, uint8_t value);
+  void add_waveform_data(uint8_t component_id, uint8_t channel_number, uint8_t value);
+
+  void open_waveform_channel(uint8_t component_id, uint8_t channel_number, uint8_t value);
+#endif  // USE_NEXTION_WAVEFORM
+
   /**
    * Display a picture at coordinates.
    * @param picture_id The picture id.
@@ -507,7 +637,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * Displays the picture who has the id `2` at the x coordinates `15` and y coordinates `25`.
    */
-  void display_picture(int picture_id, int x_start, int y_start);
+  void display_picture(uint16_t picture_id, uint16_t x_start, uint16_t y_start);
+
   /**
    * Fill a rectangle with a color.
    * @param x1 The starting x coordinate.
@@ -526,7 +657,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use this [color picker](https://nodtem66.github.io/nextion-hmi-color-convert/index.html) to convert color codes to
    * Nextion HMI colors.
    */
-  void fill_area(int x1, int y1, int width, int height, uint16_t color);
+  void fill_area(uint16_t x1, uint16_t y1, uint16_t width, uint16_t height, uint16_t color);
+
   /**
    * Fill a rectangle with a color.
    * @param x1 The starting x coordinate.
@@ -544,7 +676,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * the red color.
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
-  void fill_area(int x1, int y1, int width, int height, const char *color);
+  void fill_area(uint16_t x1, uint16_t y1, uint16_t width, uint16_t height, const char *color);
+
   /**
    * Fill a rectangle with a color.
    * @param x1 The starting x coordinate.
@@ -562,7 +695,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Fills an area that starts at x coordinate `50` and y coordinate `50` with a height of `100` and width of `100` with
    * blue color.
    */
-  void fill_area(int x1, int y1, int width, int height, Color color);
+  void fill_area(uint16_t x1, uint16_t y1, uint16_t width, uint16_t height, Color color);
+
   /**
    * Draw a line on the screen.
    * @param x1 The starting x coordinate.
@@ -581,7 +715,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use this [color picker](https://nodtem66.github.io/nextion-hmi-color-convert/index.html) to convert color codes to
    * Nextion HMI colors.
    */
-  void line(int x1, int y1, int x2, int y2, uint16_t color);
+  void line(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, uint16_t color);
+
   /**
    * Draw a line on the screen.
    * @param x1 The starting x coordinate.
@@ -599,7 +734,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * `75` with the blue color.
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
-  void line(int x1, int y1, int x2, int y2, const char *color);
+  void line(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, const char *color);
+
   /**
    * Draw a line on the screen.
    * @param x1 The starting x coordinate.
@@ -617,7 +753,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Makes a line that starts at x coordinate `50` and y coordinate `50` and ends at x coordinate `75` and y coordinate
    * `75` with blue color.
    */
-  void line(int x1, int y1, int x2, int y2, Color color);
+  void line(uint16_t x1, uint16_t y1, uint16_t x2, uint16_t y2, Color color);
+
   /**
    * Draw a rectangle outline.
    * @param x1 The starting x coordinate.
@@ -636,7 +773,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use this [color picker](https://nodtem66.github.io/nextion-hmi-color-convert/index.html) to convert color codes to
    * Nextion HMI colors.
    */
-  void rectangle(int x1, int y1, int width, int height, uint16_t color);
+  void rectangle(uint16_t x1, uint16_t y1, uint16_t width, uint16_t height, uint16_t color);
+
   /**
    * Draw a rectangle outline.
    * @param x1 The starting x coordinate.
@@ -654,7 +792,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * length of `50` with the blue color.
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
-  void rectangle(int x1, int y1, int width, int height, const char *color);
+  void rectangle(uint16_t x1, uint16_t y1, uint16_t width, uint16_t height, const char *color);
+
   /**
    * Draw a rectangle outline.
    * @param x1 The starting x coordinate.
@@ -672,7 +811,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Makes a outline of a rectangle that starts at x coordinate `25` and y coordinate `35` and has a width of `40` and a
    * length of `50` with blue color.
    */
-  void rectangle(int x1, int y1, int width, int height, Color color);
+  void rectangle(uint16_t x1, uint16_t y1, uint16_t width, uint16_t height, Color color);
+
   /**
    * Draw a circle outline
    * @param center_x The center x coordinate.
@@ -682,7 +822,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use this [color picker](https://nodtem66.github.io/nextion-hmi-color-convert/index.html) to convert color codes to
    * Nextion HMI colors.
    */
-  void circle(int center_x, int center_y, int radius, uint16_t color);
+  void circle(uint16_t center_x, uint16_t center_y, uint16_t radius, uint16_t color);
+
   /**
    * Draw a circle outline
    * @param center_x The center x coordinate.
@@ -691,7 +832,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * @param color The color to draw with (as a string).
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
-  void circle(int center_x, int center_y, int radius, const char *color);
+  void circle(uint16_t center_x, uint16_t center_y, uint16_t radius, const char *color);
+
   /**
    * Draw a circle outline
    * @param center_x The center x coordinate.
@@ -699,7 +841,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * @param radius The circle radius.
    * @param color The color to draw with (as Color).
    */
-  void circle(int center_x, int center_y, int radius, Color color);
+  void circle(uint16_t center_x, uint16_t center_y, uint16_t radius, Color color);
+
   /**
    * Draw a filled circled.
    * @param center_x The center x coordinate.
@@ -716,7 +859,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Use this [color picker](https://nodtem66.github.io/nextion-hmi-color-convert/index.html) to convert color codes to
    * Nextion HMI colors.
    */
-  void filled_circle(int center_x, int center_y, int radius, uint16_t color);
+  void filled_circle(uint16_t center_x, uint16_t center_y, uint16_t radius, uint16_t color);
+
   /**
    * Draw a filled circled.
    * @param center_x The center x coordinate.
@@ -732,7 +876,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Makes a filled circle at the x coordinate `25` and y coordinate `25` with a radius of `10` with the blue color.
    * Use [Nextion Instruction Set](https://nextion.tech/instruction-set/#s5) for a list of Nextion HMI colors constants.
    */
-  void filled_circle(int center_x, int center_y, int radius, const char *color);
+  void filled_circle(uint16_t center_x, uint16_t center_y, uint16_t radius, const char *color);
+
   /**
    * Draw a filled circled.
    * @param center_x The center x coordinate.
@@ -748,7 +893,7 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * Makes a filled circle at the x coordinate `25` and y coordinate `25` with a radius of `10` with blue color.
    */
-  void filled_circle(int center_x, int center_y, int radius, Color color);
+  void filled_circle(uint16_t center_x, uint16_t center_y, uint16_t radius, Color color);
 
   /**
    * Draws a QR code in the screen
@@ -768,8 +913,9 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * Draws a QR code with a Wi-Fi network credentials starting at the given coordinates (25,25).
    */
-  void qrcode(int x1, int y1, const char *content, int size = 200, uint16_t background_color = 65535,
-              uint16_t foreground_color = 0, int logo_pic = -1, uint8_t border_width = 8);
+  void qrcode(uint16_t x1, uint16_t y1, const char *content, uint16_t size = 200, uint16_t background_color = 65535,
+              uint16_t foreground_color = 0, int32_t logo_pic = -1, uint8_t border_width = 8);
+
   /**
    * Draws a QR code in the screen
    * @param x1 The top left x coordinate to start the QR code.
@@ -791,8 +937,9 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Draws a QR code with a Wi-Fi network credentials starting at the given coordinates (25,25) with size of 150px in
    * red on a blue background.
    */
-  void qrcode(int x1, int y1, const char *content, int size, Color background_color = Color(255, 255, 255),
-              Color foreground_color = Color(0, 0, 0), int logo_pic = -1, uint8_t border_width = 8);
+  void qrcode(uint16_t x1, uint16_t y1, const char *content, uint16_t size,
+              Color background_color = Color(255, 255, 255), Color foreground_color = Color(0, 0, 0),
+              int32_t logo_pic = -1, uint8_t border_width = 8);
 
   /** Set the brightness of the backlight.
    *
@@ -806,84 +953,99 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * Changes the brightness of the display to 30%.
    */
   void set_backlight_brightness(float brightness);
-  /**
-   * Set the touch sleep timeout of the display.
-   * @param timeout Timeout in seconds.
-   *
-   * Example:
-   * ```cpp
-   * it.set_touch_sleep_timeout(30);
-   * ```
-   *
-   * After 30 seconds the display will go to sleep. Note: the display will only wakeup by a restart or by setting up
-   * `thup`.
-   */
-  void set_touch_sleep_timeout(uint16_t timeout);
-  /**
-   * Sets which page Nextion loads when exiting sleep mode. Note this can be set even when Nextion is in sleep mode.
-   * @param page_id The page id, from 0 to the lage page in Nextion. Set 255 (not set to any existing page) to
-   * wakes up to current page.
-   *
-   * Example:
-   * ```cpp
-   * it.set_wake_up_page(2);
-   * ```
-   *
-   * The display will wake up to page 2.
-   */
-  void set_wake_up_page(uint8_t page_id = 255);
-  /**
-   * Sets which page Nextion loads when connecting to ESPHome.
-   * @param page_id The page id, from 0 to the lage page in Nextion. Set 255 (not set to any existing page) to
-   * wakes up to current page.
-   *
-   * Example:
-   * ```cpp
-   * it.set_start_up_page(2);
-   * ```
-   *
-   * The display will go to page 2 when it establishes a connection to ESPHome.
-   */
-  void set_start_up_page(uint8_t page_id = 255);
 
-  /**
-   * Sets if Nextion should auto-wake from sleep when touch press occurs.
-   * @param auto_wake True or false. When auto_wake is true and Nextion is in sleep mode,
-   * the first touch will only trigger the auto wake mode and not trigger a Touch Event.
-   *
-   * Example:
-   * ```cpp
-   * it.set_auto_wake_on_touch(true);
-   * ```
-   *
-   * The display will wake up by touch.
-   */
-  void set_auto_wake_on_touch(bool auto_wake);
-  /**
-   * Sets if Nextion should exit the active reparse mode before the "connect" command is sent
-   * @param exit_reparse True or false. When exit_reparse is true, the exit reparse command
-   * will be sent before requesting the connection from Nextion.
-   *
-   * Example:
-   * ```cpp
-   * it.set_exit_reparse_on_start(true);
-   * ```
-   *
-   * The display will be requested to leave active reparse mode before setup.
-   */
-  void set_exit_reparse_on_start(bool exit_reparse);
   /**
    * Sets Nextion mode between sleep and awake
    * @param True or false. Sleep=true to enter sleep mode or sleep=false to exit sleep mode.
    */
   void sleep(bool sleep);
+
   /**
-   * Sets Nextion Protocol Reparse mode between active or passive
-   * @param True or false.
-   * active_mode=true to enter active protocol reparse mode
-   * active_mode=false to enter passive protocol reparse mode.
+   * @brief Sets the Nextion display's protocol reparse mode.
+   *
+   * This function toggles the Nextion display's protocol reparse mode between active and passive.
+   * In active mode, the display actively parses incoming data.
+   * In passive mode, it does not parse data unless specifically instructed to do so.
+   * This is useful for managing how the Nextion display interprets incoming commands,
+   * especially during initialization or in scenarios where precise control over command processing is needed.
+   *
+   * @param active_mode A boolean value indicating the desired reparse mode.
+   *        - true to set the display to active protocol reparse mode, where it actively parses incoming commands.
+   *        - false to set the display to passive protocol reparse mode, where command parsing is done only on explicit
+   * instruction.
+   *
+   * @return bool Returns true if all commands were sent successfully to the Nextion display, indicating that the mode
+   * was set as expected. Returns false if any of the commands failed to send, indicating that the desired reparse mode
+   * may not be correctly set.
    */
-  void set_protocol_reparse_mode(bool active_mode);
+  bool set_protocol_reparse_mode(bool active_mode);
+
+  // ======== Nextion Intelligent Series ========
+
+  /**
+   * Set the video id of a component.
+   * @param component The component name.
+   * @param vid_id The video ID.
+   *
+   * Example:
+   * ```cpp
+   * it.set_component_vid("textview", 1);
+   * ```
+   *
+   * This will change the video id of the component `textview`.
+   *
+   * Note: Requires Nextion Intelligent series display.
+   */
+  void set_component_vid(const char *component, uint8_t vid_id);
+
+  /**
+   * Set the drag availability of a component.
+   * @param component The component name.
+   * @param drag False: Drag not available, True: Drag available.
+   *
+   * Example:
+   * ```cpp
+   * it.set_component_drag("textview", true);
+   * ```
+   *
+   * This will enable drag to the component `textview`.
+   *
+   * Note: Requires Nextion Intelligent series display.
+   */
+  void set_component_drag(const char *component, bool drag);
+
+  /**
+   * Set the opaqueness (fading) of a component.
+   * @param component The component name.
+   * @param aph An integer between 0 and 127 related to the opaqueness/fading level.
+   *
+   * Example:
+   * ```cpp
+   * it.set_component_aph("textview", 64);
+   * ```
+   *
+   * This will set the opaqueness level of the component `textview` to 64.
+   *
+   * Note: Requires Nextion Intelligent series display.
+   */
+  void set_component_aph(const char *component, uint8_t aph);
+
+  /**
+   * Set the position of a component.
+   * @param component The component name.
+   * @param x The new X (horizontal) coordinate for the component.
+   * @param y The new Y (vertical) coordinate for the component.
+   *
+   * Example:
+   * ```cpp
+   * it.set_component_aph("textview", 64, 35);
+   * ```
+   *
+   * This will move the component `textview` to the column 64 of row 35 of the display.
+   *
+   * Note: Requires Nextion Intelligent series display.
+   */
+  void set_component_position(const char *component, uint32_t x, uint32_t y);
 
   // ========== INTERNAL METHODS ==========
   // (In most use cases you won't need these)
@@ -895,13 +1057,19 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
 
   void setup() override;
   void set_brightness(float brightness) { this->brightness_ = brightness; }
-  float get_setup_priority() const override;
   void update() override;
   void loop() override;
   void set_writer(const nextion_writer_t &writer);
 
   // This function has been deprecated
   void set_wait_for_ack(bool wait_for_ack);
+
+  /**
+   * Manually send a raw command to the display.
+   * @param command The pcommand, like "page 0"
+   * @return Whether the send was successful.
+   */
+  bool send_command(const char *command);
 
   /**
    * Manually send a raw formatted command to the display.
@@ -913,17 +1081,60 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
 
 #ifdef USE_NEXTION_TFT_UPLOAD
   /**
-   * Set the tft file URL. https seems problematic with arduino..
+   * @brief Set the HTTP timeout for TFT upload requests.
+   * @param timeout_ms Timeout in milliseconds. Defaults to 4500ms (4.5s).
+   */
+  void set_tft_upload_http_timeout(uint16_t timeout_ms) { this->tft_upload_http_timeout_ = timeout_ms; }
+
+#ifdef USE_ESP32
+  /**
+   * @brief Set the watchdog timeout during TFT upload.
+   *
+   * The system watchdog timeout is temporarily adjusted to this value
+   * during the entire TFT transfer process and restored to the original
+   * value after the transfer completes (whether successful or not).
+   *
+   * A value of 0 means no watchdog adjustment (default).
+   *
+   * @param timeout_ms Watchdog timeout in milliseconds. 0 = no adjustment.
+   */
+  void set_tft_upload_watchdog_timeout(uint32_t timeout_ms) { this->tft_upload_watchdog_timeout_ = timeout_ms; }
+#endif  // USE_ESP32
+
+  /**
+   * @brief Set the number of HTTP retries for TFT upload requests.
+   * @param retries Number of retries. Defaults to 5. Range: 1-255.
+   */
+  void set_tft_upload_http_retries(uint8_t retries) { this->tft_upload_http_retries_ = retries; }
+
+  /**
+   * Set the tft file URL.
    */
   void set_tft_url(const std::string &tft_url) { this->tft_url_ = tft_url; }
 
-#endif
-
   /**
-   * Upload the tft file and soft reset Nextion
+   * @brief Uploads the TFT file to the Nextion display.
+   *
+   * This function initiates the upload of a TFT file to the Nextion display. Users can specify a target baud rate for
+   * the transfer. If the provided baud rate is not supported by Nextion, the function defaults to using the current
+   * baud rate set for the display. If no baud rate is specified (or if 0 is passed), the current baud rate is used.
+   *
+   * Supported baud rates are: 2400, 4800, 9600, 19200, 31250, 38400, 57600, 115200, 230400, 250000, 256000, 512000
+   * and 921600. Selecting a baud rate supported by both the Nextion display and the host hardware is essential for
+   * ensuring a successful upload process.
+   *
+   * @param baud_rate The desired baud rate for the TFT file transfer, specified as an unsigned 32-bit integer.
+   * If the specified baud rate is not supported, or if 0 is passed, the function will use the current baud rate.
+   * The default value is 0, which implies using the current baud rate.
+   * @param exit_reparse If true, the function exits reparse mode before uploading the TFT file. This parameter
+   * defaults to true, ensuring that the display is ready to receive and apply the new TFT file without needing
+   * to manually reset or reconfigure. Exiting reparse mode is recommended for most upload scenarios to ensure
+   * the display properly processes the uploaded file command.
    * @return bool True: Transfer completed successfuly, False: Transfer failed.
    */
-  bool upload_tft();
+  bool upload_tft(uint32_t baud_rate = 0, bool exit_reparse = true);
+
+#endif  // USE_NEXTION_TFT_UPLOAD
 
   void dump_config() override;
 
@@ -936,31 +1147,100 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    *
    * @param callback The void() callback.
    */
-  void add_sleep_state_callback(std::function<void()> &&callback);
+  template<typename F> void add_sleep_state_callback(F &&callback) {
+    this->sleep_callback_.add(std::forward<F>(callback));
+  }
 
   /** Add a callback to be notified of wake state changes.
    *
    * @param callback The void() callback.
    */
-  void add_wake_state_callback(std::function<void()> &&callback);
+  template<typename F> void add_wake_state_callback(F &&callback) {
+    this->wake_callback_.add(std::forward<F>(callback));
+  }
 
   /** Add a callback to be notified when the nextion completes its initialize setup.
    *
    * @param callback The void() callback.
    */
-  void add_setup_state_callback(std::function<void()> &&callback);
+  template<typename F> void add_setup_state_callback(F &&callback) {
+    this->setup_callback_.add(std::forward<F>(callback));
+  }
 
   /** Add a callback to be notified when the nextion changes pages.
    *
-   * @param callback The void(std::string) callback.
+   * @param callback The void(uint8_t) callback.
    */
-  void add_new_page_callback(std::function<void(uint8_t)> &&callback);
+  template<typename F> void add_new_page_callback(F &&callback) { this->page_callback_.add(std::forward<F>(callback)); }
 
   /** Add a callback to be notified when Nextion has a touch event.
    *
+   * @param callback The void(uint8_t, uint8_t, bool) callback.
+   */
+  template<typename F> void add_touch_event_callback(F &&callback) {
+    this->touch_callback_.add(std::forward<F>(callback));
+  }
+
+  /** Add a callback to be notified when the nextion reports a buffer overflow.
+   *
    * @param callback The void() callback.
    */
-  void add_touch_event_callback(std::function<void(uint8_t, uint8_t, bool)> &&callback);
+  template<typename F> void add_buffer_overflow_event_callback(F &&callback) {
+    this->buffer_overflow_callback_.add(std::forward<F>(callback));
+  }
+
+  // Callbacks for Nextion "custom protocol" frames (0x90..0x93)
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_BINARY_SENSOR
+  /** Add a callback to be notified when Nextion sends a custom binary sensor protocol frame (0x93).
+   *
+   * This callback is invoked when a Nextion custom binary sensor frame is received,
+   * providing the component name as the key and the decoded boolean value.
+   *
+   * @param callback The void(const StringRef &key, bool value) callback.
+   */
+  template<typename F> void add_custom_binary_sensor_callback(F &&callback) {
+    this->custom_binary_sensor_callback_.add(std::forward<F>(callback));
+  }
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_BINARY_SENSOR
+
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_SENSOR
+  /** Add a callback to be notified when Nextion sends a custom sensor protocol frame (0x91).
+   *
+   * This callback is invoked when a Nextion custom sensor frame is received,
+   * providing the component name as the key and the decoded integer value.
+   *
+   * @param callback The void(StringRef key, int32_t value) callback.
+   */
+  template<typename F> void add_custom_sensor_callback(F &&callback) {
+    this->custom_sensor_callback_.add(std::forward<F>(callback));
+  }
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_SENSOR
+
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_SWITCH
+  /** Add a callback to be notified when Nextion sends a custom switch protocol frame (0x90).
+   *
+   * This callback is invoked when a Nextion custom switch frame is received,
+   * providing the component name as the key and the decoded boolean value.
+   *
+   * @param callback The void(const StringRef &key, bool value) callback.
+   */
+  template<typename F> void add_custom_switch_callback(F &&callback) {
+    this->custom_switch_callback_.add(std::forward<F>(callback));
+  }
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_SWITCH
+
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_TEXT_SENSOR
+  /** Add a callback to be notified when Nextion sends a custom text sensor protocol frame (0x92).
+   *
+   * This callback is invoked when a Nextion custom text sensor frame is received,
+   * providing the component name as the key and the decoded text value.
+   *
+   * @param callback The void(const StringRef &key, const StringRef &value) callback.
+   */
+  template<typename F> void add_custom_text_sensor_callback(F &&callback) {
+    this->custom_text_sensor_callback_.add(std::forward<F>(callback));
+  }
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_TEXT_SENSOR
 
   void update_all_components();
 
@@ -980,9 +1260,9 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
   void set_nextion_sensor_state(NextionQueueType queue_type, const std::string &name, float state);
   void set_nextion_text_state(const std::string &name, const std::string &state);
 
-  void add_no_result_to_queue_with_set(NextionComponentBase *component, int state_value) override;
+  void add_no_result_to_queue_with_set(NextionComponentBase *component, int32_t state_value) override;
   void add_no_result_to_queue_with_set(const std::string &variable_name, const std::string &variable_name_to_send,
-                                       int state_value) override;
+                                       int32_t state_value) override;
 
   void add_no_result_to_queue_with_set(NextionComponentBase *component, const std::string &state_value) override;
   void add_no_result_to_queue_with_set(const std::string &variable_name, const std::string &variable_name_to_send,
@@ -990,19 +1270,90 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
 
   void add_to_get_queue(NextionComponentBase *component) override;
 
+#ifdef USE_NEXTION_WAVEFORM
   void add_addt_command_to_queue(NextionComponentBase *component) override;
+#endif  // USE_NEXTION_WAVEFORM
 
   void update_components_by_prefix(const std::string &prefix);
 
-  void set_touch_sleep_timeout_internal(uint32_t touch_sleep_timeout) {
-    this->touch_sleep_timeout_ = touch_sleep_timeout;
-  }
-  void set_wake_up_page_internal(uint8_t wake_up_page) { this->wake_up_page_ = wake_up_page; }
-  void set_start_up_page_internal(uint8_t start_up_page) { this->start_up_page_ = start_up_page; }
-  void set_auto_wake_on_touch_internal(bool auto_wake_on_touch) { this->auto_wake_on_touch_ = auto_wake_on_touch; }
-  void set_exit_reparse_on_start_internal(bool exit_reparse_on_start) {
-    this->exit_reparse_on_start_ = exit_reparse_on_start;
-  }
+  /**
+   * Set the touch sleep timeout of the display using the `thsp` command.
+   *
+   * Sets internal No-touch-then-sleep timer to specified value in seconds.
+   * Nextion will auto-enter sleep mode if and when this timer expires.
+   *
+   * @param touch_sleep_timeout Timeout in seconds.
+   *                           Range: 3 to 65535 seconds (minimum 3 seconds, maximum ~18 hours 12 minutes 15 seconds)
+   *                           Use 0 to disable touch sleep timeout.
+   *
+   * @note Once `thsp` is set, it will persist until reboot or reset. The Nextion device
+   *       needs to exit sleep mode to issue `thsp=0` to disable sleep on no touch.
+   *
+   * @note The display will only wake up by a restart or by setting up `thup` (auto wake on touch).
+   *       See set_auto_wake_on_touch() to configure wake behavior.
+   *
+   * Example:
+   * ```cpp
+   * // Set 30 second touch timeout
+   * it.set_touch_sleep_timeout(30);
+   *
+   * // Set maximum timeout (~18 hours)
+   * it.set_touch_sleep_timeout(65535);
+   *
+   * // Disable touch sleep timeout
+   * it.set_touch_sleep_timeout(0);
+   * ```
+   *
+   * Related Nextion instruction: `thsp=<value>`
+   *
+   * @see set_auto_wake_on_touch() Configure automatic wake on touch
+   * @see sleep() Manually control sleep state
+   */
+  void set_touch_sleep_timeout(uint16_t touch_sleep_timeout = 0);
+
+  /**
+   * Sets which page Nextion loads when exiting sleep mode. Note this can be set even when Nextion is in sleep mode.
+   * @param wake_up_page The page id, from 0 to the last page in Nextion. Set 255 (not set to any existing page) to
+   * wakes up to current page.
+   *
+   * Example:
+   * ```cpp
+   * it.set_wake_up_page(2);
+   * ```
+   *
+   * The display will wake up to page 2.
+   */
+  void set_wake_up_page(uint8_t wake_up_page = 255);
+
+#ifdef USE_NEXTION_CONF_START_UP_PAGE
+  /**
+   * Sets which page Nextion loads when connecting to ESPHome.
+   * @param start_up_page The page id, from 0 to the last page in Nextion. Set 255 (not set to any existing page) to
+   * wakes up to current page.
+   *
+   * Example:
+   * ```cpp
+   * it.set_start_up_page(2);
+   * ```
+   *
+   * The display will go to page 2 when it establishes a connection to ESPHome.
+   */
+  void set_start_up_page(uint8_t start_up_page = 255) { this->start_up_page_ = start_up_page; }
+#endif  // USE_NEXTION_CONF_START_UP_PAGE
+
+  /**
+   * Sets if Nextion should auto-wake from sleep when touch press occurs.
+   * @param auto_wake_on_touch True or false. When auto_wake is true and Nextion is in sleep mode,
+   * the first touch will only trigger the auto wake mode and not trigger a Touch Event.
+   *
+   * Example:
+   * ```cpp
+   * it.set_auto_wake_on_touch(true);
+   * ```
+   *
+   * The display will wake up by touch.
+   */
+  void set_auto_wake_on_touch(bool auto_wake_on_touch);
 
   /**
    * @brief Retrieves the number of commands pending in the Nextion command queue.
@@ -1019,29 +1370,128 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    */
   size_t queue_size() { return this->nextion_queue_.size(); }
 
+  /**
+   * @brief Check if the TFT update process is currently running.
+   *
+   * This method provides a way to determine if the Nextion display is in the
+   * process of updating its TFT firmware. When a TFT update is in progress,
+   * certain operations or commands may be restricted or could interfere with the
+   * update process. By checking the state of the update process, the system can
+   * make informed decisions about performing actions that involve communication
+   * with the Nextion display.
+   *
+   * @return true if the TFT update process is active, indicating that the Nextion
+   *         display is currently updating its firmware. This implies that caution
+   *         should be taken with commands sent to the display to avoid interrupting
+   *         the update process.
+   * @return false if the TFT update process is not active, indicating that the Nextion
+   *         display is not currently updating its firmware and is in a normal operational
+   *         state, ready to receive and process commands as usual.
+   */
+  bool is_updating() override;
+
+  /**
+   * @brief Check if the Nextion display is successfully connected.
+   *
+   * This method returns whether a successful connection has been established with
+   * the Nextion display. A connection is considered established when:
+   *
+   * - The initial handshake with the display is completed successfully, or
+   * - The handshake is skipped via USE_NEXTION_CONFIG_SKIP_CONNECTION_HANDSHAKE flag
+   *
+   * The connection status is particularly useful when:
+   * - Troubleshooting communication issues
+   * - Ensuring the display is ready before sending commands
+   * - Implementing connection-dependent behaviors
+   *
+   * @return true if the Nextion display is connected and ready to receive commands
+   * @return false if the display is not yet connected or connection was lost
+   */
+  bool is_connected() { return this->connection_state_.is_connected_; }
+
+  /**
+   * @brief Set the maximum age for queue items
+   * @param age_ms Maximum age in milliseconds before queue items are removed
+   */
+  inline void set_max_queue_age(uint16_t age_ms) { this->max_q_age_ms_ = age_ms; }
+
+  /**
+   * @brief Get the maximum age for queue items
+   * @return Maximum age in milliseconds
+   */
+  inline uint16_t get_max_queue_age() const { return this->max_q_age_ms_; }
+
+  /**
+   * @brief Set the startup override timeout
+   * @param timeout_ms Time in milliseconds to wait before forcing setup complete
+   */
+  inline void set_startup_override_ms(uint16_t timeout_ms) { this->startup_override_ms_ = timeout_ms; }
+
+  /**
+   * @brief Get the startup override timeout
+   * @return Startup override timeout in milliseconds
+   */
+  inline uint16_t get_startup_override_ms() const { return this->startup_override_ms_; }
+
  protected:
-  std::deque<NextionQueue *> nextion_queue_;
-  std::deque<NextionQueue *> waveform_queue_;
+#ifdef USE_NEXTION_MAX_COMMANDS_PER_LOOP
+  uint16_t max_commands_per_loop_{1000};
+#endif  // USE_NEXTION_MAX_COMMANDS_PER_LOOP
+#ifdef USE_NEXTION_MAX_QUEUE_SIZE
+  size_t max_queue_size_{0};
+#endif  // USE_NEXTION_MAX_QUEUE_SIZE
+
+#ifdef USE_NEXTION_COMMAND_SPACING
+  NextionCommandPacer command_pacer_{0};
+
+  /**
+   * @brief Process any commands in the queue that are pending due to command spacing
+   *
+   * This method checks if the first item in the nextion_queue_ has a pending command
+   * that was previously blocked by command spacing. If spacing now allows and a
+   * pending command exists, it attempts to send the command. Once successfully sent,
+   * the pending command is cleared and the queue item continues normal processing.
+   *
+   * Called from loop() to retry sending commands that were delayed by spacing.
+   */
+  void process_pending_in_queue_();
+#endif  // USE_NEXTION_COMMAND_SPACING
+
+  std::list<NextionQueue *> nextion_queue_;
+#ifdef USE_NEXTION_WAVEFORM
+  /// Fixed-size ring buffer for waveform queue. Nextion supports at most 4 waveform
+  /// channels (IDs 0-3), so 4 entries is both the correct maximum and a safe default.
+  StaticRingBuffer<NextionQueue *, 4> waveform_queue_;
+#endif  // USE_NEXTION_WAVEFORM
   uint16_t recv_ret_string_(std::string &response, uint32_t timeout, bool recv_flag);
   void all_components_send_state_(bool force_update = false);
-  uint64_t comok_sent_ = 0;
+  uint32_t comok_sent_ = 0;
   bool remove_from_q_(bool report_empty = true);
+
   /**
-   * @brief
-   * Sends commands ignoring of the Nextion has been setup.
+   * @brief Status flags for Nextion display state management
+   *
+   * Uses bitfields to pack multiple boolean states into a single byte,
+   * saving 5 bytes of RAM compared to individual bool variables.
    */
-  bool ignore_is_setup_ = false;
-  bool nextion_reports_is_setup_ = false;
-  uint8_t nextion_event_;
+  struct {
+    uint8_t is_connected_ : 1;              ///< Connection established with Nextion display
+    uint8_t sent_setup_commands_ : 1;       ///< Initial setup commands have been sent
+    uint8_t ignore_is_setup_ : 1;           ///< Temporarily ignore setup state for special operations
+    uint8_t nextion_reports_is_setup_ : 1;  ///< Nextion has reported successful initialization
+    uint8_t is_updating_ : 1;               ///< TFT firmware update is currently in progress
+    uint8_t auto_wake_on_touch_ : 1;        ///< Display should wake automatically on touch (default: true)
+    uint8_t reserved_ : 2;                  ///< Reserved bits for future flag additions
+  } connection_state_{};                    ///< Zero-initialized status flags (all start as false)
 
   void process_nextion_commands_();
   void process_serial_();
-  bool is_updating_ = false;
-  uint32_t touch_sleep_timeout_ = 0;
-  int wake_up_page_ = -1;
-  int start_up_page_ = -1;
+  uint16_t touch_sleep_timeout_ = 0;
+  uint8_t wake_up_page_ = 255;
+#ifdef USE_NEXTION_CONF_START_UP_PAGE
+  uint8_t start_up_page_ = 255;
+#endif  // USE_NEXTION_CONF_START_UP_PAGE
   bool auto_wake_on_touch_ = true;
-  bool exit_reparse_on_start_ = false;
 
   /**
    * Manually send a raw command to the display and don't wait for an acknowledgement packet.
@@ -1053,47 +1503,74 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
       __attribute__((format(printf, 3, 4)));
   void add_no_result_to_queue_with_command_(const std::string &variable_name, const std::string &command);
 
+#ifdef USE_NEXTION_COMMAND_SPACING
+  /**
+   * @brief Add a command to the Nextion queue with a pending command for retry
+   *
+   * This method creates a queue entry for a command that was blocked by command spacing.
+   * The command string is stored in the queue item's pending_command field so it can
+   * be retried later when spacing allows. This ensures commands are not lost when
+   * sent too quickly.
+   *
+   * If the max_queue_size limit is configured and reached, the command will be dropped.
+   *
+   * @param variable_name Name of the variable or component associated with the command
+   * @param command The actual command string to be sent when spacing allows
+   */
+  void add_no_result_to_queue_with_pending_command_(const std::string &variable_name, const std::string &command);
+#endif  // USE_NEXTION_COMMAND_SPACING
+
   bool add_no_result_to_queue_with_printf_(const std::string &variable_name, const char *format, ...)
       __attribute__((format(printf, 3, 4)));
 
   void add_no_result_to_queue_with_set_internal_(const std::string &variable_name,
-                                                 const std::string &variable_name_to_send, int state_value,
+                                                 const std::string &variable_name_to_send, int32_t state_value,
                                                  bool is_sleep_safe = false);
 
   void add_no_result_to_queue_with_set_internal_(const std::string &variable_name,
                                                  const std::string &variable_name_to_send,
                                                  const std::string &state_value, bool is_sleep_safe = false);
 
+#ifdef USE_NEXTION_WAVEFORM
   void check_pending_waveform_();
+#endif  // USE_NEXTION_WAVEFORM
 
 #ifdef USE_NEXTION_TFT_UPLOAD
 #ifdef USE_ESP8266
   WiFiClient *wifi_client_{nullptr};
   BearSSL::WiFiClientSecure *wifi_client_secure_{nullptr};
   WiFiClient *get_wifi_client_();
-#endif
-  int content_length_ = 0;
+#endif  // USE_ESP8266
+  std::string tft_url_;
+  uint32_t content_length_ = 0;
   int tft_size_ = 0;
-#ifdef ARDUINO
+  uint32_t original_baud_rate_ = 0;
+  bool upload_first_chunk_sent_ = false;
+  uint16_t tft_upload_http_timeout_{4500};  ///< HTTP timeout in ms (default: 4.5s)
+  uint8_t tft_upload_http_retries_{5};      ///< HTTP retry count (default: 5)
+
+#ifdef USE_ESP32
+  uint32_t tft_upload_watchdog_timeout_{0};  ///< WDT timeout in ms (0 = no adjustment)
+
   /**
-   * will request chunk_size chunks from the web server
-   * and send each to the nextion
-   * @param HTTPClient http HTTP client handler.
+   * will request 4096 bytes chunks from the web server
+   * and send each to Nextion
+   * @param esp_http_client_handle_t http_client HTTP client handler.
    * @param int range_start Position of next byte to transfer.
    * @return position of last byte transferred, -1 for failure.
    */
-  int upload_by_chunks_(HTTPClient *http, int range_start);
-
-  bool upload_with_range_(uint32_t range_start, uint32_t range_end);
-
+  int upload_by_chunks_(esp_http_client_handle_t http_client, uint32_t &range_start);
+#elif defined(USE_ARDUINO)
   /**
-   * start update tft file to nextion.
-   *
-   * @param const uint8_t *file_buf
-   * @param size_t buf_size
-   * @return true if success, false for failure.
+   * will request chunk_size chunks from the web server
+   * and send each to the nextion
+   * @param HTTPClient http_client HTTP client handler.
+   * @param int range_start Position of next byte to transfer.
+   * @return position of last byte transferred, -1 for failure.
    */
-  bool upload_from_buffer_(const uint8_t *file_buf, size_t buf_size);
+  int upload_by_chunks_(HTTPClient &http_client, uint32_t &range_start);
+#endif  // USE_ESP32 vs USE_ARDUINO
+
   /**
    * Ends the upload process, restart Nextion and, if successful,
    * restarts ESP
@@ -1101,27 +1578,8 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
    * @return bool True: Transfer completed successfuly, False: Transfer failed.
    */
   bool upload_end_(bool successful);
-#elif defined(USE_ESP_IDF)
-  /**
-   * will request 4096 bytes chunks from the web server
-   * and send each to Nextion
-   * @param std::string url Full url for download.
-   * @param int range_start Position of next byte to transfer.
-   * @return position of last byte transferred, -1 for failure.
-   */
-  int upload_range(const std::string &url, int range_start);
-  /**
-   * Ends the upload process, restart Nextion and, if successful,
-   * restarts ESP
-   * @param bool url successful True: Transfer completed successfuly, False: Transfer failed.
-   * @return bool True: Transfer completed successfuly, False: Transfer failed.
-   */
-  bool upload_end(bool successful);
-#endif  // ARDUINO vs ESP-IDF
 
 #endif  // USE_NEXTION_TFT_UPLOAD
-
-  bool get_is_connected_() { return this->is_connected_; }
 
   bool check_connect_();
 
@@ -1135,35 +1593,42 @@ class Nextion : public NextionBase, public PollingComponent, public uart::UARTDe
   CallbackManager<void()> wake_callback_{};
   CallbackManager<void(uint8_t)> page_callback_{};
   CallbackManager<void(uint8_t, uint8_t, bool)> touch_callback_{};
+  CallbackManager<void()> buffer_overflow_callback_{};
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_BINARY_SENSOR
+  CallbackManager<void(StringRef, bool)> custom_binary_sensor_callback_{};
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_BINARY_SENSOR
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_SENSOR
+  CallbackManager<void(StringRef, int32_t)> custom_sensor_callback_{};
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_SENSOR
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_SWITCH
+  CallbackManager<void(StringRef, bool)> custom_switch_callback_{};
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_SWITCH
+#ifdef USE_NEXTION_TRIGGER_CUSTOM_TEXT_SENSOR
+  CallbackManager<void(StringRef, StringRef)> custom_text_sensor_callback_{};
+#endif  // USE_NEXTION_TRIGGER_CUSTOM_TEXT_SENSOR
 
-  optional<nextion_writer_t> writer_;
-  float brightness_{1.0};
+  nextion_writer_t writer_;
+  optional<float> brightness_;
 
+#ifdef USE_NEXTION_CONFIG_DUMP_DEVICE_INFO
   std::string device_model_;
   std::string firmware_version_;
   std::string serial_number_;
   std::string flash_size_;
+#endif  // USE_NEXTION_CONFIG_DUMP_DEVICE_INFO
 
   void remove_front_no_sensors_();
 
-#ifdef USE_NEXTION_TFT_UPLOAD
-  std::string tft_url_;
-  uint8_t *transfer_buffer_{nullptr};
-  size_t transfer_buffer_size_;
-  bool upload_first_chunk_sent_ = false;
-#endif
-
 #ifdef NEXTION_PROTOCOL_LOG
   void print_queue_members_();
-#endif
+#endif  // NEXTION_PROTOCOL_LOG
   void reset_(bool reset_nextion = true);
 
   std::string command_data_;
-  bool is_connected_ = false;
-  uint32_t startup_override_ms_ = 8000;
-  uint32_t max_q_age_ms_ = 8000;
   uint32_t started_ms_ = 0;
-  bool sent_setup_commands_ = false;
+
+  uint16_t startup_override_ms_ = 8000;  ///< Timeout before forcing setup complete
+  uint16_t max_q_age_ms_ = 8000;         ///< Maximum age for queue items in ms
 };
-}  // namespace nextion
-}  // namespace esphome
+
+}  // namespace esphome::nextion

@@ -1,8 +1,9 @@
 from math import log
 
-import esphome.config_validation as cv
 import esphome.codegen as cg
-from esphome.components import sensor, resistance_sampler
+from esphome.components import sensor
+from esphome.components.const import CONF_B_CONSTANT
+import esphome.config_validation as cv
 from esphome.const import (
     CONF_CALIBRATION,
     CONF_REFERENCE_RESISTANCE,
@@ -15,12 +16,9 @@ from esphome.const import (
     UNIT_CELSIUS,
 )
 
-AUTO_LOAD = ["resistance_sampler"]
-
 ntc_ns = cg.esphome_ns.namespace("ntc")
 NTC = ntc_ns.class_("NTC", cg.Component, sensor.Sensor)
 
-CONF_B_CONSTANT = "b_constant"
 CONF_A = "a"
 CONF_B = "b"
 CONF_C = "c"
@@ -100,7 +98,7 @@ def process_calibration(value):
     elif isinstance(value, list):
         if len(value) != 3:
             raise cv.Invalid(
-                "Steinhart–Hart Calibration must consist of exactly three values"
+                "Steinhart-Hart Calibration must consist of exactly three values"
             )
         value = cv.Schema([validate_calibration_parameter])(value)
         a, b, c = calc_steinhart_hart(value)
@@ -126,7 +124,7 @@ CONFIG_SCHEMA = (
     )
     .extend(
         {
-            cv.Required(CONF_SENSOR): cv.use_id(resistance_sampler.ResistanceSampler),
+            cv.Required(CONF_SENSOR): cv.use_id(sensor.Sensor),
             cv.Required(CONF_CALIBRATION): process_calibration,
         }
     )

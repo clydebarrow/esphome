@@ -22,6 +22,9 @@ enum SSD1306Model {
   SH1107_MODEL_128_128,
   SSD1305_MODEL_128_32,
   SSD1305_MODEL_128_64,
+  // When adding a new model, add it before SSD1306_MODEL_COUNT and update
+  // MODEL_DIMS and ModelStrings tables in ssd1306_base.cpp
+  SSD1306_MODEL_COUNT,  // must be last
 };
 
 class SSD1306 : public display::DisplayBuffer {
@@ -36,7 +39,9 @@ class SSD1306 : public display::DisplayBuffer {
   void set_reset_pin(GPIOPin *reset_pin) { this->reset_pin_ = reset_pin; }
   void set_external_vcc(bool external_vcc) { this->external_vcc_ = external_vcc; }
   void init_contrast(float contrast) { this->contrast_ = contrast; }
+  float get_contrast();
   void set_contrast(float contrast);
+  float get_brightness();
   void init_brightness(float brightness) { this->brightness_ = brightness; }
   void set_brightness(float brightness);
   void init_flip_x(bool flip_x) { this->flip_x_ = flip_x; }
@@ -61,13 +66,14 @@ class SSD1306 : public display::DisplayBuffer {
   bool is_sh1106_() const;
   bool is_sh1107_() const;
   bool is_ssd1305_() const;
+  bool is_ssd1306b_() const;
 
   void draw_absolute_pixel_internal(int x, int y, Color color) override;
 
   int get_height_internal() override;
   int get_width_internal() override;
   size_t get_buffer_length_();
-  const char *model_str_();
+  const LogString *model_str_();
 
   SSD1306Model model_{SSD1306_MODEL_128_64};
   GPIOPin *reset_pin_{nullptr};

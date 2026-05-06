@@ -1,11 +1,4 @@
-esp32_ble_tracker:
+packages:
+  ble: !include ../../test_build_components/common/ble/esp32-idf.yaml
 
-sensor:
-  - platform: xiaomi_lywsd02
-    mac_address: 3F:5B:7D:82:58:4E
-    temperature:
-      name: Xiaomi LYWSD02 Temperature
-    humidity:
-      name: Xiaomi LYWSD02 Humidity
-    battery_level:
-      name: Xiaomi LYWSD02 Battery Level
+<<: !include common.yaml

@@ -1,18 +1,17 @@
 import base64
-import secrets
 from pathlib import Path
-from typing import Optional
 import re
+import secrets
 
 import requests
 from ruamel.yaml import YAML
 
-import esphome.codegen as cg
-import esphome.config_validation as cv
-import esphome.final_validate as fv
 from esphome import git
+import esphome.codegen as cg
 from esphome.components.packages import validate_source_shorthand
-from esphome.const import CONF_REF, CONF_WIFI, CONF_ESPHOME, CONF_PROJECT
+import esphome.config_validation as cv
+from esphome.const import CONF_ESPHOME, CONF_PROJECT, CONF_REF, CONF_WIFI
+import esphome.final_validate as fv
 from esphome.yaml_util import dump
 
 dashboard_import_ns = cg.esphome_ns.namespace("dashboard_import")
@@ -84,12 +83,23 @@ async def to_code(config):
 def import_config(
     path: str,
     name: str,
-    friendly_name: Optional[str],
+    friendly_name: str | None,
     project_name: str,
     import_url: str,
     network: str = CONF_WIFI,
     encryption: bool = False,
 ) -> None:
+    """Materialise a dashboard-imported device's YAML on disk.
+
+    Used by:
+    - esphome.dashboard (legacy dashboard)
+    - device-builder (esphome/device-builder) — called from the
+      ``devices/import`` WS handler to seed the YAML for an adopted
+      factory firmware. Coordinate before changing the kwargs or the
+      generated YAML's top-level keys; both consumers depend on the
+      output shape (``esphome.name`` / ``packages:`` import url) to
+      route subsequent compile + flash operations.
+    """
     p = Path(path)
 
     if p.exists():

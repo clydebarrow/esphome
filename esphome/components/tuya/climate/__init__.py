@@ -1,18 +1,18 @@
 from esphome import pins
+import esphome.codegen as cg
 from esphome.components import climate
 import esphome.config_validation as cv
-import esphome.codegen as cg
 from esphome.const import (
-    CONF_ID,
-    CONF_SWITCH_DATAPOINT,
+    CONF_FAN_MODE,
+    CONF_PRESET,
     CONF_SUPPORTS_COOL,
     CONF_SUPPORTS_HEAT,
-    CONF_PRESET,
     CONF_SWING_MODE,
-    CONF_FAN_MODE,
+    CONF_SWITCH_DATAPOINT,
     CONF_TEMPERATURE,
 )
-from .. import tuya_ns, CONF_TUYA_ID, Tuya
+
+from .. import CONF_TUYA_ID, Tuya, tuya_ns
 
 DEPENDENCIES = ["tuya"]
 CODEOWNERS = ["@jesserockz"]
@@ -46,16 +46,15 @@ TuyaClimate = tuya_ns.class_("TuyaClimate", climate.Climate, cg.Component)
 
 
 def validate_temperature_multipliers(value):
-    if CONF_TEMPERATURE_MULTIPLIER in value:
-        if (
-            CONF_CURRENT_TEMPERATURE_MULTIPLIER in value
-            or CONF_TARGET_TEMPERATURE_MULTIPLIER in value
-        ):
-            raise cv.Invalid(
-                f"Cannot have {CONF_TEMPERATURE_MULTIPLIER} at the same time as "
-                f"{CONF_CURRENT_TEMPERATURE_MULTIPLIER} and "
-                f"{CONF_TARGET_TEMPERATURE_MULTIPLIER}"
-            )
+    if CONF_TEMPERATURE_MULTIPLIER in value and (
+        CONF_CURRENT_TEMPERATURE_MULTIPLIER in value
+        or CONF_TARGET_TEMPERATURE_MULTIPLIER in value
+    ):
+        raise cv.Invalid(
+            f"Cannot have {CONF_TEMPERATURE_MULTIPLIER} at the same time as "
+            f"{CONF_CURRENT_TEMPERATURE_MULTIPLIER} and "
+            f"{CONF_TARGET_TEMPERATURE_MULTIPLIER}"
+        )
     if (
         CONF_CURRENT_TEMPERATURE_MULTIPLIER in value
         and CONF_TARGET_TEMPERATURE_MULTIPLIER not in value
@@ -150,9 +149,9 @@ SWING_MODES = cv.Schema(
 )
 
 CONFIG_SCHEMA = cv.All(
-    climate.CLIMATE_SCHEMA.extend(
+    climate.climate_schema(TuyaClimate)
+    .extend(
         {
-            cv.GenerateID(): cv.declare_id(TuyaClimate),
             cv.GenerateID(CONF_TUYA_ID): cv.use_id(Tuya),
             cv.Optional(CONF_SUPPORTS_HEAT, default=True): cv.boolean,
             cv.Optional(CONF_SUPPORTS_COOL, default=False): cv.boolean,
@@ -185,19 +184,17 @@ CONFIG_SCHEMA = cv.All(
                 "'eco_temperature' has been moved inside of the 'eco' config block under 'preset' as 'temperature'"
             ),
         }
-    ).extend(cv.COMPONENT_SCHEMA),
+    )
+    .extend(cv.COMPONENT_SCHEMA),
     cv.has_at_least_one_key(CONF_TARGET_TEMPERATURE_DATAPOINT, CONF_SWITCH_DATAPOINT),
     validate_temperature_multipliers,
     validate_cooling_values,
-    cv.has_at_most_one_key(CONF_ACTIVE_STATE, CONF_HEATING_STATE_PIN),
-    cv.has_at_most_one_key(CONF_ACTIVE_STATE, CONF_COOLING_STATE_PIN),
 )
 
 
 async def to_code(config):
-    var = cg.new_Pvariable(config[CONF_ID])
+    var = await climate.new_climate(config)
     await cg.register_component(var, config)
-    await climate.register_climate(var, config)
 
     paren = await cg.get_variable(config[CONF_TUYA_ID])
     cg.add(var.set_tuya_parent(paren))
@@ -207,8 +204,14 @@ async def to_code(config):
     if switch_datapoint := config.get(CONF_SWITCH_DATAPOINT):
         cg.add(var.set_switch_id(switch_datapoint))
 
+    if heating_state_pin_config := config.get(CONF_HEATING_STATE_PIN):
+        heating_state_pin = await cg.gpio_pin_expression(heating_state_pin_config)
+        cg.add(var.set_heating_state_pin(heating_state_pin))
+    if cooling_state_pin_config := config.get(CONF_COOLING_STATE_PIN):
+        cooling_state_pin = await cg.gpio_pin_expression(cooling_state_pin_config)
+        cg.add(var.set_cooling_state_pin(cooling_state_pin))
     if active_state_config := config.get(CONF_ACTIVE_STATE):
-        cg.add(var.set_active_state_id(CONF_DATAPOINT))
+        cg.add(var.set_active_state_id(active_state_config.get(CONF_DATAPOINT)))
         if (heating_value := active_state_config.get(CONF_HEATING_VALUE)) is not None:
             cg.add(var.set_active_state_heating_value(heating_value))
         if (cooling_value := active_state_config.get(CONF_COOLING_VALUE)) is not None:
@@ -217,17 +220,6 @@ async def to_code(config):
             cg.add(var.set_active_state_drying_value(drying_value))
         if (fanonly_value := active_state_config.get(CONF_FANONLY_VALUE)) is not None:
             cg.add(var.set_active_state_fanonly_value(fanonly_value))
-    else:
-        if heating_state_pin_config := config.get(CONF_HEATING_STATE_PIN):
-            heating_state_pin = await cg.gpio_pin_expression(
-                config(heating_state_pin_config)
-            )
-            cg.add(var.set_heating_state_pin(heating_state_pin))
-        if cooling_state_pin_config := config.get(CONF_COOLING_STATE_PIN):
-            cooling_state_pin = await cg.gpio_pin_expression(
-                config(cooling_state_pin_config)
-            )
-            cg.add(var.set_cooling_state_pin(cooling_state_pin))
 
     if target_temperature_datapoint := config.get(CONF_TARGET_TEMPERATURE_DATAPOINT):
         cg.add(var.set_target_temperature_id(target_temperature_datapoint))
@@ -254,11 +246,11 @@ async def to_code(config):
 
     if preset_config := config.get(CONF_PRESET, {}):
         if eco_config := preset_config.get(CONF_ECO, {}):
-            cg.add(var.set_eco_id(CONF_DATAPOINT))
+            cg.add(var.set_eco_id(eco_config.get(CONF_DATAPOINT)))
             if eco_temperature := eco_config.get(CONF_TEMPERATURE):
                 cg.add(var.set_eco_temperature(eco_temperature))
-        if CONF_SLEEP in preset_config:
-            cg.add(var.set_sleep_id(CONF_DATAPOINT))
+        if sleep_config := preset_config.get(CONF_SLEEP, {}):
+            cg.add(var.set_sleep_id(sleep_config.get(CONF_DATAPOINT)))
 
     if swing_mode_config := config.get(CONF_SWING_MODE):
         if swing_vertical_datapoint := swing_mode_config.get(CONF_VERTICAL_DATAPOINT):
@@ -268,7 +260,7 @@ async def to_code(config):
         ):
             cg.add(var.set_swing_horizontal_id(swing_horizontal_datapoint))
     if fan_mode_config := config.get(CONF_FAN_MODE):
-        cg.add(var.set_fan_speed_id(CONF_DATAPOINT))
+        cg.add(var.set_fan_speed_id(fan_mode_config.get(CONF_DATAPOINT)))
         if (fan_auto_value := fan_mode_config.get(CONF_AUTO_VALUE)) is not None:
             cg.add(var.set_fan_speed_auto_value(fan_auto_value))
         if (fan_low_value := fan_mode_config.get(CONF_LOW_VALUE)) is not None:

@@ -6,16 +6,6 @@
 
 #ifdef USE_ESP32
 
-#ifdef USE_ARDUINO
-#include "mbedtls/aes.h"
-#include "mbedtls/base64.h"
-#endif
-
-#ifdef USE_ESP_IDF
-#define MBEDTLS_AES_ALT
-#include <aes_alt.h>
-#endif
-
 namespace esphome {
 namespace ble_presence {
 
@@ -72,9 +62,8 @@ class BLEPresenceDevice : public binary_sensor::BinarySensorInitiallyOff,
         }
         break;
       case MATCH_BY_IRK:
-        if (resolve_irk_(device.address_uint64(), this->irk_)) {
-          this->publish_state(true);
-          this->found_ = true;
+        if (device.resolve_irk(this->irk_)) {
+          this->set_found_(true);
           return true;
         }
         break;
@@ -87,11 +76,12 @@ class BLEPresenceDevice : public binary_sensor::BinarySensorInitiallyOff,
         }
         break;
       case MATCH_BY_IBEACON_UUID:
-        if (!device.get_ibeacon().has_value()) {
+        auto maybe_ibeacon = device.get_ibeacon();
+        if (!maybe_ibeacon.has_value()) {
           return false;
         }
 
-        auto ibeacon = device.get_ibeacon().value();
+        auto ibeacon = *maybe_ibeacon;
 
         if (this->ibeacon_uuid_ != ibeacon.get_uuid()) {
           return false;
@@ -112,11 +102,10 @@ class BLEPresenceDevice : public binary_sensor::BinarySensorInitiallyOff,
   }
 
   void loop() override {
-    if (this->found_ && this->last_seen_ + this->timeout_ < millis())
+    if (this->found_ && millis() - this->last_seen_ > this->timeout_)
       this->set_found_(false);
   }
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::DATA; }
 
  protected:
   void set_found_(bool state) {
@@ -142,43 +131,6 @@ class BLEPresenceDevice : public binary_sensor::BinarySensorInitiallyOff,
   bool check_ibeacon_major_{false};
   bool check_ibeacon_minor_{false};
   bool check_minimum_rssi_{false};
-
-  bool resolve_irk_(uint64_t addr64, const uint8_t *irk) {
-    uint8_t ecb_key[16];
-    uint8_t ecb_plaintext[16];
-    uint8_t ecb_ciphertext[16];
-
-    memcpy(&ecb_key, irk, 16);
-    memset(&ecb_plaintext, 0, 16);
-
-    ecb_plaintext[13] = (addr64 >> 40) & 0xff;
-    ecb_plaintext[14] = (addr64 >> 32) & 0xff;
-    ecb_plaintext[15] = (addr64 >> 24) & 0xff;
-
-    mbedtls_aes_context ctx = {0, 0, {0}};
-    mbedtls_aes_init(&ctx);
-
-    if (mbedtls_aes_setkey_enc(&ctx, ecb_key, 128) != 0) {
-      mbedtls_aes_free(&ctx);
-      return false;
-    }
-
-    if (mbedtls_aes_crypt_ecb(&ctx,
-#ifdef USE_ARDUINO
-                              MBEDTLS_AES_ENCRYPT,
-#elif defined(USE_ESP_IDF)
-                              ESP_AES_ENCRYPT,
-#endif
-                              ecb_plaintext, ecb_ciphertext) != 0) {
-      mbedtls_aes_free(&ctx);
-      return false;
-    }
-
-    mbedtls_aes_free(&ctx);
-
-    return ecb_ciphertext[15] == (addr64 & 0xff) && ecb_ciphertext[14] == ((addr64 >> 8) & 0xff) &&
-           ecb_ciphertext[13] == ((addr64 >> 16) & 0xff);
-  }
 
   bool found_{false};
   uint32_t last_seen_{};

@@ -1,6 +1,5 @@
+# WARNING: Using !extend or !remove prevents automatic component grouping in CI, making builds slower.
+<<: !include common.yaml
+
 external_components:
-  - source: github://esphome/esphome@dev
-    refresh: 1d
-    components: [bh1750]
-  - source: ../../../esphome/components
-    components: [sntp]
+  - id: !remove my_local

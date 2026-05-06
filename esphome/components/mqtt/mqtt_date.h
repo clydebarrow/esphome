@@ -8,14 +8,13 @@
 #include "esphome/components/datetime/date_entity.h"
 #include "mqtt_component.h"
 
-namespace esphome {
-namespace mqtt {
+namespace esphome::mqtt {
 
 class MQTTDateComponent : public mqtt::MQTTComponent {
  public:
-  /** Construct this MQTTDatetimeComponent instance with the provided friendly_name and datetime
+  /** Construct this MQTTDateComponent instance with the provided friendly_name and date
    *
-   * @param datetime The datetime component.
+   * @param date The date component.
    */
   explicit MQTTDateComponent(datetime::DateEntity *date);
 
@@ -32,14 +31,13 @@ class MQTTDateComponent : public mqtt::MQTTComponent {
   bool publish_state(uint16_t year, uint8_t month, uint8_t day);
 
  protected:
-  std::string component_type() const override;
+  const char *component_type() const override;
   const EntityBase *get_entity() const override;
 
   datetime::DateEntity *date_;
 };
 
-}  // namespace mqtt
-}  // namespace esphome
+}  // namespace esphome::mqtt
 
 #endif  // USE_DATETIME_DATE
 #endif  // USE_MQTT

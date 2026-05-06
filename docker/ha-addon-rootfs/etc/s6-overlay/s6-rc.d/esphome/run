@@ -23,10 +23,6 @@ if bashio::config.true 'streamer_mode'; then
     export ESPHOME_STREAMER_MODE=true
 fi
 
-if bashio::config.true 'status_use_ping'; then
-    export ESPHOME_DASHBOARD_USE_PING=true
-fi
-
 if bashio::config.has_value 'relative_url'; then
     export ESPHOME_DASHBOARD_RELATIVE_URL=$(bashio::config 'relative_url')
 fi
@@ -51,6 +47,13 @@ if bashio::fs.directory_exists '/config/esphome/.esphome'; then
     mkdir -p "/data/storage"
     mv /config/esphome/.esphome/*.json /data/storage/ || true
     rm -rf /config/esphome/.esphome
+fi
+
+if bashio::config.true 'use_new_device_builder'; then
+    bashio::log.info "Starting ESPHome Device Builder..."
+    exec esphome-device-builder /config/esphome \
+        --ha-addon \
+        --ingress-port "$(bashio::addon.ingress_port)"
 fi
 
 bashio::log.info "Starting ESPHome dashboard..."

@@ -1,0 +1,8 @@
+external_components:
+  - id: my_ext
+    source: github://esphome/esphome@dev
+    refresh: 1d
+    components: [bh1750]
+  - id: my_local
+    source: ../../../esphome/components
+    components: [sntp]

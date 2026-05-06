@@ -1,36 +1,100 @@
 #ifdef USE_HOST
 
+#include <filesystem>
+#include <fstream>
 #include "preferences.h"
-#include <cstring>
-#include "esphome/core/preferences.h"
-#include "esphome/core/helpers.h"
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
-#include "esphome/core/defines.h"
 
-namespace esphome {
-namespace host {
+namespace esphome::host {
+namespace fs = std::filesystem;
 
-static const char *const TAG = "host.preferences";
+static const char *const TAG = "preferences";
 
-class HostPreferences : public ESPPreferences {
- public:
-  ESPPreferenceObject make_preference(size_t length, uint32_t type, bool in_flash) override { return {}; }
-
-  ESPPreferenceObject make_preference(size_t length, uint32_t type) override { return {}; }
-
-  bool sync() override { return true; }
-  bool reset() override { return true; }
-};
-
-void setup_preferences() {
-  auto *pref = new HostPreferences();  // NOLINT(cppcoreguidelines-owning-memory)
-  global_preferences = pref;
+void HostPreferences::setup_() {
+  if (this->setup_complete_)
+    return;
+  const char *home = getenv("HOME");
+  if (home == nullptr) {
+    ESP_LOGE(TAG, "HOME environment variable is not set");
+    abort();
+  }
+  this->filename_.append(home);
+  this->filename_.append("/.esphome");
+  this->filename_.append("/prefs");
+  fs::create_directories(this->filename_);
+  this->filename_.append("/");
+  this->filename_.append(App.get_name());
+  this->filename_.append(".prefs");
+  FILE *fp = fopen(this->filename_.c_str(), "rb");
+  if (fp != nullptr) {
+    while (!feof((fp))) {
+      uint32_t key;
+      uint8_t len;
+      if (fread(&key, sizeof(key), 1, fp) != 1)
+        break;
+      if (fread(&len, sizeof(len), 1, fp) != 1)
+        break;
+      uint8_t data[len];
+      if (fread(data, sizeof(uint8_t), len, fp) != len)
+        break;
+      std::vector vec(data, data + len);
+      this->data[key] = vec;
+    }
+    fclose(fp);
+  }
+  this->setup_complete_ = true;
 }
 
-}  // namespace host
+bool HostPreferences::sync() {
+  this->setup_();
+  FILE *fp = fopen(this->filename_.c_str(), "wb");
+  if (fp == nullptr) {
+    ESP_LOGE(TAG, "Failed to open preferences file for writing: %s", this->filename_.c_str());
+    return false;
+  }
 
+  for (auto it = this->data.begin(); it != this->data.end(); ++it) {
+    fwrite(&it->first, sizeof(uint32_t), 1, fp);
+    uint8_t len = it->second.size();
+    fwrite(&len, sizeof(len), 1, fp);
+    fwrite(it->second.data(), sizeof(uint8_t), it->second.size(), fp);
+  }
+  fclose(fp);
+  return true;
+}
+
+bool HostPreferences::reset() {
+  host_preferences->data.clear();
+  return true;
+}
+
+ESPPreferenceObject HostPreferences::make_preference(size_t length, uint32_t type, bool in_flash) {
+  auto backend = new HostPreferenceBackend(type);
+  return ESPPreferenceObject(backend);
+};
+
+static HostPreferences s_preferences;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+HostPreferences *get_preferences() { return &s_preferences; }
+
+void setup_preferences() {
+  host_preferences = &s_preferences;
+  global_preferences = &s_preferences;
+}
+
+bool HostPreferenceBackend::save(const uint8_t *data, size_t len) {
+  return host_preferences->save(this->key_, data, len);
+}
+
+bool HostPreferenceBackend::load(uint8_t *data, size_t len) { return host_preferences->load(this->key_, data, len); }
+
+HostPreferences *host_preferences;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+}  // namespace esphome::host
+
+namespace esphome {
 ESPPreferences *global_preferences;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-
 }  // namespace esphome
 
 #endif  // USE_HOST
