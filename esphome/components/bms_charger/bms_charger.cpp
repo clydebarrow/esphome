@@ -39,7 +39,9 @@ void update_list(std::vector<float> &list, float value) {
 }
 
 void log_msg(const char *text, uint32_t id, std::vector<uint8_t> data) {
-  ESP_LOGD(TAG, "%s 0x%X: %s", text, id, format_hex_pretty(data).c_str());
+  char hexbuf[format_hex_pretty_size(data.size())];
+  format_hex_pretty_to(hexbuf, sizeof hexbuf, data.data(), data.size());
+  ESP_LOGD(TAG, "%s 0x%" PRIu32 ": %s", text, id, hexbuf);
 }
 
 uint8_t flag_bit(uint32_t pos, bool set) {
@@ -135,7 +137,8 @@ ByteBuffer pylon_alarms(uint32_t alarms, uint32_t warnings) {
   return data;
 }
 
-void BmsChargerComponent::play(std::vector<uint8_t> data, uint32_t can_id, bool remote_transmission_request) {
+void BmsChargerComponent::play(const std::vector<uint8_t> &data, const uint32_t &can_id,
+                               const bool &remote_transmission_request) {
   this->last_rx_ = millis();
   if (this->debug_)
     log_msg("Received from inverter", can_id, data);
