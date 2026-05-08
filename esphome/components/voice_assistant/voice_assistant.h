@@ -7,9 +7,9 @@
 #include "esphome/core/automation.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
-#include "esphome/core/ring_buffer.h"
 
 #include "esphome/components/api/api_connection.h"
+#include "esphome/components/ring_buffer/ring_buffer.h"
 #include "esphome/components/api/api_pb2.h"
 #include "esphome/components/microphone/microphone_source.h"
 #ifdef USE_MEDIA_PLAYER
@@ -24,11 +24,9 @@
 #include "esphome/components/socket/socket.h"
 
 #include <span>
-#include <unordered_map>
 #include <vector>
 
-namespace esphome {
-namespace voice_assistant {
+namespace esphome::voice_assistant {
 
 // Version 1: Initial version
 // Version 2: Adds raw speaker support
@@ -83,7 +81,7 @@ struct Timer {
   }
   // Remove before 2026.8.0
   ESPDEPRECATED("Use to_str() instead. Removed in 2026.8.0", "2026.2.0")
-  std::string to_string() const {
+  std::string to_string() const {  // NOLINT
     char buffer[TO_STR_BUFFER_SIZE];
     return this->to_str(buffer);
   }
@@ -226,9 +224,9 @@ class VoiceAssistant : public Component {
   Trigger<Timer> *get_timer_updated_trigger() { return &this->timer_updated_trigger_; }
   Trigger<Timer> *get_timer_cancelled_trigger() { return &this->timer_cancelled_trigger_; }
   Trigger<Timer> *get_timer_finished_trigger() { return &this->timer_finished_trigger_; }
-  Trigger<std::vector<Timer>> *get_timer_tick_trigger() { return &this->timer_tick_trigger_; }
+  Trigger<const std::vector<Timer> &> *get_timer_tick_trigger() { return &this->timer_tick_trigger_; }
   void set_has_timers(bool has_timers) { this->has_timers_ = has_timers; }
-  const std::unordered_map<std::string, Timer> &get_timers() const { return this->timers_; }
+  const std::vector<Timer> &get_timers() const { return this->timers_; }
 
  protected:
   bool allocate_buffers_();
@@ -267,13 +265,13 @@ class VoiceAssistant : public Component {
 
   api::APIConnection *api_client_{nullptr};
 
-  std::unordered_map<std::string, Timer> timers_;
+  std::vector<Timer> timers_;
   void timer_tick_();
   Trigger<Timer> timer_started_trigger_;
   Trigger<Timer> timer_finished_trigger_;
   Trigger<Timer> timer_updated_trigger_;
   Trigger<Timer> timer_cancelled_trigger_;
-  Trigger<std::vector<Timer>> timer_tick_trigger_;
+  Trigger<const std::vector<Timer> &> timer_tick_trigger_;
   bool has_timers_{false};
   bool timer_tick_running_{false};
 
@@ -302,7 +300,7 @@ class VoiceAssistant : public Component {
 
   std::string wake_word_{""};
 
-  std::shared_ptr<RingBuffer> ring_buffer_;
+  std::shared_ptr<ring_buffer::RingBuffer> ring_buffer_;
 
   bool use_wake_word_;
   uint8_t noise_suppression_level_;
@@ -368,7 +366,6 @@ template<typename... Ts> class ConnectedCondition : public Condition<Ts...>, pub
 
 extern VoiceAssistant *global_voice_assistant;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
-}  // namespace voice_assistant
-}  // namespace esphome
+}  // namespace esphome::voice_assistant
 
 #endif  // USE_VOICE_ASSISTANT
