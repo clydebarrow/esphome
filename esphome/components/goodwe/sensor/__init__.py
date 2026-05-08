@@ -365,6 +365,13 @@ COMPUTED_SENSORS = [
         device_class=DEVICE_CLASS_POWER,
         icon=ICON_SOLAR_POWER,
     ),
+    ComputedSensor(
+        "battery_power",
+        compute_fn=lambda parent: parent.battery_voltage * parent.battery_current,
+        unit_of_measurement=UNIT_WATT,
+        device_class=DEVICE_CLASS_POWER,
+        icon=ICON_BATTERY,
+    ),
 ]
 
 CONFIG_SCHEMA = cv.Any(

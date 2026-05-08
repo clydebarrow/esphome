@@ -110,6 +110,8 @@ class Goodwe : public PollingComponent {
   float pv_voltage_2{0};
   float pv_current_1{0};
   float pv_current_2{0};
+  float battery_voltage{0};
+  float battery_current{0};
 
  protected:
   transport::Transport *transport_;

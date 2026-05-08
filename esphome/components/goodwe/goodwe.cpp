@@ -27,7 +27,8 @@ void Goodwe::dump_config() {
 }
 void Goodwe::on_receive_(const std::vector<uint8_t> &data) {
   // for now just look for AA 55 commands
-  ESP_LOGV(TAG, "Received buffer %s", format_hex_pretty(data).c_str());
+  char hexbuf[format_hex_pretty_size(64)];
+  ESP_LOGV(TAG, "Received buffer %s", format_hex_pretty_to(hexbuf, data));
   for (auto &b : data) {
     auto pos = this->buffer_.size();
     if (pos < sizeof(RX_HDR)) {
@@ -44,7 +45,7 @@ void Goodwe::on_receive_(const std::vector<uint8_t> &data) {
     }
     if (this->buffer_[LENGTH_POS] + LENGTH_POS + CHKSUM_LEN + 1 == this->buffer_.size()) {
       // we have a complete message
-      ESP_LOGD(TAG, "Received %s", format_hex_pretty(this->buffer_).c_str());
+      ESP_LOGD(TAG, "Received %s", format_hex_pretty_to(hexbuf, this->buffer_));
       this->process_data_();
       this->buffer_.clear();
     }
@@ -80,6 +81,12 @@ void Goodwe::process_data_() {
     this->pv_current_1 = packet.get_uint16(9) * 0.1f;
     this->pv_voltage_2 = packet.get_uint16(12) * 0.1f;
     this->pv_current_2 = packet.get_uint16(14) * 0.1f;
+    float current = packet.get_uint16(25) * 0.1f;
+    if (packet.get_uint8(37) == 2) {
+      current = -current;
+    }
+    this->battery_current = current;
+    this->battery_voltage = packet.get_uint16(17) * 0.1f;
   }
   auto message = this->messages_.find(msgcode);
   if (message != this->messages_.end()) {
@@ -113,7 +120,8 @@ void Goodwe::send_command_(uint16_t cmd, std::optional<std::vector<uint8_t>> dat
   this->transport_->transmit(buffer);
   this->last_command_ = cmd;
   this->last_command_time_ = millis();
-  ESP_LOGD(TAG, "Sending command %s", format_hex_pretty(buffer).c_str());
+  char hexbuf[format_hex_pretty_size(64)];
+  ESP_LOGD(TAG, "Sending command %s", format_hex_pretty_to(hexbuf, buffer));
 }
 
 bool Goodwe::is_waiting() {
