@@ -82,7 +82,7 @@ void Goodwe::process_data_() {
     this->pv_voltage_2 = packet.get_uint16(12) * 0.1f;
     this->pv_current_2 = packet.get_uint16(14) * 0.1f;
     float current = packet.get_uint16(25) * 0.1f;
-    if (packet.get_uint8(37) == 2) {
+    if (packet.get_uint8(37) != 2) {
       current = -current;
     }
     this->battery_current = current;
