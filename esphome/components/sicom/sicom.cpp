@@ -3,8 +3,7 @@
 #include "sicom.h"
 #include <cmath>
 
-namespace esphome {
-namespace sicom {
+namespace esphome::sicom {
 
 static const char *const TAG = "sicom";
 static constexpr uint32_t BAUD_RATE = 115200;
@@ -279,6 +278,9 @@ bool SicomComponent::process_message_(const std::vector<uint8_t> &buffer) {
   return false;
 }
 
+static constexpr uint32_t ALLCALL_INTERVAL = 1000;
+static constexpr uint32_t DELAY_TIME = 200;
+
 void SicomComponent::loop() {
   while (this->available() != 0) {
     auto data = this->read_message_();
@@ -287,17 +289,23 @@ void SicomComponent::loop() {
     if (this->process_message_(data))
       return;
   }
-  if (this->next_device_ == MAX_DEVICES) {
-    // send ALL_CALL then wait around 1/2 second before polling known devices again. This gives time
-    // for a device to respond and be enrolled before anything else transmits.
-    if (this->debug_)
-      ESP_LOGD(TAG, "Sending All Call, available data: %d", this->available());
-    this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
-  } else if (this->next_device_ < this->devices_.size())
-    this->send_poll_(this->devices_[this->next_device_]);
-  this->next_device_++;
-  if (this->next_device_ == MAX_DEVICES * 2)
+  if (this->next_loop_time_ > millis())
+    return;
+  // send ALL_CALL then wait a bit second before polling known devices again. This gives time
+  // for a device to respond and be enrolled before anything else transmits.
+  if (this->next_device_ == this->devices_.size()) {
+    if (this->next_allcall_time_ < millis()) {
+      if (this->debug_)
+        ESP_LOGD(TAG, "Sending All Call, available data: %d", this->available());
+      this->send_message_(BROADCAST_ADDRESS, ALL_CALL_MSG);
+      this->next_allcall_time_ = millis() + ALLCALL_INTERVAL;
+    }
     this->next_device_ = 0;
+    this->next_loop_time_ = millis() + DELAY_TIME;
+    return;
+  }
+  this->send_poll_(this->devices_[this->next_device_]);
+  ++this->next_device_;
 }
 
 void SicomDevice::decode(const std::vector<uint8_t> &data) {
@@ -382,5 +390,4 @@ void SicomComponent::dump_config() {
   }
 }
 
-}  // namespace sicom
-}  // namespace esphome
+}  // namespace esphome::sicom

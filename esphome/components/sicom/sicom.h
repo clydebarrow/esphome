@@ -1,6 +1,6 @@
 #pragma once
 #include "esphome/core/defines.h"
-#ifdef USE_ESP_IDF
+#ifdef USE_ESP32
 
 #include "esphome/core/component.h"
 
@@ -15,8 +15,7 @@
 #include "esphome/components/switch/switch.h"
 #endif
 
-namespace esphome {
-namespace sicom {
+namespace esphome::sicom {
 using namespace bytebuffer;
 
 enum DeviceState {
@@ -137,7 +136,6 @@ class SicomComponent : public uart::UARTDevice, public Component {
   void send_message_(uint8_t address, uint8_t cmd) const;
   bool confirm_enrolment_(const std::vector<uint8_t> &data) const;
   void send_poll_(const SicomDevice *device) const;
-  void start_input_();
   bool input_started_{};
   bool debug_{};
   std::vector<SicomDevice *> devices_{};
@@ -148,9 +146,10 @@ class SicomComponent : public uart::UARTDevice, public Component {
   rmt_encoder_handle_t encoder_{};
   rmt_transmit_config_t transmit_config_{};
   uint16_t next_device_{};
+  uint32_t next_loop_time_{};
+  uint32_t next_allcall_time_{};
 };
 
-}  // namespace sicom
-}  // namespace esphome
+}  // namespace esphome::sicom
 
 #endif
