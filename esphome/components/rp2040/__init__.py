@@ -48,7 +48,21 @@ def board_has_wifi() -> bool:
     Returns True for unknown/custom boards to avoid rejecting valid
     configurations for boards not in the generated list.
     """
-    board_info = boards.BOARDS.get(get_board())
+    return board_id_has_wifi(get_board())
+
+
+def board_id_has_wifi(board_id: str) -> bool:
+    """Return True if *board_id* has WiFi (CYW43 wireless chip).
+
+    Returns True for unknown/custom boards to avoid rejecting valid
+    configurations for boards not in the generated list.
+
+    Used by device-builder (esphome/device-builder) — separate
+    explicit-arg helper so callers outside the compile pipeline
+    don't need ``CORE`` set up to query the board map. Please keep
+    the signature stable.
+    """
+    board_info = boards.BOARDS.get(board_id)
     if board_info is None:
         return True
     return board_info.get("wifi", False)
@@ -69,6 +83,18 @@ def set_core_data(config):
 
 
 def get_download_types(storage_json):
+    """Binary-download entries for a built RP2040 firmware.
+
+    Used by:
+    - esphome.dashboard (legacy "Download .bin" button)
+    - device-builder (esphome/device-builder) — same dispatch via
+      ``importlib.import_module(f"esphome.components.{platform}")``
+      then ``module.get_download_types(storage)``. The contract is
+      "returns ``list[dict]`` with at least ``title`` /
+      ``description`` / ``file`` / ``download`` keys"; please keep
+      the shape stable so the new dashboard's download panel
+      doesn't have to special-case per-platform schemas.
+    """
     return [
         {
             "title": "UF2 factory format",
@@ -484,7 +510,7 @@ def process_stacktrace(config, line: str, backtrace_state: bool) -> bool:
 
     if backtrace_state:
         if match := _CRASH_ADDR_RE.search(line):
-            from esphome.platformio_api import get_idedata
+            from esphome.platformio.toolchain import get_idedata
 
             idedata = get_idedata(config)
             if idedata.addr2line_path:
