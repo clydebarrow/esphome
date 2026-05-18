@@ -8,8 +8,7 @@
 
 #include <map>
 
-namespace esphome {
-namespace mastervolt {
+namespace esphome::mastervolt {
 
 static const char *const TAG = "mastervolt";
 
@@ -60,5 +59,4 @@ class Mastervolt : public Component {
   bool debug_{};
 };
 
-}  // namespace mastervolt
-}  // namespace esphome
+}  // namespace esphome::mastervolt

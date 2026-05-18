@@ -1,10 +1,5 @@
 import esphome.codegen as cg
 from esphome.components import sensor
-from esphome.components.mastervolt import (
-    CONF_DEVICE_ID,
-    MASTERVOLT_DEVICE_SCHEMA,
-    MastervoltSensor,
-)
 import esphome.config_validation as cv
 from esphome.config_validation import UNDEFINED
 from esphome.const import (
@@ -23,6 +18,8 @@ from esphome.const import (
     UNIT_PERCENT,
     UNIT_VOLT,
 )
+
+from . import CONF_DEVICE_ID, MASTERVOLT_DEVICE_SCHEMA, MastervoltSensor
 
 CONF_MESSAGE_ID = "message_id"
 CONF_BATTERY_CURRENT = "battery_current"
@@ -56,18 +53,19 @@ def sensor_schema(
 
 
 SENSOR_TYPES = {
+    CONF_BATTERY_LEVEL: sensor_schema(
+        0,
+        2,
+        unit_of_measurement=UNIT_PERCENT,
+        device_class=DEVICE_CLASS_ENERGY_STORAGE,
+        icon=ICON_BATTERY,
+    ),
     CONF_BATTERY_VOLTAGE: sensor_schema(
         1,
         2,
         unit_of_measurement=UNIT_VOLT,
         device_class=DEVICE_CLASS_VOLTAGE,
         icon=ICON_FLASH,
-    ),
-    CONF_BATTERY_TEMPERATURE: sensor_schema(
-        5,
-        2,
-        unit_of_measurement=UNIT_CELSIUS,
-        device_class=DEVICE_CLASS_TEMPERATURE,
     ),
     CONF_BATTERY_CURRENT: sensor_schema(
         2,
@@ -76,12 +74,11 @@ SENSOR_TYPES = {
         device_class=DEVICE_CLASS_CURRENT,
         icon=ICON_CURRENT_DC,
     ),
-    CONF_BATTERY_LEVEL: sensor_schema(
-        0,
+    CONF_BATTERY_TEMPERATURE: sensor_schema(
+        5,
         2,
-        unit_of_measurement=UNIT_PERCENT,
-        device_class=DEVICE_CLASS_ENERGY_STORAGE,
-        icon=ICON_BATTERY,
+        unit_of_measurement=UNIT_CELSIUS,
+        device_class=DEVICE_CLASS_TEMPERATURE,
     ),
 }
 
