@@ -1,0 +1,46 @@
+axp2101:
+  - id: pmic
+    address: 0x34
+    update_interval: 30s
+
+sensor:
+  - platform: axp2101
+    axp2101_id: pmic
+    battery_voltage:
+      name: Battery voltage
+    battery_level:
+      name: Battery level
+    vbus_voltage:
+      name: VBUS voltage
+    system_voltage:
+      name: System voltage
+    temperature:
+      name: PMIC temperature
+
+binary_sensor:
+  - platform: axp2101
+    axp2101_id: pmic
+    charging:
+      name: Charging
+    battery_present:
+      name: Battery present
+    vbus_present:
+      name: VBUS present
+    charge_done:
+      name: Charge done
+
+switch:
+  - platform: axp2101
+    axp2101_id: pmic
+    name: Charge enable
+    charge_enable: true
+  - platform: axp2101
+    axp2101_id: pmic
+    name: LCD power
+    channel: ALDO3
+
+output:
+  - platform: axp2101
+    axp2101_id: pmic
+    id: lcd_rail
+    channel: ALDO3
