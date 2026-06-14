@@ -13,6 +13,7 @@ from esphome.components.mipi import (
 import esphome.config_validation as cv
 from esphome.config_validation import update_interval
 from esphome.const import (
+    CONF_AUTO_CLEAR_ENABLED,
     CONF_BUSY_PIN,
     CONF_CS_PIN,
     CONF_DATA_RATE,
@@ -129,7 +130,22 @@ def customise_schema(config):
         },
         extra=cv.ALLOW_EXTRA,
     )(config)
-    return model_schema(config)(config)
+
+    config = model_schema(config)(config)
+    display.add_metadata(
+        config[CONF_ID],
+        config[CONF_WIDTH],
+        config[CONF_HEIGHT],
+        has_hardware_rotation=True,
+        byte_order=cv.UNDEFINED,
+        has_writer=config.get(CONF_AUTO_CLEAR_ENABLED) is True
+        or config.get(CONF_PAGES) is not None
+        or config.get(CONF_LAMBDA) is not None
+        or config.get(CONF_SHOW_TEST_CARD) is True,
+        rotation=config.get(CONF_ROTATION, 0),
+        draw_rounding=0,
+    )
+    return config
 
 
 CONFIG_SCHEMA = customise_schema
