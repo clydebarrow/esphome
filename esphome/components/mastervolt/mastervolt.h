@@ -27,10 +27,25 @@ constexpr uint32_t idb_of(uint32_t can_id) { return can_id & IDB_MASK; }
 constexpr uint8_t idal_of(uint16_t kind) { return kind & IDAL_MASK; }
 constexpr uint32_t make_can_id(uint16_t kind, uint32_t idb) { return (static_cast<uint32_t>(kind) << 18) | idb; }
 
+// Query frames have this bit set in kind (e.g. 0x613 query vs 0x213 response)
+static constexpr uint16_t KIND_QUERY_FLAG = 0x400;
+// Directed ping request/response kinds (§5.4)
+static constexpr uint16_t PING_KIND_BASE = 0x1C0;
+static constexpr uint16_t PING_RESPONSE_KIND_BASE = 0x180;
+
 // Announcement: E=0, MT=10, Tab=00 (kind = 0x100 | IDAL)
 constexpr bool is_announcement(uint16_t kind) { return (kind & ~static_cast<uint16_t>(IDAL_MASK)) == 0x100; }
 // Tab 0 monitoring data response: kind = 0x200 | IDAL
 constexpr bool is_tab0_response(uint16_t kind) { return (kind & ~static_cast<uint16_t>(IDAL_MASK)) == 0x200; }
+constexpr bool is_ping_request(uint16_t kind) { return (kind & ~static_cast<uint16_t>(IDAL_MASK)) == PING_KIND_BASE; }
+constexpr bool is_ping_response(uint16_t kind) {
+  return (kind & ~static_cast<uint16_t>(IDAL_MASK)) == PING_RESPONSE_KIND_BASE;
+}
+// Queries and ping requests are addressed *to* a device: their CAN ID carries the
+// target's IDAL and IDB, not the sender's (observed live — a directed frame arrived
+// bearing our own IDB after we announced). Such frames are not evidence that the
+// addressed device is alive.
+constexpr bool is_directed(uint16_t kind) { return (kind & KIND_QUERY_FLAG) != 0 || is_ping_request(kind); }
 
 const char *idal_name(uint8_t idal);
 
@@ -87,6 +102,12 @@ class Mastervolt : public Component {
 
   void add_device(MastervoltDevice *device) { devices_.push_back(device); }
 
+  // Send a directed ping (§5.4) to a device; any ping response is logged at INFO.
+  // Callable from lambdas, e.g. a template button, to test devices on demand.
+  void send_ping(uint8_t idal, uint32_t idb);
+  // Send an arbitrary MasterBus frame — for protocol experiments from lambdas
+  void send_frame(uint16_t kind, uint32_t idb, const std::vector<uint8_t> &data);
+
   void set_debug(bool debug) { this->debug_ = debug; }
   void set_announce(uint32_t own_idb, uint8_t own_idal) {
     this->announce_ = true;
@@ -101,6 +122,11 @@ class Mastervolt : public Component {
   void record_device_(uint32_t idb, uint8_t idal, uint32_t now);
   void update_presence_();
   void send_announcement_();
+  // Send a Tab 0 query for each of the device's configured sensors — needed for
+  // values the device does not broadcast unsolicited (e.g. battery temperature)
+  void poll_sensors_(MastervoltDevice *device);
+  // Send one chunk of a string label (§7.5) in response to a query for it
+  void send_label_chunk_(uint8_t idx_lo, uint8_t idx_hi, uint8_t chunk, const char *str);
 
   canbus::Canbus *canbus_;
   std::vector<MastervoltDevice *> devices_{};

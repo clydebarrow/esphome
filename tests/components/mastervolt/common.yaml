@@ -1,0 +1,47 @@
+canbus:
+  - platform: esp32_can
+    id: mastervolt_canbus
+    rx_pin: 4
+    tx_pin: 5
+    can_id: 4
+    bit_rate: 250kbps
+
+mastervolt:
+  id: mastervolt_component
+  canbus_id: mastervolt_canbus
+  debug: true
+  announce: true
+  own_idb: 0x30001
+  devices:
+    - id: shunt_device
+      type: dc_shunt
+    - id: dcdc_1
+      type: dc_dc
+      idb: 0x0788C
+    - id: dcdc_2
+      type: dc_dc
+      idb: 0x100A9
+    - id: custom_device
+      idal: 0x0B
+
+button:
+  - platform: template
+    name: Ping Shunt
+    on_press:
+      lambda: id(mastervolt_component).send_ping(0x13, 0x2C944);
+  - platform: template
+    name: Send Test Frame
+    on_press:
+      lambda: id(mastervolt_component).send_frame(0x1DF, 0x2C944, {0x08, 0x3F});
+
+sensor:
+  - platform: mastervolt
+    device_id: shunt_device
+    battery_level:
+      name: Battery SOC
+    battery_voltage:
+      name: Battery Voltage
+    battery_current:
+      name: Battery Current
+    battery_temperature:
+      name: Battery Temperature

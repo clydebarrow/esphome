@@ -78,7 +78,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Required(CONF_DEVICES): cv.ensure_list(DEVICE_SCHEMA),
             cv.Optional(CONF_ANNOUNCE, default=False): cv.boolean,
             cv.Optional(CONF_OWN_IDB): cv.int_range(min=0, max=0x3FFFF),
-            cv.Optional(CONF_OWN_IDAL, default=0x1F): cv.int_range(min=0, max=0x1F),
+            # Announce as a display (0x14) by default - the closest class for a
+            # monitoring device, so other bus devices know how to treat us
+            cv.Optional(CONF_OWN_IDAL, default=0x14): cv.int_range(min=0, max=0x1F),
             cv.Optional(CONF_MAX_DEVICES, default=16): cv.int_range(min=1, max=64),
             cv.Optional(CONF_DEBUG, default=False): cv.boolean,
         }
