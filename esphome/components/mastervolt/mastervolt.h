@@ -102,13 +102,23 @@ class Mastervolt : public Component {
 
   void add_device(MastervoltDevice *device) { devices_.push_back(device); }
 
-  // Send a directed ping (§5.4) to a device; any ping response is logged at INFO.
-  // Callable from lambdas, e.g. a template button, to test devices on demand.
+  // Send a directed ping (§5.4) to a device. Callable from lambdas, e.g. a template
+  // button, to test devices on demand. The transmission is logged at INFO and frames
+  // from the target are traced at INFO for a short window afterwards.
   void send_ping(uint8_t idal, uint32_t idb);
-  // Send an arbitrary MasterBus frame — for protocol experiments from lambdas
+  // Send an arbitrary MasterBus frame — for protocol experiments from lambdas.
+  // Logs and traces like send_ping().
   void send_frame(uint16_t kind, uint32_t idb, const std::vector<uint8_t> &data);
+  // Log frames from this IDB at INFO for a few seconds, without sending anything —
+  // for watching a device's unsolicited reaction to some other event (e.g. our own
+  // announcement), which send_frame()'s target-based tracing can't observe
+  void trace_device(uint32_t idb);
+  // Re-send our announcement immediately, e.g. to provoke a newcomer reaction from
+  // a device while trace_device() is watching it. Requires announce to be enabled.
+  void announce_now();
 
   void set_debug(bool debug) { this->debug_ = debug; }
+  void set_offline_timeout(uint32_t timeout_ms) { this->offline_timeout_ms_ = timeout_ms; }
   void set_announce(uint32_t own_idb, uint8_t own_idal) {
     this->announce_ = true;
     this->own_idb_ = own_idb;
@@ -125,6 +135,8 @@ class Mastervolt : public Component {
   // Send a Tab 0 query for each of the device's configured sensors — needed for
   // values the device does not broadcast unsolicited (e.g. battery temperature)
   void poll_sensors_(MastervoltDevice *device);
+  // Transmit without the logging/tracing of the public send_frame()
+  void send_frame_(uint16_t kind, uint32_t idb, const std::vector<uint8_t> &data);
   // Send one chunk of a string label (§7.5) in response to a query for it
   void send_label_chunk_(uint8_t idx_lo, uint8_t idx_hi, uint8_t chunk, const char *str);
 
@@ -138,6 +150,12 @@ class Mastervolt : public Component {
   uint32_t own_idb_{IDB_UNASSIGNED};
   uint8_t own_idal_{IDAL_MASK};
   uint16_t announce_counter_{0};
+  // Must match the default of the 'offline_timeout' config option
+  uint32_t offline_timeout_ms_{45000};
+  // Frames from this IDB are logged at INFO until the deadline — set by the manual
+  // send_frame()/send_ping() so their responses are visible without full debug output
+  uint32_t trace_idb_{IDB_UNASSIGNED};
+  uint32_t trace_until_ms_{0};
 };
 
 }  // namespace esphome::mastervolt

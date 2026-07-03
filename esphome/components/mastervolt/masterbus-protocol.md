@@ -164,6 +164,13 @@ self-announcement made every device on the bus reply, including a Mac Plus DC-DC
 that never transmits otherwise. Shortly afterwards an existing device sent a
 directed frame addressed to the newcomer's IDAL/IDB (see §2.3 addressing direction).
 
+A captured display boot (July 2026) shows it does **not** discover the bus from
+a blank slate: it began sending directed pings to previously-known devices
+(battery, switch, both DC-DCs) about 1.2 seconds *before* sending its own
+presence beacon and self-announcement. It likely keeps a persistent address
+book across power cycles and resumes polling remembered devices immediately,
+independent of when it re-introduces itself.
+
 ### 5.3 Keep-Alive / Presence
 
 Devices repeat their announcements approximately every 30 seconds. The display also sends an empty beacon (kind `0x154`) periodically. Implement a similar heartbeat to remain visible on the bus.
@@ -189,6 +196,22 @@ The `device_type_byte` in the ping response carries a device-class count or sub-
 - Display: `0x10`
 - DC-DC: `0x04`
 - Switch output: `0x01`
+
+**The "ping" query is one Tab-indexed variant of a broader low-level query
+family, not a single fixed kind.** The family occupies kind range `0x180`–`0x1FF`
+(E=0, MT=3); within it, Tab selects a query sub-type and **all responses use
+Tab=0** (`0x180 | IDAL`) regardless of which Tab the request used:
+- Tab=0 (`0x180 | IDAL`): response only.
+- Tab=1 (`0x1A0 | IDAL`): a second, mostly-unexplored query type. Captured
+  live directed at the switch with codes `[0x08, 0x23]` and `[0x08, 0x07]`;
+  the switch did not answer either. Since responses don't carry the request's
+  Tab, a query code's meaning is only defined within its own Tab — `0x23`
+  under Tab=1 is unrelated to the `[0x08, 0x23]` sent to us under Tab=2.
+- Tab=2 (`0x1C0 | IDAL`): the ping/device-identification family documented
+  above and in §5.4's newcomer-interrogation notes.
+- Tab=3 (`0x1E0 | IDAL`): unexplored; the one code tried against the battery
+  (`[0x08, 0x3F]`) got no reply, consistent with it being a different,
+  unmapped code space rather than proof the kind is unused.
 
 Live observations (July 2026):
 
@@ -351,6 +374,26 @@ data   = [index_lo, sub_index, 0x00, flags, ...]
 
 DC-DC channel enumeration uses Tab 3 config queries. The DC-DC responds with a burst of `0x278` frames enumerating its measurement channels (e.g. input voltage, output voltage, output current).
 
+Observed battery config items: index `0x0002` → `4` (meaning unknown); indices
+`0x0000` and `0x0001` are invalid (see below).
+
+#### Invalid-Index / NAK Responses (Tab 1–3)
+
+Querying an index a device doesn't implement does not time out silently — it
+gets an immediate reply on a different kind. A normal response clears the
+query kind's bit 10 (subtract `0x400`, e.g. `0x653` → `0x253`). An invalid
+index instead clears only bit 9 (subtract `0x200`, e.g. `0x653` → `0x453`,
+`0x673` → `0x473`) and returns a short 4-byte payload — `[index_lo, sub_index,
+0x00, 0x00]` — with no value field. Confirmed live (July 2026) on Tab 2 index
+`0x0000` and Tab 3 indices `0x0000`/`0x0001` for the battery, and Tab 3
+indices `0x0000`/`0x0001` for the DC-DC too.
+
+DC-DC channel enumeration is **not** a Tab 3 query response — it is
+unsolicited, sent when the DC-DC detects a newcomer joining (§5.2). Querying
+Tab 3 indices on a DC-DC directly does not trigger it; forcing an immediate
+re-announcement while watching the DC-DC is the way to reproduce it on
+demand.
+
 ### 7.5 String Label Protocol
 
 String labels (human-readable names and units) are queried using the ping mechanism with a special `0x30` prefix:
@@ -408,6 +451,13 @@ data   = [total_items, 0x00, 0x00, 0x00, 0x00, 0x00]
 Observed channel counts:
 - **Single-gang switch** (`0x1605c`): 4 items (state + electrical parameters for one pole)
 - **DC-DC converter** (`0x100a9`): appears to have 2 sides × N parameters ⚠️ (enumeration was incomplete in the capture)
+
+The "finalise" kind (`0x698`, IDAL `0x18`) also has a counterpart for the
+battery: kind `0x693` (IDAL `0x13`) with the same `[0x03, 0x00, 0x00,
+first_data_index]` shape, observed once after a Tab 3 query. It appeared in
+isolation, without an accompanying `0x278`-style burst or `0x298` summary —
+consistent with the battery not being a multi-channel device to enumerate,
+but confirming the query itself isn't DC-DC/switch-specific.
 
 ---
 

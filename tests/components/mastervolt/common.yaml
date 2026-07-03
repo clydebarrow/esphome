@@ -12,6 +12,7 @@ mastervolt:
   debug: true
   announce: true
   own_idb: 0x30001
+  offline_timeout: 20s
   devices:
     - id: shunt_device
       type: dc_shunt

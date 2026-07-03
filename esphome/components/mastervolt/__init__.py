@@ -17,6 +17,10 @@ CONF_ANNOUNCE = "announce"
 CONF_OWN_IDB = "own_idb"
 CONF_OWN_IDAL = "own_idal"
 CONF_MAX_DEVICES = "max_devices"
+CONF_OFFLINE_TIMEOUT = "offline_timeout"
+
+# Must match offline_timeout_ms_ in mastervolt.h
+DEFAULT_OFFLINE_TIMEOUT_MS = 45000
 
 # Known MasterBus device classes (IDAL values)
 DEVICE_TYPES = {
@@ -82,6 +86,9 @@ CONFIG_SCHEMA = cv.All(
             # monitoring device, so other bus devices know how to treat us
             cv.Optional(CONF_OWN_IDAL, default=0x14): cv.int_range(min=0, max=0x1F),
             cv.Optional(CONF_MAX_DEVICES, default=16): cv.int_range(min=1, max=64),
+            cv.Optional(
+                CONF_OFFLINE_TIMEOUT, default="45s"
+            ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_DEBUG, default=False): cv.boolean,
         }
     ),
@@ -102,6 +109,9 @@ async def to_code(config):
     await cg.register_component(var, config)
 
     cg.add_define("MASTERVOLT_MAX_DEVICES", config[CONF_MAX_DEVICES])
+    timeout = config[CONF_OFFLINE_TIMEOUT]
+    if timeout.total_milliseconds != DEFAULT_OFFLINE_TIMEOUT_MS:
+        cg.add(var.set_offline_timeout(timeout))
     if config[CONF_DEBUG]:
         cg.add(var.set_debug(True))
     if config[CONF_ANNOUNCE]:

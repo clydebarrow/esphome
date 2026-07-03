@@ -1,15 +1,15 @@
 #include "mastervolt.h"
 #include "esphome/core/application.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace esphome::mastervolt {
 
 using namespace bytebuffer;
 
-// Announcements repeat ~every 30 s; a device is offline after missing three of them
-static constexpr uint32_t PRESENCE_INTERVAL_MS = 30000;
-static constexpr uint32_t PRESENCE_TIMEOUT_MS = 90000;
+// Announcements repeat ~every 30 s, matching the observed bus devices
+static constexpr uint32_t ANNOUNCE_INTERVAL_MS = 30000;
 // Presence beacon: E=0, MT=10, Tab=2 (kind = 0x140 | IDAL) — observed from the display,
 // not yet verified as required for other participants
 static constexpr uint16_t BEACON_KIND_BASE = 0x140;
@@ -18,6 +18,9 @@ static constexpr uint16_t ANNOUNCEMENT_KIND_BASE = 0x100;
 // broadcast unsolicited and must be polled
 static constexpr uint16_t TAB0_QUERY_KIND_BASE = 0x610;
 static constexpr uint32_t SENSOR_POLL_INTERVAL_MS = 10000;
+// After a manual send_frame()/send_ping(), frames from the target are logged at INFO
+// for this long so its responses can be seen without full debug output
+static constexpr uint32_t TRACE_WINDOW_MS = 2000;
 // Device-type byte for our ping responses: we present ourselves as a display,
 // the closest match for a monitoring device (§5.4)
 static constexpr uint8_t PING_DEVICE_TYPE_DISPLAY = 0x10;
@@ -68,12 +71,13 @@ void Mastervolt::setup() {
   this->canbus_->add_callback([this](uint32_t can_id, bool extended_id, bool rtr, const std::vector<uint8_t> &data) {
     this->on_receive_(can_id, extended_id, rtr, data);
   });
-  this->set_interval("presence", PRESENCE_INTERVAL_MS, [this]() { this->update_presence_(); });
   this->set_interval("poll", SENSOR_POLL_INTERVAL_MS, [this]() {
     for (auto *device : this->devices_)
       this->poll_sensors_(device);
+    this->update_presence_();
   });
   if (this->announce_) {
+    this->set_interval("announce", ANNOUNCE_INTERVAL_MS, [this]() { this->send_announcement_(); });
     // Join the bus per protocol §5.2 after allowing the CAN driver to settle.
     // Every device replies with its own announcement, populating the discovery table.
     this->set_timeout("join", 500, [this]() {
@@ -96,6 +100,10 @@ void Mastervolt::on_receive_(uint32_t can_id, bool extended_id, bool rtr, const 
   if (this->debug_) {
     char hexbuf[format_hex_pretty_size(canbus::CAN_MAX_DATA_LENGTH)];
     ESP_LOGD(TAG, "RX kind 0x%03X, IDB 0x%05" PRIX32 ", data: %s", kind, idb, format_hex_pretty_to(hexbuf, data));
+  } else if (idb == this->trace_idb_ && millis() < this->trace_until_ms_) {
+    // Trace responses to a recent manual send_frame()/send_ping() without full debug
+    char hexbuf[format_hex_pretty_size(canbus::CAN_MAX_DATA_LENGTH)];
+    ESP_LOGI(TAG, "RX kind 0x%03X, IDB 0x%05" PRIX32 ", data: %s", kind, idb, format_hex_pretty_to(hexbuf, data));
   }
 
   // Frames carrying our own IDB are addressed *to* us (pings, queries) — normal
@@ -129,16 +137,16 @@ void Mastervolt::on_receive_(uint32_t can_id, bool extended_id, bool rtr, const 
       // [08 1F] asks for the device class; devices answer with their own IDAL
       if (data[0] == 0x08 && data[1] == 0x1F) {
         ESP_LOGV(TAG, "Answering query [08 1F] (kind 0x%03X)", kind);
-        this->send_frame(PING_RESPONSE_KIND_BASE | this->own_idal_, this->own_idb_,
-                         {0x08, 0x1F, this->own_idal_, 0x00});
+        this->send_frame_(PING_RESPONSE_KIND_BASE | this->own_idal_, this->own_idb_,
+                          {0x08, 0x1F, this->own_idal_, 0x00});
         return;
       }
       // Answer known low-level queries so the sender doesn't keep retrying (§5.4)
       for (const auto &reply : QUERY_REPLIES) {
         if (data[0] == reply.q0 && data[1] == reply.q1) {
           ESP_LOGV(TAG, "Answering query [%02X %02X] (kind 0x%03X)", data[0], data[1], kind);
-          this->send_frame(PING_RESPONSE_KIND_BASE | this->own_idal_, this->own_idb_,
-                           {data[0], data[1], reply.r2, reply.r3});
+          this->send_frame_(PING_RESPONSE_KIND_BASE | this->own_idal_, this->own_idb_,
+                            {data[0], data[1], reply.r2, reply.r3});
           return;
         }
       }
@@ -257,19 +265,20 @@ void Mastervolt::record_device_(uint32_t idb, uint8_t idal, uint32_t now) {
 void Mastervolt::update_presence_() {
   const uint32_t now = millis();
   for (auto *device : this->devices_) {
-    if (device->online_ && now - device->last_seen_ms_ > PRESENCE_TIMEOUT_MS) {
+    if (device->online_ && now - device->last_seen_ms_ > this->offline_timeout_ms_) {
       device->online_ = false;
       ESP_LOGI(TAG, "Device IDB 0x%05" PRIX32 " (%s) is offline", device->idb_, idal_name(device->idal_));
+      // Mark the device's sensors unknown until fresh data arrives
+      for (const auto &pair : device->sensors_)
+        pair.second->publish_state(NAN);
     }
   }
   for (auto &entry : this->discovered_) {
-    if (entry.online && now - entry.last_seen_ms > PRESENCE_TIMEOUT_MS) {
+    if (entry.online && now - entry.last_seen_ms > this->offline_timeout_ms_) {
       entry.online = false;
       ESP_LOGI(TAG, "Device IDB 0x%05" PRIX32 " (%s) is offline", entry.idb, idal_name(entry.idal));
     }
   }
-  if (this->announce_)
-    this->send_announcement_();
 }
 
 void Mastervolt::send_announcement_() {
@@ -290,12 +299,35 @@ void Mastervolt::send_announcement_() {
 
 void Mastervolt::send_ping(uint8_t idal, uint32_t idb) {
   uint16_t kind = PING_KIND_BASE | (idal & IDAL_MASK);
-  ESP_LOGI(TAG, "Pinging IDB 0x%05" PRIX32 " (%s), kind 0x%03X", idb, idal_name(idal), kind);
   this->send_frame(kind, idb, {0x08, 0x3F});
 }
 
 void Mastervolt::send_frame(uint16_t kind, uint32_t idb, const std::vector<uint8_t> &data) {
+  char hexbuf[format_hex_pretty_size(canbus::CAN_MAX_DATA_LENGTH)];
+  ESP_LOGI(TAG, "TX kind 0x%03X to IDB 0x%05" PRIX32 " (%s), data: %s", kind, idb, idal_name(idal_of(kind)),
+           format_hex_pretty_to(hexbuf, data));
+  this->trace_idb_ = idb & IDB_MASK;
+  this->trace_until_ms_ = millis() + TRACE_WINDOW_MS;
+  this->send_frame_(kind, idb, data);
+}
+
+void Mastervolt::send_frame_(uint16_t kind, uint32_t idb, const std::vector<uint8_t> &data) {
   this->canbus_->send_data(make_can_id(kind, idb & IDB_MASK), true, data);
+}
+
+void Mastervolt::trace_device(uint32_t idb) {
+  ESP_LOGI(TAG, "Tracing IDB 0x%05" PRIX32 " for %u ms", idb & IDB_MASK, TRACE_WINDOW_MS);
+  this->trace_idb_ = idb & IDB_MASK;
+  this->trace_until_ms_ = millis() + TRACE_WINDOW_MS;
+}
+
+void Mastervolt::announce_now() {
+  if (!this->announce_) {
+    ESP_LOGW(TAG, "announce_now() requires 'announce' to be enabled");
+    return;
+  }
+  ESP_LOGI(TAG, "Re-sending announcement (IDB 0x%05" PRIX32 ", IDAL 0x%02X)", this->own_idb_, this->own_idal_);
+  this->send_announcement_();
 }
 
 void Mastervolt::poll_sensors_(MastervoltDevice *device) {
@@ -303,7 +335,7 @@ void Mastervolt::poll_sensors_(MastervoltDevice *device) {
     return;
   uint16_t kind = TAB0_QUERY_KIND_BASE | device->idal_;
   for (const auto &pair : device->sensors_) {
-    this->send_frame(kind, device->idb_, {static_cast<uint8_t>(pair.first), static_cast<uint8_t>(pair.first >> 8)});
+    this->send_frame_(kind, device->idb_, {static_cast<uint8_t>(pair.first), static_cast<uint8_t>(pair.first >> 8)});
   }
 }
 
@@ -318,7 +350,7 @@ void Mastervolt::send_label_chunk_(uint8_t idx_lo, uint8_t idx_hi, uint8_t chunk
       break;
   }
   ESP_LOGV(TAG, "Answering label 0x%04X chunk %u", idx_lo | (idx_hi << 8), chunk);
-  this->send_frame(PING_RESPONSE_KIND_BASE | this->own_idal_, this->own_idb_, payload);
+  this->send_frame_(PING_RESPONSE_KIND_BASE | this->own_idal_, this->own_idb_, payload);
 }
 
 void Mastervolt::dump_config() {
