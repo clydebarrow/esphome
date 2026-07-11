@@ -44,6 +44,7 @@ class MipiRgb : public display::Display {
   void set_width(uint16_t width) { this->width_ = width; }
   void set_pclk_frequency(uint32_t pclk_frequency) { this->pclk_frequency_ = pclk_frequency; }
   void set_pclk_inverted(bool inverted) { this->pclk_inverted_ = inverted; }
+  void set_pclk_idle_high(bool idle_high) { this->pclk_idle_high_ = idle_high; }
   void set_model(const char *model) { this->model_ = model; }
   int get_width() override;
   int get_height() override;
@@ -55,13 +56,13 @@ class MipiRgb : public display::Display {
   void set_vsync_front_porch(uint16_t vsync_front_porch) { this->vsync_front_porch_ = vsync_front_porch; }
   void set_enable_pins(std::vector<GPIOPin *> enable_pins) { this->enable_pins_ = std::move(enable_pins); }
   display::DisplayType get_display_type() override { return display::DisplayType::DISPLAY_TYPE_COLOR; }
-  int get_width_internal() override { return this->width_; }
-  int get_height_internal() override { return this->height_; }
   void dump_config() override;
   void draw_pixel_at(int x, int y, Color color) override;
 
   // this will be horribly slow.
  protected:
+  int get_width_internal() override { return this->width_; }
+  int get_height_internal() override { return this->height_; }
   void write_to_display_(int x_start, int y_start, int w, int h, const uint8_t *ptr, int x_offset, int y_offset,
                          int x_pad);
   bool check_buffer_();
@@ -82,6 +83,7 @@ class MipiRgb : public display::Display {
   uint16_t vsync_front_porch_ = 10;
   uint32_t pclk_frequency_ = 16 * 1000 * 1000;
   bool pclk_inverted_{true};
+  bool pclk_idle_high_{true};
   const char *model_{"Unknown"};
   bool invert_colors_{};
   display::ColorOrder color_mode_{display::COLOR_ORDER_BGR};
@@ -107,12 +109,12 @@ class MipiRgbSpi final : public MipiRgb,
   void set_init_sequence(const std::vector<uint8_t> &init_sequence) { this->init_sequence_ = init_sequence; }
   void set_dc_pin(GPIOPin *dc_pin) { this->dc_pin_ = dc_pin; }
   void setup() override;
+  void dump_config() override;
 
  protected:
   void write_command_(uint8_t value);
   void write_data_(uint8_t value);
   void write_init_sequence_();
-  void dump_config() override;
 
   GPIOPin *dc_pin_{nullptr};
   std::vector<uint8_t> init_sequence_;

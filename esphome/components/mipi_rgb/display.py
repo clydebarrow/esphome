@@ -19,6 +19,7 @@ from esphome.components.mipi import (
     CONF_HSYNC_FRONT_PORCH,
     CONF_HSYNC_PULSE_WIDTH,
     CONF_PCLK_FREQUENCY,
+    CONF_PCLK_IDLE_HIGH,
     CONF_PCLK_INVERTED,
     CONF_PCLK_PIN,
     CONF_PIXEL_MODE,
@@ -164,6 +165,7 @@ def model_schema(config):
                 cv.frequency, cv.Range(min=4e6, max=100e6)
             ),
             model.option(CONF_PCLK_INVERTED, True): cv.boolean,
+            model.option(CONF_PCLK_IDLE_HIGH, True): cv.boolean,
             iseqconf: cv.ensure_list(map_sequence),
             model.option(CONF_BYTE_ORDER, BYTE_ORDER_BIG): cv.one_of(
                 BYTE_ORDER_LITTLE, BYTE_ORDER_BIG, lower=True
@@ -291,6 +293,7 @@ async def to_code(config):
     cg.add(var.set_vsync_back_porch(config[CONF_VSYNC_BACK_PORCH]))
     cg.add(var.set_vsync_front_porch(config[CONF_VSYNC_FRONT_PORCH]))
     cg.add(var.set_pclk_inverted(config[CONF_PCLK_INVERTED]))
+    cg.add(var.set_pclk_idle_high(config[CONF_PCLK_IDLE_HIGH]))
     cg.add(var.set_pclk_frequency(config[CONF_PCLK_FREQUENCY]))
     dpins = []
     if CONF_RED in config[CONF_DATA_PINS]:
