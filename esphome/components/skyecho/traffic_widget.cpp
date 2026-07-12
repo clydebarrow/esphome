@@ -30,8 +30,22 @@ void TrafficWidget::build() {
   lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
 
   // Concentric range rings, created first so they sit behind everything else.
-  this->rings_.init(this->num_rings_);
-  for (size_t i = 0; i != this->num_rings_; i++) {
+  // The spacing is snapped to a round number and rings are drawn at multiples
+  // of it out to the range.
+  size_t ring_count = 0;
+  if (this->num_rings_ > 0 && this->range_ > 0.0f) {
+    this->ring_step_ = nice_number_(this->range_ / this->num_rings_);
+    if (this->ring_step_ > 0.0f) {
+      ring_count = static_cast<size_t>(this->range_ / this->ring_step_ + 1e-3f);
+    }
+    if (ring_count == 0) {
+      // Range is smaller than one nice step: fall back to a single edge ring.
+      this->ring_step_ = this->range_;
+      ring_count = 1;
+    }
+  }
+  this->rings_.init(ring_count);
+  for (size_t i = 0; i != ring_count; i++) {
     Ring ring{};
     ring.circle = lv_obj_create(root);
     lv_obj_remove_flag(ring.circle, LV_OBJ_FLAG_SCROLLABLE);
@@ -98,7 +112,7 @@ void TrafficWidget::extrapolate_(gdl90PositionReport_t &report, float dt) {
 void TrafficWidget::format_range_(char *buf, size_t len, float meters) {
   if (meters >= 1000.0f) {
     float km = meters / 1000.0f;
-    if (km >= 10.0f) {
+    if (km == floorf(km)) {
       snprintf(buf, len, "%.0fkm", km);
     } else {
       snprintf(buf, len, "%.1fkm", km);
@@ -108,15 +122,34 @@ void TrafficWidget::format_range_(char *buf, size_t len, float meters) {
   }
 }
 
+float TrafficWidget::nice_number_(float value) {
+  if (value <= 0.0f) {
+    return 0.0f;
+  }
+  float power = powf(10.0f, floorf(log10f(value)));
+  float base = value / power;  // in [1, 10)
+  float nice;
+  if (base < 1.5f) {
+    nice = 1.0f;
+  } else if (base < 3.0f) {
+    nice = 2.0f;
+  } else if (base < 7.0f) {
+    nice = 5.0f;
+  } else {
+    nice = 10.0f;
+  }
+  return nice * power;
+}
+
 void TrafficWidget::layout_rings_(float radius) {
   for (size_t i = 0; i != this->rings_.size(); i++) {
     Ring &ring = this->rings_[i];
-    float fraction = static_cast<float>(i + 1) / this->rings_.size();
-    auto ring_radius = static_cast<lv_coord_t>(radius * fraction);
+    float distance = this->ring_step_ * (i + 1);
+    auto ring_radius = static_cast<lv_coord_t>(distance / this->range_ * radius);
     lv_obj_set_size(ring.circle, ring_radius * 2, ring_radius * 2);
 
     char buf[16];
-    format_range_(buf, sizeof(buf), this->range_ * fraction);
+    format_range_(buf, sizeof(buf), distance);
     lv_label_set_text(ring.label, buf);
     // Place the label just inside the ring, on the vertical below the centre.
     lv_obj_align(ring.label, LV_ALIGN_CENTER, 0, ring_radius - 8);

@@ -52,6 +52,9 @@ class TrafficWidget : public lvgl::LvCompound {
   // Format a distance in meters as a short human-readable string (e.g. "5km").
   static void format_range_(char *buf, size_t len, float meters);
 
+  // Round a value to a "nice" number (1, 2 or 5 times a power of ten).
+  static float nice_number_(float value);
+
   struct Target {
     lv_obj_t *image;
     lv_obj_t *label;
@@ -68,7 +71,8 @@ class TrafficWidget : public lvgl::LvCompound {
   image::Image *north_image_{nullptr};
   float range_{10000.0f};  // display radius in meters
   size_t max_targets_{8};
-  size_t num_rings_{3};
+  size_t num_rings_{3};    // requested number of range rings
+  float ring_step_{0.0f};  // snapped distance between rings, in meters
 
   lv_obj_t *ownship_obj_{nullptr};
   lv_obj_t *north_obj_{nullptr};
