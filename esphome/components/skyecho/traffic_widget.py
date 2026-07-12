@@ -102,8 +102,10 @@ class SkyEchoTrafficWidgetType(WidgetType):
         widget_id = config[CONF_ID].id
         ownship_image = await _bundle_image(widget_id, "ownship")
         target_image = await _bundle_image(widget_id, "target")
+        north_image = await _bundle_image(widget_id, "north")
         lv_add(w.var.set_ownship_image(ownship_image))
         lv_add(w.var.set_target_image(target_image))
+        lv_add(w.var.set_north_image(north_image))
 
         # Build the child objects once all setters have run.
         lv_add(w.var.build())
