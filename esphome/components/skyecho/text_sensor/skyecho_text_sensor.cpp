@@ -1,6 +1,7 @@
 #include "skyecho_text_sensor.h"
 #include "esphome/core/log.h"
 #include "esphome/core/time.h"
+#include <cinttypes>
 #include <cstdio>
 #include <cmath>
 #include <ctime>
@@ -216,9 +217,9 @@ void SkyEchoTextSensor::generate_pflaa(std::string &output) {
     // PFLAA format:
     // $PFLAA,<AlarmLevel>,<RelativeNorth>,<RelativeEast>,<RelativeVertical>,
     //        <IDType>,<ID>,<Track>,<TurnRate>,<GroundSpeed>,<ClimbRate>,<AcftType>
-    snprintf(this->nmea_buf_, sizeof(this->nmea_buf_), "$PFLAA,%d,%d,%d,%d,%d,%06X,%d,,%d,%d,%X", t.alarm_level,
-             rel_north, rel_east, rel_vert, id_type, t.id, t.track_valid ? static_cast<int>(t.track) : 0, ground_speed,
-             climb_rate, flarm_type);
+    snprintf(this->nmea_buf_, sizeof(this->nmea_buf_), "$PFLAA,%d,%d,%d,%d,%d,%06" PRIX32 ",%d,,%d,%d,%X",
+             t.alarm_level, rel_north, rel_east, rel_vert, id_type, t.id, t.track_valid ? static_cast<int>(t.track) : 0,
+             ground_speed, climb_rate, static_cast<unsigned>(flarm_type));
 
     std::string sentence = this->nmea_buf_;
     this->add_checksum(sentence);

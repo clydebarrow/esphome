@@ -1,5 +1,6 @@
 #include "skyecho_traffic_list_sensor.h"
 #include "esphome/core/log.h"
+#include <cinttypes>
 #include <cstdio>
 #include <algorithm>
 
@@ -116,8 +117,9 @@ void SkyEchoTrafficListSensor::update() {
       // Format callsign or use hex ID
       const char *callsign = t->callsign[0] != '\0' ? t->callsign : "------";
 
-      snprintf(line, sizeof(line), "[%s] %s | %s | %06X | %.1fkm | %s%+.0fm | %.0fkm/h\n", get_source_name(t->source),
-               get_category_name(t->category), callsign, t->id, distance_km, alt_prefix, display_alt, speed_kmh);
+      snprintf(line, sizeof(line), "[%s] %s | %s | %06" PRIX32 " | %.1fkm | %s%+.0fm | %.0fkm/h\n",
+               get_source_name(t->source), get_category_name(t->category), callsign, t->id, distance_km, alt_prefix,
+               display_alt, speed_kmh);
 
       output += line;
     }

@@ -1,4 +1,5 @@
 #include "skyecho.h"
+#include <cinttypes>
 
 namespace esphome {
 namespace skyecho {
@@ -56,7 +57,7 @@ void SkyEcho::loop() {
     socklen_t addr_len = sizeof from_addr;
     auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
     if (len >= 0) {
-      ESP_LOGV(TAG, "Received %d bytes", len);
+      ESP_LOGV(TAG, "Received %d bytes", (int) len);
       gdl90GetBlocks(
           buf, len,
           [this](const gdlDataPacket_t *packet, in_addr *srcAddr) -> void { this->block_callback(packet, srcAddr); },
@@ -148,7 +149,7 @@ void SkyEcho::ping_() {
     socket::set_sockaddr(&addr, sizeof(addr), "255.255.255.255", PINGPORTS[i]);
     auto err = this->ping_socket_->sendto(PINGPAYLOAD, strlen(PINGPAYLOAD), 0, &addr, sizeof(addr));
     if (err < 0) {
-      ESP_LOGD(TAG, "Sendto failed on port %d with err %d", PINGPORTS[i], err);
+      ESP_LOGD(TAG, "Sendto failed on port %d with err %d", PINGPORTS[i], (int) err);
     }
   }
 }
@@ -350,14 +351,14 @@ void SkyEcho::process_flarm_pflau_(const FlarmPflau &data) {
   ESP_LOGD(TAG, "FLARM PFLAU: rx=%d tx=%d gps=%d power=%d alarm=%d", data.rx, data.tx, data.gps, data.power,
            data.alarm_level);
   if (data.id_valid) {
-    ESP_LOGD(TAG, "  Target ID: %06X, bearing=%d, vertical=%d, distance=%u", data.id, data.relative_bearing,
-             data.relative_vertical, data.relative_distance);
+    ESP_LOGD(TAG, "  Target ID: %06" PRIX32 ", bearing=%d, vertical=%" PRId32 ", distance=%" PRIu32, data.id,
+             data.relative_bearing, data.relative_vertical, data.relative_distance);
   }
 }
 
 void SkyEcho::process_flarm_pflaa_(const FlarmPflaa &data) {
-  ESP_LOGD(TAG, "FLARM PFLAA: ID=%06X alarm=%d N=%d E=%d V=%d", data.id, data.alarm_level, data.relative_north,
-           data.relative_east, data.relative_vertical);
+  ESP_LOGD(TAG, "FLARM PFLAA: ID=%06" PRIX32 " alarm=%d N=%" PRId32 " E=%" PRId32 " V=%" PRId32, data.id,
+           data.alarm_level, data.relative_north, data.relative_east, data.relative_vertical);
   // Feed to traffic manager for merging
   this->traffic_manager_.update_from_flarm(data);
 }
