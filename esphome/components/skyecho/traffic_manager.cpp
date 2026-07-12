@@ -5,8 +5,7 @@
 #include <cstring>
 #include <algorithm>
 
-namespace esphome {
-namespace skyecho {
+namespace esphome::skyecho {
 
 static const char *const TAG = "traffic_mgr";
 
@@ -319,10 +318,11 @@ void TrafficManager::update_from_gdl90(const gdl90PositionReport_t &gdl90) {
     traffic = find_by_position(gdl90.latitude, gdl90.longitude, gdl90.altitude, gdl90.track, gdl90.groundSpeed);
 
     if (traffic != nullptr) {
-      ESP_LOGD(TAG, "GDL90 ID %06X matched existing traffic ID %06X by position", gdl90.address, traffic->id);
+      ESP_LOGD(TAG, "GDL90 ID %06" PRIu32 " matched existing traffic ID %06" PRIu32 " by position", gdl90.address,
+               traffic->id);
       // Update to use ICAO ID if this was a FLARM-only target
       if (traffic->source == SOURCE_FLARM && gdl90.addressType == EmitterAdsbIcao) {
-        ESP_LOGD(TAG, "Upgrading FLARM ID %06X to ICAO ID %06X", traffic->id, gdl90.address);
+        ESP_LOGD(TAG, "Upgrading FLARM ID %06" PRIu32 " to ICAO ID %06" PRIu32, traffic->id, gdl90.address);
         traffic->id = gdl90.address;
         traffic->id_type = static_cast<uint8_t>(gdl90.addressType);
       }
@@ -333,7 +333,7 @@ void TrafficManager::update_from_gdl90(const gdl90PositionReport_t &gdl90) {
   // Create new entry if not found
   if (traffic == nullptr) {
     if (this->traffic_.size() >= MAX_TRAFFIC) {
-      ESP_LOGW(TAG, "Traffic list full, ignoring new GDL90 target %06X", gdl90.address);
+      ESP_LOGW(TAG, "Traffic list full, ignoring new GDL90 target %06" PRIu32 "", gdl90.address);
       return;
     }
 
@@ -345,7 +345,7 @@ void TrafficManager::update_from_gdl90(const gdl90PositionReport_t &gdl90) {
     traffic->source = SOURCE_GDL90;
     traffic->first_seen_ms = now;
     is_new = true;
-    ESP_LOGD(TAG, "New GDL90 traffic: ID=%06X", gdl90.address);
+    ESP_LOGD(TAG, "New GDL90 traffic: ID=%06" PRIu32, gdl90.address);
   }
 
   // Update traffic data
@@ -394,7 +394,7 @@ void TrafficManager::cleanup() {
   auto it = std::remove_if(this->traffic_.begin(), this->traffic_.end(), [now](const Traffic &t) {
     bool expired = (now - t.last_seen_ms) > TRAFFIC_TIMEOUT_MS;
     if (expired) {
-      ESP_LOGD(TAG, "Removing expired traffic ID=%06X", t.id);
+      ESP_LOGD(TAG, "Removing expired traffic ID=%06" PRIu32, t.id);
     }
     return expired;
   });
@@ -404,5 +404,4 @@ void TrafficManager::cleanup() {
   }
 }
 
-}  // namespace skyecho
-}  // namespace esphome
+}  // namespace esphome::skyecho

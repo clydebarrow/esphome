@@ -1,11 +1,8 @@
 #pragma once
 
-#include <cstdint>
-#include <cstring>
 #include <functional>
 
-namespace esphome {
-namespace skyecho {
+namespace esphome::skyecho {
 
 // FLARM alarm levels
 enum FlarmAlarmLevel : uint8_t {
@@ -150,29 +147,14 @@ class FlarmParser {
 
  protected:
   void process_line_();
-  bool verify_checksum_(const char *sentence, size_t len);
-  bool parse_pflau_(const char *sentence);
-  bool parse_pflaa_(const char *sentence);
+  static bool verify_checksum(const char *sentence, size_t len);
+  bool parse_pflau_(const char *sentence) const;
+  bool parse_pflaa_(const char *sentence) const;
   bool parse_gprmc_(const char *sentence);  // Recommended Minimum GPS data
   bool parse_gpgga_(const char *sentence);  // GPS Fix Data
   bool parse_pgrmz_(const char *sentence);  // Garmin altitude
 
-  // Helper to parse integer field, returns true if valid
-  static bool parse_int_(const char **pos, int32_t *out);
-  // Helper to parse hex field, returns true if valid
-  static bool parse_hex_(const char **pos, uint32_t *out);
-  // Helper to parse float field, returns true if valid
-  static bool parse_float_(const char **pos, float *out);
-  // Parse NMEA latitude (DDMM.MMMMM) with N/S indicator
-  static bool parse_latitude_(const char **pos, float *out);
-  // Parse NMEA longitude (DDDMM.MMMMM) with E/W indicator
-  static bool parse_longitude_(const char **pos, float *out);
-  // Skip to next field (after comma)
-  static bool skip_field_(const char **pos);
-  // Get next field value and advance
-  static const char *get_field_(const char **pos, char *buf, size_t buf_size);
-
-  char line_buffer_[128];
+  char line_buffer_[128]{};
   size_t line_pos_{0};
 
   OwnshipPosition ownship_{};
@@ -182,5 +164,4 @@ class FlarmParser {
   OwnshipCallback ownship_callback_;
 };
 
-}  // namespace skyecho
-}  // namespace esphome
+}  // namespace esphome::skyecho

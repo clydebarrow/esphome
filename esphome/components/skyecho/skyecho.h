@@ -1,6 +1,5 @@
 #pragma once
 
-#include "esphome/core/log.h"
 #include "esphome/core/component.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/uart/uart.h"
@@ -9,17 +8,16 @@
 #include "traffic_manager.h"
 #include <algorithm>
 
-namespace esphome {
-namespace skyecho {
+namespace esphome::skyecho {
 
 class SkyEchoTextSensor;         // Forward declaration
 class SkyEchoTrafficListSensor;  // Forward declaration
 class SkyEchoSimulateSwitch;     // Forward declaration
 
-static const int PORT = 4000;
-static int pingPorts[] = {63093, 47578};
-static const char *pingPayload = "{\"App\": \"TraffiX\","
-                                 "\"GDL90\": {\"port\": 4000}}";
+static constexpr int PORT = 4000;
+static constexpr int PINGPORTS[] = {63093, 47578};
+static const char *const PINGPAYLOAD = "{\"App\": \"TraffiX\","
+                                       "\"GDL90\": {\"port\": 4000}}";
 
 // Traffic tracking constants
 static const size_t MAX_TRAFFIC_TRACKED = 20;      // maximum number of aircraft to track
@@ -27,13 +25,13 @@ static const uint32_t MAX_TRAFFIC_AGE_MS = 10000;  // max traffic age in ms
 static const uint32_t MAX_POSITION_AGE_MS = 5000;  // max position age in ms
 
 // Ownship data structure
-struct ownship_t {
+struct OwnshipT {
   gdl90PositionReport_t report;
   uint32_t timestampMs;  // when report last updated in ms
 };
 
 // Traffic data structure
-struct traffic_t {
+struct TrafficT {
   gdl90PositionReport_t report;
   float distance;        // calculated distance from us in meters
   uint32_t timestampMs;  // when report last updated in ms
@@ -68,34 +66,34 @@ class SkyEcho : public PollingComponent {
   void set_traffic_callback(TrafficCallback callback) { this->traffic_manager_.set_callback(std::move(callback)); }
 
   // Public accessor methods for text sensor
-  bool getOwnshipPosition(ownship_t *position);
-  bool getHeartbeat(gdl90Heartbeat_t *heartbeat);
-  void getTraffic(traffic_t *buffer, size_t cnt);
+  bool get_ownship_position(OwnshipT *position);
+  bool get_heartbeat(gdl90Heartbeat_t *heartbeat);
+  void get_traffic(TrafficT *buffer, size_t cnt);
 
   void setup() override;
   void loop() override;
 
-  void processPacket(gdl90Data_t *packet, struct in_addr *srcAddr);
-  void block_callback(const gdlDataPacket_t *packet, in_addr *srcAddr);
+  void process_packet(gdl90Data_t *packet, struct in_addr *src_addr);
+  void block_callback(const gdlDataPacket_t *packet, in_addr *src_addr);
 
  protected:
   void ping_();
-  void generate_simulated_ownship();
-  void generate_simulated_traffic();
+  void generate_simulated_ownship_();
+  void generate_simulated_traffic_();
   void process_flarm_uart_();
 
   // Ownship tracking methods
-  void setOwnshipPosition(const gdl90PositionReport_t *position);
-  void setHeartbeat(const gdl90Heartbeat_t *heartbeat);
-  bool isGpsConnected();
+  void set_ownship_position_(const gdl90PositionReport_t *position);
+  void set_heartbeat_(const gdl90Heartbeat_t *heartbeat);
+  bool is_gps_connected_();
 
   // Traffic tracking helper methods
-  static int compareTraffic(const void *tp1, const void *tp2);
-  void sortTraffic();
-  traffic_t *getEntry();
-  void updateTraffic(traffic_t *tp, const gdl90PositionReport_t *report, float distance);
-  void processTraffic(const gdl90PositionReport_t *report);
-  size_t getActiveTrafficCount();
+  static int compare_traffic(const void *tp1, const void *tp2);
+  void sort_traffic_();
+  TrafficT *get_entry_();
+  void update_traffic_(TrafficT *tp, const gdl90PositionReport_t *report, float distance);
+  void process_traffic_(const gdl90PositionReport_t *report);
+  size_t get_active_traffic_count_();
 
   // FLARM processing methods
   void process_flarm_pflau_(const FlarmPflau &data);
@@ -103,17 +101,16 @@ class SkyEcho : public PollingComponent {
   void process_flarm_ownship_(const OwnshipPosition &data);
   void update_ownship_from_gdl90_(const gdl90PositionReport_t &report);
 
- protected:
   std::unique_ptr<socket::Socket> socket_{};
   std::unique_ptr<socket::Socket> ping_socket_{};
 
   // Ownship data
   gdl90Heartbeat_t heartbeat_{};
-  ownship_t ownship_{};
+  OwnshipT ownship_{};
   gdl90OwnshipAltitude_t ownship_altitude_{};
 
   // Traffic data
-  traffic_t traffic_[MAX_TRAFFIC_TRACKED]{};
+  TrafficT traffic_[MAX_TRAFFIC_TRACKED]{};
 
   // Text sensors
   std::vector<PollingComponent *> listeners_{};
@@ -126,6 +123,6 @@ class SkyEcho : public PollingComponent {
   FlarmParser flarm_parser_{};
   TrafficManager traffic_manager_{};
 };
+inline bool SkyEcho::get_ownship_position(OwnshipT *position) {}
 
-}  // namespace skyecho
-}  // namespace esphome
+}  // namespace esphome::skyecho

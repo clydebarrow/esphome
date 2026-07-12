@@ -5,7 +5,7 @@ from esphome.const import CONF_ID
 
 CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["network"]
-AUTO_LOAD = ["socket"]
+AUTO_LOAD = ["socket", "uart"]
 
 CONF_FLARM_UART = "flarm_uart"
 

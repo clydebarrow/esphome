@@ -42,7 +42,7 @@ void FlarmParser::process_line_() {
   }
 
   // Verify checksum
-  if (!this->verify_checksum_(sentence, this->line_pos_)) {
+  if (!this->verify_checksum(sentence, this->line_pos_)) {
     ESP_LOGV(TAG, "Checksum failed for: %s", sentence);
     return;
   }
@@ -73,7 +73,7 @@ void FlarmParser::process_line_() {
   }
 }
 
-bool FlarmParser::verify_checksum_(const char *sentence, size_t len) {
+bool FlarmParser::verify_checksum(const char *sentence, size_t len) {
   // Find the asterisk
   const char *asterisk = strchr(sentence, '*');
   if (asterisk == nullptr || asterisk - sentence < 2) {
@@ -93,7 +93,7 @@ bool FlarmParser::verify_checksum_(const char *sentence, size_t len) {
   return checksum == expected;
 }
 
-bool FlarmParser::parse_int_(const char **pos, int32_t *out) {
+bool FlarmParser::parse_int(const char **pos, int32_t *out) {
   const char *p = *pos;
 
   // Skip to value or comma
@@ -117,7 +117,7 @@ bool FlarmParser::parse_int_(const char **pos, int32_t *out) {
   return true;
 }
 
-bool FlarmParser::parse_hex_(const char **pos, uint32_t *out) {
+static bool parse_hex(const char **pos, uint32_t *out) {
   const char *p = *pos;
 
   // Skip to value or comma
@@ -141,7 +141,7 @@ bool FlarmParser::parse_hex_(const char **pos, uint32_t *out) {
   return true;
 }
 
-bool FlarmParser::parse_float_(const char **pos, float *out) {
+bool FlarmParser::parse_float(const char **pos, float *out) {
   const char *p = *pos;
 
   // Skip to value or comma
@@ -166,16 +166,16 @@ bool FlarmParser::parse_float_(const char **pos, float *out) {
 }
 
 // Parse NMEA latitude: DDMM.MMMMM,N/S -> decimal degrees
-bool FlarmParser::parse_latitude_(const char **pos, float *out) {
+bool FlarmParser::parse_latitude(const char **pos, float *out) {
   float raw;
-  if (!parse_float_(pos, &raw)) {
-    skip_field_(pos);  // Skip N/S indicator
+  if (!parse_float(pos, &raw)) {
+    skip_field(pos);  // Skip N/S indicator
     return false;
   }
 
   // Get N/S indicator
   char ns = **pos;
-  skip_field_(pos);
+  skip_field(pos);
 
   if (ns != 'N' && ns != 'S') {
     return false;
@@ -194,16 +194,16 @@ bool FlarmParser::parse_latitude_(const char **pos, float *out) {
 }
 
 // Parse NMEA longitude: DDDMM.MMMMM,E/W -> decimal degrees
-bool FlarmParser::parse_longitude_(const char **pos, float *out) {
+bool FlarmParser::parse_longitude(const char **pos, float *out) {
   float raw;
-  if (!parse_float_(pos, &raw)) {
-    skip_field_(pos);  // Skip E/W indicator
+  if (!parse_float(pos, &raw)) {
+    skip_field(pos);  // Skip E/W indicator
     return false;
   }
 
   // Get E/W indicator
   char ew = **pos;
-  skip_field_(pos);
+  skip_field(pos);
 
   if (ew != 'E' && ew != 'W') {
     return false;
@@ -221,7 +221,7 @@ bool FlarmParser::parse_longitude_(const char **pos, float *out) {
   return true;
 }
 
-bool FlarmParser::skip_field_(const char **pos) {
+bool FlarmParser::skip_field(const char **pos) {
   while (**pos != ',' && **pos != '*' && **pos != '\0')
     (*pos)++;
   if (**pos == ',') {
@@ -231,7 +231,7 @@ bool FlarmParser::skip_field_(const char **pos) {
   return false;
 }
 
-const char *FlarmParser::get_field_(const char **pos, char *buf, size_t buf_size) {
+const char *FlarmParser::get_field(const char **pos, char *buf, size_t buf_size) {
   size_t len = 0;
 
   while (**pos != ',' && **pos != '*' && **pos != '\0' && len < buf_size - 1) {
@@ -248,68 +248,68 @@ const char *FlarmParser::get_field_(const char **pos, char *buf, size_t buf_size
 
 // Parse PFLAU sentence:
 // $PFLAU,<Rx>,<Tx>,<GPS>,<Power>,<AlarmLevel>,<RelativeBearing>,<AlarmType>,<RelativeVertical>,<RelativeDistance>,<ID>*<checksum>
-bool FlarmParser::parse_pflau_(const char *sentence) {
+bool FlarmParser::parse_pflau_(const char *sentence) const {
   FlarmPflau data{};
   const char *pos = sentence;
   int32_t val;
 
   // Rx - number of received devices
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.rx = static_cast<uint8_t>(val);
 
   // Tx - transmission status
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.tx = static_cast<uint8_t>(val);
 
   // GPS status
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.gps = static_cast<FlarmGpsStatus>(val);
 
   // Power status
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.power = static_cast<FlarmPowerStatus>(val);
 
   // Alarm level
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.alarm_level = static_cast<FlarmAlarmLevel>(val);
 
   // Relative bearing (optional)
-  data.bearing_valid = parse_int_(&pos, &val);
+  data.bearing_valid = parse_int(&pos, &val);
   if (data.bearing_valid) {
     data.relative_bearing = static_cast<int16_t>(val);
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Alarm type
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.alarm_type = static_cast<FlarmAlarmType>(val);
 
   // Relative vertical (optional)
-  data.vertical_valid = parse_int_(&pos, &val);
+  data.vertical_valid = parse_int(&pos, &val);
   if (data.vertical_valid) {
     data.relative_vertical = val;
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Relative distance (optional)
-  data.distance_valid = parse_int_(&pos, &val);
+  data.distance_valid = parse_int(&pos, &val);
   if (data.distance_valid) {
     data.relative_distance = static_cast<uint32_t>(val);
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // ID (optional, hex)
   uint32_t hex_val;
-  data.id_valid = parse_hex_(&pos, &hex_val);
+  data.id_valid = parse_hex(&pos, &hex_val);
   if (data.id_valid) {
     data.id = hex_val;
   }
@@ -323,81 +323,81 @@ bool FlarmParser::parse_pflau_(const char *sentence) {
 
 // Parse PFLAA sentence:
 // $PFLAA,<AlarmLevel>,<RelativeNorth>,<RelativeEast>,<RelativeVertical>,<IDType>,<ID>,<Track>,<TurnRate>,<GroundSpeed>,<ClimbRate>,<AircraftType>*<checksum>
-bool FlarmParser::parse_pflaa_(const char *sentence) {
+bool FlarmParser::parse_pflaa_(const char *sentence) const {
   FlarmPflaa data{};
   const char *pos = sentence;
   int32_t val;
   uint32_t hex_val;
 
   // Alarm level
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.alarm_level = static_cast<FlarmAlarmLevel>(val);
 
   // Relative North (required)
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.relative_north = val;
 
   // Relative East (optional - if empty, RelativeNorth is distance to non-directional target)
-  data.east_valid = parse_int_(&pos, &val);
+  data.east_valid = parse_int(&pos, &val);
   if (data.east_valid) {
     data.relative_east = val;
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Relative Vertical (required)
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.relative_vertical = val;
 
   // ID Type
-  if (!parse_int_(&pos, &val))
+  if (!parse_int(&pos, &val))
     return false;
   data.id_type = static_cast<FlarmIdType>(val);
 
   // ID (hex)
-  if (!parse_hex_(&pos, &hex_val))
+  if (!parse_hex(&pos, &hex_val))
     return false;
   data.id = hex_val;
 
   // Track (optional)
-  data.track_valid = parse_int_(&pos, &val);
+  data.track_valid = parse_int(&pos, &val);
   if (data.track_valid) {
     data.track = static_cast<int16_t>(val);
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Turn rate (reserved, skip)
-  skip_field_(&pos);
+  skip_field(&pos);
 
   // Ground speed (optional, in m/s * 10 in newer protocols, or knots in older)
-  data.ground_speed_valid = parse_int_(&pos, &val);
+  data.ground_speed_valid = parse_int(&pos, &val);
   if (data.ground_speed_valid) {
     data.ground_speed = static_cast<uint16_t>(val);
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Climb rate (optional, in m/s * 10)
-  data.climb_rate_valid = parse_int_(&pos, &val);
+  data.climb_rate_valid = parse_int(&pos, &val);
   if (data.climb_rate_valid) {
     data.climb_rate = static_cast<int16_t>(val);
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Aircraft type (hex)
-  if (parse_hex_(&pos, &hex_val)) {
+  if (parse_hex(&pos, &hex_val)) {
     data.aircraft_type = static_cast<FlarmAircraftType>(hex_val);
   } else {
     data.aircraft_type = FLARM_AIRCRAFT_UNKNOWN;
   }
 
   // NoTrack flag (optional, in newer protocol versions)
-  if (parse_int_(&pos, &val)) {
+  if (parse_int(&pos, &val)) {
     data.no_track = (val != 0);
   }
 
@@ -416,11 +416,11 @@ bool FlarmParser::parse_gprmc_(const char *sentence) {
   float fval;
 
   // Time (HHMMSS.ss) - skip for now
-  skip_field_(&pos);
+  skip_field(&pos);
 
   // Status: A=valid, V=invalid
   char status = *pos;
-  skip_field_(&pos);
+  skip_field(&pos);
 
   if (status != 'A') {
     // Invalid fix
@@ -430,32 +430,32 @@ bool FlarmParser::parse_gprmc_(const char *sentence) {
 
   // Latitude
   float lat;
-  if (!parse_latitude_(&pos, &lat)) {
+  if (!parse_latitude(&pos, &lat)) {
     return false;
   }
 
   // Longitude
   float lon;
-  if (!parse_longitude_(&pos, &lon)) {
+  if (!parse_longitude(&pos, &lon)) {
     return false;
   }
 
   // Ground speed in knots
-  if (parse_float_(&pos, &fval)) {
+  if (parse_float(&pos, &fval)) {
     this->ownship_.ground_speed = fval * 0.514444f;  // Convert knots to m/s
     this->ownship_.speed_valid = true;
   } else {
     this->ownship_.speed_valid = false;
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Track (course over ground) in degrees
-  if (parse_float_(&pos, &fval)) {
+  if (parse_float(&pos, &fval)) {
     this->ownship_.track = fval;
     this->ownship_.track_valid = true;
   } else {
     this->ownship_.track_valid = false;
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Update position
@@ -483,22 +483,22 @@ bool FlarmParser::parse_gpgga_(const char *sentence) {
   float fval;
 
   // Time - skip
-  skip_field_(&pos);
+  skip_field(&pos);
 
   // Latitude
   float lat;
-  if (!parse_latitude_(&pos, &lat)) {
+  if (!parse_latitude(&pos, &lat)) {
     return false;
   }
 
   // Longitude
   float lon;
-  if (!parse_longitude_(&pos, &lon)) {
+  if (!parse_longitude(&pos, &lon)) {
     return false;
   }
 
   // Fix quality: 0=invalid, 1=GPS, 2=DGPS, etc.
-  if (!parse_int_(&pos, &ival)) {
+  if (!parse_int(&pos, &ival)) {
     return false;
   }
   this->ownship_.fix_quality = static_cast<uint8_t>(ival);
@@ -510,26 +510,26 @@ bool FlarmParser::parse_gpgga_(const char *sentence) {
   }
 
   // Number of satellites
-  if (parse_int_(&pos, &ival)) {
+  if (parse_int(&pos, &ival)) {
     this->ownship_.satellites = static_cast<uint8_t>(ival);
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // HDOP
-  if (parse_float_(&pos, &fval)) {
+  if (parse_float(&pos, &fval)) {
     this->ownship_.hdop = fval;
   } else {
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Altitude above MSL in meters
-  if (parse_float_(&pos, &fval)) {
+  if (parse_float(&pos, &fval)) {
     this->ownship_.altitude_msl = fval;
     this->ownship_.altitude_msl_valid = true;
   } else {
     this->ownship_.altitude_msl_valid = false;
-    skip_field_(&pos);
+    skip_field(&pos);
   }
 
   // Update position
@@ -556,13 +556,13 @@ bool FlarmParser::parse_pgrmz_(const char *sentence) {
   float fval;
 
   // Altitude value
-  if (!parse_float_(&pos, &fval)) {
+  if (!parse_float(&pos, &fval)) {
     return false;
   }
 
   // Units: F=feet, M=meters
   char units = *pos;
-  skip_field_(&pos);
+  skip_field(&pos);
 
   // Convert to meters
   float altitude_m;
