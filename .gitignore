@@ -141,11 +141,13 @@ tests/.esphome/
 
 sdkconfig.*
 !sdkconfig.defaults
+!sdkconfig.defaults.*
 
 .tests/
 
 /components
 /managed_components
+/dependencies.lock
 
 api-docs/
 /dependencies.lock
