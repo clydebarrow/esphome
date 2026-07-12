@@ -51,14 +51,14 @@ void SkyEchoTextSensor::add_checksum(std::string &sentence) {
 }
 
 void SkyEchoTextSensor::generate_gpgga(std::string &output) {
-  ownship_t ownship;
+  OwnshipT ownship;
   gdl90Heartbeat_t heartbeat;
 
-  if (!this->parent_->getOwnshipPosition(&ownship)) {
+  if (!this->parent_->get_ownship_position(&ownship)) {
     ESP_LOGD(TAG, "No valid position");
     return;  // No valid position
   }
-  this->parent_->getHeartbeat(&heartbeat);
+  this->parent_->get_heartbeat(&heartbeat);
 
   float abs_lat = fabsf(ownship.report.latitude);
   int lat_deg = (int) abs_lat;
@@ -82,13 +82,13 @@ void SkyEchoTextSensor::generate_gpgga(std::string &output) {
 }
 
 void SkyEchoTextSensor::generate_gprmc(std::string &output) {
-  ownship_t ownship;
+  OwnshipT ownship;
   gdl90Heartbeat_t heartbeat;
 
-  if (!this->parent_->getOwnshipPosition(&ownship)) {
+  if (!this->parent_->get_ownship_position(&ownship)) {
     return;  // No valid position
   }
-  this->parent_->getHeartbeat(&heartbeat);
+  this->parent_->get_heartbeat(&heartbeat);
 
   float abs_lat = fabsf(ownship.report.latitude);
   int lat_deg = (int) abs_lat;
@@ -117,9 +117,9 @@ void SkyEchoTextSensor::generate_gprmc(std::string &output) {
 }
 
 void SkyEchoTextSensor::generate_pgrmz(std::string &output) {
-  ownship_t ownship;
+  OwnshipT ownship;
 
-  if (!this->parent_->getOwnshipPosition(&ownship)) {
+  if (!this->parent_->get_ownship_position(&ownship)) {
     return;  // No valid position
   }
 
@@ -191,8 +191,8 @@ void SkyEchoTextSensor::generate_pflaa(std::string &output) {
       rel_vert = t.relative_vertical;
     } else {
       // Fall back to calculating from absolute position if ownship is available
-      ownship_t ownship;
-      if (!this->parent_->getOwnshipPosition(&ownship))
+      OwnshipT ownship;
+      if (!this->parent_->get_ownship_position(&ownship))
         continue;
 
       // Calculate relative position from absolute coordinates

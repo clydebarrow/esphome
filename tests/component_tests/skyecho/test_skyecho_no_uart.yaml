@@ -1,0 +1,21 @@
+---
+esphome:
+  name: test-skyecho-no-uart
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: MySSID
+  password: password1
+
+skyecho:
+  id: skyecho1
+
+text_sensor:
+  - platform: skyecho
+    type: nmea
+    id: nmea_sensor
+    name: NMEA

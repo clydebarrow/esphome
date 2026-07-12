@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 
 namespace esphome::skyecho {
@@ -148,6 +150,15 @@ class FlarmParser {
  protected:
   void process_line_();
   static bool verify_checksum(const char *sentence, size_t len);
+
+  // NMEA field parsing helpers. Each advances *pos past the parsed field.
+  static bool parse_int(const char **pos, int32_t *out);
+  static bool parse_float(const char **pos, float *out);
+  static bool parse_latitude(const char **pos, float *out);
+  static bool parse_longitude(const char **pos, float *out);
+  static bool skip_field(const char **pos);
+  static const char *get_field(const char **pos, char *buf, size_t buf_size);
+
   bool parse_pflau_(const char *sentence) const;
   bool parse_pflaa_(const char *sentence) const;
   bool parse_gprmc_(const char *sentence);  // Recommended Minimum GPS data

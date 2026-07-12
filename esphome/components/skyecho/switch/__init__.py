@@ -23,4 +23,3 @@ async def to_code(config):
 
     parent = await cg.get_variable(config[CONF_SKYECHO_ID])
     cg.add(var.set_parent(parent))
-    cg.add(parent.set_simulate_switch(var))

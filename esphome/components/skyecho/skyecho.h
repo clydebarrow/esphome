@@ -123,6 +123,5 @@ class SkyEcho : public PollingComponent {
   FlarmParser flarm_parser_{};
   TrafficManager traffic_manager_{};
 };
-inline bool SkyEcho::get_ownship_position(OwnshipT *position) {}
 
 }  // namespace esphome::skyecho

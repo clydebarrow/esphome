@@ -3,8 +3,8 @@
 
 namespace esphome {
 namespace skyecho {
-#define FLAG_BYTE 0x7E
-#define ESCAPE_BYTE 0x7D
+static constexpr uint8_t FLAG_BYTE = 0x7E;
+static constexpr uint8_t ESCAPE_BYTE = 0x7D;
 
 #define TAG "gdl90"
 

@@ -5,8 +5,10 @@
 #include "riemann.h"
 #include "math.h"
 
-#define PI 3.14159265358979323846f
-#define EARTH_RADIUS 6371000.0f
+namespace esphome::skyecho {
+
+static constexpr float PI = 3.14159265358979323846f;
+static constexpr float EARTH_RADIUS = 6371000.0f;
 
 float toRadians(float degrees) { return degrees / 180.0f * PI; }
 
@@ -48,3 +50,5 @@ float northing(float lat1, float lat2) { return sinf(toRadians(lat2 - lat1)) * E
 float easting(float lat1, float lon1, float lat2, float lon2) {
   return northing(lon1, lon2) * cosf(toRadians(fabsf(lat1 + lat2) / 2));
 }
+
+}  // namespace esphome::skyecho
