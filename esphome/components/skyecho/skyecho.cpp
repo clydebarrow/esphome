@@ -1,8 +1,7 @@
 #include "skyecho.h"
 #include <cinttypes>
 
-namespace esphome {
-namespace skyecho {
+namespace esphome::skyecho {
 
 static const char *const TAG = "skyecho";
 
@@ -31,7 +30,7 @@ void SkyEcho::setup() {
     return;
   }
 
-  err = this->socket_->bind((struct sockaddr *) &server, sizeof(server));
+  err = this->socket_->bind((struct sockaddr *) &server, sl);
   if (err != 0) {
     ESP_LOGW(TAG, "Socket unable to bind: errno %d", errno);
     this->mark_failed();
@@ -60,7 +59,7 @@ void SkyEcho::loop() {
       ESP_LOGV(TAG, "Received %d bytes", (int) len);
       gdl90GetBlocks(
           buf, len,
-          [this](const gdlDataPacket_t *packet, in_addr *srcAddr) -> void { this->block_callback(packet, srcAddr); },
+          [this](const gdlDataPacket_t *packet, in_addr *src_addr) -> void { this->block_callback(packet, src_addr); },
           &from_addr.sin_addr);
     }
   }
@@ -91,7 +90,7 @@ void SkyEcho::get_traffic(TrafficT *buffer, size_t cnt) {
   memcpy(buffer, this->traffic_, copy_cnt * sizeof(TrafficT));
 }
 
-void SkyEcho::process_packet(gdl90Data_t *packet, struct in_addr *srcAddr) {
+void SkyEcho::process_packet(gdl90Data_t *packet, struct in_addr *src_addr) {
   switch (packet->id) {
     case GDL90_HEARTBEAT:
       ESP_LOGV(TAG, "Heartbeat @%d GPSvalid %s", (int) packet->heartbeat.timeStamp,
@@ -126,7 +125,7 @@ void SkyEcho::process_packet(gdl90Data_t *packet, struct in_addr *srcAddr) {
   }
 }
 
-void SkyEcho::block_callback(const gdlDataPacket_t *packet, in_addr *srcAddr) {
+void SkyEcho::block_callback(const gdlDataPacket_t *packet, in_addr *src_addr) {
   gdl90Data_t data;
   if (packet->err != GDL90_ERR_NONE) {
     ESP_LOGD(TAG, "DecodeBlock failed - %s: id %d, len %d", gdl90ErrorMessage(packet->err), packet->data[0],
@@ -135,21 +134,22 @@ void SkyEcho::block_callback(const gdlDataPacket_t *packet, in_addr *srcAddr) {
     memset(&data, 0, sizeof(data));
     gdl90Err_t err = gdl90DecodeBlock(packet->data, packet->len, &data);
     if (err == GDL90_ERR_NONE) {
-      process_packet(&data, srcAddr);
-    } else
+      process_packet(&data, src_addr);
+    } else {
       ESP_LOGD(TAG, "Decode packet id %d failed with err %s", data.id, gdl90ErrorMessage(err));
+    }
   }
 }
 
-void SkyEcho::ping_() {
+void SkyEcho::ping_() const {
   if (!network::is_connected())
     return;
-  for (size_t i = 0; i != LWIP_ARRAYSIZE(PINGPORTS); i++) {
+  for (int i : PINGPORTS) {
     struct sockaddr addr;
-    socket::set_sockaddr(&addr, sizeof(addr), "255.255.255.255", PINGPORTS[i]);
+    socket::set_sockaddr(&addr, sizeof(addr), "255.255.255.255", i);
     auto err = this->ping_socket_->sendto(PINGPAYLOAD, strlen(PINGPAYLOAD), 0, &addr, sizeof(addr));
     if (err < 0) {
-      ESP_LOGD(TAG, "Sendto failed on port %d with err %d", PINGPORTS[i], (int) err);
+      ESP_LOGD(TAG, "Sendto failed on port %d with err %d", i, (int) err);
     }
   }
 }
@@ -160,8 +160,7 @@ void SkyEcho::generate_simulated_ownship_() {
     return;
 
   // Create simulated ownship position (somewhere over Europe as an example)
-  gdl90PositionReport_t sim_ownship;
-  memset(&sim_ownship, 0, sizeof(sim_ownship));
+  gdl90PositionReport_t sim_ownship = {};
 
   // Simulated location with some variation based on time
   uint32_t now = millis();
@@ -184,8 +183,7 @@ void SkyEcho::generate_simulated_ownship_() {
   this->set_ownship_position_(&sim_ownship);
 
   // Also set a simulated heartbeat
-  gdl90Heartbeat_t sim_heartbeat;
-  memset(&sim_heartbeat, 0, sizeof(sim_heartbeat));
+  gdl90Heartbeat_t sim_heartbeat = {};
   sim_heartbeat.gpsPosValid = true;
   sim_heartbeat.timeStamp = (now / 1000) % 86400;  // Seconds since midnight
   sim_heartbeat.utcOk = true;
@@ -201,8 +199,7 @@ void SkyEcho::generate_simulated_traffic_() {
 
   // Generate 2 simulated traffic targets
   for (int i = 0; i < 2; i++) {
-    gdl90PositionReport_t sim_traffic;
-    memset(&sim_traffic, 0, sizeof(sim_traffic));
+    gdl90PositionReport_t sim_traffic = {};
 
     // Position relative to ownship (offset in degrees)
     float lat_offset = (i == 0 ? 0.01f : -0.01f);   // ~1.1 km north/south
@@ -235,7 +232,7 @@ void SkyEcho::set_ownship_position_(const gdl90PositionReport_t *position) {
 
 void SkyEcho::set_heartbeat_(const gdl90Heartbeat_t *heartbeat) { this->heartbeat_ = *heartbeat; }
 
-bool SkyEcho::is_gps_connected_() {
+bool SkyEcho::is_gps_connected_() const {
   return this->heartbeat_.gpsPosValid && this->ownship_.timestampMs > 0 &&
          (millis() - this->ownship_.timestampMs) < MAX_POSITION_AGE_MS;
 }
@@ -255,12 +252,12 @@ int SkyEcho::compare_traffic(const void *tp1, const void *tp2) {
 
 void SkyEcho::sort_traffic_() {
   uint32_t now = millis();
-  uint32_t oldMs = now - MAX_TRAFFIC_AGE_MS;
+  uint32_t old_ms = now - MAX_TRAFFIC_AGE_MS;
 
   // Mark old traffic as inactive
-  for (size_t i = 0; i < MAX_TRAFFIC_TRACKED; i++) {
-    if (this->traffic_[i].active && this->traffic_[i].timestampMs < oldMs) {
-      this->traffic_[i].active = false;
+  for (auto &i : this->traffic_) {
+    if (i.active && i.timestampMs < old_ms) {
+      i.active = false;
     }
   }
 
@@ -290,10 +287,9 @@ void SkyEcho::process_traffic_(const gdl90PositionReport_t *report) {
   float distance = trafficDistance(&this->ownship_.report, report);
 
   // Check if target is already in our list
-  for (size_t i = 0; i != MAX_TRAFFIC_TRACKED; i++) {
-    if (this->traffic_[i].report.addressType == report->addressType &&
-        this->traffic_[i].report.address == report->address) {
-      this->update_traffic_(&this->traffic_[i], report, distance);
+  for (auto &i : this->traffic_) {
+    if (i.report.addressType == report->addressType && i.report.address == report->address) {
+      this->update_traffic_(&i, report, distance);
       return;
     }
   }
@@ -310,10 +306,10 @@ void SkyEcho::process_traffic_(const gdl90PositionReport_t *report) {
 size_t SkyEcho::get_active_traffic_count_() {
   size_t count = 0;
   uint32_t now = millis();
-  uint32_t oldMs = now - MAX_TRAFFIC_AGE_MS;
+  uint32_t old_ms = now - MAX_TRAFFIC_AGE_MS;
 
-  for (size_t i = 0; i < MAX_TRAFFIC_TRACKED; i++) {
-    if (this->traffic_[i].active && this->traffic_[i].timestampMs >= oldMs) {
+  for (auto &i : this->traffic_) {
+    if (i.active && i.timestampMs >= old_ms) {
       count++;
     }
   }
@@ -392,5 +388,4 @@ void SkyEcho::update_ownship_from_gdl90_(const gdl90PositionReport_t &report) {
   }
 }
 
-}  // namespace skyecho
-}  // namespace esphome
+}  // namespace esphome::skyecho

@@ -1,0 +1,14 @@
+skyecho:
+  id: skyecho1
+
+switch:
+  - platform: skyecho
+    name: Simulate
+
+text_sensor:
+  - platform: skyecho
+    type: nmea
+    name: NMEA
+  - platform: skyecho
+    type: traffic_list
+    name: Traffic List

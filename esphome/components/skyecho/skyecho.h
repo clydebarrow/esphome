@@ -77,7 +77,7 @@ class SkyEcho : public PollingComponent {
   void block_callback(const gdlDataPacket_t *packet, in_addr *src_addr);
 
  protected:
-  void ping_();
+  void ping_() const;
   void generate_simulated_ownship_();
   void generate_simulated_traffic_();
   void process_flarm_uart_();
@@ -85,7 +85,7 @@ class SkyEcho : public PollingComponent {
   // Ownship tracking methods
   void set_ownship_position_(const gdl90PositionReport_t *position);
   void set_heartbeat_(const gdl90Heartbeat_t *heartbeat);
-  bool is_gps_connected_();
+  bool is_gps_connected_() const;
 
   // Traffic tracking helper methods
   static int compare_traffic(const void *tp1, const void *tp2);

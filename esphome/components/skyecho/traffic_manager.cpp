@@ -1,6 +1,7 @@
 #include "traffic_manager.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
+#include <cinttypes>
 #include <cmath>
 #include <cstring>
 #include <algorithm>
@@ -232,7 +233,8 @@ void TrafficManager::update_from_flarm(const FlarmPflaa &flarm) {
       traffic = find_by_position(lat, lon, alt, track, speed);
 
       if (traffic != nullptr) {
-        ESP_LOGD(TAG, "FLARM ID %06X matched existing traffic ID %06X by position", flarm.id, traffic->id);
+        ESP_LOGD(TAG, "FLARM ID %06" PRIX32 " matched existing traffic ID %06" PRIX32 " by position", flarm.id,
+                 traffic->id);
         // Keep the existing ID (likely ICAO) but note this is now merged
         traffic->source = SOURCE_MERGED;
       }
@@ -242,7 +244,7 @@ void TrafficManager::update_from_flarm(const FlarmPflaa &flarm) {
   // Create new entry if not found
   if (traffic == nullptr) {
     if (this->traffic_.size() >= MAX_TRAFFIC) {
-      ESP_LOGW(TAG, "Traffic list full, ignoring new FLARM target %06X", flarm.id);
+      ESP_LOGW(TAG, "Traffic list full, ignoring new FLARM target %06" PRIX32, flarm.id);
       return;
     }
 
@@ -254,7 +256,7 @@ void TrafficManager::update_from_flarm(const FlarmPflaa &flarm) {
     traffic->source = SOURCE_FLARM;
     traffic->first_seen_ms = now;
     is_new = true;
-    ESP_LOGD(TAG, "New FLARM traffic: ID=%06X", flarm.id);
+    ESP_LOGD(TAG, "New FLARM traffic: ID=%06" PRIX32, flarm.id);
   }
 
   // Update traffic data

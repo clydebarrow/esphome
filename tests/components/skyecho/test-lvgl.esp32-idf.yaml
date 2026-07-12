@@ -1,0 +1,39 @@
+packages:
+  spi: !include ../../test_build_components/common/spi/esp32-idf.yaml
+
+wifi:
+  ssid: MySSID
+  password: password1
+
+display:
+  - platform: mipi_spi
+    spi_id: spi_bus
+    model: st7789v
+    id: tft_display
+    dimensions:
+      width: 240
+      height: 320
+    cs_pin: GPIO20
+    dc_pin:
+      number: GPIO15
+      ignore_strapping_warning: true
+    auto_clear_enabled: false
+    update_interval: never
+
+skyecho:
+  id: skyecho1
+
+lvgl:
+  displays:
+    - tft_display
+  pages:
+    - id: main_page
+      widgets:
+        - skyecho_traffic:
+            id: traffic1
+            skyecho_id: skyecho1
+            range: 20km
+            max_targets: 6
+            width: 240
+            height: 240
+            align: center
