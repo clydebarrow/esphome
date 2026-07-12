@@ -24,6 +24,7 @@ class TrafficWidget : public lvgl::LvCompound {
   void set_north_image(image::Image *img) { this->north_image_ = img; }
   void set_range(float range_m) { this->range_ = range_m; }
   void set_max_targets(size_t max_targets) { this->max_targets_ = max_targets; }
+  void set_range_rings(size_t rings) { this->num_rings_ = rings; }
 
   /**
    * Build the child objects and start the refresh timer. Called once from
@@ -45,8 +46,19 @@ class TrafficWidget : public lvgl::LvCompound {
   // Move a position report forward along its track by dt seconds.
   static void extrapolate_(gdl90PositionReport_t &report, float dt);
 
+  // Size and position the concentric range rings for the given radius (pixels).
+  void layout_rings_(float radius);
+
+  // Format a distance in meters as a short human-readable string (e.g. "5km").
+  static void format_range_(char *buf, size_t len, float meters);
+
   struct Target {
     lv_obj_t *image;
+    lv_obj_t *label;
+  };
+
+  struct Ring {
+    lv_obj_t *circle;
     lv_obj_t *label;
   };
 
@@ -56,10 +68,12 @@ class TrafficWidget : public lvgl::LvCompound {
   image::Image *north_image_{nullptr};
   float range_{10000.0f};  // display radius in meters
   size_t max_targets_{8};
+  size_t num_rings_{3};
 
   lv_obj_t *ownship_obj_{nullptr};
   lv_obj_t *north_obj_{nullptr};
   FixedVector<Target> targets_{};
+  FixedVector<Ring> rings_{};
 
   // Rotation for the current ownship track (cached per update).
   float cos_t_{1.0f};

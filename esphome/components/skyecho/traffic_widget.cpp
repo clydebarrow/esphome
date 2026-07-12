@@ -12,8 +12,10 @@
 namespace esphome::skyecho {
 
 // How often the display is repositioned. Between the ~1 Hz data updates the
-// targets are dead-reckoned so their motion looks smooth.
-static constexpr uint32_t REFRESH_INTERVAL_MS = 50;
+// targets are dead-reckoned. LVGL only supports whole-pixel positions, so a
+// high frame rate just rounds many frames to the same pixel and then jumps;
+// a few larger steps per second give more even motion.
+static constexpr uint32_t REFRESH_INTERVAL_MS = 250;
 // Cap on how far a position is extrapolated, so stale targets do not run away.
 static constexpr float MAX_EXTRAPOLATE_S = 2.0f;
 // Meters per degree of latitude (approx), used for the extrapolation.
@@ -26,6 +28,25 @@ static void refresh_timer_cb(lv_timer_t *timer) {
 void TrafficWidget::build() {
   lv_obj_t *root = this->obj;
   lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+
+  // Concentric range rings, created first so they sit behind everything else.
+  this->rings_.init(this->num_rings_);
+  for (size_t i = 0; i != this->num_rings_; i++) {
+    Ring ring{};
+    ring.circle = lv_obj_create(root);
+    lv_obj_remove_flag(ring.circle, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(ring.circle, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_style_radius(ring.circle, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_opa(ring.circle, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_pad_all(ring.circle, 0, 0);
+    lv_obj_set_style_shadow_width(ring.circle, 0, 0);
+    lv_obj_set_style_border_width(ring.circle, 1, 0);
+    lv_obj_set_style_border_color(ring.circle, lv_color_hex(0x808080), 0);
+    lv_obj_align(ring.circle, LV_ALIGN_CENTER, 0, 0);
+
+    ring.label = lv_label_create(root);
+    this->rings_.push_back(ring);
+  }
 
   // Ownship symbol at the centre. The scene is heading-up so it never rotates.
   this->ownship_obj_ = lv_image_create(root);
@@ -74,6 +95,34 @@ void TrafficWidget::extrapolate_(gdl90PositionReport_t &report, float dt) {
   report.longitude += delta_east / (METERS_PER_DEGREE * cosf(toRadians(report.latitude)));
 }
 
+void TrafficWidget::format_range_(char *buf, size_t len, float meters) {
+  if (meters >= 1000.0f) {
+    float km = meters / 1000.0f;
+    if (km >= 10.0f) {
+      snprintf(buf, len, "%.0fkm", km);
+    } else {
+      snprintf(buf, len, "%.1fkm", km);
+    }
+  } else {
+    snprintf(buf, len, "%.0fm", meters);
+  }
+}
+
+void TrafficWidget::layout_rings_(float radius) {
+  for (size_t i = 0; i != this->rings_.size(); i++) {
+    Ring &ring = this->rings_[i];
+    float fraction = static_cast<float>(i + 1) / this->rings_.size();
+    auto ring_radius = static_cast<lv_coord_t>(radius * fraction);
+    lv_obj_set_size(ring.circle, ring_radius * 2, ring_radius * 2);
+
+    char buf[16];
+    format_range_(buf, sizeof(buf), this->range_ * fraction);
+    lv_label_set_text(ring.label, buf);
+    // Place the label just inside the ring, on the vertical below the centre.
+    lv_obj_align(ring.label, LV_ALIGN_CENTER, 0, ring_radius - 8);
+  }
+}
+
 void TrafficWidget::translate_(lv_obj_t *obj, float delta_north, float delta_east) {
   // Rotate the (east, north) offset into screen space (track-up) and place the
   // object relative to the display centre. Screen y grows downward, so north
@@ -87,6 +136,9 @@ void TrafficWidget::update() {
   lv_obj_t *root = this->obj;
   float radius = std::min(lv_obj_get_width(root), lv_obj_get_height(root)) / 2.0f;
   float scale = radius / this->range_;  // pixels per meter
+
+  // Range rings are a fixed grid and are shown regardless of GPS state.
+  this->layout_rings_(radius);
 
   OwnshipT ownship;
   bool pos_valid = this->parent_->get_ownship_position(&ownship);

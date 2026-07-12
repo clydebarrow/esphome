@@ -34,6 +34,7 @@ from . import CONF_SKYECHO_ID, DOMAIN, KEY_NEEDS_IMAGES, SkyEchoComponent
 
 CONF_SKYECHO_TRAFFIC = "skyecho_traffic"
 CONF_MAX_TARGETS = "max_targets"
+CONF_RANGE_RINGS = "range_rings"
 
 # Must not exceed MAX_TRAFFIC_TRACKED in skyecho.h.
 MAX_TARGETS = 20
@@ -48,6 +49,7 @@ TRAFFIC_SCHEMA = {
         cv.distance, cv.float_range(min=100.0)
     ),
     cv.Optional(CONF_MAX_TARGETS, default=8): cv.int_range(min=1, max=MAX_TARGETS),
+    cv.Optional(CONF_RANGE_RINGS, default=3): cv.int_range(min=0, max=6),
 }
 
 
@@ -98,6 +100,7 @@ class SkyEchoTrafficWidgetType(WidgetType):
         lv_add(w.var.set_parent(parent))
         lv_add(w.var.set_range(config[CONF_RANGE]))
         lv_add(w.var.set_max_targets(config[CONF_MAX_TARGETS]))
+        lv_add(w.var.set_range_rings(config[CONF_RANGE_RINGS]))
 
         widget_id = config[CONF_ID].id
         ownship_image = await _bundle_image(widget_id, "ownship")
