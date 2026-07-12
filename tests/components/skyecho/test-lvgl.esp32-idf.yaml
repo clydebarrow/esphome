@@ -34,6 +34,10 @@ lvgl:
             skyecho_id: skyecho1
             range: 20km
             max_targets: 6
+            range_rings: 3
+            ownship_size: 24
+            target_size: 18
+            text_font: montserrat_16
             width: 240
             height: 240
             align: center

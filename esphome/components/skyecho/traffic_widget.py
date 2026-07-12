@@ -20,6 +20,7 @@ from esphome.const import (
     CONF_ID,
     CONF_RANGE,
     CONF_RAW_DATA_ID,
+    CONF_RESIZE,
     CONF_TYPE,
 )
 from esphome.core import CORE, ID
@@ -35,6 +36,8 @@ from . import CONF_SKYECHO_ID, DOMAIN, KEY_NEEDS_IMAGES, SkyEchoComponent
 CONF_SKYECHO_TRAFFIC = "skyecho_traffic"
 CONF_MAX_TARGETS = "max_targets"
 CONF_RANGE_RINGS = "range_rings"
+CONF_OWNSHIP_SIZE = "ownship_size"
+CONF_TARGET_SIZE = "target_size"
 
 # Must not exceed MAX_TRAFFIC_TRACKED in skyecho.h.
 MAX_TARGETS = 20
@@ -50,24 +53,34 @@ TRAFFIC_SCHEMA = {
     ),
     cv.Optional(CONF_MAX_TARGETS, default=8): cv.int_range(min=1, max=MAX_TARGETS),
     cv.Optional(CONF_RANGE_RINGS, default=3): cv.int_range(min=0, max=6),
+    cv.Optional(CONF_OWNSHIP_SIZE, default=20): cv.int_range(min=1, max=200),
+    cv.Optional(CONF_TARGET_SIZE, default=20): cv.int_range(min=1, max=200),
 }
 
 
-async def _bundle_image(widget_id: str, name: str) -> MockObj:
-    """Embed one of the component's bundled PNG images and return its instance."""
+async def _bundle_image(
+    widget_id: str, name: str, filename: str, size: int | None = None
+) -> MockObj:
+    """Embed one of the component's bundled images and return its instance.
+
+    SVG sources are rendered at ``size`` pixels; a size of ``None`` keeps the
+    image's native dimensions.
+    """
     image_id = ID(f"{widget_id}_{name}_image", is_declaration=True, type=Image_)
     config = {
         CONF_ID: image_id,
         CONF_RAW_DATA_ID: ID(
             f"{widget_id}_{name}_data", is_declaration=True, type=cg.uint8
         ),
-        CONF_FILE: str(IMAGES_DIR / f"{name}.png"),
+        CONF_FILE: str(IMAGES_DIR / filename),
         CONF_TYPE: "RGB565",
         CONF_TRANSPARENCY: "alpha_channel",
         CONF_DITHER: "NONE",
         CONF_INVERT_ALPHA: False,
         CONF_BYTE_ORDER: "LITTLE_ENDIAN",
     }
+    if size is not None:
+        config[CONF_RESIZE] = (size, size)
     var = await new_image(config)
     # Register with LVGL so it enables software support for the image's colour
     # format (RGB565 with alpha -> RGB565A8), otherwise it cannot be drawn.
@@ -103,9 +116,13 @@ class SkyEchoTrafficWidgetType(WidgetType):
         lv_add(w.var.set_range_rings(config[CONF_RANGE_RINGS]))
 
         widget_id = config[CONF_ID].id
-        ownship_image = await _bundle_image(widget_id, "ownship")
-        target_image = await _bundle_image(widget_id, "target")
-        north_image = await _bundle_image(widget_id, "north")
+        ownship_image = await _bundle_image(
+            widget_id, "ownship", "ownship.svg", config[CONF_OWNSHIP_SIZE]
+        )
+        target_image = await _bundle_image(
+            widget_id, "target", "target.svg", config[CONF_TARGET_SIZE]
+        )
+        north_image = await _bundle_image(widget_id, "north", "north.png")
         lv_add(w.var.set_ownship_image(ownship_image))
         lv_add(w.var.set_target_image(target_image))
         lv_add(w.var.set_north_image(north_image))
