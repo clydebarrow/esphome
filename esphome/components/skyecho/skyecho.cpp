@@ -119,6 +119,12 @@ void SkyEcho::process_packet(gdl90Data_t *packet, struct in_addr *src_addr) {
       ESP_LOGV(TAG, "Foreflight ID: %s", packet->foreflightId.name);
       break;
 
+    case GDL90_STRATUX_STATUS:
+      ESP_LOGV(TAG, "Stratux status: GPS fix %d, sats %d/%d locked, %.1f°C, %d towers", packet->stratuxStatus.gpsFix,
+               packet->stratuxStatus.satellitesLocked, packet->stratuxStatus.satellitesTracked,
+               packet->stratuxStatus.cpuTemperature, packet->stratuxStatus.towerCount);
+      break;
+
     default:
       ESP_LOGD(TAG, "Received unhandled packet type %d", packet->id);
       break;
@@ -276,8 +282,8 @@ void SkyEcho::update_traffic_(TrafficT *tp, const gdl90PositionReport_t *report,
   tp->report = *report;
   tp->distance = distance;
   tp->active = true;
-  ESP_LOGI(TAG, "Traffic: %s dist=%.0fm alt=%.0fm spd=%.0fm/s", report->callsign, distance, report->altitude,
-           report->groundSpeed);
+  ESP_LOGI(TAG, "Traffic: %s dist=%.0fm alt=%.0fm spd=%.0fm/s vs=%.0fm/s", report->callsign, distance, report->altitude,
+           report->groundSpeed, report->verticalSpeed);
 }
 
 void SkyEcho::process_traffic_(const gdl90PositionReport_t *report) {

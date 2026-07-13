@@ -37,6 +37,7 @@ typedef enum {
   GDL90_TRAFFIC_REPORT = 20,
   GDL90_BASIC_REPORT = 30,
   GDL90_LONG_REPORT = 31,
+  GDL90_STRATUX_STATUS = 83,
   GDL90_FOREFLIGHT_ID = 101,
 } gdl90MessageId_t;
 
@@ -129,12 +130,37 @@ typedef struct {
 } gdl90OwnshipAltitude_t;
 
 typedef struct {
+  uint8_t version;
+  uint32_t swVersion;
+  uint32_t hwRevision;
+  bool ahrsEnabled;
+  bool ahrsValid;
+  uint8_t gpsFix;  // 0 = none, 1 = 2D, 2 = 3D
+  bool pressureValid;
+  bool cpuTempValid;
+  bool uatEnabled;  // 978 MHz UAT receiver enabled
+  bool esEnabled;   // 1090 MHz ES receiver enabled
+  bool gpsEnabled;
+  uint8_t radioCount;
+  bool isRy835Ai;
+  uint8_t satellitesLocked;
+  uint8_t satellitesTracked;
+  uint16_t uatTrafficCount;
+  uint16_t esTrafficCount;
+  uint16_t uatMessageRate;
+  uint16_t esMessageRate;
+  float cpuTemperature;  // degrees C
+  uint8_t towerCount;
+} gdl90StratuxStatus_t;
+
+typedef struct {
   uint8_t id;
   union {
     gdl90Heartbeat_t heartbeat;
     gdl90PositionReport_t positionReport;  // for traffic or ownship
     gdl90OwnshipAltitude_t ownshipAltitude;
     gdl90ForeflightId_t foreflightId;
+    gdl90StratuxStatus_t stratuxStatus;
   };
 } gdl90Data_t;
 

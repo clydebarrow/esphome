@@ -89,6 +89,11 @@ static uint16_t getLittleWord(const uint8_t *buffer) { return buffer[0] + (buffe
 
 static uint16_t get16Bit(const uint8_t *buffer) { return buffer[1] + (buffer[0] << 8); }
 
+static uint32_t getLittleDWord(const uint8_t *buffer) {
+  return (uint32_t) buffer[0] | ((uint32_t) buffer[1] << 8) | ((uint32_t) buffer[2] << 16) |
+         ((uint32_t) buffer[3] << 24);
+}
+
 static uint32_t get24Bit(const uint8_t *buffer) { return buffer[2] + (buffer[1] << 8) + (buffer[0] << 16); }
 
 static int32_t signExtend(uint32_t value, int bits) { return ((int32_t) value << (32 - bits)) >> (32 - bits); }
@@ -165,6 +170,32 @@ static gdl90Err_t decodeForeflight(const uint8_t *buffer, gdl90Data_t *out) {
   return GDL90_ERR_NONE;
 }
 
+static gdl90Err_t decodeStratuxStatus(const uint8_t *buffer, gdl90Data_t *out) {
+  out->stratuxStatus.version = buffer[3];
+  out->stratuxStatus.swVersion = getLittleDWord(buffer + 4);
+  out->stratuxStatus.hwRevision = getLittleDWord(buffer + 8);
+  out->stratuxStatus.ahrsEnabled = buffer[12] != 0;
+  uint8_t byte13 = buffer[13];
+  out->stratuxStatus.gpsFix = byte13 & 0x3;
+  out->stratuxStatus.ahrsValid = FLAGSET(byte13, 2);
+  out->stratuxStatus.pressureValid = FLAGSET(byte13, 3);
+  out->stratuxStatus.cpuTempValid = FLAGSET(byte13, 4);
+  out->stratuxStatus.uatEnabled = FLAGSET(byte13, 5);
+  out->stratuxStatus.esEnabled = FLAGSET(byte13, 6);
+  out->stratuxStatus.gpsEnabled = FLAGSET(byte13, 7);
+  out->stratuxStatus.radioCount = buffer[15] & 0x3;
+  out->stratuxStatus.isRy835Ai = FLAGSET(buffer[15], 2);
+  out->stratuxStatus.satellitesLocked = buffer[16];
+  out->stratuxStatus.satellitesTracked = buffer[17];
+  out->stratuxStatus.uatTrafficCount = get16Bit(buffer + 18);
+  out->stratuxStatus.esTrafficCount = get16Bit(buffer + 20);
+  out->stratuxStatus.uatMessageRate = get16Bit(buffer + 22);
+  out->stratuxStatus.esMessageRate = get16Bit(buffer + 24);
+  out->stratuxStatus.cpuTemperature = (float) signExtend(get16Bit(buffer + 26), 16) / 10.0f;
+  out->stratuxStatus.towerCount = buffer[28];
+  return GDL90_ERR_NONE;
+}
+
 static struct {
   uint8_t id;
   int len;
@@ -173,7 +204,7 @@ static struct {
 } decodeTable[] = {
     {GDL90_HEARTBEAT, 7, decodeHeartbeat},       {GDL90_OWNSHIP_GEO_ALT, 5, decodeOwnshipAltitude},
     {GDL90_TRAFFIC_REPORT, 28, decodePosition},  {GDL90_OWNSHIP_REPORT, 28, decodePosition},
-    {GDL90_FOREFLIGHT_ID, 39, decodeForeflight},
+    {GDL90_FOREFLIGHT_ID, 39, decodeForeflight}, {GDL90_STRATUX_STATUS, 29, decodeStratuxStatus},
 
 };
 
