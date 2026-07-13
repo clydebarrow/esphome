@@ -1,0 +1,18 @@
+wifi_chooser:
+
+lvgl:
+  displays: wifi_chooser_display
+  widgets:
+    - wifi_chooser:
+        id: wifi_chooser_id
+        width: 200px
+        height: 100px
+        multi_select: false
+        show_rssi: true
+        hide_hidden: true
+        auto_scan: false
+        on_select:
+          then:
+            - logger.log:
+                format: "wifi_chooser selected %s: %d"
+                args: [x.c_str(), x_2]

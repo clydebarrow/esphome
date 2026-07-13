@@ -1,12 +1,21 @@
 from esphome import automation
 import esphome.codegen as cg
 from esphome.components import wifi
+from esphome.components.lvgl.defines import CONF_MAIN, CONF_SCROLLBAR, add_lv_use
+from esphome.components.lvgl.lvcode import lv_add, lv_expr
+from esphome.components.lvgl.types import LvCompound, LvType
+from esphome.components.lvgl.widgets import Widget, WidgetType
 import esphome.config_validation as cv
 
-from ..defines import CONF_MAIN, CONF_SCROLLBAR, add_lv_use
-from ..lvcode import lv_add, lv_expr
-from ..types import LvCompound, LvType
-from . import Widget, WidgetType
+CODEOWNERS = ["@clydebarrow"]
+DEPENDENCIES = ["wifi", "lvgl"]
+
+CONFIG_SCHEMA = cv.Schema({})
+
+
+async def to_code(config):
+    pass
+
 
 CONF_WIFI_CHOOSER = "wifi_chooser"
 CONF_MULTI_SELECT = "multi_select"
@@ -17,10 +26,13 @@ CONF_ON_SELECT = "on_select"
 
 CONF_LIST = "list"
 
-# The C++ class lives in the wifi component (esphome/components/wifi/lvgl_wifi_chooser.h)
-# since it owns the scan-results data the widget displays; this file only supplies the
-# lvgl-side schema and code generation glue that every widget must register through.
-lv_wifi_chooser_t = LvType("wifi::WifiChooser", parents=(LvCompound,))
+# 'wifi_chooser:' takes no options of its own -- its only job is to be the top-level key
+# that makes ESPHome load this component (and so compile in wifi_chooser.h/.cpp) and import
+# this module, which registers the 'wifi_chooser' lvgl widget below. Every component's
+# module is imported before any component's schema is validated (see MetadataValidationStep
+# in esphome/config.py), so this is safe regardless of whether 'wifi_chooser:' or 'lvgl:'
+# appears first in the user's YAML.
+lv_wifi_chooser_t = LvType("wifi_chooser::WifiChooser", parents=(LvCompound,))
 
 WIFI_CHOOSER_SCHEMA = cv.Schema(
     {
@@ -36,9 +48,8 @@ WIFI_CHOOSER_SCHEMA = cv.Schema(
 class WifiChooserType(WidgetType):
     """
     Lists the WiFi networks found by the most recent scan and lets the user select one
-    (or, with 'multi_select', several) of them. The list is populated at runtime by the
-    wifi component, not from YAML, since the available networks aren't known until the
-    device actually scans.
+    (or, with 'multi_select', several) of them. The list is populated at runtime, not
+    from YAML, since the available networks aren't known until the device actually scans.
     """
 
     def __init__(self):
@@ -48,10 +59,6 @@ class WifiChooserType(WidgetType):
             (CONF_MAIN, CONF_SCROLLBAR),
             WIFI_CHOOSER_SCHEMA,
         )
-
-    @property
-    def required_component(self):
-        return "wifi"
 
     async def obj_creator(self, parent, config: dict):
         add_lv_use(CONF_LIST)

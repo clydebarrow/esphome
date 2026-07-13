@@ -1,22 +1,22 @@
-#include "lvgl_wifi_chooser.h"
+#include "wifi_chooser.h"
 #ifdef USE_LVGL
 
 #include <algorithm>
 #include <cstring>
 
-namespace esphome::wifi {
+namespace esphome::wifi_chooser {
 
 // SSIDs are at most 32 bytes; " (-128)" (the longest RSSI suffix) is 7 more, plus a terminator.
 static constexpr size_t MAX_ENTRY_LEN = 32 + 7 + 1;
 
 void WifiChooser::set_obj(lv_obj_t *lv_obj) {
   LvCompound::set_obj(lv_obj);
-  global_wifi_component->add_scan_results_listener(this);
+  wifi::global_wifi_component->add_scan_results_listener(this);
 }
 
-void WifiChooser::rescan() { global_wifi_component->start_scanning(); }
+void WifiChooser::rescan() { wifi::global_wifi_component->start_scanning(); }
 
-void WifiChooser::on_wifi_scan_results(const wifi_scan_vector_t<WiFiScanResult> &results) {
+void WifiChooser::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiFiScanResult> &results) {
   lv_obj_clean(this->obj);
   this->ssids_.init(results.size());
   for (const auto &scan : results) {
@@ -78,6 +78,6 @@ std::vector<std::string> WifiChooser::get_selected_ssids() const {
   return selected;
 }
 
-}  // namespace esphome::wifi
+}  // namespace esphome::wifi_chooser
 
 #endif  // USE_LVGL

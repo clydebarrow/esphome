@@ -8,44 +8,104 @@ allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 
 This documents how `esphome/components/lvgl/` lets you register a brand new
 widget type (a new key under `widgets:` in YAML), including the case where the
-widget's real behavior belongs to a different component (e.g. a `wifi_chooser`
-widget that is really "owned" by the `wifi` component).
+widget's real behavior belongs to, or bridges, a different domain entirely
+(e.g. `wifi_chooser`, which lists WiFi scan results and lives in its own
+`esphome/components/wifi_chooser/` component — see §1(c)).
 
-## 1. Where the Python file must live
+## 1. Where the Python file lives: three real options
 
-Every widget's Python registration file **must live under
-`esphome/components/lvgl/widgets/`**. This is not just convention — it's
-required by the loader:
+Registering a widget just means instantiating a `WidgetType` subclass at
+module level (see below) — that's a plain side effect of importing the
+module, and nothing checks where the module physically lives. The only real
+constraint is *when*: `any_widget_schema()` in `schemas.py` builds its schema
+**lazily, at config-validation time, not at import time**, specifically so
+"external components can register widgets before schema validation begins."
+So a widget's Python file can live anywhere, as long as *something* imports
+it before the `lvgl:` config block is validated. There are three genuinely
+different places to put it, with different tradeoffs:
+
+**(a) `esphome/components/lvgl/widgets/`** — the path of least resistance.
+`esphome/components/lvgl/__init__.py` does:
 
 ```python
-# esphome/components/lvgl/__init__.py
 for module_info in pkgutil.iter_modules(widgets.__path__):
     importlib.import_module(f".widgets.{module_info.name}", package=__package__)
 ```
 
-Every `.py` file dropped into `widgets/` is auto-imported when the `lvgl`
-component is loaded. A `WidgetType` subclass registers itself as a side
-effect of being instantiated at module level (see below), so simply adding
-the file is enough — no central registry edit is needed.
+Every `.py` file dropped into that directory is auto-imported whenever the
+`lvgl` component is loaded — no registry edit needed, zero risk. This is
+where essentially every stock widget's registration file lives. Fine when
+the widget is basically an lvgl concern (a new stock-LVGL wrapper, a
+compound widget with no real external data source). Less fitting when the
+widget's whole *reason to exist* is another component's data (e.g. listing
+WiFi scan results) — the file ends up living somewhere that doesn't reflect
+who really owns it, even if the C++ implementation lives elsewhere.
 
-This file can be a *thin shim*: import the real C++ class and Python helpers
-from the owning component (e.g. `from esphome.components import wifi`) the
-same way `lvgl/widgets/meter.py` requires `"image"` for image indicators, or
-`lvgl/select/lvgl_select.h` bridges to `esphome.components.select`. Put the
-actual behavior (the C++ class, its `.h`, business logic) in the owning
-component's own directory (e.g. `esphome/components/wifi/lvgl_wifi_chooser.h`),
-and keep the lvgl-side file limited to schema + codegen glue. This satisfies
-both constraints: "all widgets register via `lvgl/widgets/`" and "the
-feature's logic lives in the component that owns the data."
+**(b) Bolted onto an existing, always-loaded component (e.g. `wifi/`)** —
+tempting, but don't: since the widget module has to actually get imported by
+*something*, you either import it unconditionally from that component's
+`__init__.py` (which then pulls in the entire `lvgl` package — and its own
+image/display/esp32 imports — for every config that uses the host component,
+even the overwhelming majority that never touch `lvgl:`), or you gate the
+import on a check of `CORE.raw_config` (fragile: nothing else in this
+codebase relies on `raw_config` timing this way, and it silently breaks any
+tool that imports components without going through normal config validation
+— e.g. `script/build_language_schema.py` never sets `raw_config` at all, so
+a widget gated this way vanishes from the generated docs/IDE schema with no
+error).
 
-Cross-component widget registration (a non-lvgl component contributing a
-widget type) is explicitly designed for: `any_widget_schema()` in
-`schemas.py` builds its schema **lazily, at config-validation time, not at
-import time**, specifically so "external components can register widgets
-before schema validation begins." In practice this means: as long as your
-widget's Python module has been imported by the time the `lvgl:` config
-block is validated, registration order doesn't matter — and the
-`pkgutil` auto-import above guarantees it's imported whenever `lvgl` is used.
+**(c) A small, dedicated component of its own** — the cleanest answer when
+the widget is really owned by, or bridges, another domain (this is what
+`esphome/components/wifi_chooser/` does for the WiFi-scan-list widget).
+Give it `DEPENDENCIES = ["wifi", "lvgl"]` (or whatever domains it bridges)
+and an empty `CONFIG_SCHEMA = cv.Schema({})` — the user just writes
+`wifi_chooser:` with no options, purely to opt in. That top-level key is
+what makes ESPHome actually load the component (`CORE.loaded_integrations`,
+which is populated only by the top-level/platform YAML-key loader — nothing
+else marks a component "loaded" for the purpose of copying its `.h`/`.cpp`
+into the build, so a component only ever reachable via a nested schema
+key, with no top-level key of its own, would never get its C++ compiled
+in at all) and to import its `__init__.py`, which registers the widget as
+a plain side effect. This is provably safe regardless of YAML order: in
+`esphome/config.py`, `MetadataValidationStep` (the step that actually
+validates each domain's `CONFIG_SCHEMA`, including lvgl's own `widgets:`
+schema) has `priority = -2.0`, explicitly lower than the default `0.0` used
+by `LoadValidationStep` (the step that imports each domain's module), with
+the comment "All components need to be loaded first to ensure dependency
+check works" — so *every* domain's module import always completes before
+*any* domain's schema validation begins, full stop. `DEPENDENCIES` also
+gives you a clean, standard error ("Component wifi_chooser requires
+component lvgl") if the user forgets `lvgl:`, instead of the more obscure
+"Unknown widget type" you'd get from option (a) with a manual
+`required_component` check. The cost is a UX one: the user has to write an
+extra, option-free top-level key that doesn't do anything by itself — a
+real but normal ESPHome pattern (see `esphome/components/async_tcp/` for
+another schema-less marker component), not a hidden gotcha.
+
+Whichever placement, the file can be a *thin shim*: import the real C++
+class and Python helpers from the owning component (or, for (c), keep the
+class and the registration in the same new component). Put the actual
+behavior (the C++ class, its `.h`, business logic) wherever it can only
+ever be compiled in together with the widget itself, and keep the
+lvgl-side schema/codegen glue as small as possible.
+
+**Watch out for `script/build_codeowners.py` (and similar directory-scanning
+scripts) if you go with (c) and your component's C++ source file happens to
+share a stem with the component's own directory name** (e.g.
+`wifi_chooser/wifi_chooser.h`) **or if your top-level code has any
+side-effecting, non-idempotent registration.** That script iterates every
+file in a component's directory (including `__init__.py` itself) and calls
+`get_platform(stem, name)` on each as a naive way to discover sub-platforms.
+`import pkg.__init__` is valid Python but distinct from `import pkg` — it
+re-executes the package's `__init__.py` as a second, separate module. That's
+silently harmless for components whose top-level code just defines classes/
+schemas (redefining them twice is a no-op), but fatal for one that does
+something like populate a global registry with a duplicate check (exactly
+what `WidgetType.__init__` does). If you hit `EsphomeError: Duplicate
+definition of widget type '...'` only from `script/build_codeowners.py` (not
+from `esphome config`/`compile`), this is almost certainly why — the fix is
+in that script (skip `platform_path.name == "__init__.py"` before calling
+`get_platform`), not in your widget.
 
 ## 2. The registration mechanism: `WidgetType`
 
