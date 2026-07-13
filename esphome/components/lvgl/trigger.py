@@ -141,7 +141,16 @@ def _get_event_literal(trigger: str | MockObj) -> MockObj:
     return literal("LV_EVENT_" + TRIGGER_MAP[trigger.upper()])
 
 
-async def add_trigger(conf, w, *events: str | MockObj, is_selected=None):
+async def add_trigger(
+    conf, w, *events: str | MockObj, is_selected=None, attach_obj=None
+):
+    """
+    :param attach_obj: The object to actually register the callback on, if different
+        from `w.obj` - used when `w.obj` isn't valid at the point the callback gets
+        registered (e.g. a local variable that's only in scope inside the very
+        block this is called from, not from within the callback body itself; see
+        widgets/lv_list.py's dynamic widget creation). Defaults to `w.obj`.
+    """
     is_selected = is_selected or w.is_selected()
     tid = conf[CONF_TRIGGER_ID]
     trigger = cg.new_Pvariable(tid)
@@ -158,12 +167,15 @@ async def add_trigger(conf, w, *events: str | MockObj, is_selected=None):
             lv_add(trigger.trigger(*value, literal("event")))
     callback = await context.get_lambda()
     event_literals = [_get_event_literal(event) for event in events]
+    attach_obj = w.obj if attach_obj is None else attach_obj
     if str(events[0]) in DISPLAY_TRIGGERS:
         assert len(events) == 1
         lv.display_add_event_cb(
-            lv_expr.obj_get_display(w.obj), callback, event_literals[0], nullptr
+            lv_expr.obj_get_display(attach_obj), callback, event_literals[0], nullptr
         )
     else:
         lv_add(
-            lvgl_static.add_event_cb(w.obj, await context.get_lambda(), *event_literals)
+            lvgl_static.add_event_cb(
+                attach_obj, await context.get_lambda(), *event_literals
+            )
         )

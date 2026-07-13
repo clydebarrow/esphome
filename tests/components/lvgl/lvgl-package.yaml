@@ -1192,10 +1192,23 @@ lvgl:
                   id: test_list_id
                   text: "Entry"
                   checkable: true
+              - lvgl.list.add:
+                  id: test_list_id
+                  widget:
+                    obj:
+                      widgets:
+                        - label:
+                            text: !lambda return "Dynamic row " + std::to_string(millis());
+                        - button:
+                            widgets:
+                              - label:
+                                  text: "Tap"
+                            on_click:
+                              - logger.log: "dynamic row button clicked"
               - lvgl.list.remove:
                   id: test_list_id
                   index: 0
-              - lvgl.list.remove:
+              - lvgl.list.clear:
                   id: test_list_id
         - slider:
             id: slider_id
