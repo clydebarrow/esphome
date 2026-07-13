@@ -11,11 +11,18 @@ widget type (a new key under `widgets:` in YAML), including the case where the
 widget's real behavior belongs to a different component (e.g. a `wifi_chooser`
 widget that is really "owned" by the `wifi` component).
 
-## 1. Where the Python file must live
+## 1. Where the Python file lives: only "imported before validation" matters
 
-Every widget's Python registration file **must live under
-`esphome/components/lvgl/widgets/`**. This is not just convention — it's
-required by the loader:
+Registering a widget just means instantiating a `WidgetType` subclass at
+module level (see below) — that's a plain side effect of importing the
+module, and nothing checks where the module physically lives. The only real
+constraint is *when*: `any_widget_schema()` in `schemas.py` builds its schema
+**lazily, at config-validation time, not at import time**, specifically so
+"external components can register widgets before schema validation begins."
+So a widget's Python file can live anywhere, as long as *something* imports
+it before the `lvgl:` config block is validated.
+
+`esphome/components/lvgl/widgets/` gets one such import path for free:
 
 ```python
 # esphome/components/lvgl/__init__.py
@@ -23,29 +30,27 @@ for module_info in pkgutil.iter_modules(widgets.__path__):
     importlib.import_module(f".widgets.{module_info.name}", package=__package__)
 ```
 
-Every `.py` file dropped into `widgets/` is auto-imported when the `lvgl`
-component is loaded. A `WidgetType` subclass registers itself as a side
-effect of being instantiated at module level (see below), so simply adding
-the file is enough — no central registry edit is needed.
+Every `.py` file dropped into that directory is auto-imported whenever the
+`lvgl` component is loaded — no central registry edit needed. This is why
+essentially every existing widget's registration file lives there: it's the
+path of least resistance, not a hard requirement. A widget could equally
+live under the owning component's own directory (e.g.
+`esphome/components/wifi/lvgl_wifi_chooser.py`) as long as that component's
+`__init__.py` imports it (directly, or conditionally e.g. only when `lvgl`
+is also configured) before `lvgl:` validation runs — there is just no
+existing precedent for that path in this codebase, so it's less
+battle-tested and you're responsible for getting the import ordering right
+yourself, rather than relying on the auto-import.
 
-This file can be a *thin shim*: import the real C++ class and Python helpers
-from the owning component (e.g. `from esphome.components import wifi`) the
-same way `lvgl/widgets/meter.py` requires `"image"` for image indicators, or
-`lvgl/select/lvgl_select.h` bridges to `esphome.components.select`. Put the
-actual behavior (the C++ class, its `.h`, business logic) in the owning
-component's own directory (e.g. `esphome/components/wifi/lvgl_wifi_chooser.h`),
-and keep the lvgl-side file limited to schema + codegen glue. This satisfies
-both constraints: "all widgets register via `lvgl/widgets/`" and "the
-feature's logic lives in the component that owns the data."
-
-Cross-component widget registration (a non-lvgl component contributing a
-widget type) is explicitly designed for: `any_widget_schema()` in
-`schemas.py` builds its schema **lazily, at config-validation time, not at
-import time**, specifically so "external components can register widgets
-before schema validation begins." In practice this means: as long as your
-widget's Python module has been imported by the time the `lvgl:` config
-block is validated, registration order doesn't matter — and the
-`pkgutil` auto-import above guarantees it's imported whenever `lvgl` is used.
+Either way, the file can be a *thin shim*: import the real C++ class and
+Python helpers from the owning component (e.g. `from esphome.components
+import wifi`) the same way `lvgl/widgets/meter.py` requires `"image"` for
+image indicators, or `lvgl/select/lvgl_select.h` bridges to
+`esphome.components.select`. Put the actual behavior (the C++ class, its
+`.h`, business logic) in the owning component's own directory (e.g.
+`esphome/components/wifi/lvgl_wifi_chooser.h`), and keep the lvgl-side
+schema/codegen glue as small as possible regardless of which directory it
+sits in.
 
 ## 2. The registration mechanism: `WidgetType`
 
