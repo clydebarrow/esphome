@@ -17,9 +17,10 @@ CONF_ON_SELECT = "on_select"
 
 CONF_LIST = "list"
 
-# The C++ class lives in the wifi component (esphome/components/wifi/lvgl_wifi_chooser.h)
-# since it owns the scan-results data the widget displays; this file only supplies the
-# lvgl-side schema and code generation glue that every widget must register through.
+# The C++ class lives in the wifi component (esphome/components/wifi/lvgl_wifi_chooser.h),
+# since it owns the scan-results data the widget displays and must be part of a component
+# that's always loaded whenever wifi: is configured. This file only supplies the lvgl-side
+# schema and code generation glue that every widget must register through.
 lv_wifi_chooser_t = LvType("wifi::WifiChooser", parents=(LvCompound,))
 
 WIFI_CHOOSER_SCHEMA = cv.Schema(
