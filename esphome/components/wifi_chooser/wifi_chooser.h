@@ -9,11 +9,11 @@
 #include "esphome/components/lvgl/lvgl_esphome.h"
 #include "esphome/components/wifi/wifi_component.h"
 
-namespace esphome::wifi {
+namespace esphome::wifi_chooser {
 
 /// An LVGL widget (a scrollable `lv_list`) that lists the WiFi networks found by the most
 /// recent scan and lets the user select one of them (or, in multi-select mode, several).
-class WifiChooser : public lvgl::LvCompound, public WiFiScanResultsListener {
+class WifiChooser : public lvgl::LvCompound, public wifi::WiFiScanResultsListener {
  public:
   void set_obj(lv_obj_t *lv_obj) override;
 
@@ -28,7 +28,7 @@ class WifiChooser : public lvgl::LvCompound, public WiFiScanResultsListener {
   std::vector<std::string> get_selected_ssids() const;
 
   /// WiFiScanResultsListener interface: rebuilds the list from the latest scan.
-  void on_wifi_scan_results(const wifi_scan_vector_t<WiFiScanResult> &results) override;
+  void on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiFiScanResult> &results) override;
 
   /// Registers a callback fired as (ssid, selected) whenever an entry is checked/unchecked.
   template<typename F> void add_on_select_callback(F &&callback) {
@@ -46,6 +46,6 @@ class WifiChooser : public lvgl::LvCompound, public WiFiScanResultsListener {
   bool hide_hidden_{true};
 };
 
-}  // namespace esphome::wifi
+}  // namespace esphome::wifi_chooser
 
 #endif  // USE_LVGL
