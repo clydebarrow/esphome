@@ -1205,6 +1205,12 @@ lvgl:
                                   text: "Tap"
                             on_click:
                               - logger.log: "dynamic row button clicked"
+                        - dropdown:
+                            options:
+                              - "One"
+                              - "Two"
+                            on_value:
+                              - logger.log: "dynamic row dropdown changed"
               - lvgl.list.remove:
                   id: test_list_id
                   index: 0
