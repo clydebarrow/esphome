@@ -3,6 +3,7 @@ import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_INDEX, CONF_ON_UPDATE, CONF_ON_VALUE, CONF_TEXT
 from esphome.cpp_generator import MockObj
 from esphome.cpp_types import nullptr
+from esphome.schema_extractors import SCHEMA_EXTRACT, schema_extractor
 
 from ..automation import action_to_code
 from ..defines import (
@@ -24,7 +25,7 @@ from ..lvcode import (
     lv_expr,
     lv_obj,
 )
-from ..schemas import WIDGET_TYPES, any_widget_schema
+from ..schemas import WIDGET_TYPES, any_widget_schema, container_schema_value
 from ..trigger import add_trigger
 from ..types import LV_EVENT, LvType, ObjUpdateAction, lv_obj_t
 from . import Widget, WidgetType, get_widgets, set_obj_properties
@@ -104,17 +105,39 @@ async def list_add_button_to_code(config, action_id, template_arg, args):
     )
 
 
-LIST_ADD_SCHEMA = LIST_ID_SCHEMA.extend(
-    {
-        cv.Required(CONF_WIDGET): cv.All(any_widget_schema(), cv.Length(min=1, max=1)),
-    }
-)
+@schema_extractor("schema")
+def list_add_schema(value):
+    # A plain cv.Schema can't express "id, plus exactly one arbitrary widget-type
+    # key" - any_widget_schema() only knows how to validate the widget part, and
+    # doesn't exist as a fixed set of keys until actual validation time (widget
+    # types register themselves as their modules get imported). So id is stripped
+    # out by hand here, and everything else - whatever single widget-type key
+    # remains - is handed to any_widget_schema() dynamically.
+    if value is SCHEMA_EXTRACT:
+        return LIST_ID_SCHEMA.extend(
+            {
+                cv.Optional(name): container_schema_value(widget_type)
+                for name, widget_type in WIDGET_TYPES.items()
+            }
+        )
+    if not isinstance(value, dict):
+        raise cv.Invalid("Expected a mapping")
+    value = value.copy()
+    if CONF_ID not in value:
+        raise cv.Invalid(f"required key '{CONF_ID}' not provided")
+    with cv.prepend_path([CONF_ID]):
+        list_id = cv.use_id(lv_list_t)(value.pop(CONF_ID))
+    if len(value) != 1:
+        raise cv.Invalid(
+            "lvgl.list.add takes exactly one widget definition, e.g. 'label:' or 'button:', alongside 'id'"
+        )
+    return {CONF_ID: list_id, CONF_WIDGET: any_widget_schema()(value)}
 
 
 @automation.register_action(
     "lvgl.list.add",
     ObjUpdateAction,
-    LIST_ADD_SCHEMA,
+    list_add_schema,
     synchronous=True,
 )
 async def list_add_to_code(config, action_id, template_arg, args):
