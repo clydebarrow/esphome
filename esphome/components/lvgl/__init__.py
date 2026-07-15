@@ -119,7 +119,6 @@ from .widgets.page import (  # page_spec used in LVGL_SCHEMA
     generate_page_triggers,
     page_spec,
 )
-from .widgets.toast import toasts_to_code
 
 # These style schemas live in .schemas but are imported here so they land in
 # this module's namespace, where script/build_language_schema.py registers them
@@ -441,7 +440,6 @@ async def to_code(configs):
             await lvgl_update(lv_component, config)
             await msgboxes_to_code(lv_component, config)
             await animations_to_code(config.get(CONF_ANIMATIONS, []))
-            await toasts_to_code(lv_component, config[CONF_ID])
 
     # Mark all widgets as completed so awaiters of ``wait_for_widgets`` proceed.
     set_widgets_completed(True)

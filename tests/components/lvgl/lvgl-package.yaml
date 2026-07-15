@@ -1215,10 +1215,6 @@ lvgl:
                   index: 0
               - lvgl.list.clear:
                   id: test_list_id
-              - lvgl.toast: "Row added"
-              - lvgl.toast:
-                  message: !lambda return "Cleared at " + std::to_string(millis());
-                  image: cat_image
         - slider:
             id: slider_id
             align: top_mid

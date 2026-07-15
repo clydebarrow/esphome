@@ -4,7 +4,6 @@ Constants already defined in esphome.const are not duplicated here and must be i
 
 """
 
-from dataclasses import dataclass
 import logging
 from typing import Any
 
@@ -35,8 +34,6 @@ KEY_REFRESHED_WIDGETS = "refreshed_widgets"
 KEY_REMAPPED_USES = "remapped_uses"
 KEY_STYLES_USED = "styles_used"
 KEY_THEME_WIDGET_MAP = "theme_widget_map"
-KEY_TOAST_INFRA = "toast_infra"
-KEY_TOAST_REQUESTED = "toast_requested"
 KEY_UPDATED_WIDGETS = "updated_widgets"
 KEY_WIDGET_MAP = "widget_map"
 KEY_WIDGETS_COMPLETED = "widgets_completed"
@@ -127,40 +124,6 @@ def get_styles_used() -> set[str]:
 
 def get_widget_map() -> dict[str, Any]:
     return _get_data(KEY_WIDGET_MAP, {})
-
-
-def request_toast() -> None:
-    # Called from lvgl.toast's schema validator, which always runs before any
-    # to_code - lets the main LVGL component know (once to_code runs) whether
-    # it needs to build the (otherwise unused) toast singleton infrastructure.
-    _get_data(KEY_TOAST_REQUESTED, [False])[0] = True
-
-
-def get_toast_requested() -> bool:
-    return _get_data(KEY_TOAST_REQUESTED, [False])[0]
-
-
-@dataclass
-class ToastInfra:
-    """IDs of the toast singleton widgets/animations built for one ``lvgl:`` instance."""
-
-    container_id: ID
-    img_id: ID
-    label_id: ID
-    in_anim_id: ID
-    out_anim_id: ID
-
-
-def get_toast_infra_map() -> dict[ID, ToastInfra]:
-    return _get_data(KEY_TOAST_INFRA, {})
-
-
-def set_toast_infra(lvgl_id: ID, infra: ToastInfra) -> None:
-    get_toast_infra_map()[lvgl_id] = infra
-
-
-def get_toast_infra(lvgl_id: ID) -> ToastInfra | None:
-    return get_toast_infra_map().get(lvgl_id)
 
 
 def get_widgets_completed() -> bool:
