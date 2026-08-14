@@ -78,7 +78,10 @@ jobs:
         if: steps.gate.outputs.sync_needed == 'true'
         id: merge
         run: |
-          branch="sync-upstream/$(date +%Y-%m-%d)"
+          # Suffixed with the run id (not just the date) so a second run on the same day
+          # -- e.g. a manual dispatch after the scheduled run already pushed a branch that's
+          # since been merged/closed -- doesn't collide with the earlier branch name.
+          branch="sync-upstream/$(date +%Y-%m-%d)-${{ github.run_id }}"
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
           git checkout -b "$branch"
 
