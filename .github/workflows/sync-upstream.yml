@@ -1,13 +1,23 @@
 name: Sync upstream esphome/esphome dev into main
 
 # Keeps `main` merged forward against esphome/esphome's `dev` branch. Runs daily and
-# on demand; opens a PR into `main` for every sync (never pushes directly). If the merge
-# has conflicts, Claude resolves them in-place before the PR is opened, and the PR is
-# labeled for mandatory human review.
+# on demand; opens a PR into `main` for every sync (never pushes directly).
+#
+# On a clean merge, opens a regular PR ready for review.
+#
+# On a merge conflict, this job can't resolve it inline: unlike a synchronous coding
+# tool, GitHub Copilot's coding agent works asynchronously — it's invoked by @mentioning
+# it on a PR and pushes its own follow-up commits back later, on its own schedule. So
+# instead the job commits the merge AS-IS, conflict markers and all, pushes it as a
+# draft PR, and posts a comment asking Copilot to resolve them. A human reviews and
+# marks the PR ready once Copilot (or a person) has cleaned it up — this workflow does
+# not attempt to verify or finalize that resolution itself.
 #
 # One-time setup this workflow depends on (see the plan doc / PR description for details):
 #   - `main` must already exist on origin (`git push origin main`).
-#   - Repo secret `ANTHROPIC_API_KEY` for the Claude conflict-resolution step.
+#   - GitHub Copilot coding agent enabled for this repo/org (org must have Copilot seats
+#     provisioned and the coding agent policy turned on — this is separate from any
+#     secret or workflow config, see https://github.com/EmbedMe-io/embedme/settings/copilot).
 #   - Repo secret `SYNC_PR_TOKEN`: a PAT (or GitHub App token) with repo contents +
 #     pull-requests write access. The default GITHUB_TOKEN is intentionally NOT used
 #     here: GitHub does not fire `pull_request` events for content pushed/created with
@@ -82,41 +92,12 @@ jobs:
             echo "conflicts=true" >> "$GITHUB_OUTPUT"
             files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
             echo "conflicted_files=$files" >> "$GITHUB_OUTPUT"
+            # Commit the merge as-is, conflict markers included. This branch is not
+            # mergeable in this state — it's a starting point for Copilot (or a human)
+            # to resolve, not a finished result.
+            git add -A
+            git commit --no-edit
           fi
-
-      - name: Resolve conflicts with Claude
-        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
-        uses: anthropics/claude-code-action@ae33e29b70dbb280ad99b1f4f3134cb2edb3261a  # v1.0.192
-        with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-          prompt: |
-            Merging esphome/esphome's `dev` branch into this fork's `main` left conflicts
-            in the following files: ${{ steps.merge.outputs.conflicted_files }}
-
-            For each file, resolve the conflict markers by reconciling the incoming
-            upstream change with this fork's existing custom change, following the
-            conventions in CLAUDE.md. Don't drop either side's intent unless one clearly
-            supersedes the other (e.g. upstream renamed/removed something this fork's
-            change depended on).
-
-            When a file is resolved, remove all conflict markers and `git add` it.
-            Do not run `git commit`, `git push`, or any other git command that changes
-            history — only edit files and `git add` them.
-          claude_args: |
-            --allowedTools "Read,Edit,Bash(git add:*),Bash(git diff:*),Bash(git status:*)"
-            --disallowedTools "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(git checkout:*)"
-
-      - name: Verify no leftover conflict markers
-        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
-        run: |
-          if git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- . ; then
-            echo "::error::Unresolved conflict markers remain after AI resolution; refusing to continue."
-            exit 1
-          fi
-
-      - name: Finalize merge commit
-        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
-        run: git commit --no-edit
 
       - name: Push sync branch and open PR
         if: steps.gate.outputs.sync_needed == 'true'
@@ -126,14 +107,20 @@ jobs:
           git push origin "$branch"
 
           labels="upstream-sync"
+          draft_flag=""
           body="Merges esphome/esphome's \`dev\` branch into \`main\`."
           if [ "${{ steps.merge.outputs.conflicts }}" = "true" ]; then
             labels="$labels,needs-review"
+            draft_flag="--draft"
             body="$body
 
-          This merge had conflicts, which Claude resolved automatically (see the
-          \`Resolve conflicts with Claude\` step log for details). **Review the
-          conflict resolution carefully before merging.**"
+          **This merge has unresolved conflicts** in: ${{ steps.merge.outputs.conflicted_files }}
+
+          The branch was pushed as-is, conflict markers included — it does not build and
+          is not mergeable yet. GitHub Copilot has been asked (see the follow-up comment)
+          to resolve the conflicts and push a fixup commit. Once that's done, review the
+          resolution, mark this PR ready for review, and merge it. If Copilot doesn't
+          pick it up, resolve the conflicts manually on this branch."
           fi
           body="$body
 
@@ -142,11 +129,18 @@ jobs:
           syncs rely on to stay conflict-free."
 
           pr_url=$(gh pr create --repo "${{ github.repository }}" \
-            --base main --head "$branch" \
+            --base main --head "$branch" $draft_flag \
             --title "[core] Sync upstream esphome/esphome dev into main ($(date +%Y-%m-%d))" \
             --label "$labels" \
             --body "$body")
           echo "pr_number=${pr_url##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Ask Copilot to resolve the conflicts
+        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        run: |
+          gh pr comment "${{ steps.pr.outputs.pr_number }}" --repo "${{ github.repository }}" --body "@copilot This branch has unresolved merge conflicts from merging esphome/esphome's \`dev\` into \`main\` in: ${{ steps.merge.outputs.conflicted_files }}
+
+          Please resolve the conflict markers by reconciling the incoming upstream change with this fork's existing custom change, following the conventions in CLAUDE.md. Don't drop either side's intent unless one clearly supersedes the other (e.g. upstream renamed/removed something this fork's change depended on). Push the resolution as a new commit on this branch — do not rewrite existing history."
 
       - name: Clear any auto-requested codeowner reviewers
         if: steps.gate.outputs.sync_needed == 'true'
