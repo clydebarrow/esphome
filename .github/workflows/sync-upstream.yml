@@ -120,6 +120,7 @@ jobs:
 
       - name: Push sync branch and open PR
         if: steps.gate.outputs.sync_needed == 'true'
+        id: pr
         run: |
           branch="${{ steps.merge.outputs.branch }}"
           git push origin "$branch"
@@ -140,8 +141,24 @@ jobs:
           Squashing/rebasing breaks the shared history with upstream, which future
           syncs rely on to stay conflict-free."
 
-          gh pr create --repo "${{ github.repository }}" \
+          pr_url=$(gh pr create --repo "${{ github.repository }}" \
             --base main --head "$branch" \
             --title "[core] Sync upstream esphome/esphome dev into main ($(date +%Y-%m-%d))" \
             --label "$labels" \
-            --body "$body"
+            --body "$body")
+          echo "pr_number=${pr_url##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Clear any auto-requested codeowner reviewers
+        if: steps.gate.outputs.sync_needed == 'true'
+        # GitHub auto-populates requested reviewers/teams from CODEOWNERS on PR open,
+        # independent of any workflow. A sync PR can touch hundreds of files across
+        # unrelated components, so this would fan out to many upstream codeowners who
+        # have nothing to do with reviewing an upstream merge. Strip it immediately.
+        run: |
+          pr_number="${{ steps.pr.outputs.pr_number }}"
+          body=$(gh api "repos/${{ github.repository }}/pulls/$pr_number" \
+            --jq '{reviewers: [.requested_reviewers[].login], team_reviewers: [.requested_teams[].slug]}')
+          if [ "$(echo "$body" | jq '(.reviewers | length) + (.team_reviewers | length)')" -gt 0 ]; then
+            echo "$body" | gh api --method DELETE \
+              "repos/${{ github.repository }}/pulls/$pr_number/requested_reviewers" --input -
+          fi
