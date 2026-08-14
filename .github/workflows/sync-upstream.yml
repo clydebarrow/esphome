@@ -1,0 +1,147 @@
+name: Sync upstream esphome/esphome dev into main
+
+# Keeps `main` merged forward against esphome/esphome's `dev` branch. Runs daily and
+# on demand; opens a PR into `main` for every sync (never pushes directly). If the merge
+# has conflicts, Claude resolves them in-place before the PR is opened, and the PR is
+# labeled for mandatory human review.
+#
+# One-time setup this workflow depends on (see the plan doc / PR description for details):
+#   - `main` must already exist on origin (`git push origin main`).
+#   - Repo secret `ANTHROPIC_API_KEY` for the Claude conflict-resolution step.
+#   - Repo secret `SYNC_PR_TOKEN`: a PAT (or GitHub App token) with repo contents +
+#     pull-requests write access. The default GITHUB_TOKEN is intentionally NOT used
+#     here: GitHub does not fire `pull_request` events for content pushed/created with
+#     the default token, so ci.yml would never run on these PRs.
+
+on:
+  schedule:
+    - cron: "0 5 * * *"  # daily, 05:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.SYNC_PR_TOKEN }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PR_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "embedme-sync-bot"
+          git config user.email "embedme-sync-bot@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch dev
+        run: |
+          git remote add upstream https://github.com/esphome/esphome.git
+          git fetch upstream dev
+
+      - name: Check whether a sync is needed
+        id: gate
+        run: |
+          if git merge-base --is-ancestor upstream/dev HEAD; then
+            echo "main is already up to date with upstream/dev, nothing to do."
+            echo "sync_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          open_count=$(gh pr list --repo "${{ github.repository }}" --base main \
+            --label upstream-sync --state open --json number --jq 'length')
+          if [ "$open_count" -gt 0 ]; then
+            echo "A sync PR is already open against main, skipping this run."
+            echo "sync_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "sync_needed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create sync branch and attempt merge
+        if: steps.gate.outputs.sync_needed == 'true'
+        id: merge
+        run: |
+          branch="sync-upstream/$(date +%Y-%m-%d)"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git checkout -b "$branch"
+
+          if git merge upstream/dev --no-ff --no-edit; then
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+            files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+            echo "conflicted_files=$files" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve conflicts with Claude
+        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        uses: anthropics/claude-code-action@ae33e29b70dbb280ad99b1f4f3134cb2edb3261a  # v1.0.192
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Merging esphome/esphome's `dev` branch into this fork's `main` left conflicts
+            in the following files: ${{ steps.merge.outputs.conflicted_files }}
+
+            For each file, resolve the conflict markers by reconciling the incoming
+            upstream change with this fork's existing custom change, following the
+            conventions in CLAUDE.md. Don't drop either side's intent unless one clearly
+            supersedes the other (e.g. upstream renamed/removed something this fork's
+            change depended on).
+
+            When a file is resolved, remove all conflict markers and `git add` it.
+            Do not run `git commit`, `git push`, or any other git command that changes
+            history — only edit files and `git add` them.
+          claude_args: |
+            --allowedTools "Read,Edit,Bash(git add:*),Bash(git diff:*),Bash(git status:*)"
+            --disallowedTools "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(git checkout:*)"
+
+      - name: Verify no leftover conflict markers
+        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        run: |
+          if git grep -n -E '^(<<<<<<<|=======|>>>>>>>)' -- . ; then
+            echo "::error::Unresolved conflict markers remain after AI resolution; refusing to continue."
+            exit 1
+          fi
+
+      - name: Finalize merge commit
+        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        run: git commit --no-edit
+
+      - name: Push sync branch and open PR
+        if: steps.gate.outputs.sync_needed == 'true'
+        run: |
+          branch="${{ steps.merge.outputs.branch }}"
+          git push origin "$branch"
+
+          labels="upstream-sync"
+          body="Merges esphome/esphome's \`dev\` branch into \`main\`."
+          if [ "${{ steps.merge.outputs.conflicts }}" = "true" ]; then
+            labels="$labels,needs-review"
+            body="$body
+
+          This merge had conflicts, which Claude resolved automatically (see the
+          \`Resolve conflicts with Claude\` step log for details). **Review the
+          conflict resolution carefully before merging.**"
+          fi
+          body="$body
+
+          Merge this with **\"Create a merge commit\"** — do not squash or rebase.
+          Squashing/rebasing breaks the shared history with upstream, which future
+          syncs rely on to stay conflict-free."
+
+          gh pr create --repo "${{ github.repository }}" \
+            --base main --head "$branch" \
+            --title "[core] Sync upstream esphome/esphome dev into main ($(date +%Y-%m-%d))" \
+            --label "$labels" \
+            --body "$body"
