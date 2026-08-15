@@ -122,6 +122,34 @@ jobs:
             --allowedTools "Read,Edit,Bash(git add:*),Bash(git diff:*),Bash(git status:*)"
             --disallowedTools "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(git checkout:*)"
 
+      - name: Log Claude's resolution summary
+        # The transcript's last entry is a "result"-type message with a `result`
+        # field summarizing what Claude did, plus a few stats. Pull just those
+        # out to the job's Step Summary so the outcome is visible at a glance
+        # without downloading the full transcript artifact below. Parsed with
+        # jq (not interpolated into a shell string) because `result` routinely
+        # contains backticks/quotes that would otherwise be read as shell
+        # metacharacters.
+        if: always() && steps.merge.outputs.conflicts == 'true'
+        run: |
+          file="${{ steps.claude.outputs.execution_file }}"
+          if [ -z "$file" ] || [ ! -f "$file" ]; then
+            echo "No execution log available to summarize."
+            exit 0
+          fi
+
+          jq -r '
+            [.[] | select(.type == "result")][-1] as $r |
+            "### Claude conflict resolution summary\n\n" +
+            ($r.result // "_no summary returned_") + "\n\n" +
+            "| turns | cost (USD) | duration | error |\n" +
+            "|---|---|---|---|\n" +
+            "| " + ($r.num_turns | tostring) +
+            " | " + ($r.total_cost_usd | tostring) +
+            " | " + ($r.duration_ms | tostring) + "ms" +
+            " | " + ($r.is_error | tostring) + " |\n"
+          ' "$file" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Upload Claude's full execution log
         # The action writes its full transcript (system prompt, every tool call and
         # result) to a file under $RUNNER_TEMP that's otherwise lost once the runner
