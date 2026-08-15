@@ -26,6 +26,7 @@ on:
 permissions:
   contents: read
   id-token: write  # required by anthropics/claude-code-action, even with a static API key
+  actions: write  # needed to upload Claude's execution log as a build artifact
 
 concurrency:
   group: sync-upstream
@@ -95,9 +96,14 @@ jobs:
 
       - name: Resolve conflicts with Claude
         if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        id: claude
         uses: anthropics/claude-code-action@ae33e29b70dbb280ad99b1f4f3134cb2edb3261a  # v1.0.192
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Surfaces a human-readable "Claude Code Report" in this job's Step Summary.
+          # Safe here (unlike the action's general warning about untrusted input): the
+          # prompt below is fixed by us, not attacker-controlled.
+          display_report: "true"
           prompt: |
             Merging esphome/esphome's `dev` branch into this fork's `main` left conflicts
             in the following files: ${{ steps.merge.outputs.conflicted_files }}
@@ -115,6 +121,18 @@ jobs:
             --model claude-haiku-4-5-20251001
             --allowedTools "Read,Edit,Bash(git add:*),Bash(git diff:*),Bash(git status:*)"
             --disallowedTools "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(git checkout:*)"
+
+      - name: Upload Claude's full execution log
+        # The action writes its full transcript (system prompt, every tool call and
+        # result) to a file under $RUNNER_TEMP that's otherwise lost once the runner
+        # is torn down at the end of the job. Upload it so it's downloadable from the
+        # run's Summary page instead of only existing for the run's lifetime.
+        if: always() && steps.merge.outputs.conflicts == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: claude-conflict-resolution-log-${{ github.run_id }}
+          path: ${{ steps.claude.outputs.execution_file }}
+          if-no-files-found: warn
 
       - name: Verify no leftover conflict markers
         if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
