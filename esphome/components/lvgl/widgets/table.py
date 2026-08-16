@@ -6,7 +6,7 @@ from esphome.const import CONF_ID, CONF_ITEMS, CONF_ROW, CONF_TEXT, CONF_WIDTH
 
 from ..automation import action_to_code
 from ..defines import CONF_COLUMN, CONF_MAIN, literal
-from ..lv_validation import lv_bool, lv_int, lv_text, pixels_or_percent
+from ..lv_validation import lv_bool, lv_int, lv_text, pixels
 from ..lvcode import lv, lv_expr
 from ..types import LvType, ObjUpdateAction
 from . import Widget, WidgetType, get_widgets
@@ -41,7 +41,9 @@ ROW_SCHEMA = cv.maybe_simple_value(
 
 COLUMN_SCHEMA = cv.Schema(
     {
-        cv.Optional(CONF_WIDTH): pixels_or_percent,
+        # LVGL's table widget stores column widths as literal pixel counts; unlike most
+        # size properties it does not understand the percentage encoding used elsewhere.
+        cv.Optional(CONF_WIDTH): pixels,
     }
 )
 
@@ -153,9 +155,7 @@ class TableType(WidgetType):
             lv.table_set_column_count(w.obj, column_count)
         for index, column in enumerate(config.get(CONF_COLUMNS, ())):
             if (width := column.get(CONF_WIDTH)) is not None:
-                lv.table_set_column_width(
-                    w.obj, index, await pixels_or_percent.process(width)
-                )
+                lv.table_set_column_width(w.obj, index, await pixels.process(width))
         for row_index, row in enumerate(rows or ()):
             for column_index, cell in enumerate(row[CONF_CELLS]):
                 lv.table_set_cell_value(
