@@ -51,6 +51,13 @@ class FakeKV : public KeyValueStorage {
     *out = it->second.size();
     return StorageError::OK;
   }
+  StorageError list_keys(bool (*callback)(uint32_t key, size_t size, void *ctx), void *ctx) override {
+    for (auto &kv : this->store_) {
+      if (!callback(kv.first, kv.second.size(), ctx))
+        break;
+    }
+    return StorageError::OK;
+  }
   StorageError ensure_initialized() override {
     this->initialized_ = true;
     return StorageError::OK;
@@ -209,8 +216,7 @@ class KvRegistryTest : public ::testing::Test {
 TEST_F(KvRegistryTest, ForEachKvVisitsOnlyKeyValueDevices) {
   std::vector<KeyValueStorage *> seen;
   this->registry_.for_each_kv(
-      [](KeyValueStorage *s, void *ctx) { static_cast<std::vector<KeyValueStorage *> *>(ctx)->push_back(s); },
-      &seen);
+      [](KeyValueStorage *s, void *ctx) { static_cast<std::vector<KeyValueStorage *> *>(ctx)->push_back(s); }, &seen);
 
   ASSERT_EQ(seen.size(), 2u);
   // Both KV fakes are present; the path device is not.

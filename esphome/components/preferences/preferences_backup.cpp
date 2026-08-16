@@ -1,6 +1,6 @@
 #include "preferences_backup.h"
 
-#if defined(USE_STORAGE_PREFERENCES) && defined(USE_ESP32)
+#if defined(USE_PREFERENCES_BACKUP) && defined(USE_ESP32)
 
 #include <cctype>
 #include <cinttypes>
@@ -9,7 +9,8 @@
 #include <cstring>
 #include <string>
 
-#include "storage.h"
+#include "esphome/components/storage/storage.h"
+#include "esphome/components/esp32/preferences.h"
 
 #include <esp_rom_crc.h>
 
@@ -57,14 +58,14 @@
 #include "esphome/core/log.h"
 #include "esphome/core/preferences.h"
 
-#include <nvs.h>
+namespace esphome::preferences {
 
-namespace esphome::storage {
+// The engine leans on the storage KeyValueStorage/RawStorage/PathStorage interfaces heavily;
+// pull the whole storage namespace in here rather than qualifying every reference.
+using namespace esphome::storage;  // NOLINT(google-build-using-namespace)
 
-static const char *const TAG = "storage.preferences";
+static const char *const TAG = "preferences.backup";
 
-// The namespace every ESPHome preference lives in (see esp32/preferences.cpp).
-static constexpr const char *NVS_NAMESPACE = "esphome";
 static constexpr size_t MAX_BLOB_LEN = 4096;  // NVS blob hard limit is well below this
 static constexpr const char *HEX_PREFIX = "hex:";
 
@@ -1076,29 +1077,28 @@ struct NvsEntry {
   size_t len;
 };
 
-static bool nvs_read_entry(nvs_handle_t handle, uint32_t key, NvsEntry &e) {
-  char key_str[16];
-  snprintf(key_str, sizeof(key_str), "%" PRIu32, key);
+static bool kv_read_entry(storage::KeyValueStorage *kv, uint32_t key, NvsEntry &e) {
   e.key = key;
   e.len = 0;
   size_t len = 0;
-  if (nvs_get_blob(handle, key_str, nullptr, &len) != ESP_OK || len == 0 || len > MAX_BLOB_LEN)
+  if (kv->get_size(key, &len) != storage::StorageError::OK || len == 0 || len > MAX_BLOB_LEN)
     return false;
-  if (nvs_get_blob(handle, key_str, e.blob, &len) != ESP_OK)
+  size_t got = 0;
+  if (kv->get(key, e.blob, len, &got) != storage::StorageError::OK || got != len)
     return false;
   e.len = len;
   return true;
 }
 
 template<typename EmitFn>
-static size_t collect_entries(nvs_handle_t handle, const PrefSelection *sel, size_t count, bool restrict_to_selection,
-                              esphome::EntityBase *const *selected_entities, size_t selected_entity_count,
-                              EmitFn &&emit) {
+static size_t collect_entries(storage::KeyValueStorage *kv, const PrefSelection *sel, size_t count,
+                              bool restrict_to_selection, esphome::EntityBase *const *selected_entities,
+                              size_t selected_entity_count, EmitFn &&emit) {
   size_t n = 0;
   NvsEntry e;
   if (restrict_to_selection) {
     for (size_t i = 0; i < count; i++) {
-      if (nvs_read_entry(handle, sel[i].key, e)) {
+      if (kv_read_entry(kv, sel[i].key, e)) {
         emit(e, &sel[i]);
         n++;
       } else {
@@ -1118,7 +1118,7 @@ static size_t collect_entries(nvs_handle_t handle, const PrefSelection *sel, siz
         ESP_LOGW(TAG, "Selected entity #%zu stores no known preference -- skipped", i);
         continue;
       }
-      if (nvs_read_entry(handle, re->key, e)) {
+      if (kv_read_entry(kv, re->key, e)) {
         emit(e, nullptr);  // emit resolves the name via runtime_by_key
         n++;
       } else {
@@ -1127,22 +1127,24 @@ static size_t collect_entries(nvs_handle_t handle, const PrefSelection *sel, siz
     }
     return n;
   }
-  nvs_iterator_t it = nullptr;
-  esp_err_t err = nvs_entry_find(NVS_DEFAULT_PART_NAME, NVS_NAMESPACE, NVS_TYPE_BLOB, &it);
-  while (err == ESP_OK && it != nullptr) {
-    nvs_entry_info_t info;
-    nvs_entry_info(it, &info);
-    char *end = nullptr;
-    uint32_t key = static_cast<uint32_t>(strtoul(info.key, &end, 10));
-    if (end != nullptr && *end == '\0' && nvs_read_entry(handle, static_cast<uint32_t>(key), e)) {
+  // Unrestricted: enumerate the whole namespace through the KV interface. list_keys takes a plain
+  // function pointer, so gather the keys first and read each afterwards rather than threading the
+  // emit closure through a void* context.
+  std::vector<uint32_t> keys;
+  kv->list_keys(
+      [](uint32_t key, size_t, void *ctx) {
+        static_cast<std::vector<uint32_t> *>(ctx)->push_back(key);
+        return true;
+      },
+      &keys);
+  for (uint32_t key : keys) {
+    if (kv_read_entry(kv, key, e)) {
       // Unrestricted mode still knows names/types for everything codegen
       // could see (all restore_value globals) -- render those readable.
-      emit(e, find_by_key(static_cast<uint32_t>(key), sel, count));
+      emit(e, find_by_key(key, sel, count));
       n++;
     }
-    err = nvs_entry_next(&it);
   }
-  nvs_release_iterator(it);
   return n;
 }
 
@@ -1232,10 +1234,9 @@ bool preferences_export_to_raw(RawStorage *device, uint64_t address, uint64_t wi
   // Flush pending preference writes so NVS reflects the current state.
   global_preferences->sync();
 
-  nvs_handle_t handle;
-  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "nvs_open failed: %s", esp_err_to_name(err));
+  storage::KeyValueStorage *kv = esphome::esp32::get_preferences_store();
+  if (kv == nullptr) {
+    ESP_LOGE(TAG, "preferences store unavailable");
     return false;
   }
 
@@ -1246,7 +1247,7 @@ bool preferences_export_to_raw(RawStorage *device, uint64_t address, uint64_t wi
   const uint64_t budget = window > sizeof(RawHeader) ? window - sizeof(RawHeader) : 0;
   bool over_budget = false;
   std::string payload;
-  size_t exported = collect_entries(handle, sel, count, restrict_to_selection, selected_entities, selected_entity_count,
+  size_t exported = collect_entries(kv, sel, count, restrict_to_selection, selected_entities, selected_entity_count,
                                     [&](const NvsEntry &e, const PrefSelection *s) {
                                       if (over_budget)
                                         return;
@@ -1258,7 +1259,6 @@ bool preferences_export_to_raw(RawStorage *device, uint64_t address, uint64_t wi
                                       append_u16(payload, static_cast<uint16_t>(e.len));
                                       payload.append(reinterpret_cast<const char *>(e.blob), e.len);
                                     });
-  nvs_close(handle);
   if (over_budget) {
     ESP_LOGE(TAG, "Export does not fit the %" PRIu32 " bytes reserved at 0x%08" PRIX32 " -- nothing written",
              (uint32_t) window, (uint32_t) address);
@@ -1359,10 +1359,9 @@ bool preferences_import_from_raw(RawStorage *device, uint64_t address, uint64_t 
   }
 
   sweep_app_entities();
-  nvs_handle_t handle;
-  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "nvs_open failed: %s", esp_err_to_name(err));
+  storage::KeyValueStorage *kv = esphome::esp32::get_preferences_store();
+  if (kv == nullptr) {
+    ESP_LOGE(TAG, "preferences store unavailable");
     return false;
   }
 
@@ -1393,24 +1392,13 @@ bool preferences_import_from_raw(RawStorage *device, uint64_t address, uint64_t 
       skipped++;
       continue;
     }
-    char key_str[16];
-    snprintf(key_str, sizeof(key_str), "%" PRIu32, key);
-    err = nvs_set_blob(handle, key_str, blob, len);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "nvs_set_blob('%s') failed: %s", key_str, esp_err_to_name(err));
+    if (kv->set(key, blob, len) != storage::StorageError::OK) {
+      ESP_LOGE(TAG, "storing key %" PRIu32 " failed", key);
       ok = false;
       break;
     }
     imported++;
   }
-  if (ok) {
-    err = nvs_commit(handle);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "nvs_commit failed: %s", esp_err_to_name(err));
-      ok = false;
-    }
-  }
-  nvs_close(handle);
   if (!ok)
     return false;
 
@@ -1439,10 +1427,9 @@ bool preferences_export_to_storage(const char *path, const char *format, const P
   // Flush pending preference writes so NVS reflects the current state.
   global_preferences->sync();
 
-  nvs_handle_t handle;
-  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READONLY, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "nvs_open failed: %s", esp_err_to_name(err));
+  storage::KeyValueStorage *kv = esphome::esp32::get_preferences_store();
+  if (kv == nullptr) {
+    ESP_LOGE(TAG, "preferences store unavailable");
     return false;
   }
 
@@ -1461,7 +1448,7 @@ bool preferences_export_to_storage(const char *path, const char *format, const P
       root["version"] = 1;
       JsonObject prefs = root["preferences"].to<JsonObject>();
       exported = collect_entries(
-          handle, sel, count, restrict_to_selection, selected_entities, selected_entity_count,
+          kv, sel, count, restrict_to_selection, selected_entities, selected_entity_count,
           [&](const NvsEntry &e, const PrefSelection *s) {
             if (over_budget)
               return;
@@ -1494,7 +1481,7 @@ bool preferences_export_to_storage(const char *path, const char *format, const P
   } else {
     out += "# ESPHome preferences export (kv v1)\n";
     out += "# <global id or numeric NVS key>=<typed value or hex:...>\n";
-    exported = collect_entries(handle, sel, count, restrict_to_selection, selected_entities, selected_entity_count,
+    exported = collect_entries(kv, sel, count, restrict_to_selection, selected_entities, selected_entity_count,
                                [&](const NvsEntry &e, const PrefSelection *s) {
                                  if (over_budget)
                                    return;
@@ -1526,7 +1513,6 @@ bool preferences_export_to_storage(const char *path, const char *format, const P
                                  out += '\n';
                                });
   }
-  nvs_close(handle);
   if (over_budget) {
     ESP_LOGE(TAG,
              "Export exceeds max_blocking_transfer_size (%" PRIu32 " bytes) -- nothing written. Narrow it with the "
@@ -1546,9 +1532,9 @@ bool preferences_export_to_storage(const char *path, const char *format, const P
 
 // ---- import ----
 
-// Writes one parsed name/value pair to NVS; shared by both formats.
-static bool import_one(nvs_handle_t handle, const char *name, size_t name_len, const char *value, size_t value_len,
-                       const PrefSelection *sel, size_t count, bool restrict_to_selection,
+// Writes one parsed name/value pair through the preferences KV store; shared by both formats.
+static bool import_one(storage::KeyValueStorage *kv, const char *name, size_t name_len, const char *value,
+                       size_t value_len, const PrefSelection *sel, size_t count, bool restrict_to_selection,
                        esphome::EntityBase *const *selected_entities, size_t selected_entity_count, size_t &imported,
                        size_t &skipped) {
   // One buffer for both paths below. They never overlap in time, but MAX_BLOB_LEN is 4 kB and
@@ -1566,11 +1552,8 @@ static bool import_one(nvs_handle_t handle, const char *name, size_t name_len, c
     // typed parse first; hex: prefix (and stale-format hex) still accepted below
     if (value_len < strlen(HEX_PREFIX) || memcmp(value, HEX_PREFIX, strlen(HEX_PREFIX)) != 0) {
       if (decode_entity_value(value, value_len, *re, blob, &blob_len)) {
-        char key_str[16];
-        snprintf(key_str, sizeof(key_str), "%" PRIu32, key);
-        esp_err_t err = nvs_set_blob(handle, key_str, blob, blob_len);
-        if (err != ESP_OK) {
-          ESP_LOGE(TAG, "nvs_set_blob('%s') failed: %s", key_str, esp_err_to_name(err));
+        if (kv->set(key, blob, blob_len) != storage::StorageError::OK) {
+          ESP_LOGE(TAG, "storing key %" PRIu32 " failed", key);
           return false;
         }
         imported++;
@@ -1615,11 +1598,8 @@ static bool import_one(nvs_handle_t handle, const char *name, size_t name_len, c
     return true;
   }
 
-  char key_str[16];
-  snprintf(key_str, sizeof(key_str), "%" PRIu32, key);
-  esp_err_t err = nvs_set_blob(handle, key_str, blob, blob_len);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "nvs_set_blob('%s') failed: %s", key_str, esp_err_to_name(err));
+  if (kv->set(key, blob, blob_len) != storage::StorageError::OK) {
+    ESP_LOGE(TAG, "storing key %" PRIu32 " failed", key);
     return false;
   }
   imported++;
@@ -1649,10 +1629,9 @@ bool preferences_import_from_storage(const char *path, const char *format, bool 
     return false;
   }
 
-  nvs_handle_t handle;
-  esp_err_t err = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &handle);
-  if (err != ESP_OK) {
-    ESP_LOGE(TAG, "nvs_open failed: %s", esp_err_to_name(err));
+  storage::KeyValueStorage *store = esphome::esp32::get_preferences_store();
+  if (store == nullptr) {
+    ESP_LOGE(TAG, "preferences store unavailable");
     return false;
   }
 
@@ -1672,7 +1651,7 @@ bool preferences_import_from_storage(const char *path, const char *format, bool 
           skipped++;
           continue;
         }
-        if (!import_one(handle, kv.key().c_str(), strlen(kv.key().c_str()), value, strlen(value), sel, count,
+        if (!import_one(store, kv.key().c_str(), strlen(kv.key().c_str()), value, strlen(value), sel, count,
                         restrict_to_selection, selected_entities, selected_entity_count, imported, skipped))
           return false;
       }
@@ -1698,18 +1677,10 @@ bool preferences_import_from_storage(const char *path, const char *format, bool 
         skipped++;
         continue;
       }
-      ok = import_one(handle, line, eq - line, eq + 1, line_len - (eq + 1 - line), sel, count, restrict_to_selection,
+      ok = import_one(store, line, eq - line, eq + 1, line_len - (eq + 1 - line), sel, count, restrict_to_selection,
                       selected_entities, selected_entity_count, imported, skipped);
     }
   }
-  if (ok) {
-    err = nvs_commit(handle);
-    if (err != ESP_OK) {
-      ESP_LOGE(TAG, "nvs_commit failed: %s", esp_err_to_name(err));
-      ok = false;
-    }
-  }
-  nvs_close(handle);
 
   if (!ok)
     return false;
@@ -1721,6 +1692,6 @@ bool preferences_import_from_storage(const char *path, const char *format, bool 
   return true;
 }
 
-}  // namespace esphome::storage
+}  // namespace esphome::preferences
 
-#endif  // USE_STORAGE_PREFERENCES && USE_ESP32
+#endif  // USE_PREFERENCES_BACKUP && USE_ESP32

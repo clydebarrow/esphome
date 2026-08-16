@@ -3,8 +3,8 @@
 #include "esphome/core/defines.h"
 // Preferences backup/restore is an ESP32-only storage capability: it talks to
 // the NVS namespace ESPHome preferences live in. Codegen defines
-// USE_STORAGE_PREFERENCES when one of the actions is used.
-#if defined(USE_STORAGE_PREFERENCES) && defined(USE_ESP32)
+// USE_PREFERENCES_BACKUP when one of the actions is used.
+#if defined(USE_PREFERENCES_BACKUP) && defined(USE_ESP32)
 
 #include <cstddef>
 #include <cstdint>
@@ -14,8 +14,10 @@ class EntityBase;  // fwd -- full definition pulled in by the .cpp only
 }  // namespace esphome
 
 namespace esphome::storage {
-
 class RawStorage;  // fwd -- only ever used through the pointers below
+}  // namespace esphome::storage
+
+namespace esphome::preferences {
 
 // Value type of a selected preference, baked by codegen from the global's
 // YAML `type:`. Blobs are the raw bytes of T (strings: length-prefixed
@@ -67,10 +69,10 @@ bool preferences_import_from_storage(const char *path, const char *format, bool 
 // aborts without writing a single byte rather than trampling the neighbouring region -- the one
 // case config-time size validation cannot catch, because an unrestricted selection grows with
 // the app.
-bool preferences_export_to_raw(RawStorage *device, uint64_t address, uint64_t window, const PrefSelection *selection,
-                               size_t count, bool restrict_to_selection, esphome::EntityBase *const *selected_entities,
-                               size_t selected_entity_count);
-bool preferences_import_from_raw(RawStorage *device, uint64_t address, uint64_t window, bool reboot,
+bool preferences_export_to_raw(storage::RawStorage *device, uint64_t address, uint64_t window,
+                               const PrefSelection *selection, size_t count, bool restrict_to_selection,
+                               esphome::EntityBase *const *selected_entities, size_t selected_entity_count);
+bool preferences_import_from_raw(storage::RawStorage *device, uint64_t address, uint64_t window, bool reboot,
                                  const PrefSelection *selection, size_t count, bool restrict_to_selection,
                                  esphome::EntityBase *const *selected_entities, size_t selected_entity_count);
 
@@ -129,6 +131,6 @@ void register_key_pref(uint32_t key, const char *name, EntityKind kind);
 // codegen contributes only the globals table and, for listed entity IDs,
 // the object pointers handed to the actions.
 
-}  // namespace esphome::storage
+}  // namespace esphome::preferences
 
-#endif  // USE_STORAGE_PREFERENCES && USE_ESP32
+#endif  // USE_PREFERENCES_BACKUP && USE_ESP32
