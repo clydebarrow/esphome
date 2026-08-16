@@ -511,6 +511,22 @@ void IndicatorLine::update_length_() {
 }
 #endif
 
+#ifdef USE_LVGL_TABLE
+uint32_t lv_table_get_selected_row(lv_obj_t *obj) {
+  uint32_t row;
+  uint32_t column;
+  lv_table_get_selected_cell(obj, &row, &column);
+  return row;
+}
+
+uint32_t lv_table_get_selected_column(lv_obj_t *obj) {
+  uint32_t row;
+  uint32_t column;
+  lv_table_get_selected_cell(obj, &row, &column);
+  return column;
+}
+#endif  // USE_LVGL_TABLE
+
 #ifdef USE_LVGL_KEY_LISTENER
 LVEncoderListener::LVEncoderListener(lv_indev_type_t type, uint16_t long_press_time, uint16_t long_press_repeat_time) {
   this->drv_ = lv_indev_create();

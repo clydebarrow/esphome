@@ -59,6 +59,10 @@ lv_obj_t *lv_container_create(lv_obj_t *parent);
 void lv_scale_draw_event_cb(lv_event_t *e, int16_t range_start, int16_t range_end, lv_color_t color_start,
                             lv_color_t color_end, int width, bool local);
 #endif
+#ifdef USE_LVGL_TABLE
+uint32_t lv_table_get_selected_row(lv_obj_t *obj);
+uint32_t lv_table_get_selected_column(lv_obj_t *obj);
+#endif
 #if LV_COLOR_DEPTH == 16
 static const display::ColorBitness LV_BITNESS = display::ColorBitness::COLOR_BITNESS_565;
 #elif LV_COLOR_DEPTH == 32
