@@ -16,6 +16,7 @@ from esphome.const import (
 from esphome.core import CORE
 import esphome.final_validate as fv
 
+AUTO_LOAD = ["ring_buffer"]
 CODEOWNERS = ["@kahrendt"]
 DOMAIN = "audio"
 audio_ns = cg.esphome_ns.namespace("audio")
@@ -64,8 +65,7 @@ class AudioData:
     flac_support: bool = False
     mp3_support: bool = False
     opus_support: bool = False
-    # WAV defaults to True for backward compatibility; will become opt-in in a future release
-    wav_support: bool = True
+    wav_support: bool = False
     micro_decoder_support: bool = False
     flac: FlacOptions = field(default_factory=FlacOptions)
     mp3: Mp3Options = field(default_factory=Mp3Options)
@@ -335,7 +335,7 @@ async def to_code(config):
 
     add_idf_component(
         name="esphome/esp-audio-libs",
-        ref="2.0.4",
+        ref="3.2.1",
     )
 
     data = _get_data()
@@ -371,7 +371,7 @@ async def to_code(config):
             data.wav_support = True
 
     if data.micro_decoder_support:
-        add_idf_component(name="esphome/micro-decoder", ref="0.2.0")
+        add_idf_component(name="esphome/micro-decoder", ref="0.4.0")
 
         # All codecs are enabled by default in micro-decoder, so disable the ones that aren't requested to save flash
         if not data.flac_support:
@@ -380,6 +380,8 @@ async def to_code(config):
             add_idf_sdkconfig_option("CONFIG_MICRO_DECODER_CODEC_MP3", False)
         if not data.opus_support:
             add_idf_sdkconfig_option("CONFIG_MICRO_DECODER_CODEC_OPUS", False)
+        # Vorbis is unsupported in ESPHome, so always disable it
+        add_idf_sdkconfig_option("CONFIG_MICRO_DECODER_CODEC_VORBIS", False)
         if not data.wav_support:
             add_idf_sdkconfig_option("CONFIG_MICRO_DECODER_CODEC_WAV", False)
 
@@ -387,7 +389,7 @@ async def to_code(config):
     # Adds a define and IDF component for legacy `audio_decoder.cpp`.
     if data.flac_support:
         cg.add_define("USE_AUDIO_FLAC_SUPPORT")
-        add_idf_component(name="esphome/micro-flac", ref="0.1.1")
+        add_idf_component(name="esphome/micro-flac", ref="0.2.0")
         _emit_memory_pair(
             data.flac.buffer_memory,
             "CONFIG_MICRO_FLAC_PREFER_PSRAM",
@@ -395,14 +397,15 @@ async def to_code(config):
         )
     if data.mp3_support:
         cg.add_define("USE_AUDIO_MP3_SUPPORT")
+        add_idf_component(name="esphome/micro-mp3", ref="0.4.0")
         _emit_memory_pair(
             data.mp3.buffer_memory,
-            "CONFIG_MP3_DECODER_PREFER_PSRAM",
-            "CONFIG_MP3_DECODER_PREFER_INTERNAL",
+            "CONFIG_MICRO_MP3_PREFER_PSRAM",
+            "CONFIG_MICRO_MP3_PREFER_INTERNAL",
         )
     if data.opus_support:
         cg.add_define("USE_AUDIO_OPUS_SUPPORT")
-        add_idf_component(name="esphome/micro-opus", ref="0.4.0")
+        add_idf_component(name="esphome/micro-opus", ref="0.4.1")
         if data.opus.floating_point is not None:
             add_idf_sdkconfig_option(
                 "CONFIG_OPUS_FLOATING_POINT", data.opus.floating_point
@@ -427,3 +430,6 @@ async def to_code(config):
             add_idf_sdkconfig_option(
                 "CONFIG_OPUS_PSEUDOSTACK_SIZE", data.opus.pseudostack.size
             )
+    if data.wav_support:
+        cg.add_define("USE_AUDIO_WAV_SUPPORT")
+        add_idf_component(name="esphome/micro-wav", ref="0.2.0")

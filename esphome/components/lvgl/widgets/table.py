@@ -7,8 +7,8 @@ from esphome.const import CONF_ID, CONF_ITEMS, CONF_ROW, CONF_TEXT, CONF_WIDTH
 from ..automation import action_to_code
 from ..defines import CONF_COLUMN, CONF_MAIN, literal
 from ..lv_validation import lv_bool, lv_int, lv_text, pixels_or_percent
-from ..lvcode import lv, lv_expr
-from ..types import LvType, ObjUpdateAction
+from ..lvcode import lv, lv_add, lv_expr
+from ..types import LvCompound, LvType, ObjUpdateAction
 from . import Widget, WidgetType, get_widgets
 from .label import CONF_LABEL
 
@@ -84,7 +84,8 @@ TABLE_SCHEMA = cv.Schema(
 ).add_extra(_validate_table)
 
 lv_table_t = LvType(
-    "lv_table_t",
+    "LvTableType",
+    parents=(LvCompound,),
     largs=[(cg.uint32, "row"), (cg.uint32, "column")],
     lvalue=lambda w: [
         lv_expr.table_get_selected_row(w.obj),
@@ -152,7 +153,14 @@ class TableType(WidgetType):
         if column_count is not None:
             lv.table_set_column_count(w.obj, column_count)
         for index, column in enumerate(config.get(CONF_COLUMNS, ())):
-            if (width := column.get(CONF_WIDTH)) is not None:
+            if (width := column.get(CONF_WIDTH)) is None:
+                continue
+            if isinstance(width, float):
+                # A percentage: pixels_or_percent validation leaves it as a 0.0-1.0
+                # fraction. LVGL's table widget only accepts a literal pixel width, so
+                # the actual width is recomputed at runtime from the table's own size.
+                lv_add(w.var.add_column_width_pct(index, round(width * 100)))
+            else:
                 lv.table_set_column_width(
                     w.obj, index, await pixels_or_percent.process(width)
                 )

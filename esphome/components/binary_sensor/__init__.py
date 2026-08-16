@@ -148,7 +148,7 @@ DelayedOnOffFilter = binary_sensor_ns.class_("DelayedOnOffFilter", Filter)
 DelayedOnFilter = binary_sensor_ns.class_("DelayedOnFilter", Filter)
 DelayedOffFilter = binary_sensor_ns.class_("DelayedOffFilter", Filter)
 InvertFilter = binary_sensor_ns.class_("InvertFilter", Filter)
-AutorepeatFilter = binary_sensor_ns.class_("AutorepeatFilter", Filter, cg.Component)
+AutorepeatFilter = binary_sensor_ns.class_("AutorepeatFilter", Filter)
 LambdaFilter = binary_sensor_ns.class_("LambdaFilter", Filter)
 StatelessLambdaFilter = binary_sensor_ns.class_("StatelessLambdaFilter", Filter)
 SettleFilter = binary_sensor_ns.class_("SettleFilter", Filter)
@@ -282,9 +282,7 @@ async def autorepeat_filter_to_code(config, filter_id):
                 ),
             )
         ]
-    var = cg.new_Pvariable(filter_id, cg.TemplateArguments(len(timings)), timings)
-    await cg.register_component(var, {})
-    return var
+    return cg.new_Pvariable(filter_id, cg.TemplateArguments(len(timings)), timings)
 
 
 @register_filter("lambda", LambdaFilter, cv.returning_lambda)
@@ -450,7 +448,9 @@ _BINARY_SENSOR_SCHEMA = (
             cv.Exclusive(
                 CONF_TRIGGER_ON_INITIAL_STATE, CONF_TRIGGER_ON_INITIAL_STATE
             ): cv.boolean,
-            cv.Optional(CONF_DEVICE_CLASS): validate_device_class,
+            cv.Optional(
+                CONF_DEVICE_CLASS, visibility=cv.Visibility.ADVANCED
+            ): validate_device_class,
             cv.Optional(CONF_FILTERS): validate_filters,
             cv.Optional(CONF_ON_PRESS): automation.validate_automation({}),
             cv.Optional(CONF_ON_RELEASE): automation.validate_automation({}),
