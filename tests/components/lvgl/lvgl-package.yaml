@@ -1186,7 +1186,7 @@ lvgl:
             align: top_mid
             y: 60
             columns:
-              - width: 60
+              - width: 40%
               - width: 80
             rows:
               - ["Name", "Value"]

@@ -496,6 +496,25 @@ class LvLineType : public LvCompound {
   FixedVector<lv_point_precise_t> points_{};
 };
 #endif
+#ifdef USE_LVGL_TABLE
+// Unlike most size properties, lv_table_set_column_width() only accepts a literal pixel
+// count, so percentage column widths must be recomputed by hand whenever the table's own
+// content width changes.
+class LvTableType : public LvCompound {
+ public:
+  void set_obj(lv_obj_t *lv_obj) override;
+  void add_column_width_pct(uint32_t col, uint8_t pct);
+
+ protected:
+  void update_column_widths_();
+
+  struct ColumnPct {
+    uint32_t col;
+    uint8_t pct;
+  };
+  std::vector<ColumnPct> column_pct_{};
+};
+#endif  // USE_LVGL_TABLE
 #if defined(USE_LVGL_DROPDOWN) || defined(LV_USE_ROLLER)
 class LvSelectable : public LvCompound {
  public:
