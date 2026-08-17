@@ -14,31 +14,9 @@ jobs:
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      # TEMPORARY DIAGNOSTIC STEP -- the marketplace action's own error path
-      # ("No review result returned") swallows the actual DeepSeek API error
-      # body. hustcer/deepseek-review@v1 doesn't expose --debug as an action
-      # input, so run the same script by hand with --debug to see the real
-      # response and find out why choices[0].message.content comes back empty.
-      - name: Setup Nu
-        uses: hustcer/setup-nu@v3
+      - name: DeepSeek Code Review
+        uses: hustcer/deepseek-review@v1
         with:
-          version: '0.114.1'
-
-      - name: Checkout DeepSeek review scripts
-        uses: actions/checkout@v4
-        with:
-          repository: hustcer/deepseek-review
-          ref: v1
-          path: .deepseek-review
-
-      - name: DeepSeek Code Review (debug)
-        shell: bash
-        env:
-          CHAT_TOKEN: ${{ secrets.DEEPSEEK_API_KEY }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          PR_NUMBER=$(jq -r '.pull_request.number' "$GITHUB_EVENT_PATH")
-          nu -I .deepseek-review/nu -c "
-            use review.nu *
-            (deepseek-review \$env.CHAT_TOKEN --model 'deepseek-v4-flash' --repo 'embedme-io/embedme' --pr-number '$PR_NUMBER' --gh-token \$env.GH_TOKEN --debug)
-          "
+          chat-token: ${{ secrets.DEEPSEEK_API_KEY }}
+          model: 'deepseek-v4-flash'
+          exclude-patterns: 'package-lock.json,*.lock,dist/**/*'
