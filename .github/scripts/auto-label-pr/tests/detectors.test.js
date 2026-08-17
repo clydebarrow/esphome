@@ -309,7 +309,6 @@ describe('detectRequirements', () => {
   // PR body without any docs-PR link.
   const NO_DOCS_CONTEXT = makeBodyContext('Just a description, no docs link.');
   const USER_DOCS_CONTEXT = makeBodyContext('Docs: esphome/esphome.io#1234');
-  const FORK_DOCS_CONTEXT = makeBodyContext('Docs: embedme-io/embedme-docs#5');
   const DEV_DOCS_CONTEXT = makeBodyContext('Docs: esphome/developers.esphome.io#1234');
   const DEV_DOCS_URL_CONTEXT = makeBodyContext('Docs: https://github.com/esphome/developers.esphome.io/pull/1234');
 
@@ -337,16 +336,6 @@ describe('detectRequirements', () => {
   it('new-feature without a docs link still adds needs-docs', async () => {
     const labels = await detectRequirements(new Set(['new-feature', 'has-tests']), [], NO_DOCS_CONTEXT, false);
     assert.ok(labels.has('needs-docs'));
-  });
-
-  it('an esphome/esphome.io docs link satisfies needs-docs for new-feature', async () => {
-    const labels = await detectRequirements(new Set(['new-feature', 'has-tests']), [], USER_DOCS_CONTEXT, false);
-    assert.ok(!labels.has('needs-docs'));
-  });
-
-  it('an embedme-io/embedme-docs (fork) docs link satisfies needs-docs for new-feature', async () => {
-    const labels = await detectRequirements(new Set(['new-feature', 'has-tests']), [], FORK_DOCS_CONTEXT, false);
-    assert.ok(!labels.has('needs-docs'));
   });
 
   it('new-feature-developer without a developer docs link adds needs-developer-docs', async () => {

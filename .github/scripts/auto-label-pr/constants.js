@@ -42,10 +42,7 @@ module.exports = {
     /esphome\/esphome\.io#\d+/,
     // Keep matching the old esphome-docs name during the transition period
     /https:\/\/github\.com\/esphome\/esphome-docs\/pull\/\d+/,
-    /esphome\/esphome-docs#\d+/,
-    // This fork's own docs repo (embedme-io/embedme-docs), not the upstream one
-    /https:\/\/github\.com\/embedme-io\/embedme-docs\/pull\/\d+/,
-    /embedme-io\/embedme-docs#\d+/
+    /esphome\/esphome-docs#\d+/
   ],
 
   DEVELOPER_DOCS_PR_PATTERNS: [

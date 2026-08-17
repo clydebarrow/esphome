@@ -21,10 +21,6 @@
 
 - esphome/esphome.io#<esphome.io PR number goes here>
 
-**Pull request in [embedme-docs](https://github.com/embedme-io/embedme-docs) with documentation (if applicable):**
-
-- embedme-io/embedme-docs#<embedme-docs PR number goes here>
-
 **Pull request in [developers.esphome.io](https://github.com/esphome/developers.esphome.io) with developer documentation (if applicable):**
 
 - esphome/developers.esphome.io#<developers.esphome.io PR number goes here>
@@ -52,4 +48,4 @@
   - [ ] Tests have been added to verify that the new code works (under `tests/` folder).
 
 If user exposed functionality or configuration variables are added/changed:
-  - [ ] Documentation added/updated in [esphome.io](https://github.com/esphome/esphome.io) or [embedme-docs](https://github.com/embedme-io/embedme-docs).
+  - [ ] Documentation added/updated in [esphome.io](https://github.com/esphome/esphome.io).
