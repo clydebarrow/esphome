@@ -1,3 +1,5 @@
+import logging
+
 import esphome.codegen as cg
 from esphome.components.image import (
     INSTANCE_TYPE as IMAGE_TYPE,
@@ -43,6 +45,8 @@ from ..lvcode import lv, lv_expr
 from ..types import lv_image_t
 from . import Widget, WidgetType
 from .label import CONF_LABEL
+
+_LOGGER = logging.getLogger(__name__)
 
 BASE_IMG_SCHEMA = cv.Schema(
     {
@@ -152,6 +156,17 @@ class ImgType(WidgetType):
         if metadata is not None:
             await self._animimg_to_code(w, config, metadata)
         else:
+            if CONF_DURATION in config:
+                # frame_count <= 1 (or the source couldn't be resolved to an id at
+                # all, e.g. a `!lambda`/`mapping:` src): duration only ever affects
+                # animimg playback, so an explicit value here would silently do
+                # nothing.
+                _LOGGER.warning(
+                    "'%s' has no effect on 'image' widget '%s': its 'src:' is not "
+                    "a multi-frame image/animation",
+                    CONF_DURATION,
+                    w.var,
+                )
             await w.set_property(CONF_SRC, await lv_image.process(config.get(CONF_SRC)))
         for prop, validator in BASE_IMG_SCHEMA.schema.items():
             await w.set_property(prop, config, processor=validator)
