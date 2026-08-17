@@ -1,0 +1,27 @@
+name: DeepSeek Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  code-review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Run DeepSeek Code Review
+        uses: Louis-7/ai-code-review@main
+        env:
+          ENGINE: 'deepseek'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CHAT_GPT_MODEL: 'deepseek-reasoner' # Options: 'deepseek-chat' or 'deepseek-reasoner'
+          PATH_TO_EXCLUDE: 'package-lock.json, *.lock, dist/**/*'
+          MAX_PATCH_PER_FILE: 2000
+          MAX_FILE_PER_PR: 20
