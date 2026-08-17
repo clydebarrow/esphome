@@ -53,6 +53,12 @@ TRANSPARENCY_TYPES = (
     CONF_ALPHA_CHANNEL,
 )
 
+# Shared with the `file`/`animation` and `online_image`/`runtime_image`
+# platform schemas (which validate `byte_order` themselves via this same
+# validator) so `_drop_incompatible_byte_order` below can check a value it is
+# about to discard without duplicating the accepted-values list.
+validate_byte_order = cv.one_of("BIG_ENDIAN", "LITTLE_ENDIAN", upper=True)
+
 
 def get_image_type_enum(type):
     return getattr(ImageType, f"IMAGE_TYPE_{type.upper()}")
@@ -546,7 +552,13 @@ def _is_legacy_image_format(config: object) -> bool:
         return bool(config) and all(
             isinstance(entry, dict) and CONF_PLATFORM not in entry for entry in config
         )
-    if not isinstance(config, dict):
+    if not isinstance(config, dict) or CONF_PLATFORM in config:
+        # A dict already tagged with `platform:` is the new format written
+        # without its list brackets (e.g. a single `defaults:`/`files:` entry,
+        # or a single flat entry) -- not a legacy shape. Leave it alone; the
+        # normal `elif not isinstance(self.conf, list): self.conf = [self.conf]`
+        # normalization in LoadValidationStep wraps it into a one-entry list,
+        # which the new EXPAND_PLATFORM_CONFIG hook then handles correctly.
         return False
     # A single image dict, or the grouped `defaults:`/`images:`/type-key form.
     return (
@@ -578,18 +590,9 @@ def _flatten_legacy_image_config(config: object) -> list[dict]:
 
     def _add(entry: dict, extra: dict) -> None:
         merged = {**defaults, **extra, **entry}
-        # The legacy `defaults:`/type-grouped forms only applied `byte_order` to
-        # types that support it. Replicate that so an endian default merged into
-        # e.g. a binary image stays valid.
-        type_class = IMAGE_TYPE.get(str(merged.get(CONF_TYPE, "")).upper())
-        if (
-            CONF_BYTE_ORDER in merged
-            and isinstance(type_class, type)
-            and issubclass(type_class, ImageEncoder)
-            and not type_class.is_endian()
-        ):
-            del merged[CONF_BYTE_ORDER]
-        result.append(merged)
+        # Always drop, regardless of where byte_order came from -- see
+        # _drop_incompatible_byte_order's docstring.
+        result.append(_drop_incompatible_byte_order(merged, {}))
 
     def _add_entries(entries: object, extra: dict) -> None:
         # `entries` may be a single image dict or a list of them; non-dict

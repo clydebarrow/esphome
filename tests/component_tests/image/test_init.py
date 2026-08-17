@@ -21,16 +21,20 @@ from esphome.components.image import (
     CONF_OPAQUE,
     CONF_TRANSPARENCY,
     PLATFORM_FILE,
+    _expand_platform_entry,
     _flatten_legacy_image_config,
     _is_legacy_image_format,
     _is_new_image_format,
     _migrate_legacy_image_config,
+    expand_platform_config,
     get_all_image_metadata,
     get_image_metadata,
 )
 from esphome.const import (
+    CONF_DEFAULTS,
     CONF_DITHER,
     CONF_FILE,
+    CONF_FILES,
     CONF_ID,
     CONF_PLATFORM,
     CONF_RAW_DATA_ID,
@@ -259,6 +263,19 @@ def test_flatten_keeps_byte_order_for_endian_type() -> None:
     assert out[0][CONF_BYTE_ORDER] == "little_endian"
 
 
+def test_flatten_drops_byte_order_written_directly_on_legacy_entry() -> None:
+    """Unlike the new defaults:/files: expansion, the legacy flattener drops an
+    incompatible byte_order unconditionally, even when it's written directly on
+    the image entry rather than inherited from defaults: -- matching the
+    pre-platform-component get_options() behavior for this deprecated shape, so
+    existing deployed configs using it don't newly start failing validation."""
+    out = _flatten_legacy_image_config(
+        {"binary": [{"id": "a", "file": "x.png", "byte_order": "little_endian"}]}
+    )
+    assert out == [{"id": "a", "file": "x.png", "type": "binary"}]
+    assert CONF_BYTE_ORDER not in out[0]
+
+
 def test_flatten_skips_meta_and_unknown_keys() -> None:
     out = _flatten_legacy_image_config(
         {
@@ -342,6 +359,24 @@ def test_migrate_legacy_warns_and_prepends_platform(
         ),
         pytest.param({"foo": 1}, False, id="dict_unknown_keys"),
         pytest.param("a string", False, id="scalar"),
+        # A dict already tagged with `platform:` is the new format written
+        # without its list brackets, not a legacy shape -- even though it also
+        # happens to contain a `defaults:`/`images:`/type key that would
+        # otherwise look legacy.
+        pytest.param(
+            {CONF_PLATFORM: "file", "id": "a", "file": "x.png"},
+            False,
+            id="platform_tagged_flat_dict",
+        ),
+        pytest.param(
+            {
+                CONF_PLATFORM: "file",
+                "defaults": {"type": "rgb565"},
+                "files": [{"id": "a", "file": "x.png"}],
+            },
+            False,
+            id="platform_tagged_defaults_files_dict",
+        ),
     ],
 )
 def test_is_legacy_image_format(config: object, expected: bool) -> None:
@@ -367,7 +402,255 @@ def test_migrate_returns_none_for_invalid_legacy_shapes(
     assert "deprecated" not in caplog.text
 
 
+def test_migrate_returns_none_for_mapping_form_defaults_files() -> None:
+    """A single `platform:`-tagged entry using the new `defaults:`/`files:`
+    shape, written as a bare mapping instead of a one-item list, must not be
+    swallowed by the legacy migrator -- that previously emptied it to `image: []`
+    with a bogus deprecation warning instead of leaving it for the normal
+    list-wrapping + EXPAND_PLATFORM_CONFIG path to handle."""
+    config = {
+        CONF_PLATFORM: "file",
+        "defaults": {"type": "rgb565"},
+        "files": [{"id": "a", "file": "a.png"}],
+    }
+    assert _migrate_legacy_image_config(config) is None
+
+
 # --------------------------- end legacy migration --------------------------
+
+
+def test_expand_platform_entry_passes_through_plain_entry() -> None:
+    entry = {CONF_PLATFORM: "file", "id": "a", "file": "x.png"}
+    assert _expand_platform_entry(0, entry) == [entry]
+
+
+def test_expand_platform_entry_expands_files_with_defaults() -> None:
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {"type": "RGB565", "transparency": "opaque"},
+        CONF_FILES: [
+            {"id": "img1", "file": "foo.png"},
+            {"id": "img2", "file": "bar.png", "type": "GRAYSCALE"},
+        ],
+    }
+    assert _expand_platform_entry(0, entry) == [
+        {
+            CONF_PLATFORM: "file",
+            "id": "img1",
+            "file": "foo.png",
+            "type": "RGB565",
+            "transparency": "opaque",
+        },
+        {
+            CONF_PLATFORM: "file",
+            "id": "img2",
+            "file": "bar.png",
+            "type": "GRAYSCALE",
+            "transparency": "opaque",
+        },
+    ]
+
+
+def test_expand_platform_entry_files_without_defaults() -> None:
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_FILES: [{"id": "img1", "file": "foo.png"}],
+    }
+    assert _expand_platform_entry(0, entry) == [
+        {CONF_PLATFORM: "file", "id": "img1", "file": "foo.png"}
+    ]
+
+
+def test_expand_platform_entry_per_file_overrides_win() -> None:
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {"type": "RGB565"},
+        CONF_FILES: [{"id": "img1", "file": "foo.png", "type": "BINARY"}],
+    }
+    [out] = _expand_platform_entry(0, entry)
+    assert out["type"] == "BINARY"
+
+
+def test_expand_platform_entry_drops_byte_order_for_non_endian_override() -> None:
+    """A `byte_order` default merged into a `type: binary` override is dropped,
+    matching the legacy defaults:/images: flattener, rather than becoming a hard
+    validation error the user has no way to work around (a per-file override
+    can't unset a key set in `defaults:`)."""
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {"type": "rgb565", "byte_order": "little_endian"},
+        CONF_FILES: [
+            {"id": "a", "file": "x.png"},
+            {"id": "b", "file": "y.png", "type": "binary"},
+        ],
+    }
+    out = _expand_platform_entry(0, entry)
+    assert out[0]["byte_order"] == "little_endian"
+    assert "byte_order" not in out[1]
+
+
+def test_expand_platform_entry_invalid_byte_order_in_defaults_raises() -> None:
+    """A `byte_order` inherited from `defaults:` that gets dropped for an
+    entry overriding to a non-endian `type:` is still validated before being
+    discarded -- a typo must raise, not silently vanish just because it
+    happened to land on an incompatible type."""
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {"type": "rgb565", "byte_order": "little_andian"},
+        CONF_FILES: [{"id": "a", "file": "x.png", "type": "binary"}],
+    }
+    with pytest.raises(cv.Invalid, match="did you mean") as excinfo:
+        _expand_platform_entry(0, entry)
+    assert excinfo.value.path == [0]
+
+
+def test_expand_platform_entry_keeps_byte_order_for_endian_override() -> None:
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {"type": "rgb565", "byte_order": "big_endian"},
+        CONF_FILES: [{"id": "a", "file": "x.png", "type": "rgb565"}],
+    }
+    [out] = _expand_platform_entry(0, entry)
+    assert out["byte_order"] == "big_endian"
+
+
+def test_expand_platform_entry_keeps_explicit_byte_order_conflict() -> None:
+    """A `byte_order` the user wrote directly on a file entry (not inherited
+    from `defaults:`) must not be silently dropped even when the type on that
+    same entry doesn't support it -- unlike the inherited-from-defaults case,
+    this is a direct, explicit conflict the user wrote themselves, so it should
+    reach validate_settings's normal "does not support byte order configuration"
+    error instead of being hidden."""
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {"type": "rgb565"},
+        CONF_FILES: [
+            {
+                "id": "a",
+                "file": "x.png",
+                "type": "binary",
+                "byte_order": "little_endian",
+            }
+        ],
+    }
+    [out] = _expand_platform_entry(0, entry)
+    assert out["byte_order"] == "little_endian"
+
+
+def test_expand_platform_entry_defaults_without_files_raises() -> None:
+    entry = {CONF_PLATFORM: "file", CONF_DEFAULTS: {"type": "RGB565"}}
+    with pytest.raises(cv.Invalid, match="may only be used together with") as excinfo:
+        _expand_platform_entry(0, entry)
+    assert excinfo.value.path == [0]
+
+
+def test_expand_platform_entry_null_files_raises_not_empty() -> None:
+    """`files:` with nothing after it parses to `None` -- distinct from the key
+    being absent -- and must say so clearly rather than claiming `files:`
+    wasn't provided at all."""
+    entry = {CONF_PLATFORM: "file", CONF_DEFAULTS: {"type": "RGB565"}, CONF_FILES: None}
+    with pytest.raises(cv.Invalid, match="must not be empty"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_empty_files_list_raises_not_empty() -> None:
+    """An explicit `files: []` must not silently expand to zero entries and
+    drop the whole platform entry without any error."""
+    entry = {CONF_PLATFORM: "file", CONF_FILES: []}
+    with pytest.raises(cv.Invalid, match="must not be empty"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_files_with_stray_key_raises() -> None:
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_FILES: [{"id": "a", "file": "x.png"}],
+        "extra": 1,
+    }
+    with pytest.raises(cv.Invalid, match="cannot be combined with"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_id_in_defaults_raises() -> None:
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {CONF_ID: "a"},
+        CONF_FILES: [{"file": "x.png"}],
+    }
+    with pytest.raises(cv.Invalid, match="not allowed inside"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_platform_in_defaults_raises() -> None:
+    """`platform:` inside `defaults:` must not be allowed to silently reassign
+    which platform module handles every file -- same reasoning as `id:` being
+    rejected there, and just as easy to trip over by accident."""
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: {CONF_PLATFORM: "animation"},
+        CONF_FILES: [{"id": "a", "file": "x.png"}],
+    }
+    with pytest.raises(cv.Invalid, match="not allowed inside"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_platform_in_file_entry_raises() -> None:
+    """`platform:` on an individual `files:` item must not silently override
+    the entry's own `platform:` key."""
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_FILES: [{"id": "a", "file": "x.png", CONF_PLATFORM: "animation"}],
+    }
+    with pytest.raises(cv.Invalid, match="not allowed inside"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_files_not_list_raises() -> None:
+    entry = {CONF_PLATFORM: "file", CONF_FILES: "not-a-list"}
+    with pytest.raises(cv.Invalid, match="must be a list"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_defaults_not_mapping_raises() -> None:
+    entry = {
+        CONF_PLATFORM: "file",
+        CONF_DEFAULTS: "not-a-mapping",
+        CONF_FILES: [{"id": "a", "file": "x.png"}],
+    }
+    with pytest.raises(cv.Invalid, match="must be a mapping"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_entry_file_item_not_mapping_raises() -> None:
+    entry = {CONF_PLATFORM: "file", CONF_FILES: [1, 2]}
+    with pytest.raises(cv.Invalid, match="must be a mapping"):
+        _expand_platform_entry(0, entry)
+
+
+def test_expand_platform_config_mixes_plain_and_expanded_entries() -> None:
+    config = [
+        {
+            CONF_PLATFORM: "file",
+            CONF_DEFAULTS: {"type": "RGB565"},
+            CONF_FILES: [
+                {"id": "img1", "file": "foo.png"},
+                {"id": "img2", "file": "bar.png"},
+            ],
+        },
+        {CONF_PLATFORM: "file", "id": "plain", "file": "baz.png", "type": "BINARY"},
+    ]
+    out = expand_platform_config(config)
+    assert [entry["id"] for entry in out] == ["img1", "img2", "plain"]
+
+
+def test_expand_platform_config_ignores_non_platform_entries() -> None:
+    # Not expanded here -- legacy_config_migrate runs before this hook and is
+    # responsible for tagging/flattening pre-platform shapes.
+    config = ["not-a-platform-entry"]
+    assert expand_platform_config(config) == config
+
+
+# --------------------- end defaults/files expansion -------------------------
 
 
 def test_validate_image_final_defaults_to_little_endian() -> None:

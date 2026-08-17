@@ -620,6 +620,36 @@ class LoadValidationStep(ConfigValidationStep):
             elif not isinstance(self.conf, list):
                 result[self.domain] = self.conf = [self.conf]
 
+            # Permanent (non-deprecated) expansion hook: lets a platform-tagged
+            # entry expand into several entries (e.g. `image`'s `defaults:`/
+            # `files:` shape) before per-entry CONFIG_SCHEMA/ID registration runs.
+            # Only invoked when every entry already matches the documented
+            # contract (a `platform:`-tagged dict) -- malformed user entries
+            # (e.g. a bare string) or an untouched `AutoLoad` are left alone so
+            # the normal per-entry error handling below reports them instead
+            # of reaching a component's EXPAND_PLATFORM_CONFIG with something
+            # it wasn't written to expect.
+            if (expand := component.expand_platform_config) is not None and all(
+                isinstance(entry, dict) and CONF_PLATFORM in entry
+                for entry in self.conf
+            ):
+                with result.catch_error(path):
+                    expanded = expand(self.conf)
+                    if not isinstance(expanded, list):
+                        # Explicit raise rather than a bare assert so the guard
+                        # isn't stripped under python -O/-OO. TypeError is not
+                        # one of catch_error's except clauses (only
+                        # cv.FinalExternalInvalid/vol.Invalid are), so it still
+                        # escapes uncaught here -- a non-list return is a
+                        # coding error in the component, not a user error, and
+                        # must crash loudly rather than be reported as a
+                        # config error.
+                        raise TypeError(
+                            f"{self.domain}: EXPAND_PLATFORM_CONFIG must "
+                            f"return a list, got {type(expanded).__name__}"
+                        )
+                    result[self.domain] = self.conf = expanded
+
         # Process AUTO_LOAD
         _process_auto_load(result, component, path)
 
