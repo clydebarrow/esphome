@@ -104,46 +104,50 @@ Color Image::get_pixel(int x, int y, const Color color_on, const Color color_off
   }
 }
 #ifdef USE_LVGL
+void Image::fill_lv_image_dsc_(lv_image_dsc_t &dsc, const uint8_t *data) const {
+  dsc.data = data;
+  dsc.header.reserved_2 = 0;
+  dsc.header.stride = this->get_width_stride();
+  dsc.header.w = this->width_;
+  dsc.header.h = this->height_;
+  dsc.data_size = this->get_width_stride() * this->get_height();
+  switch (this->get_type()) {
+    case IMAGE_TYPE_BINARY:
+      dsc.header.cf = LV_COLOR_FORMAT_A1;
+      break;
+
+    case IMAGE_TYPE_GRAYSCALE:
+      dsc.header.cf = LV_COLOR_FORMAT_A8;
+      break;
+
+    case IMAGE_TYPE_RGB:
+      switch (this->transparency_) {
+        case TRANSPARENCY_ALPHA_CHANNEL:
+          dsc.header.cf = LV_COLOR_FORMAT_ARGB8888;
+          break;
+        case TRANSPARENCY_CHROMA_KEY:
+        default:
+          dsc.header.cf = LV_COLOR_FORMAT_RGB888;
+          break;
+      }
+      break;
+
+    case IMAGE_TYPE_RGB565:
+      switch (this->transparency_) {
+        case TRANSPARENCY_ALPHA_CHANNEL:
+          dsc.header.cf = LV_COLOR_FORMAT_RGB565A8;
+          break;
+        default:
+          dsc.header.cf = LV_COLOR_FORMAT_RGB565;
+      }
+      break;
+  }
+}
+
 lv_image_dsc_t *Image::get_lv_image_dsc() {
   // lazily construct lvgl image_dsc.
   if (this->dsc_.data != this->data_start_) {
-    this->dsc_.data = this->data_start_;
-    this->dsc_.header.reserved_2 = 0;
-    this->dsc_.header.stride = this->get_width_stride();
-    this->dsc_.header.w = this->width_;
-    this->dsc_.header.h = this->height_;
-    this->dsc_.data_size = this->get_width_stride() * this->get_height();
-    switch (this->get_type()) {
-      case IMAGE_TYPE_BINARY:
-        this->dsc_.header.cf = LV_COLOR_FORMAT_A1;
-        break;
-
-      case IMAGE_TYPE_GRAYSCALE:
-        this->dsc_.header.cf = LV_COLOR_FORMAT_A8;
-        break;
-
-      case IMAGE_TYPE_RGB:
-        switch (this->transparency_) {
-          case TRANSPARENCY_ALPHA_CHANNEL:
-            this->dsc_.header.cf = LV_COLOR_FORMAT_ARGB8888;
-            break;
-          case TRANSPARENCY_CHROMA_KEY:
-          default:
-            this->dsc_.header.cf = LV_COLOR_FORMAT_RGB888;
-            break;
-        }
-        break;
-
-      case IMAGE_TYPE_RGB565:
-        switch (this->transparency_) {
-          case TRANSPARENCY_ALPHA_CHANNEL:
-            this->dsc_.header.cf = LV_COLOR_FORMAT_RGB565A8;
-            break;
-          default:
-            this->dsc_.header.cf = LV_COLOR_FORMAT_RGB565;
-        }
-        break;
-    }
+    this->fill_lv_image_dsc_(this->dsc_, this->data_start_);
   }
   return &this->dsc_;
 }

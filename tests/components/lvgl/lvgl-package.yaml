@@ -430,6 +430,13 @@ lvgl:
                   src: !lambda "return {dog_image, cat_image};"
                   duration: 2s
               - lvgl.widget.refresh: anim_img
+        - animimg:
+            # `src:` can also be a single multi-frame `image:`/`animation:` id, which
+            # supplies all of its own frames -- an alternative to listing them out.
+            height: 50
+            id: anim_img_single_src
+            src: spinner_animation
+            duration: 800ms
         - label:
             on_boot:
               lvgl.label.update:
@@ -879,6 +886,13 @@ lvgl:
             y: "50"
             scale: 2.0
             rotation: 45
+        - image:
+            # A plain `image:` widget pointed at a multi-frame `animation:` id is
+            # automatically driven by LVGL's own animimg machinery instead of showing
+            # a static frame -- no need to redeclare it via `animimg:`.
+            id: lv_animated_image
+            src: spinner_animation
+            align: top_right
         - tileview:
             id: tileview_id
             scrollbar_mode: active
@@ -1577,6 +1591,12 @@ image:
     resize: 100x100
     invert_alpha: true
     transparency: alpha_channel
+
+  - id: spinner_animation
+    platform: animation
+    file: $component_dir/anim.gif
+    type: RGB565
+    resize: 50x50
 
 mapping:
   - id: image_map

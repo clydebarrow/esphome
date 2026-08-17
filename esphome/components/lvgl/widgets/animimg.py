@@ -4,7 +4,7 @@ from esphome.const import CONF_DURATION, CONF_ID
 
 from ..automation import action_to_code
 from ..defines import CONF_AUTO_START, CONF_MAIN, CONF_REPEAT_COUNT, CONF_SRC
-from ..lv_validation import lv_image_list, lv_milliseconds
+from ..lv_validation import lv_animimg_src, lv_milliseconds, lv_repeat_count
 from ..lvcode import lv
 from ..types import LvType, ObjUpdateAction
 from . import Widget, WidgetType, get_widgets
@@ -12,13 +12,6 @@ from .img import CONF_IMAGE
 from .label import CONF_LABEL
 
 CONF_ANIMIMG = "animimg"
-
-
-def lv_repeat_count(value):
-    if isinstance(value, str) and value.lower() in ("forever", "infinite"):
-        value = 0xFFFF
-    return cv.int_range(min=0, max=0xFFFF)(value)
-
 
 ANIMIMG_BASE_SCHEMA = cv.Schema(
     {
@@ -29,14 +22,14 @@ ANIMIMG_BASE_SCHEMA = cv.Schema(
 ANIMIMG_SCHEMA = ANIMIMG_BASE_SCHEMA.extend(
     {
         cv.Required(CONF_DURATION): lv_milliseconds,
-        cv.Required(CONF_SRC): lv_image_list,
+        cv.Required(CONF_SRC): lv_animimg_src,
     }
 )
 
 ANIMIMG_MODIFY_SCHEMA = ANIMIMG_BASE_SCHEMA.extend(
     {
         cv.Optional(CONF_DURATION): lv_milliseconds,
-        cv.Optional(CONF_SRC): lv_image_list,
+        cv.Optional(CONF_SRC): lv_animimg_src,
     }
 )
 
@@ -55,7 +48,7 @@ class AnimimgType(WidgetType):
 
     async def to_code(self, w: Widget, config):
         if srcs := config.get(CONF_SRC):
-            srcs = await lv_image_list.process(srcs)
+            srcs = await lv_animimg_src.process(srcs)
             lv.animimg_set_src(w.obj, srcs)
         if repeat_count := config.get(CONF_REPEAT_COUNT):
             lv.animimg_set_repeat_count(w.obj, repeat_count)

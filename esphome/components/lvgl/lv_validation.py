@@ -445,7 +445,59 @@ lv_image_list = LValidator(
     cg.std_vector.template(image.Image_.operator("ptr")),
     requires="image",
 )
+
+
+def _animimg_src_validator(value):
+    if isinstance(value, list):
+        return lv_image_list.validator(value)
+    return _image_validator(value)
+
+
+class AnimimgSrcValidator(LValidator):
+    """Validates `animimg:`'s `src:`, accepting either form:
+
+    - The original list of single-frame image ids (or a `!lambda` returning a
+      `std::vector<image::Image*>`), one entry per displayed frame.
+    - A single image/animation id (or `mapping:` entry), which supplies all of its
+      own frames -- the natural way to point `animimg:` at a multi-frame `image:` /
+      `animation:` entry without re-declaring it as a list of frames.
+
+    Code generation for both forms calls the same `lv.animimg_set_src(...)`; which
+    C++ overload actually runs is resolved by the C++ compiler from the expression's
+    type, not decided here.
+    """
+
+    def __init__(self):
+        super().__init__(
+            validator=_animimg_src_validator,
+            rtype=cg.std_vector.template(image.Image_.operator("ptr")),
+            requires="image",
+        )
+
+    async def process(
+        self,
+        value: Any,
+        args: list[tuple[SafeExpType, str]] | None = None,
+        raw_lambda: bool = False,
+    ) -> Expression:
+        # A `!lambda` is never re-validated by `_animimg_src_validator` (the base
+        # `LValidator.__call__` intercepts it before that runs), so it still needs an
+        # explicit check here: it always returns a `std::vector<image::Image*>`, same
+        # as the plain list form, not a single `image::Image*`.
+        if isinstance(value, (list, Lambda)):
+            return await super().process(value, args, raw_lambda)
+        return await lv_image.process(value, args, raw_lambda)
+
+
+lv_animimg_src = AnimimgSrcValidator()
+
 lv_bool = LValidator(cv.boolean, cg.bool_, retmapper=literal)
+
+
+def lv_repeat_count(value):
+    if isinstance(value, str) and value.lower() in ("forever", "infinite"):
+        value = 0xFFFF
+    return cv.int_range(min=0, max=0xFFFF)(value)
 
 
 def lvms_validator_(value):

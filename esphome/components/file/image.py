@@ -249,7 +249,7 @@ async def new_image(config: ConfigType) -> MockObj:
     Used by the built-in ``file`` platform; encodes the image data, registers
     the C++ variable and records its metadata for other components to consume.
     """
-    prog_arr, width, height, image_type, trans_value, _ = await write_image(config)
+    prog_arr, width, height, image_type, trans_value, _, _ = await write_image(config)
     var = cg.new_Pvariable(
         config[CONF_ID], prog_arr, width, height, image_type, trans_value
     )
@@ -318,9 +318,12 @@ async def write_image(config, all_frames=False):
     # correct without needing to know the total frame count.
     byte_order = config.get(CONF_BYTE_ORDER)
     combined_data: list[int] = []
+    frame_durations_ms: list[int] = []
     encoder: ImageEncoder | None = None
     for frame_index in range(frame_count):
         image.seek(frame_index)
+        if all_frames and (duration := image.info.get("duration")) is not None:
+            frame_durations_ms.append(duration)
         encoder = IMAGE_TYPE[type](width, height, transparency, dither, invert_alpha)
         if byte_order is not None:
             # Check for valid type has already been done in validate_settings
@@ -337,8 +340,19 @@ async def write_image(config, all_frames=False):
     prog_arr = cg.progmem_array(config[CONF_RAW_DATA_ID], rhs)
     image_type = get_image_type_enum(type)
     trans_value = get_transparency_enum(encoder.transparency)
+    # Total time in ms for one loop through all frames, taken from the source file's
+    # own per-frame delays (e.g. a GIF's timing); None if the source had none.
+    animation_duration_ms = sum(frame_durations_ms) if frame_durations_ms else None
 
-    return prog_arr, width, height, image_type, trans_value, frame_count
+    return (
+        prog_arr,
+        width,
+        height,
+        image_type,
+        trans_value,
+        frame_count,
+        animation_duration_ms,
+    )
 
 
 # The built-in static-image platform: pixels embedded at compile time from a

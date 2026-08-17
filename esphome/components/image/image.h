@@ -4,6 +4,7 @@
 
 #ifdef USE_LVGL
 #include "esphome/components/lvgl/lvgl_proxy.h"
+#include <vector>
 #endif  // USE_LVGL
 
 namespace esphome::image {
@@ -30,6 +31,11 @@ class Image : public display::BaseImage {
   const uint8_t *get_data_start() const { return this->data_start_; }
   ImageType get_type() const;
 
+  /// Returns the number of frames in this image: 1 for a static image, more for an
+  /// animation. Lets generic code (e.g. LVGL widgets) treat any Image uniformly
+  /// without needing to know whether it is actually an Animation.
+  virtual uint32_t get_frame_count() const { return 1; }
+
   int get_bpp() const { return this->bpp_; }
 
   /// Return the stride of the image in bytes, that is, the distance in bytes
@@ -41,12 +47,23 @@ class Image : public display::BaseImage {
 
 #ifdef USE_LVGL
   lv_image_dsc_t *get_lv_image_dsc();
+  /// Returns an LVGL image descriptor for every frame of this image: a single-element
+  /// vector for a static image, one entry per frame for an animation. This lets the
+  /// LVGL animimg widget display any Image as an animation without needing to know
+  /// whether the source is actually animated.
+  virtual std::vector<lv_image_dsc_t *> get_lv_animimg_descs() { return {this->get_lv_image_dsc()}; }
 #endif
  protected:
   bool get_binary_pixel_(int x, int y) const;
   Color get_rgb_pixel_(int x, int y) const;
   Color get_rgb565_pixel_(int x, int y) const;
   Color get_grayscale_pixel_(int x, int y) const;
+#ifdef USE_LVGL
+  /// Fills in an LVGL image descriptor's header/data pointer for one frame's data.
+  /// Shared by get_lv_image_dsc() and Animation::get_lv_animimg_descs() so the
+  /// format-mapping logic stays in one place.
+  void fill_lv_image_dsc_(lv_image_dsc_t &dsc, const uint8_t *data) const;
+#endif
 
   int width_;
   int height_;

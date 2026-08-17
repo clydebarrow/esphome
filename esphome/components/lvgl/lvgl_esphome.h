@@ -109,6 +109,19 @@ inline void lv_animimg_set_src(lv_obj_t *img, std::vector<image::Image *> images
   }
   lv_animimg_set_src(img, (const void **) dsc->data(), dsc->size());
 }
+
+// Single-image overload: also accepts a plain (single-frame) image::Image, in which
+// case get_lv_animimg_descs() supplies one frame and the widget just shows it statically.
+inline void lv_animimg_set_src(lv_obj_t *img, image::Image *image) {
+  auto *dsc = static_cast<std::vector<lv_image_dsc_t *> *>(lv_obj_get_user_data(img));
+  if (dsc == nullptr) {
+    // object will be lazily allocated but never freed.
+    dsc = new std::vector<lv_image_dsc_t *>();  // NOLINT
+    lv_obj_set_user_data(img, dsc);
+  }
+  *dsc = image->get_lv_animimg_descs();
+  lv_animimg_set_src(img, (const void **) dsc->data(), dsc->size());
+}
 #endif  // USE_LVGL_ANIMIMG
 #endif  // USE_IMAGE
 

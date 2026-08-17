@@ -555,9 +555,17 @@ async def test_svg_with_mm_dimensions_succeeds(
 
     # Verify that write_image returns the expected tuple
     assert isinstance(result, tuple), "write_image should return a tuple"
-    assert len(result) == 6, "write_image should return 6 values"
+    assert len(result) == 7, "write_image should return 7 values"
 
-    prog_arr, width, height, image_type, trans_value, frame_count = result
+    (
+        prog_arr,
+        width,
+        height,
+        image_type,
+        trans_value,
+        frame_count,
+        animation_duration_ms,
+    ) = result
 
     # Verify the dimensions are positive integers
     # At 100 DPI, 10mm = ~39 pixels (10mm * 100dpi / 25.4mm_per_inch)
@@ -566,6 +574,9 @@ async def test_svg_with_mm_dimensions_succeeds(
     assert width > 0, "Width should be positive"
     assert height > 0, "Height should be positive"
     assert frame_count == 1, "Single image should have frame_count of 1"
+    assert animation_duration_ms is None, (
+        "A single (non-animation) image should have no animation duration"
+    )
     # Verify we got reasonable dimensions from the mm-based SVG
     assert 30 < width < 50, (
         f"Width should be around 39 pixels for 10mm at 100dpi, got {width}"
@@ -613,8 +624,12 @@ async def test_rgb565_alpha_animation_layout_per_frame(
         CONF_RAW_DATA_ID: "test_raw_data_id",
     }
 
-    _, _, _, _, _, frame_count = await write_image(config, all_frames=True)
+    _, _, _, _, _, frame_count, animation_duration_ms = await write_image(
+        config, all_frames=True
+    )
     assert frame_count == 2
+    # Both frames were saved with an explicit 100ms delay.
+    assert animation_duration_ms == 200
 
     # Recover the bytes handed to progmem_array. Signature is (id_, rhs).
     _, raw_data = mock_progmem_array.call_args.args

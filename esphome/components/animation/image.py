@@ -3,9 +3,15 @@ import esphome.codegen as cg
 from esphome.components.const import CONF_LOOP
 from esphome.components.file import image as file_image
 from esphome.components.file.image import image_schema, write_image
-from esphome.components.image import Image_, validate_settings
+from esphome.components.image import (
+    CONF_OPAQUE,
+    CONF_TRANSPARENCY,
+    Image_,
+    add_metadata,
+    validate_settings,
+)
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_REPEAT
+from esphome.const import CONF_ID, CONF_REPEAT, CONF_TYPE
 from esphome.types import ConfigType
 
 CODEOWNERS = ["@syndlex"]
@@ -97,6 +103,7 @@ async def setup_animation(config: ConfigType) -> None:
         image_type,
         trans_value,
         frame_count,
+        animation_duration_ms,
     ) = await write_image(config, all_frames=True)
 
     var = cg.new_Pvariable(
@@ -107,6 +114,15 @@ async def setup_animation(config: ConfigType) -> None:
         frame_count,
         image_type,
         trans_value,
+    )
+    add_metadata(
+        config[CONF_ID],
+        width,
+        height,
+        config[CONF_TYPE],
+        config.get(CONF_TRANSPARENCY, CONF_OPAQUE),
+        frame_count=frame_count,
+        animation_duration_ms=animation_duration_ms,
     )
     if loop_config := config.get(CONF_LOOP):
         start = loop_config[CONF_START_FRAME]

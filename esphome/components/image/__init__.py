@@ -34,6 +34,11 @@ class ImageMetaData:
     height: int
     image_type: str
     transparency: str
+    # Number of frames; 1 for a static image, >1 for an animation.
+    frame_count: int = 1
+    # Total playback time in ms for one loop through all frames (e.g. the sum of a
+    # source GIF/APNG/WEBP's own per-frame delays), or None if unknown/not animated.
+    animation_duration_ms: int | None = None
 
 
 CONF_OPAQUE = "opaque"
@@ -381,10 +386,23 @@ def validate_settings(value, path=()):
     return value
 
 
-def add_metadata(id: str, width: int, height: int, image_type: str, transparency):
+def add_metadata(
+    id: str,
+    width: int,
+    height: int,
+    image_type: str,
+    transparency,
+    frame_count: int = 1,
+    animation_duration_ms: int | None = None,
+):
     all_metadata = CORE.data.setdefault(DOMAIN, {}).setdefault(KEY_METADATA, {})
     all_metadata[str(id)] = ImageMetaData(
-        width=width, height=height, image_type=image_type, transparency=transparency
+        width=width,
+        height=height,
+        image_type=image_type,
+        transparency=transparency,
+        frame_count=frame_count,
+        animation_duration_ms=animation_duration_ms,
     )
 
 
