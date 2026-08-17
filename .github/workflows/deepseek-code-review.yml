@@ -2,31 +2,21 @@ name: DeepSeek Code Review
 
 on:
   pull_request_target:
-    types: [opened, synchronize, labeled]
+    types: [opened, synchronize, reopened]
 
+# Only pull-requests write is needed; without it the action's PR comment call
+# fails with "GraphQL: Resource not accessible by integration (addComment)".
 permissions:
-  contents: read
   pull-requests: write
-  issues: write
 
 jobs:
   review:
+    timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
-      - name: DeepSeek PR Review
-        uses: Louis-7/ai-code-review@main
-        env:
-          # The underlying probot adapter dispatches on the raw GITHUB_EVENT_NAME and only
-          # registers handlers for "pull_request.*", not "pull_request_target.*", so it silently
-          # no-ops unless we tell it the event is "pull_request". The payload schema is identical
-          # between the two events, so this is safe -- we keep the pull_request_target trigger
-          # (not pull_request) so secrets are still available for this cross-repo PR source.
-          GITHUB_EVENT_NAME: 'pull_request'
-          ENGINE: 'deepseek'
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEEPSEEK_BASE_URL: 'https://api.deepseek.com'
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          CHAT_GPT_MODEL: 'deepseek-chat' # or deepseek-reasoner
-          PATH_TO_EXCLUDE: 'package-lock.json, *.lock, dist/**/*'
-          MAX_PATCH_PER_FILE: 2000
-          MAX_FILE_PER_PR: 20
+      - name: DeepSeek Code Review
+        uses: hustcer/deepseek-review@v1
+        with:
+          chat-token: ${{ secrets.DEEPSEEK_API_KEY }}
+          model: 'deepseek-chat'
+          exclude-patterns: 'package-lock.json,*.lock,dist/**/*'
