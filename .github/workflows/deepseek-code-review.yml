@@ -21,8 +21,13 @@ jobs:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: DeepSeek PR Review
-        uses: anc42/deepseek-review-action@v1
-        with:
-          api-key: ${{ secrets.DEEPSEEK_API_KEY }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          model: 'deepseek-chat'
+        uses: Louis-7/ai-code-review@main
+        env:
+          ENGINE: 'deepseek'
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DEEPSEEK_BASE_URL: 'https://api.deepseek.com'
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          CHAT_GPT_MODEL: 'deepseek-chat' # or deepseek-reasoner
+          PATH_TO_EXCLUDE: 'package-lock.json, *.lock, dist/**/*'
+          MAX_PATCH_PER_FILE: 2000
+          MAX_FILE_PER_PR: 20
