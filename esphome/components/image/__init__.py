@@ -11,7 +11,7 @@ import esphome.codegen as cg
 from esphome.components.const import CONF_BYTE_ORDER, KEY_METADATA
 import esphome.config_validation as cv
 from esphome.const import CONF_DEFAULTS, CONF_FILE, CONF_ID, CONF_PLATFORM, CONF_TYPE
-from esphome.core import CORE
+from esphome.core import CORE, ID
 from esphome.types import ConfigType
 
 _LOGGER = logging.getLogger(__name__)
@@ -420,6 +420,34 @@ def get_all_image_metadata() -> dict[str, ImageMetaData]:
 def get_image_metadata(image_id: str) -> ImageMetaData | None:
     """Get image metadata by ID for use by other components."""
     return get_all_image_metadata().get(image_id)
+
+
+# ---------------------------------------------------------------------------
+# Multi-frame id tracking -- available during config validation, before codegen
+#
+# The real per-image ImageMetaData (frame_count, decoded dimensions, ...) is only
+# known once an image's own `to_code` has run and decoded the source file. Some
+# consumers (e.g. LVGL's `image:` widget, deciding whether a widget needs to be
+# created as an animimg) need to know *which ids could ever be multi-frame* much
+# earlier -- while validating the whole config, before any codegen has happened at
+# all -- so they can account for ids only referenced later by an update action.
+# `mark_multiframe`/`is_multiframe` track that single bit per id, set as soon as an
+# id is declared (currently: any `platform: animation` entry, regardless of how many
+# frames its source file actually turns out to have).
+# ---------------------------------------------------------------------------
+
+KEY_MULTIFRAME_IDS = "multiframe_ids"
+
+
+def mark_multiframe(image_id: ID) -> None:
+    """Record that `image_id` may end up having more than one frame."""
+    ids = CORE.data.setdefault(DOMAIN, {}).setdefault(KEY_MULTIFRAME_IDS, set())
+    ids.add(str(image_id))
+
+
+def is_multiframe(image_id: ID) -> bool:
+    """Whether `image_id` was declared in a way that may produce multiple frames."""
+    return str(image_id) in CORE.data.get(DOMAIN, {}).get(KEY_MULTIFRAME_IDS, set())
 
 
 # ---------------------------------------------------------------------------

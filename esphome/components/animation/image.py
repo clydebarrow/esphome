@@ -8,6 +8,7 @@ from esphome.components.image import (
     CONF_TRANSPARENCY,
     Image_,
     add_metadata,
+    mark_multiframe,
     validate_settings,
 )
 import esphome.config_validation as cv
@@ -53,9 +54,18 @@ ANIMATION_SCHEMA = image_schema(Animation_).extend(
     },
 )
 
+
+def _mark_multiframe(config: ConfigType) -> ConfigType:
+    # Recorded at validation time, well before codegen: lets consumers (e.g. LVGL's
+    # `image:` widget) know an id may end up multi-frame before this entry's own
+    # `to_code` has decoded the source file and populated its real metadata.
+    mark_multiframe(config[CONF_ID])
+    return config
+
+
 # Shared schema used by both the (deprecated) top-level `animation:` key and the
 # `image:` `platform: animation` entry.
-ANIMATION_CONFIG_SCHEMA = cv.All(ANIMATION_SCHEMA, validate_settings)
+ANIMATION_CONFIG_SCHEMA = cv.All(ANIMATION_SCHEMA, _mark_multiframe, validate_settings)
 
 
 NEXT_FRAME_SCHEMA = automation.maybe_simple_id(

@@ -324,6 +324,13 @@ lvgl:
                   offset_x: !lambda return 20;
                   offset_y: !lambda return 20;
                   antialias: !lambda return true;
+              # lv_deferred_animated_image is declared with a static src: below, but this
+              # update points it at a multi-frame animation: id -- the widget still has to
+              # be created as an animimg from the start (its LVGL object class can never
+              # change after creation), so this alone must make that happen.
+              - lvgl.image.update:
+                  id: lv_deferred_animated_image
+                  src: spinner_animation
     - id: msgbox_with_header_buttons
       title: Header Buttons Test
       body:
@@ -893,6 +900,13 @@ lvgl:
             id: lv_animated_image
             src: spinner_animation
             align: top_right
+        - image:
+            # Declared with a static src:, but an lvgl.image.update elsewhere (see
+            # above) later points it at spinner_animation -- validation has to catch
+            # that in advance so this is created as an animimg from the start too.
+            id: lv_deferred_animated_image
+            src: cat_image
+            align: bottom_right
         - tileview:
             id: tileview_id
             scrollbar_mode: active
