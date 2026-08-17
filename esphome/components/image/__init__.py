@@ -10,7 +10,14 @@ from PIL import Image, UnidentifiedImageError
 import esphome.codegen as cg
 from esphome.components.const import CONF_BYTE_ORDER, KEY_METADATA
 import esphome.config_validation as cv
-from esphome.const import CONF_DEFAULTS, CONF_FILE, CONF_ID, CONF_PLATFORM, CONF_TYPE
+from esphome.const import (
+    CONF_DEFAULTS,
+    CONF_FILE,
+    CONF_FILES,
+    CONF_ID,
+    CONF_PLATFORM,
+    CONF_TYPE,
+)
 from esphome.core import CORE, ID
 from esphome.types import ConfigType
 
@@ -426,6 +433,151 @@ def get_all_image_metadata() -> dict[str, ImageMetaData]:
 def get_image_metadata(image_id: str) -> ImageMetaData | None:
     """Get image metadata by ID for use by other components."""
     return get_all_image_metadata().get(image_id)
+
+
+# ---------------------------------------------------------------------------
+# `defaults:`/`files:` platform entry expansion.
+#
+# Any `image:` platform entry (`platform: file`, `platform: animation`,
+# `platform: online_image`, ...) may provide `defaults:` (options merged into
+# every file) together with `files:` (a list of per-image overrides) instead
+# of a single flat entry, so options shared by many images don't need to be
+# repeated on every one. This is purely structural -- the resulting entries
+# go through the platform's own CONFIG_SCHEMA exactly like hand-written
+# entries, so unsupported/invalid keys are still caught there. Unlike the
+# legacy migration below, this is a permanent, non-deprecated mechanism.
+# ---------------------------------------------------------------------------
+
+
+def _drop_incompatible_byte_order(
+    merged: dict, explicit: dict, *, index: int | None = None
+) -> dict:
+    """Drop `byte_order` from a merged entry if its resolved type doesn't support it
+    -- but only when `byte_order` was NOT written directly on `explicit`.
+
+    Used two different ways by the two callers below:
+
+    * The `defaults:`/`files:` expansion passes the actual hand-written per-image
+      entry as `explicit` and its own index as `index`, so a `byte_order` the user
+      wrote directly on that entry (as opposed to one inherited from `defaults:`)
+      is a direct, explicit conflict with an incompatible `type:` on that same
+      entry, and is left in place to surface the normal "does not support byte
+      order configuration" validation error instead of being silently discarded.
+      A value being dropped here came from `defaults:` and would otherwise never
+      reach the platform's own `CONFIG_SCHEMA` (which is what normally validates
+      it), so it is checked against `validate_byte_order` first -- a typo'd or
+      otherwise invalid `byte_order` in `defaults:` must still raise, not vanish
+      silently just because it happened to land on an incompatible `type:`.
+    * The legacy `defaults:`/`images:` flattener passes an empty dict and no
+      `index`, i.e. it always drops an incompatible `byte_order` unconditionally
+      and unchecked -- matching the pre-platform-component `get_options()`
+      behavior this flattener restores, which never distinguished "explicit" from
+      "inherited from defaults" (or validated the dropped value) for this
+      deprecated shape. Changing that now would be a silent behavior change for
+      existing, still-supported deprecated configs.
+    """
+    if CONF_BYTE_ORDER in explicit:
+        return merged
+    type_class = IMAGE_TYPE.get(str(merged.get(CONF_TYPE, "")).upper())
+    if (
+        CONF_BYTE_ORDER in merged
+        and isinstance(type_class, type)
+        and issubclass(type_class, ImageEncoder)
+        and not type_class.is_endian()
+    ):
+        if index is not None:
+            try:
+                validate_byte_order(merged[CONF_BYTE_ORDER])
+            except cv.Invalid as exc:
+                exc.prepend([index])
+                raise
+        del merged[CONF_BYTE_ORDER]
+    return merged
+
+
+def _expand_platform_entry(index: int, entry: dict) -> list[dict]:
+    if CONF_FILES not in entry:
+        if CONF_DEFAULTS in entry:
+            raise cv.Invalid(
+                f"'{CONF_DEFAULTS}' may only be used together with '{CONF_FILES}'",
+                path=[index],
+            )
+        return [entry]
+
+    extra_keys = set(entry) - {CONF_PLATFORM, CONF_DEFAULTS, CONF_FILES}
+    if extra_keys:
+        raise cv.Invalid(
+            f"'{CONF_FILES}' cannot be combined with "
+            f"{', '.join(sorted(extra_keys))} on the same entry",
+            path=[index],
+        )
+
+    files = entry[CONF_FILES]
+    if files is None:
+        raise cv.Invalid(f"'{CONF_FILES}' must not be empty", path=[index])
+    if not isinstance(files, list):
+        raise cv.Invalid(f"'{CONF_FILES}' must be a list", path=[index])
+    if not files:
+        raise cv.Invalid(f"'{CONF_FILES}' must not be empty", path=[index])
+
+    defaults = entry.get(CONF_DEFAULTS, {})
+    if defaults is None:
+        defaults = {}
+    if not isinstance(defaults, dict):
+        raise cv.Invalid(f"'{CONF_DEFAULTS}' must be a mapping", path=[index])
+    # Neither makes sense inside `defaults:`: one `id:` can't apply to every
+    # file, and a `platform:` here would silently reassign which platform
+    # module handles every file, overriding the entry's own `platform:` key.
+    for disallowed in (CONF_ID, CONF_PLATFORM):
+        if disallowed in defaults:
+            raise cv.Invalid(
+                f"'{disallowed}' is not allowed inside '{CONF_DEFAULTS}'",
+                path=[index],
+            )
+
+    platform = entry[CONF_PLATFORM]
+    result: list[dict] = []
+    for file_entry in files:
+        if not isinstance(file_entry, dict):
+            raise cv.Invalid(
+                f"each entry in '{CONF_FILES}' must be a mapping", path=[index]
+            )
+        # Silently letting a file entry override `platform:` would be an
+        # accidental, confusing feature -- the platform is chosen once, by the
+        # entry's own `platform:` key.
+        if CONF_PLATFORM in file_entry:
+            raise cv.Invalid(
+                f"'{CONF_PLATFORM}' is not allowed inside '{CONF_FILES}'",
+                path=[index],
+            )
+        merged = {CONF_PLATFORM: platform, **defaults, **file_entry}
+        result.append(_drop_incompatible_byte_order(merged, file_entry, index=index))
+    return result
+
+
+def expand_platform_config(config: list) -> list:
+    """Expand `defaults:`/`files:` platform entries into individual entries.
+
+    Shared across every image platform (`file`, `animation`, `online_image`,
+    and any future one): a platform-tagged `image:` entry may provide
+    `defaults:` (options merged into every file) together with `files:` (a
+    list of per-image overrides) instead of a single flat entry. Purely
+    structural -- the resulting entries go through the platform's own
+    CONFIG_SCHEMA exactly like hand-written entries, so invalid/unsupported
+    keys are still caught there with normal error messages.
+    """
+    result = []
+    for i, entry in enumerate(config):
+        if isinstance(entry, dict) and CONF_PLATFORM in entry:
+            result.extend(_expand_platform_entry(i, entry))
+        else:
+            result.append(entry)
+    return result
+
+
+EXPAND_PLATFORM_CONFIG = expand_platform_config
+
+# --------------------- end defaults/files expansion -------------------------
 
 
 # ---------------------------------------------------------------------------
