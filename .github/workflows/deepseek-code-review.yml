@@ -2,7 +2,7 @@ name: DeepSeek Code Review
 
 on:
   pull_request_target:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, labeled]
 
 permissions:
   contents: read
@@ -13,13 +13,6 @@ jobs:
   review:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          # Crucial for pull_request_target: checkout the PR head commit, 
-          # otherwise it checks out the target base branch (main).
-          ref: ${{ github.event.pull_request.head.sha }}
-
       - name: DeepSeek PR Review
         uses: Louis-7/ai-code-review@main
         env:
