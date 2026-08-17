@@ -1,0 +1,220 @@
+name: Sync upstream esphome/esphome dev into main
+
+# Keeps `main` merged forward against esphome/esphome's `dev` branch. Runs daily and
+# on demand; opens a PR into `main` for every sync (never pushes directly). If the merge
+# has conflicts, Claude resolves them in-place before the PR is opened, and the PR is
+# labeled for mandatory human review.
+#
+# Claude runs on Haiku (via `--model` in claude_args) rather than the default model —
+# conflict resolution here is a bounded, mechanical reconciliation task, and Haiku is
+# far cheaper for a job that runs daily. Bump to a stronger model only if Haiku's
+# resolutions start needing frequent manual correction.
+#
+# One-time setup this workflow depends on (see the plan doc / PR description for details):
+#   - `main` must already exist on origin (`git push origin main`).
+#   - Repo secret `ANTHROPIC_API_KEY` for the Claude conflict-resolution step.
+#   - Repo secret `SYNC_PR_TOKEN`: a PAT (or GitHub App token) with repo contents +
+#     pull-requests write access. The default GITHUB_TOKEN is intentionally NOT used
+#     here: GitHub does not fire `pull_request` events for content pushed/created with
+#     the default token, so ci.yml would never run on these PRs.
+
+on:
+  schedule:
+    - cron: "0 5 * * *"  # daily, 05:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write  # required by anthropics/claude-code-action, even with a static API key
+  actions: write  # needed to upload Claude's execution log as a build artifact
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.SYNC_PR_TOKEN }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PR_TOKEN }}
+
+      - name: Configure git identity
+        run: |
+          git config user.name "embedme-sync-bot"
+          git config user.email "embedme-sync-bot@users.noreply.github.com"
+
+      - name: Add upstream remote and fetch dev
+        run: |
+          git remote add upstream https://github.com/esphome/esphome.git
+          git fetch upstream dev
+
+      - name: Check whether a sync is needed
+        id: gate
+        run: |
+          if git merge-base --is-ancestor upstream/dev HEAD; then
+            echo "main is already up to date with upstream/dev, nothing to do."
+            echo "sync_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          open_count=$(gh pr list --repo "${{ github.repository }}" --base main \
+            --label upstream-sync --state open --json number --jq 'length')
+          if [ "$open_count" -gt 0 ]; then
+            echo "A sync PR is already open against main, skipping this run."
+            echo "sync_needed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "sync_needed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Create sync branch and attempt merge
+        if: steps.gate.outputs.sync_needed == 'true'
+        id: merge
+        run: |
+          # Suffixed with the run id (not just the date) so a second run on the same day
+          # -- e.g. a manual dispatch after the scheduled run already pushed a branch that's
+          # since been merged/closed -- doesn't collide with the earlier branch name.
+          branch="sync-upstream/$(date +%Y-%m-%d)-${{ github.run_id }}"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          git checkout -b "$branch"
+
+          if git merge upstream/dev --no-ff --no-edit; then
+            echo "conflicts=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "conflicts=true" >> "$GITHUB_OUTPUT"
+            files=$(git diff --name-only --diff-filter=U | tr '\n' ' ')
+            echo "conflicted_files=$files" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Resolve conflicts with Claude
+        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        id: claude
+        uses: anthropics/claude-code-action@ae33e29b70dbb280ad99b1f4f3134cb2edb3261a  # v1.0.192
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Surfaces a human-readable "Claude Code Report" in this job's Step Summary.
+          # Safe here (unlike the action's general warning about untrusted input): the
+          # prompt below is fixed by us, not attacker-controlled.
+          display_report: "true"
+          prompt: |
+            Merging esphome/esphome's `dev` branch into this fork's `main` left conflicts
+            in the following files: ${{ steps.merge.outputs.conflicted_files }}
+
+            For each file, resolve the conflict markers by reconciling the incoming
+            upstream change with this fork's existing custom change, following the
+            conventions in CLAUDE.md. Don't drop either side's intent unless one clearly
+            supersedes the other (e.g. upstream renamed/removed something this fork's
+            change depended on).
+
+            When a file is resolved, remove all conflict markers and `git add` it.
+            Do not run `git commit`, `git push`, or any other git command that changes
+            history — only edit files and `git add` them.
+          claude_args: |
+            --model claude-haiku-4-5-20251001
+            --allowedTools "Read,Edit,Bash(git add:*),Bash(git diff:*),Bash(git status:*)"
+            --disallowedTools "Bash(git commit:*),Bash(git push:*),Bash(git reset:*),Bash(git checkout:*)"
+
+      - name: Log Claude's resolution summary
+        # The transcript's last entry is a "result"-type message with a `result`
+        # field summarizing what Claude did, plus a few stats. Pull just those
+        # out to the job's Step Summary so the outcome is visible at a glance
+        # without downloading the full transcript artifact below. Parsed with
+        # jq (not interpolated into a shell string) because `result` routinely
+        # contains backticks/quotes that would otherwise be read as shell
+        # metacharacters.
+        if: always() && steps.merge.outputs.conflicts == 'true'
+        run: |
+          file="${{ steps.claude.outputs.execution_file }}"
+          if [ -z "$file" ] || [ ! -f "$file" ]; then
+            echo "No execution log available to summarize."
+            exit 0
+          fi
+
+          jq -r '
+            [.[] | select(.type == "result")][-1] as $r |
+            "### Claude conflict resolution summary\n\n" +
+            ($r.result // "_no summary returned_") + "\n\n" +
+            "| turns | cost (USD) | duration | error |\n" +
+            "|---|---|---|---|\n" +
+            "| " + ($r.num_turns | tostring) +
+            " | " + ($r.total_cost_usd | tostring) +
+            " | " + ($r.duration_ms | tostring) + "ms" +
+            " | " + ($r.is_error | tostring) + " |\n"
+          ' "$file" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload Claude's full execution log
+        # The action writes its full transcript (system prompt, every tool call and
+        # result) to a file under $RUNNER_TEMP that's otherwise lost once the runner
+        # is torn down at the end of the job. Upload it so it's downloadable from the
+        # run's Summary page instead of only existing for the run's lifetime.
+        if: always() && steps.merge.outputs.conflicts == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: claude-conflict-resolution-log-${{ github.run_id }}
+          path: ${{ steps.claude.outputs.execution_file }}
+          if-no-files-found: warn
+
+      - name: Verify no leftover conflict markers
+        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        run: |
+          if git grep -n -E '^(<{7}( |$)|={7}$|>{7}( |$))' -- . ; then
+            echo "::error::Unresolved conflict markers remain after AI resolution; refusing to continue."
+            exit 1
+          fi
+
+      - name: Finalize merge commit
+        if: steps.gate.outputs.sync_needed == 'true' && steps.merge.outputs.conflicts == 'true'
+        run: git commit --no-edit
+
+      - name: Push sync branch and open PR
+        if: steps.gate.outputs.sync_needed == 'true'
+        id: pr
+        run: |
+          branch="${{ steps.merge.outputs.branch }}"
+          git push origin "$branch"
+
+          labels="upstream-sync"
+          body="Merges esphome/esphome's \`dev\` branch into \`main\`."
+          if [ "${{ steps.merge.outputs.conflicts }}" = "true" ]; then
+            labels="$labels,needs-review"
+            body="$body
+
+          This merge had conflicts, which Claude resolved automatically (see the
+          \`Resolve conflicts with Claude\` step log for details). **Review the
+          conflict resolution carefully before merging.**"
+          fi
+          body="$body
+
+          Merge this with **\"Create a merge commit\"** — do not squash or rebase.
+          Squashing/rebasing breaks the shared history with upstream, which future
+          syncs rely on to stay conflict-free."
+
+          pr_url=$(gh pr create --repo "${{ github.repository }}" \
+            --base main --head "$branch" \
+            --title "[core] Sync upstream esphome/esphome dev into main ($(date +%Y-%m-%d))" \
+            --label "$labels" \
+            --body "$body")
+          echo "pr_number=${pr_url##*/}" >> "$GITHUB_OUTPUT"
+
+      - name: Clear any auto-requested codeowner reviewers
+        if: steps.gate.outputs.sync_needed == 'true'
+        # GitHub auto-populates requested reviewers/teams from CODEOWNERS on PR open,
+        # independent of any workflow. A sync PR can touch hundreds of files across
+        # unrelated components, so this would fan out to many upstream codeowners who
+        # have nothing to do with reviewing an upstream merge. Strip it immediately.
+        run: |
+          pr_number="${{ steps.pr.outputs.pr_number }}"
+          body=$(gh api "repos/${{ github.repository }}/pulls/$pr_number" \
+            --jq '{reviewers: [.requested_reviewers[].login], team_reviewers: [.requested_teams[].slug]}')
+          if [ "$(echo "$body" | jq '(.reviewers | length) + (.team_reviewers | length)')" -gt 0 ]; then
+            echo "$body" | gh api --method DELETE \
+              "repos/${{ github.repository }}/pulls/$pr_number/requested_reviewers" --input -
+          fi

@@ -1,0 +1,22 @@
+name: DeepSeek Code Review
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+# Only pull-requests write is needed; without it the action's PR comment call
+# fails with "GraphQL: Resource not accessible by integration (addComment)".
+permissions:
+  pull-requests: write
+
+jobs:
+  review:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - name: DeepSeek Code Review
+        uses: hustcer/deepseek-review@v1
+        with:
+          chat-token: ${{ secrets.DEEPSEEK_API_KEY }}
+          model: 'deepseek-v4-pro'
+          exclude-patterns: 'package-lock.json,*.lock,dist/**/*'
