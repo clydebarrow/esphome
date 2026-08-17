@@ -10,19 +10,19 @@ permissions:
   issues: write
 
 jobs:
-  code-review:
+  review:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          # Crucial for pull_request_target: checkout the PR head commit, 
+          # otherwise it checks out the target base branch (main).
+          ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: Run DeepSeek Code Review
-        uses: Louis-7/ai-code-review@main
-        env:
-          ENGINE: 'deepseek'
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-          CHAT_GPT_MODEL: 'deepseek-reasoner' # Options: 'deepseek-chat' or 'deepseek-reasoner'
-          PATH_TO_EXCLUDE: 'package-lock.json, *.lock, dist/**/*'
-          MAX_PATCH_PER_FILE: 2000
-          MAX_FILE_PER_PR: 20
+      - name: DeepSeek PR Review
+        uses: anc42/deepseek-review-action@v1
+        with:
+          api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          model: 'deepseek-chat'
