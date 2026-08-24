@@ -1,1 +1,1 @@
-Disposable branch v3 to test .github/workflows/warn-on-force-push.yml — safe to delete.
+Disposable branch v3 — rewrite C, after warning already posted (should be suppressed)
