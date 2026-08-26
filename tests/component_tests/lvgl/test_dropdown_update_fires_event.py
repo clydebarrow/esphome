@@ -18,7 +18,7 @@ from esphome.config import read_config
 from esphome.core import CORE
 
 
-@pytest.fixture(scope="module")
+@pytest.fixture
 def main_cpp(request: pytest.FixtureRequest) -> str:
     config_path = (
         Path(request.fspath).parent / "config" / "dropdown_update_fires_event_test.yaml"

@@ -567,12 +567,16 @@ void LvSelectable::set_selected_text(const std::string &text, lv_anim_enable_t a
 
 void LvSelectable::set_options(FixedVector<const char *> options) {
   auto index = this->get_selected_index();
-  if (index >= options.size())
+  bool clamped = index >= options.size();
+  if (clamped)
     index = options.size() - 1;
   this->options_ = std::move(options);
   this->set_option_string(join_string(this->options_).c_str());
   lv_obj_send_event(this->obj, LV_EVENT_REFRESH, nullptr);
   this->set_selected_index(index, LV_ANIM_OFF);
+  // A shorter option list can force a different selection; report that as a value change.
+  if (clamped)
+    lv_obj_send_event(this->obj, lv_update_event, nullptr);
 }
 #endif  // USE_LVGL_DROPDOWN || LV_USE_ROLLER
 
