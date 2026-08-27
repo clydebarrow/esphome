@@ -20,9 +20,9 @@ from .defines import (
     LV_DITHER,
     LV_GRAD_EXTEND,
     add_define,
+    add_lv_use,
     add_warning,
 )
-from .helpers import add_lv_use
 from .lv_validation import lv_color, lv_percentage, opacity, pixels_or_percent
 from .lvcode import lv
 from .types import lv_color_t, lv_gradient_t, lv_opa_t
@@ -121,8 +121,13 @@ GRADIENT_SCHEMA = cv.ensure_list(
             {
                 cv.GenerateID(CONF_ID): cv.declare_id(lv_gradient_t),
                 cv.Required(CONF_DIRECTION): cv.one_of(
-                    "HOR", "HORIZONTAL", "VER", "VERTICAL",
-                    "LINEAR", "RADIAL", "CONICAL",
+                    "HOR",
+                    "HORIZONTAL",
+                    "VER",
+                    "VERTICAL",
+                    "LINEAR",
+                    "RADIAL",
+                    "CONICAL",
                     upper=True,
                 ),
                 cv.Optional(CONF_DITHER): LV_DITHER.one_of,
@@ -206,4 +211,3 @@ async def gradients_to_code(config):
         lv.grad_init_stops(var, stop_colors, stop_opacities, stop_positions, len(stops))
 
     add_define("LV_GRADIENT_MAX_STOPS", max_stops)
-
