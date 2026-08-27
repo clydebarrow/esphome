@@ -149,6 +149,13 @@ async def gradients_to_code(config):
         add_warning(
             "The 'dither' option for gradients is not supported by LVGL 9.x and will be ignored"
         )
+    if any(
+        x[CONF_DIRECTION] in ("LINEAR", "RADIAL", "CONICAL")
+        for x in config.get(CONF_GRADIENTS, ())
+    ):
+        # LVGL's software renderer only draws these gradient types when this is enabled; without
+        # it they silently fall back to a plain horizontal gradient.
+        add_define("LV_USE_DRAW_SW_COMPLEX_GRADIENTS")
     for gradient in config.get(CONF_GRADIENTS, ()):
         var = MockObj(cg.new_Pvariable(gradient[CONF_ID]), "->")
         idbase = gradient[CONF_ID].id
