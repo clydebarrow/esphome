@@ -1,3 +1,5 @@
+from typing import Any
+
 from esphome import automation
 import esphome.codegen as cg
 from esphome.config import path_context
@@ -51,7 +53,7 @@ CONF_INCLUDE_NONE = "include_none"
 
 
 @schema_extractor("one_of")
-def validate_light_state(value):
+def validate_light_state(value: Any) -> bool | tuple[str, str]:
     """Validate a light on/off state.
 
     Presented as 'ON'/'OFF' to schema consumers (e.g. the dashboard), but cv.boolean

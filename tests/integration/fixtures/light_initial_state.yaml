@@ -76,7 +76,7 @@ light:
     # force the light on here regardless of what initial_state says.
     initial_state:
       color_mode: BRIGHTNESS
-      state: OFF
+      state: "OFF"
       brightness: 100%
 
   - platform: monochromatic
@@ -91,5 +91,5 @@ light:
     # than reproducing the behavior of any pre-existing restore_mode.
     initial_state:
       color_mode: BRIGHTNESS
-      state: ON
+      state: "ON"
       brightness: 42%
