@@ -222,8 +222,7 @@ def test_custom_priority_between_enum_values() -> None:
 
 
 def test_context_isolated_between_interleaved_tasks() -> None:
-    """Test that a contextvar set in one task does not leak into another task
-    that the scheduler interleaves with it."""
+    """Test that a contextvar set in one task does not leak into another task that the scheduler interleaves with it."""
     my_var: contextvars.ContextVar[str] = contextvars.ContextVar("my_var")
     seen: dict[str, str] = {}
 
