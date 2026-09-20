@@ -83,6 +83,21 @@ class BMPFormat(Format):
         cg.add_define("USE_RUNTIME_IMAGE_BMP")
 
 
+def _use_hardware_jpeg_decoder() -> bool:
+    """The ESP32-P4 has a hardware JPEG codec, exposed by ESP-IDF's jpeg_decode
+    driver since v5.3. Prefer it over the JPEGDEC software library on that target;
+    it only handles baseline (non-progressive) JPEG, same as the software decoder.
+    """
+    if not CORE.is_esp32 or CORE.using_arduino:
+        return False
+    from esphome.components.esp32 import get_esp32_variant, idf_version
+    from esphome.components.esp32.const import VARIANT_ESP32P4
+
+    return get_esp32_variant() == VARIANT_ESP32P4 and idf_version() >= cv.Version(
+        5, 3, 0
+    )
+
+
 class JPEGFormat(Format):
     """JPEG format decoder configuration."""
 
@@ -90,6 +105,9 @@ class JPEGFormat(Format):
         super().__init__("JPEG", JpegDecoder)
 
     def actions(self) -> None:
+        if _use_hardware_jpeg_decoder():
+            cg.add_define("USE_RUNTIME_IMAGE_JPEG_HW")
+            return
         cg.add_define("USE_RUNTIME_IMAGE_JPEG")
         cg.add_library("JPEGDEC", "1.8.4", "https://github.com/bitbank2/JPEGDEC#1.8.4")
         if CORE.is_host:
@@ -144,6 +162,7 @@ FILTER_SOURCE_FILES = filter_source_files_from_defines(
     {
         "bmp_decoder.cpp": "USE_RUNTIME_IMAGE_BMP",
         "jpeg_decoder.cpp": "USE_RUNTIME_IMAGE_JPEG",
+        "jpeg_hw_decoder.cpp": "USE_RUNTIME_IMAGE_JPEG_HW",
         "png_decoder.cpp": "USE_RUNTIME_IMAGE_PNG",
         "qoi_decoder.cpp": "USE_RUNTIME_IMAGE_QOI",
     }

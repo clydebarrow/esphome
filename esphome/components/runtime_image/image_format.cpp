@@ -15,7 +15,7 @@ static constexpr MimeLookup MIME_LOOKUP_TABLE[] = {
 #ifdef USE_RUNTIME_IMAGE_BMP
     {"image/bmp", ImageFormat::BMP},   {"image/x-ms-bmp", ImageFormat::BMP}, {"image/x-bmp", ImageFormat::BMP},
 #endif
-#ifdef USE_RUNTIME_IMAGE_JPEG
+#if defined(USE_RUNTIME_IMAGE_JPEG) || defined(USE_RUNTIME_IMAGE_JPEG_HW)
     {"image/jpeg", ImageFormat::JPEG}, {"image/jpg", ImageFormat::JPEG},
 #endif
 #ifdef USE_RUNTIME_IMAGE_PNG

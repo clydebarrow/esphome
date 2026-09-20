@@ -12,6 +12,9 @@
 #ifdef USE_RUNTIME_IMAGE_JPEG
 #include "jpeg_decoder.h"
 #endif
+#ifdef USE_RUNTIME_IMAGE_JPEG_HW
+#include "jpeg_hw_decoder.h"
+#endif
 #ifdef USE_RUNTIME_IMAGE_PNG
 #include "png_decoder.h"
 #endif
@@ -363,7 +366,10 @@ std::unique_ptr<ImageDecoder> RuntimeImage::create_decoder_(ImageFormat format) 
     case BMP:
       return make_unique<BmpDecoder>(this);
 #endif
-#ifdef USE_RUNTIME_IMAGE_JPEG
+#ifdef USE_RUNTIME_IMAGE_JPEG_HW
+    case JPEG:
+      return make_unique<JpegHwDecoder>(this);
+#elif defined(USE_RUNTIME_IMAGE_JPEG)
     case JPEG:
       return make_unique<JpegDecoder>(this);
 #endif
