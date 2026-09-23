@@ -1,9 +1,11 @@
 from esphome import automation
 from esphome.automation import maybe_simple_id
 import esphome.codegen as cg
+from esphome.components.const import CONF_ON_STOP
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_MODE, CONF_PARAMETERS, CONF_RESTART
 from esphome.core import CORE, EsphomeError
+from esphome.types import ConfigType
 
 CODEOWNERS = ["@esphome/core"]
 script_ns = cg.esphome_ns.namespace("script")
@@ -22,6 +24,7 @@ CONF_SINGLE = "single"
 CONF_QUEUED = "queued"
 CONF_PARALLEL = "parallel"
 CONF_MAX_RUNS = "max_runs"
+CONF_SCRIPT_STOP = "script.stop"
 
 SCRIPT_MODES = {
     CONF_SINGLE: SingleScript,
@@ -111,22 +114,70 @@ def validate_parameter_type(value):
     raise cv.Invalid("Parameter type contains invalid characters")
 
 
-CONFIG_SCHEMA = automation.validate_automation(
-    {
-        # Don't declare id as cv.declare_id yet, because the ID type
-        # depends on the mode. Will be checked later with assign_declare_id
-        cv.Required(CONF_ID): cv.string_strict,
-        cv.Optional(CONF_MODE, default=CONF_SINGLE): cv.one_of(
-            *SCRIPT_MODES, lower=True
-        ),
-        cv.Optional(CONF_MAX_RUNS): cv.int_range(min=0, max=100),
-        cv.Optional(CONF_PARAMETERS, default={}): cv.Schema(
-            {
-                validate_parameter_name: validate_parameter_type,
-            }
-        ),
-    },
-    extra_validators=cv.All(check_max_runs, assign_declare_id),
+def _fill_script_stop_ids(value, script_id: str):
+    """Give `script.stop` actions without an id in a raw action tree the id `script_id`.
+
+    Containers are copied only along changed paths so untouched YAML nodes keep their source locations.
+    """
+    if isinstance(value, list):
+        result = [
+            {CONF_SCRIPT_STOP: {CONF_ID: script_id}}
+            if item == CONF_SCRIPT_STOP
+            else _fill_script_stop_ids(item, script_id)
+            for item in value
+        ]
+        if all(new is old for new, old in zip(result, value, strict=True)):
+            return value
+        return result
+    if not isinstance(value, dict):
+        return value
+    result = value
+    for key, item in value.items():
+        if key == CONF_SCRIPT_STOP and (
+            item is None or (isinstance(item, dict) and CONF_ID not in item)
+        ):
+            new_item = {**(item or {}), CONF_ID: script_id}
+        else:
+            new_item = _fill_script_stop_ids(item, script_id)
+        if new_item is not item:
+            if result is value:
+                result = value.copy()
+            result[key] = new_item
+    return result
+
+
+def default_script_stop_ids(value):
+    """Make `script.stop` with no id, used inside a script, stop that script."""
+    if not isinstance(value, list):
+        return value
+    result = []
+    for item in value:
+        if isinstance(item, dict) and isinstance(script_id := item.get(CONF_ID), str):
+            item = _fill_script_stop_ids(item, script_id)
+        result.append(item)
+    return result
+
+
+CONFIG_SCHEMA = cv.All(
+    default_script_stop_ids,
+    automation.validate_automation(
+        {
+            # Don't declare id as cv.declare_id yet, because the ID type
+            # depends on the mode. Will be checked later with assign_declare_id
+            cv.Required(CONF_ID): cv.string_strict,
+            cv.Optional(CONF_MODE, default=CONF_SINGLE): cv.one_of(
+                *SCRIPT_MODES, lower=True
+            ),
+            cv.Optional(CONF_MAX_RUNS): cv.int_range(min=0, max=100),
+            cv.Optional(CONF_PARAMETERS, default={}): cv.Schema(
+                {
+                    validate_parameter_name: validate_parameter_type,
+                }
+            ),
+            cv.Optional(CONF_ON_STOP): automation.validate_automation({}),
+        },
+        extra_validators=cv.All(check_max_runs, assign_declare_id),
+    ),
 )
 
 
@@ -149,6 +200,10 @@ async def to_code(config):
 
     for trigger, func_args, conf in triggers:
         await automation.build_automation(trigger, func_args, conf)
+        for stop_conf in conf.get(CONF_ON_STOP, []):
+            await automation.build_callback_automation(
+                trigger, "add_on_stop_callback", [], stop_conf
+            )
 
 
 @automation.register_action(
@@ -207,10 +262,20 @@ async def script_execute_action_to_code(config, action_id, template_arg, args):
     return var
 
 
+def _require_script_stop_id(config: ConfigType) -> ConfigType:
+    # Inside a script the id has already been filled in by default_script_stop_ids
+    if CONF_ID not in config:
+        raise cv.Invalid(
+            "'script.stop' without an id can only be used inside a script",
+            path=[CONF_ID],
+        )
+    return config
+
+
 @automation.register_action(
-    "script.stop",
+    CONF_SCRIPT_STOP,
     ScriptStopAction,
-    maybe_simple_id({cv.Required(CONF_ID): cv.use_id(Script)}),
+    maybe_simple_id({cv.Optional(CONF_ID): cv.use_id(Script)}, _require_script_stop_id),
     synchronous=True,
 )
 async def script_stop_action_to_code(config, action_id, template_arg, args):
