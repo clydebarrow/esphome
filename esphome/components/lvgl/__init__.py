@@ -156,7 +156,7 @@ def as_macro(macro, value):
     return f"#define {macro} {value}"
 
 
-LVGL_VERSION = "9.5.0"
+LVGL_VERSION = "9.6.0"
 LV_CONF_FILENAME = "lv_conf.h"
 LV_CONF_H_FORMAT = """\
 #pragma once
@@ -228,6 +228,7 @@ def multi_conf_validate(configs: list[dict]):
     for config in configs[1:]:
         for item in (
             CONF_LOG_LEVEL,
+            df.CONF_CHECK_ARGS,
             CONF_COLOR_DEPTH,
             CONF_BYTE_ORDER,
             df.CONF_TRANSPARENCY_KEY,
@@ -328,6 +329,8 @@ async def to_code(configs):
         cg.add_library("lvgl/lvgl", LVGL_VERSION)
     df.add_define("LV_DRAW_BUF_STRIDE_ALIGN", "1")
     df.add_define("LV_USE_DRAW_SW", "1")
+    # LVGL 9.6 rejects 0 here unless tiled rendering is disabled
+    df.add_define("LV_DRAW_SW_DRAW_UNIT_CNT", "1")
     df.add_define("LV_USE_STDLIB_SPRINTF", "LV_STDLIB_CLIB")
     df.add_define("LV_USE_STDLIB_STRING", "LV_STDLIB_CLIB")
     df.add_define("LV_USE_STDLIB_MALLOC", "LV_STDLIB_CUSTOM")
@@ -347,15 +350,22 @@ async def to_code(configs):
         "LVGL_LOG_LEVEL",
         cg.RawExpression(f"ESPHOME_LOG_LEVEL_{config_0[CONF_LOG_LEVEL]}"),
     )
-    df.add_define("LV_COLOR_DEPTH", config_0[CONF_COLOR_DEPTH])
+    # Big-endian displays get LVGL to render directly in swapped byte order
+    display_format = (
+        "RGB565_SWAPPED" if config_0[CONF_BYTE_ORDER] == BYTE_ORDER_BIG else "RGB565"
+    )
+    df.add_define("LV_COLOR_FORMAT_DEFAULT", f"LV_COLOR_FORMAT_{display_format}")
     for font in df.get_lv_fonts_used():
         df.add_define(f"LV_FONT_{font.upper()}")
-
-    if config_0[CONF_COLOR_DEPTH] == 16:
+    df.add_define("LV_OBJ_STYLE_CACHE", "1")
+    if config_0[df.CONF_CHECK_ARGS]:
+        df.add_define("LV_USE_CHECK_ARG", "1")
         df.add_define(
-            "LV_COLOR_16_SWAP",
-            "1" if config_0[CONF_BYTE_ORDER] == "big_endian" else "0",
+            "LV_CHECK_ARG_LOG_MODE",
+            f"LV_CHECK_ARG_LOG_MODE_{df.LV_CHECK_ARG_LOG_MODES[config_0[CONF_LOG_LEVEL]]}",
         )
+    else:
+        df.add_define("LV_USE_CHECK_ARG", "0")
     df.add_define(
         "LV_COLOR_CHROMA_KEY",
         await lvalid.lv_color.process(config_0[df.CONF_TRANSPARENCY_KEY]),
@@ -496,8 +506,9 @@ async def to_code(configs):
     if configs[0].get(df.CONF_THEME, {}).get(df.CONF_DARK_MODE):
         df.add_define("LV_THEME_DEFAULT_DARK", "1")
 
-    # Currently always need RGB565 for the display buffer, and ARGB8888 is used for layer blending
-    lv_image_formats = {"RGB565", "ARGB8888"}
+    # The display buffer format is always needed, RGB565 is used by canvas buffers and
+    # ARGB8888 for layer blending
+    lv_image_formats = {"RGB565", display_format, "ARGB8888"}
 
     for image_id in get_lv_images_used():
         await cg.get_variable(image_id)
@@ -511,7 +522,7 @@ async def to_code(configs):
         if image_type == ImageRGB565:
             lv_image_formats.add("RGB565A8" if transparent else "RGB565")
         if image_type == ImageRGB:
-            lv_image_formats.add("ARGB8888" if transparent else "RGB8888")
+            lv_image_formats.add("ARGB8888" if transparent else "RGB888")
     if df.is_defined("LV_GRADIENT_MAX_STOPS"):
         lv_image_formats.add("RGB888")
     for fmt in lv_image_formats:
@@ -587,6 +598,7 @@ LVGL_TOP_LEVEL_SCHEMA = (
             cv.Optional(CONF_LOG_LEVEL, default="WARN"): cv.one_of(
                 *df.LV_LOG_LEVELS, upper=True
             ),
+            cv.Optional(df.CONF_CHECK_ARGS, default=False): cv.boolean,
             cv.Optional(CONF_BYTE_ORDER): cv.one_of(
                 "big_endian", "little_endian", lower=True
             ),

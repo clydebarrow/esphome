@@ -46,6 +46,7 @@ lvgl:
   id: lvgl_id
   rotation: 90
   log_level: debug
+  check_args: true
   resume_on_input: true
   paused: true
   update_when_display_idle: true

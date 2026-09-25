@@ -13,6 +13,7 @@ def _config(displays: list[str], theme: dict | None = None) -> dict:
     config = {
         df.CONF_DISPLAYS: displays,
         "log_level": "WARN",
+        df.CONF_CHECK_ARGS: False,
         "color_depth": 16,
         "byte_order": "big_endian",
         df.CONF_TRANSPARENCY_KEY: 0x000400,

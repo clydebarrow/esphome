@@ -453,6 +453,16 @@ LV_LOG_LEVELS = {
     "NONE": "NONE",
 }
 
+# Log output for failed LVGL argument checks, chosen from the LVGL log level
+LV_CHECK_ARG_LOG_MODES = {
+    "VERBOSE": "VERBOSE",
+    "DEBUG": "VERBOSE",
+    "INFO": "MINIMAL",
+    "WARN": "MINIMAL",
+    "ERROR": "NONE",
+    "NONE": "NONE",
+}
+
 LV_LONG_MODES = LvConstant(
     "LV_LABEL_LONG_",
     "WRAP",
@@ -703,6 +713,7 @@ CONF_FLEX_ALIGN_CROSS = "flex_align_cross"
 CONF_FLEX_ALIGN_TRACK = "flex_align_track"
 CONF_FLEX_GROW = "flex_grow"
 CONF_FREEZE = "freeze"
+CONF_CHECK_ARGS = "check_args"
 CONF_DARK_MODE = "dark_mode"
 CONF_FULL_REFRESH = "full_refresh"
 CONF_GRADIENTS = "gradients"
@@ -855,7 +866,8 @@ def join_enums(enums, prefix=""):
 
 # fmt: off
 LV_COLOR_FORMATS = (
-    "RGB565", "SWAPPED", "RGB565A8", "RGB888", "XRGB8888", "ARGB8888", "PREMULTIPLIED", "L8", "AL88", "A8", "I1",
+    "RGB565", "RGB565_SWAPPED", "RGB565A8", "RGB888", "XRGB8888", "ARGB8888", "ARGB8888_PREMULTIPLIED", "L8", "AL88",
+    "A8", "I1",
 )
 
 LV_DEFINES = (
