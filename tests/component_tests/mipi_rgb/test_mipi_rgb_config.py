@@ -1,5 +1,7 @@
 """Tests for mipi_rgb configuration validation."""
 
+from collections.abc import Generator
+
 import pytest
 
 from esphome import config_validation as cv
@@ -17,6 +19,7 @@ from esphome.components.esp32 import (
     VARIANT_ESP32S3,
     VARIANT_ESP32S31,
 )
+from esphome.components.mipi import DriverChip
 import esphome.components.pca9554  # noqa: F401
 import esphome.components.xl9535  # noqa: F401
 from esphome.const import (
@@ -42,6 +45,19 @@ DATA_PINS = {
     CONF_GREEN: [6, 7, 8, 9, 10, 11],
     CONF_BLUE: [12, 13, 14, 15, 16],
 }
+
+
+@pytest.fixture(autouse=True)
+def _remove_test_models() -> Generator[None]:
+    """Unregister chips created by a test.
+
+    display.py modules drain DriverChip.models when first imported, so a
+    leftover TEST-* chip could become a selectable model there.
+    """
+    existing = set(DriverChip.models)
+    yield
+    for name in set(DriverChip.models) - existing:
+        del DriverChip.models[name]
 
 
 def _set_s3(set_core_config: SetCoreConfigCallable) -> None:

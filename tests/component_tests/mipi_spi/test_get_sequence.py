@@ -1,5 +1,7 @@
 """Tests for DriverChip.get_sequence's reset-delay handling."""
 
+from collections.abc import Generator
+
 import pytest
 
 from esphome.components.mipi import CONF_INVERT_COLORS, CONF_PIXEL_MODE, DriverChip
@@ -7,6 +9,15 @@ from esphome.components.mipi import CONF_INVERT_COLORS, CONF_PIXEL_MODE, DriverC
 # A minimal config with no reset pin: enough for get_sequence(add_madctl=False) to run
 # without needing a full display configuration.
 _BASE_CONFIG = {CONF_PIXEL_MODE: "16bit", CONF_INVERT_COLORS: False}
+
+
+@pytest.fixture(autouse=True)
+def _remove_test_models() -> Generator[None]:
+    """Unregister chips created by a test."""
+    existing = set(DriverChip.models)
+    yield
+    for name in set(DriverChip.models) - existing:
+        del DriverChip.models[name]
 
 
 def test_get_sequence_defaults_to_10ms_reset_delay() -> None:
