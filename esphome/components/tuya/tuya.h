@@ -54,6 +54,7 @@ enum class TuyaCommandType : uint8_t {
   DATAPOINT_DELIVER = 0x06,
   DATAPOINT_REPORT_ASYNC = 0x07,
   DATAPOINT_QUERY = 0x08,
+  GMT_TIME_QUERY = 0x0C,
   WIFI_TEST = 0x0E,
   LOCAL_TIME_QUERY = 0x1C,
   DATAPOINT_REPORT_SYNC = 0x22,
@@ -84,7 +85,7 @@ struct TuyaCommand {
   std::vector<uint8_t> payload;
 };
 
-class Tuya : public Component, public uart::UARTDevice {
+class Tuya final : public Component, public uart::UARTDevice {
  public:
   float get_setup_priority() const override { return setup_priority::LATE; }
   void setup() override;
@@ -138,8 +139,10 @@ class Tuya : public Component, public uart::UARTDevice {
 
 #ifdef USE_TIME
   void send_local_time_();
+  void send_gmt_time_();
   time::RealTimeClock *time_id_{nullptr};
   bool time_sync_callback_registered_{false};
+  bool gmt_time_sync_callback_registered_{false};
 #endif
   TuyaInitState init_state_ = TuyaInitState::INIT_HEARTBEAT;
   bool init_failed_{false};
@@ -150,7 +153,7 @@ class Tuya : public Component, public uart::UARTDevice {
   int reset_pin_reported_ = -1;
   uint32_t last_command_timestamp_ = 0;
   uint32_t last_rx_char_timestamp_ = 0;
-  std::string product_ = "";
+  std::string product_;
   std::vector<TuyaDatapointListener> listeners_;
   std::vector<TuyaDatapoint> datapoints_;
   std::vector<uint8_t> rx_message_;

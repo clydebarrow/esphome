@@ -97,16 +97,11 @@ void RfProxy::setup() {
 
   // remote_transmitter/receiver always uses OOK (on-off keying)
   this->traits_.add_supported_modulation(radio_frequency::RadioFrequencyModulation::RADIO_FREQUENCY_MODULATION_OOK);
-
-  if (this->receiver_ != nullptr) {
-    this->receiver_->register_listener(this);
-  }
 }
 
 void RfProxy::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "RF Proxy '%s'\n"
-                "  Backend: remote_transmitter/receiver\n"
                 "  Supports Transmitter: %s\n"
                 "  Supports Receiver: %s",
                 this->get_name().c_str(), YESNO(this->traits_.get_supports_transmitter()),
@@ -124,7 +119,9 @@ void RfProxy::dump_config() {
 }
 
 void RfProxy::control(const radio_frequency::RadioFrequencyCall &call) {
-  // RF: no IR carrier modulation
+  // RF: no IR carrier modulation.  Any RF front-end coordination (state turnaround, retuning)
+  // happens via the radio_frequency entity's on_control trigger and remote_transmitter's
+  // on_transmit/on_complete triggers — wired up in user YAML.
   transmit_raw_timings(this->transmitter_, 0, call);
 }
 
