@@ -51,6 +51,21 @@ class LightTransformer {
     return clamp(elapsed / float(this->length_), 0.0f, 1.0f);
   }
 
+  /// The values at the given smoothed progress, for transformers that write to the light directly.
+  /// Like the default transition, turning on or off fades the brightness from or to zero.
+  LightColorValues get_progress_values_(float smoothed_progress) const {
+    LightColorValues start = this->start_values_;
+    LightColorValues end = this->target_values_;
+    if (!start.is_on() && end.is_on()) {
+      start = end;
+      start.set_brightness(0.0f);
+    } else if (start.is_on() && !end.is_on()) {
+      end = start;
+      end.set_brightness(0.0f);
+    }
+    return LightColorValues::lerp(start, end, smoothed_progress);
+  }
+
   uint32_t start_time_;
   uint32_t length_;
   LightColorValues start_values_;

@@ -1,0 +1,27 @@
+esphome:
+  name: addr-light-publish
+host:
+api:
+logger:
+
+external_components:
+  - source:
+      type: local
+      path: EXTERNAL_COMPONENT_PATH
+
+light:
+  - platform: mock_addressable_light
+    output_id: single_output
+    id: single_led
+    name: "Single LED"
+    num_leds: 1
+    default_transition_length: 1s
+    transition_state_publish_interval: 0.2s
+
+  - platform: mock_addressable_light
+    output_id: strip_output
+    id: strip
+    name: "Strip"
+    num_leds: 4
+    default_transition_length: 1s
+    transition_state_publish_interval: 0.2s

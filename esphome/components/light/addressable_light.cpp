@@ -157,6 +157,12 @@ optional<LightColorValues> AddressableLightTransformer::apply() {
     }
     this->last_transition_progress_ = smoothed_progress;
     this->light_.schedule_show();
+#ifdef USE_LIGHT_TRANSITION_PUBLISH_INTERVAL
+    // The LEDs are written directly, so keep current_values in step for interval state publishes
+    auto *state = this->light_.state_parent_;
+    if (state->get_transition_state_publish_interval() != 0)
+      state->current_values = this->get_progress_values_(smoothed_progress);
+#endif
   }
 
   return {};

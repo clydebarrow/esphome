@@ -5,6 +5,7 @@ light:
     num_leds: 60
     channel_colors: GRB
     chipset: ws2812
+    transition_state_publish_interval: 200ms
   - platform: esp32_rmt_led_strip
     id: led_strip2
     pin: ${pin2}
