@@ -203,7 +203,16 @@ the objects does not matter.
 - **Wire format.** The header layout of each layer, and whether a link layer needs a byte that says which layers are
   in use, so that badly matched configurations are detected rather than producing garbage.
 - **Replay protection.** Whether the encryption layer needs a counter or nonce, or whether the session layer
-  provides it.
+  provides it. The reliability layer does not help here: its CRC detects damage, not forged or replayed frames. An
+  application such as `entity_transport` should not need packet_transport's ping and pong exchange if this is
+  solved below it.
+- **Link up event.** The reliability layer could report when the link comes up, passed up the stack so that an
+  application can reach it through `top()`. `entity_transport` could then send all states once at that point,
+  instead of resending them at a fixed interval, since on a reliable link states are only missed across a reset.
+- **Best effort packets.** HDLC unnumbered information (UI, control byte `0x03`) frames could carry data that is
+  only useful while fresh, such as streamed readings, without a sequence number, queue slot or retry. A flag in
+  `PacketMetaData` would select them. A UI frame must not be sent while I-frames are unacknowledged, or it could
+  arrive before older data that is still being resent.
 - **Address size.** The example uses 16-bit addresses. Decide whether this is fixed, and whether broadcast is a
   reserved address.
 - **Ciphers.** Which ciphers are offered besides XXTEA, and how much each adds to the packet size.
