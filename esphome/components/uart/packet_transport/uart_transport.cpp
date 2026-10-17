@@ -4,7 +4,7 @@
 
 namespace esphome::uart {
 
-static const char *const TAG = "uart_transport";
+ESPHOME_LOG_TAG(TAG, "uart_transport");
 
 static const uint16_t MAX_PACKET_SIZE = 508;
 static const uint8_t FLAG_BYTE = 0x7E;
