@@ -9,6 +9,9 @@ packet_interface:
   - platform: uart
     id: packet_interface_uart
     max_packet_size: 256
+    addressing:
+      address: 0x0001
+      destination: 0x0002
     encryption:
       key: Johnny Cash
       rolling_code_enable: true

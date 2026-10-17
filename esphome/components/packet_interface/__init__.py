@@ -5,6 +5,7 @@ import esphome.codegen as cg
 from esphome.components import binary_sensor
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_ADDRESS,
     CONF_BINARY_SENSOR,
     CONF_ENCRYPTION,
     CONF_ID,
@@ -26,7 +27,10 @@ PacketInterface = packet_interface_ns.class_("PacketInterface", cg.Component)
 HdlcReliability = packet_interface_ns.class_("HdlcReliability", PacketInterface)
 BasicSession = packet_interface_ns.class_("BasicSession", PacketInterface)
 XxteaEncryption = packet_interface_ns.class_("XxteaEncryption", PacketInterface)
+BasicAddressing = packet_interface_ns.class_("BasicAddressing", PacketInterface)
 
+CONF_ADDRESSING = "addressing"
+CONF_DESTINATION = "destination"
 CONF_KEEP_ALIVE = "keep_alive"
 CONF_PACKET_INTERFACE = "packet_interface"
 CONF_MAX_PACKET_SIZE = "max_packet_size"
@@ -36,6 +40,8 @@ CONF_RELIABILITY = "reliability"
 CONF_ROLLING_CODE_ENABLE = "rolling_code_enable"
 CONF_SESSION = "session"
 
+ADDRESSING_BASIC = "basic"
+BROADCAST_ADDRESS = 0xFFFF
 ENCRYPTION_XXTEA = "xxtea"
 RELIABILITY_HDLC = "hdlc"
 SESSION_BASIC = "basic"
@@ -49,6 +55,25 @@ def _empty_dict(value: Any) -> Any:
 def _key_only(value: Any) -> Any:
     """Allow the encryption key to be given on its own, e.g. `encryption: my secret`."""
     return {CONF_KEY: value} if isinstance(value, str) else value
+
+
+ADDRESSING_SCHEMA = cv.typed_schema(
+    {
+        ADDRESSING_BASIC: cv.Schema(
+            {
+                cv.GenerateID(): cv.declare_id(BasicAddressing),
+                cv.Required(CONF_ADDRESS): cv.hex_int_range(1, BROADCAST_ADDRESS - 1),
+                cv.Optional(CONF_DESTINATION, default=BROADCAST_ADDRESS): cv.All(
+                    cv.Any(
+                        cv.one_of("broadcast"), cv.hex_int_range(1, BROADCAST_ADDRESS)
+                    ),
+                    lambda value: BROADCAST_ADDRESS if value == "broadcast" else value,
+                ),
+            }
+        ).extend(cv.COMPONENT_SCHEMA),
+    },
+    default_type=ADDRESSING_BASIC,
+)
 
 
 ENCRYPTION_SCHEMA = cv.All(
@@ -131,22 +156,55 @@ SESSION_SCHEMA = cv.All(
 )
 
 
+def _validate_shared_channel(config: ConfigType) -> ConfigType:
+    """Layers that work between two devices only need a single destination on a shared channel."""
+    addressing = config.get(CONF_ADDRESSING)
+    if addressing is None or addressing[CONF_DESTINATION] != BROADCAST_ADDRESS:
+        return config
+    for key in (CONF_RELIABILITY, CONF_SESSION):
+        if key in config:
+            raise cv.Invalid(
+                f"'{key}' works between two devices only, so 'addressing' needs a '{CONF_DESTINATION}'",
+                path=[key],
+            )
+    if config.get(CONF_ENCRYPTION, {}).get(CONF_ROLLING_CODE_ENABLE):
+        raise cv.Invalid(
+            f"The rolling code works between two devices only, so 'addressing' needs a '{CONF_DESTINATION}'",
+            path=[CONF_ENCRYPTION, CONF_ROLLING_CODE_ENABLE],
+        )
+    return config
+
+
 def packet_interface_schema(
     class_: MockObjClass,
     default_max_packet_size: int,
     max_packet_size_limit: int = 4096,
 ) -> cv.Schema:
-    return cv.Schema(
-        {
-            cv.GenerateID(): cv.declare_id(class_),
-            cv.Optional(
-                CONF_MAX_PACKET_SIZE, default=default_max_packet_size
-            ): cv.int_range(16, max_packet_size_limit),
-            cv.Optional(CONF_ENCRYPTION): ENCRYPTION_SCHEMA,
-            cv.Optional(CONF_RELIABILITY): RELIABILITY_SCHEMA,
-            cv.Optional(CONF_SESSION): SESSION_SCHEMA,
-        }
-    ).extend(cv.COMPONENT_SCHEMA)
+    return (
+        cv.Schema(
+            {
+                cv.GenerateID(): cv.declare_id(class_),
+                cv.Optional(
+                    CONF_MAX_PACKET_SIZE, default=default_max_packet_size
+                ): cv.int_range(16, max_packet_size_limit),
+                cv.Optional(CONF_ADDRESSING): ADDRESSING_SCHEMA,
+                cv.Optional(CONF_ENCRYPTION): ENCRYPTION_SCHEMA,
+                cv.Optional(CONF_RELIABILITY): RELIABILITY_SCHEMA,
+                cv.Optional(CONF_SESSION): SESSION_SCHEMA,
+            }
+        )
+        .extend(cv.COMPONENT_SCHEMA)
+        .add_extra(_validate_shared_channel)
+    )
+
+
+async def _new_addressing(config: ConfigType, lower: MockObj) -> MockObj:
+    cg.add_define("USE_PACKET_INTERFACE_BASIC_ADDRESSING")
+    var = cg.new_Pvariable(
+        config[CONF_ID], lower, config[CONF_ADDRESS], config[CONF_DESTINATION]
+    )
+    await cg.register_component(var, config)
+    return var
 
 
 async def _new_encryption(config: ConfigType, lower: MockObj) -> MockObj:
@@ -191,6 +249,8 @@ async def new_packet_interface(config: ConfigType, *args: Any) -> MockObj:
     cg.add(var.set_max_packet_size(config[CONF_MAX_PACKET_SIZE]))
     await cg.register_component(var, config)
     top = var
+    if (addressing := config.get(CONF_ADDRESSING)) is not None:
+        top = await _new_addressing(addressing, top)
     if (encryption := config.get(CONF_ENCRYPTION)) is not None:
         top = await _new_encryption(encryption, top)
     if (reliability := config.get(CONF_RELIABILITY)) is not None:

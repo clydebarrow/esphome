@@ -1,8 +1,8 @@
 # Packet interface design
 
 This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`), the
-encryption, reliability and session layers, the `entity_transport` application and the `packet_transport` bridge
-exist today. The other layers described here are planned.
+addressing, encryption, reliability and session layers, the `entity_transport` application and the `packet_transport`
+bridge exist today. The fragmentation layer is planned.
 
 ## Goals
 
@@ -66,7 +66,7 @@ on it.
 2. Session.
 3. Encryption.
 4. Fragmentation.
-5. Addressing, last. Until it exists, reliability and session work only between two devices on one channel.
+5. Addressing, done before fragmentation, for multi-drop serial buses and shared radio channels such as LoRa.
 
 ## Example configuration
 
@@ -88,12 +88,11 @@ packet_interface:
         id: session_alive
         name: Channel connected
     addressing:
-      source_address: 0x1234 # We only receive packets addressed to us
-      destination_address: [0xDEAD, 0xBEEF] # Two peers
+      address: 0x1234 # We only receive packets addressed to us
+      destination: 0xDEAD # The one peer; reliability and session need a single peer
 
-packet_transport:
-  - platform: packet_interface
-    packet_interface: rs485_comms
+entity_transport:
+  - packet_interface: rs485_comms
     sensors:
       - temperature
 ```
@@ -232,6 +231,41 @@ event that `entity_transport` needs.
 | `keep_alive`    | 10s                | 1s or more                     |
 | `timeout`       | 3 times keep_alive | Longer than keep_alive         |
 | `binary_sensor` |                    | ON while the peer is connected |
+
+## Addressing layer: `basic`
+
+The first addressing implementation is for channels shared by several devices: a multi-drop serial bus such as
+RS485, or a shared radio channel such as LoRa.
+
+### Packet format
+
+```
++----------------------+------------------+-----------------+
+| destination address  | source address   | payload         |
+| 2 bytes, LE          | 2 bytes, LE      | 0 or more bytes |
++----------------------+------------------+-----------------+
+```
+
+Addresses are 16 bits. `0xFFFF` is broadcast, and `0x0000` is not used, so it can mean "not set" in
+`PacketMetaData`. 16 bits leave room to choose addresses without a central list; one byte would save 2 bytes per
+packet on a slow bus, and could be a second implementation.
+
+### Behavior
+
+- **Receiving.** A packet is dropped unless its destination is this device or broadcast. Packets from this device's
+  own address are dropped too, since a half-duplex bus or a radio repeater can echo them. Addressing sits below
+  encryption, so these are dropped without being decrypted.
+- **Point to point.** With a `destination` other than broadcast, the layer sends only to that device and accepts
+  packets only from it, broadcast or not. The reliability and session layers and the rolling code keep state for one
+  peer, so configuration validation requires a `destination` when they are used with addressing.
+- **Broadcast.** With the default `destination: broadcast`, every device hears every packet. This suits
+  `entity_transport`, which tells senders apart by dictionary id.
+- **Metadata.** Received packets report their source and destination addresses in `PacketMetaData`, which the layers
+  above pass up. A destination address in the metadata of a packet being sent overrides the configured one; the
+  reliability layer sends its frames without metadata, so this only works without it.
+- **Capability.** The layer adds `CAPABILITY_ADDRESSING`.
+
+The layer adds 4 bytes. It needs the received packet in one piece, which the link layers provide.
 
 ## Encryption layer: `xxtea`
 
@@ -382,11 +416,11 @@ the objects does not matter.
   only useful while fresh, such as streamed readings, without a sequence number, queue slot or retry. A flag in
   `PacketMetaData` would select them. A UI frame must not be sent while I-frames are unacknowledged, or it could
   arrive before older data that is still being resent.
-- **Address size.** The example uses 16-bit addresses. Decide whether this is fixed, and whether broadcast is a
-  reserved address.
 - **Ciphers.** Which ciphers are offered besides XXTEA, and how much each adds to the packet size.
 - **Reliability with several peers.** How acknowledgements and the send queue work when there is more than one
-  destination address.
+  destination address. Until then, a device can use the reliability and session layers with one other device on a
+  shared channel. One link layer instance per bus also means one stack per bus, so several point-to-point stacks on
+  one UART would need the link layer to pass each packet to several stacks.
 - **Room to send.** The fragmentation layer needs to know, before it starts a packet, that the layer below will take
   all of its fragments. A `PacketInterface` method that reports how many packets can be sent now would do this. The
   reliability queue must also be at least as long as the number of fragments in the largest packet.

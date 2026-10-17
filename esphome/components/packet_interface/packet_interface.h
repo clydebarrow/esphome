@@ -10,23 +10,29 @@
 
 namespace esphome::packet_interface {
 
-/**
- * A struct to hold metadata about a packet.
- * @param info Additional information about the packet
- * @param rssi The RSSI of the packet
- * @param snr The SNR of the packet
- * @param mac_address The MAC address of the sender/receiver
- */
 /// What a stack of layers provides, as bits of PacketInterface::get_capabilities().
 enum Capability : uint8_t {
   CAPABILITY_ENCRYPTION = 1 << 0,
   CAPABILITY_RELIABILITY = 1 << 1,
   CAPABILITY_SESSION = 1 << 2,
+  CAPABILITY_ADDRESSING = 1 << 3,
 };
 
+/**
+ * A struct to hold metadata about a packet.
+ * @param info Additional information about the packet
+ * @param source_address With an addressing layer, the sender of a received packet; 0 if not known
+ * @param destination_address With an addressing layer, the destination of a packet; when sending, 0 uses the
+ * configured destination
+ * @param rssi The RSSI of the packet
+ * @param snr The SNR of the packet
+ * @param mac_address The MAC address of the sender/receiver
+ */
 class PacketMetaData {
  public:
   StringRef info{};
+  uint16_t source_address{0};
+  uint16_t destination_address{0};
   float rssi{NAN};
   float snr{NAN};
   uint8_t mac_address[MAC_ADDRESS_SIZE]{};

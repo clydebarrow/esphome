@@ -5,6 +5,7 @@ import pytest
 from esphome import config_validation as cv
 from esphome.components import packet_interface
 from esphome.components.packet_interface import (
+    CONF_ADDRESSING,
     CONF_ENCRYPTION,
     CONF_KEEP_ALIVE,
     CONF_MAX_PACKET_SIZE,
@@ -99,3 +100,29 @@ def test_encryption_requires_key(setup_core) -> None:
         uart_packet_interface.CONFIG_SCHEMA({CONF_ENCRYPTION: {}})
     with pytest.raises(cv.Invalid):
         uart_packet_interface.CONFIG_SCHEMA({CONF_ENCRYPTION: ""})
+
+
+def test_addressing_defaults_to_broadcast(setup_core) -> None:
+    """Without a destination, packets are broadcast; broadcast can also be named."""
+    for addressing in ({"address": 1}, {"address": 1, "destination": "broadcast"}):
+        config = uart_packet_interface.CONFIG_SCHEMA({CONF_ADDRESSING: addressing})
+        assert config[CONF_ADDRESSING]["destination"] == 0xFFFF
+    with pytest.raises(cv.Invalid):
+        uart_packet_interface.CONFIG_SCHEMA({CONF_ADDRESSING: {"address": 0xFFFF}})
+
+
+@pytest.mark.parametrize(
+    "layers",
+    [
+        {CONF_RELIABILITY: None},
+        {CONF_SESSION: None},
+        {CONF_ENCRYPTION: {"key": "secret", "rolling_code_enable": True}},
+    ],
+)
+def test_two_device_layers_need_destination(setup_core, layers: dict) -> None:
+    """Layers that work between two devices only cannot be used with broadcast addressing."""
+    with pytest.raises(cv.Invalid, match="destination"):
+        uart_packet_interface.CONFIG_SCHEMA({CONF_ADDRESSING: {"address": 1}, **layers})
+    uart_packet_interface.CONFIG_SCHEMA(
+        {CONF_ADDRESSING: {"address": 1, "destination": 2}, **layers}
+    )
