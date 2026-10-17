@@ -1,8 +1,8 @@
 # Packet interface design
 
 This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`), the
-encryption, reliability and session layers, and the `packet_transport` bridge exist today. The other layers
-described here are planned.
+encryption, reliability and session layers, the `entity_transport` application and the `packet_transport` bridge
+exist today. The other layers described here are planned.
 
 ## Goals
 
@@ -308,9 +308,58 @@ allow, by splitting each into fragments that fit and joining them again at the o
 
 ## Applications
 
-`packet_transport` keeps its own encryption, rolling code and ping-pong features for now, and is used through the
-`packet_interface` transport platform. It will later be replaced by a new component (perhaps `entity_transport`)
-that relies on the packet interface layers for these features.
+`packet_transport` keeps its own encryption, rolling code and ping-pong features, and is used through the
+`packet_interface` transport platform.
+
+`entity_transport` replaces it for new configurations. It sends sensor and binary sensor states like
+`packet_transport`, but leaves encryption, replay protection, reliable delivery and the peer's status to the layers.
+
+### Dictionary
+
+Each device numbers its sensors and its binary sensors from 0. A dictionary packet gives the device name and the id
+for each number, and data packets then refer to entities by number: a sensor record is 5 bytes, a binary sensor record
+2, with no names. Records for both types share a data packet, sensors first, with a count of sensor records in the
+header so a receiver can skip numbers it does not use.
+
+Every packet starts with a type byte, whose high nibble is the format version, and a 32-bit **dictionary id**: a hash
+of the device name and every entity's type and id. Per packet, this is the only metadata:
+
+- It tells a receiver which device sent a data packet, so several devices can share a broadcast channel without
+  their names in every packet. Once the addressing layer exists, its source address could do this instead.
+- It changes whenever the device's entities change, so a receiver never applies numbers from an old dictionary.
+- With session and reliability layers it is not strictly needed, but 4 bytes is little, and keeping one packet format
+  is simpler than two.
+
+A receiver keeps, for each remote entity, the dictionary id and number it learnt, not whole dictionaries. A data packet
+with a dictionary id the receiver does not know, while some of its remote entities are not yet learnt, makes it send a
+request, at most every 5 seconds; the device with that dictionary id answers with its dictionary and all states.
+
+### When states are sent
+
+- On change, from `loop()`.
+- The dictionary and all states at boot, when the session layer reports the peer connected, when requested, and every
+  `update_interval`.
+- `update_interval` defaults to `never` when the interface has both session and reliability capabilities, since the
+  dictionary and states are then sent on every connect and arrive in order. Otherwise it defaults to 15 seconds.
+- A packet the interface refuses is sent again after a second, with the latest states. Data waits for the dictionary.
+
+When the session layer reports the peer lost, the remote entities lose their state.
+
+### Memory
+
+Local entities are a `FixedVector`, and remote entities are `StaticVector`s sized by `cg.slot_counter`. Packets are
+built in one buffer allocated in `setup()`. Nothing is allocated after setup.
+
+## Capabilities
+
+Each layer adds a bit to the capabilities of the stack: `CAPABILITY_ENCRYPTION`, `CAPABILITY_RELIABILITY` or
+`CAPABILITY_SESSION`. A layer copies the bits of the layer below in `stack_on_()` and adds its own, so the top layer
+reports the whole stack. A link layer that does a layer's job itself, such as one with built-in encryption, would set
+the bit in its own constructor. An application asks `top()->has_capability()` and adapts: `entity_transport` resends
+periodically unless both session and reliability are present.
+
+The session state callback is in `PacketInterface`, so an application needs no session class. The session layer is
+always the top layer, so an application registers it on `top()`.
 
 ## Code generation
 
@@ -329,10 +378,6 @@ the objects does not matter.
 
 - **Wire format.** The header layout of each layer, and whether a link layer needs a byte that says which layers are
   in use, so that badly matched configurations are detected rather than producing garbage.
-- **Link up event.** The session layer reports when the peer is connected, including after a restart.
-  `entity_transport` could send all states once at that point, instead of resending them at a fixed interval, since
-  on a reliable link states are only missed across a reset. How an application finds the session layer in the stack
-  is still open: `top()` returns it only when it is the top layer.
 - **Best effort packets.** HDLC unnumbered information (UI, control byte `0x03`) frames could carry data that is
   only useful while fresh, such as streamed readings, without a sequence number, queue slot or retry. A flag in
   `PacketMetaData` would select them. A UI frame must not be sent while I-frames are unacknowledged, or it could
