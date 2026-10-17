@@ -24,12 +24,10 @@ void UartPacketInterface::loop() {
       return;
     }
     if (byte == FLAG_BYTE) {
-      if (this->rx_started_ && this->rx_length_ != 0) {
+      // A flag that ends a frame also starts the next, so an unfinished frame cannot hide the one after it
+      if (this->rx_started_ && this->rx_length_ != 0)
         this->on_receive_from_interface_(PacketBuffer(this->rx_buffer_.get(), this->rx_length_), {});
-        this->rx_started_ = false;
-      } else {
-        this->rx_started_ = true;
-      }
+      this->rx_started_ = true;
       this->rx_length_ = 0;
       this->rx_control_ = false;
       continue;

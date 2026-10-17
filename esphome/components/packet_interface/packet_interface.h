@@ -47,7 +47,17 @@ class PacketInterface : public Component {
   virtual bool send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) = 0;
 
   size_t get_max_packet_size() const { return this->max_packet_size_; }
+  /// The topmost layer stacked on this one, or this one if nothing is stacked on it.
+  PacketInterface *top() {
+    PacketInterface *layer = this;
+    while (layer->upper_ != nullptr)
+      layer = layer->upper_;
+    return layer;
+  }
   void set_max_packet_size(size_t size) { this->max_packet_size_ = size; }
+  /// Name shown in log messages; a layer takes the name of the link it is stacked on.
+  void set_name(const char *name) { this->name_ = name; }
+  const char *get_name() const { return this->name_; }
 
   /**
    * Add a listener that will be called when data is received.
@@ -69,8 +79,15 @@ class PacketInterface : public Component {
    * @param meta_data Metadata about the received packet
    */
   void on_receive_from_interface_(const PacketBuffer &data, const PacketMetaData &meta_data);
+  /// Called by a layer's constructor to record itself as the layer above \p lower.
+  void stack_on_(PacketInterface *lower) {
+    lower->upper_ = this;
+    this->name_ = lower->name_;
+  }
 
   LazyCallbackManager<void(const PacketBuffer &, const PacketMetaData &)> callback_;
+  PacketInterface *upper_{nullptr};
+  const char *name_{""};
   size_t max_packet_size_{512};
 };
 }  // namespace esphome::packet_interface

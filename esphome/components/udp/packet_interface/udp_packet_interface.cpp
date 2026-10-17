@@ -1,6 +1,7 @@
 #include "udp_packet_interface.h"
 #ifdef USE_NETWORK
 #include <array>
+#include "esphome/components/network/util.h"
 #include "esphome/core/log.h"
 
 namespace esphome::udp {
@@ -17,6 +18,8 @@ void UdpPacketInterface::setup() {
 }
 
 bool UdpPacketInterface::send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) {
+  if (!network::is_connected())
+    return false;
   if (data.is_contiguous()) {
     auto span = data.as_span();
     this->parent_->send_packet(span.data(), span.size());

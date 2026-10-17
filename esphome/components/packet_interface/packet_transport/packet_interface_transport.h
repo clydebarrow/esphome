@@ -21,7 +21,7 @@ class PacketInterfaceTransport : public packet_transport::PacketTransport {
 
  protected:
   // implementing PacketTransport virtual methods
-  size_t get_max_packet_size() override { return this->interface_->get_max_packet_size(); }
+  size_t get_max_packet_size() override { return this->interface_->top()->get_max_packet_size(); }
   void send_packet(const std::vector<uint8_t> &buf) const override;
   void receive_(const PacketBuffer &data);
 

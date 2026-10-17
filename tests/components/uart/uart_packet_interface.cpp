@@ -30,6 +30,19 @@ class UartPacketInterfaceTest : public ::testing::Test {
   }
 };
 
+// Feed bytes to the interface through the mocked UART and run its loop
+static void feed(MockUARTComponent &uart, UartPacketInterface &interface, const std::vector<uint8_t> &bytes) {
+  size_t read_pos = 0;
+  EXPECT_CALL(uart, available()).WillRepeatedly(Invoke([&bytes, &read_pos]() { return bytes.size() - read_pos; }));
+  EXPECT_CALL(uart, read_array(_, 1)).WillRepeatedly(Invoke([&bytes, &read_pos](uint8_t *data, size_t) {
+    if (read_pos >= bytes.size())
+      return false;
+    *data = bytes[read_pos++];
+    return true;
+  }));
+  interface.loop();
+}
+
 // Test basic frame sending
 TEST_F(UartPacketInterfaceTest, SendSimpleFrame) {
   std::vector<uint8_t> data = {0x01, 0x02, 0x03};
@@ -345,6 +358,20 @@ TEST_F(UartPacketInterfaceTest, SendCompositeAcrossChunks) {
   expected.insert(expected.end(), post.begin(), post.end());
   expected.push_back(0x7E);
   EXPECT_EQ(uart_.written_data, expected);
+}
+
+// Test one flag between frames both ends the first and starts the second
+TEST_F(UartPacketInterfaceTest, SharedFlagBetweenFrames) {
+  feed(uart_, interface_, {0x7E, 0x01, 0x7E, 0x02, 0x03, 0x7E});
+
+  EXPECT_EQ(received_packets_, (std::vector<std::vector<uint8_t>>{{0x01}, {0x02, 0x03}}));
+}
+
+// Test an unfinished frame does not hide the frame after it
+TEST_F(UartPacketInterfaceTest, UnfinishedFrameDoesNotHideNext) {
+  feed(uart_, interface_, {0x7E, 0xAA, 0x7E, 0x01, 0x02, 0x7E});
+
+  EXPECT_EQ(received_packets_, (std::vector<std::vector<uint8_t>>{{0xAA}, {0x01, 0x02}}));
 }
 
 }  // namespace esphome::uart::testing

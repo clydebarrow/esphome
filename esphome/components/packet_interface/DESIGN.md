@@ -125,6 +125,60 @@ sees the space left for its payload after every layer has taken its share.
 the addressing layer would take the destination address from it when sending, and report the source address when
 receiving. `PacketMetaData` will need fields for this.
 
+## Reliability layer: `hdlc`
+
+The first reliability implementation follows HDLC asynchronous balanced mode, with sequence numbers modulo 8 and
+go-back-N retransmission. It works between two devices only.
+
+### Frame format
+
+```
++---------+-----------------+----------------+
+| control | payload         | CRC-16 (LE)    |
+| 1 byte  | 0 or more bytes | 2 bytes        |
++---------+-----------------+----------------+
+```
+
+The CRC is CRC-16/MODBUS (`crc16()` in `helpers.h`) over the control byte and the payload. A frame with a bad CRC
+is dropped; the sender's timeout or a reject recovers it. The CRC is here rather than in the UART link layer so that
+the UART framing stays compatible with the UART packet transport.
+
+Control byte, using the HDLC encoding (`P/F`, bit 4, is sent as 0 and ignored):
+
+| Frame | Bits 7-5 | Bit 4 | Bits 3-0         | Use                                     |
+|-------|----------|-------|------------------|-----------------------------------------|
+| I     | N(R)     | P/F   | N(S) in 3-1, 0   | Payload, sequence number, piggyback ack |
+| RR    | N(R)     | P/F   | `0001`           | Acknowledge frames before N(R)          |
+| REJ   | N(R)     | P/F   | `1001`           | Resend from N(R)                        |
+| SABM  | `001`    | P     | `1111`           | Reset both peers' sequence numbers      |
+| UA    | `011`    | F     | `0011`           | Answer to SABM                          |
+
+### Behavior
+
+- **Link reset.** At start up, and after `max_retries` timeouts in a row, the layer discards unacknowledged frames
+  and sends SABM, repeated every second (or every `timeout`, if longer) until UA arrives. A device that receives
+  SABM resets its sequence numbers, answers UA and considers the link up, so two devices that start at the same time
+  both connect.
+- **Sending.** Each packet is copied into a free queue slot, numbered, and sent at once if the link is up. While the
+  link is being reset, packets wait in the queue. When the queue is full, `send_to_interface()` returns false.
+- **Acknowledging.** Every I-frame carries N(R), the next sequence number expected from the peer. When a frame
+  arrives in sequence, an RR is sent from the next `loop()`, unless the layer above sends a reply first, which
+  carries the acknowledgement instead.
+- **Out of sequence frames.** The first one after a frame arrives in sequence triggers a REJ, asking the peer to
+  resend from N(R). Later ones, including duplicates, trigger an RR, so the peer always gets an answer.
+- **Timeout.** If the oldest unacknowledged frame is not acknowledged within `timeout`, all unacknowledged frames are
+  resent.
+
+### Options
+
+| Option             | Default | Range       |
+|--------------------|---------|-------------|
+| `timeout`          | 200ms   |             |
+| `max_queue_length` | 4       | 1 to 7      |
+| `max_retries`      | 5       | 1 to 255    |
+
+The queue uses `max_queue_length` times `max_packet_size` bytes, allocated in `setup()`.
+
 ## Applications
 
 `packet_transport` keeps its own encryption, rolling code and ping-pong features for now, and is used through the
