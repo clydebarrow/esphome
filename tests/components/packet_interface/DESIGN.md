@@ -1,8 +1,8 @@
 # Packet interface design
 
 This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`), the
-reliability and session layers, and the `packet_transport` bridge exist today. The other layers described here are
-planned.
+encryption, reliability and session layers, and the `packet_transport` bridge exist today. The other layers
+described here are planned.
 
 ## Goals
 
@@ -37,8 +37,8 @@ The order is fixed by the code, not by the user. The proposed order and the reas
 
 - **Addressing below encryption.** A device can drop packets meant for another device on a shared bus (such as
   RS485) without spending time decrypting them.
-- **Encryption below reliability.** Acknowledgements are encrypted too, so they cannot be forged, and a resent
-  packet is identical to the original.
+- **Encryption below reliability.** Acknowledgements and link resets are encrypted too, so they cannot be forged or
+  replayed.
 - **Reliability below fragmentation.** Each fragment is acknowledged and resent on its own, so a lost fragment
   costs one fragment, not the whole packet. Fragments also arrive in order with none missing, so joining them needs
   no timers or reordering. The reliability queue holds fragments, so its slots stay the size of a link packet.
@@ -75,8 +75,8 @@ packet_interface:
   - platform: uart # RS485 multidrop
     id: rs485_comms
     encryption:
-      secret_key: Johnny Cash
-      cipher: XXTEA
+      type: xxtea
+      key: Johnny Cash
     reliability:
       timeout: 0.2s # Retransmit if no ack within 200ms
       max_queue_length: 4 # Buffer up to 4 packets
@@ -233,6 +233,61 @@ event that `entity_transport` needs.
 | `timeout`       | 3 times keep_alive | Longer than keep_alive         |
 | `binary_sensor` |                    | ON while the peer is connected |
 
+## Encryption layer: `xxtea`
+
+The first encryption implementation uses XXTEA, already used by `packet_transport`, with a 256-bit key made from the
+SHA-256 of the key text.
+
+### Packet format
+
+The packet from the layer above is padded with zeros and followed by a trailer, and the result is encrypted as one
+XXTEA block. Only the encrypted block is sent.
+
+```
++-----------------+---------+------------------------------------------------------------------+
+| payload         | padding | trailer, 4 bytes, or 16 with the rolling code                    |
+| 0 or more bytes | 0 to 4  | [boot (4) | counter (4) | echo (4)] | check (3) | padding (1)    |
++-----------------+---------+------------------------------------------------------------------+
+```
+
+- **Boot number, counter and echo.** Only with `rolling_code_enable`; see below.
+- **Check.** 3 fixed bytes, different with and without the rolling code, so two devices set up differently drop
+  each other's packets. XXTEA mixes the whole block, so if any byte of the encrypted packet changes, or it was
+  encrypted with another key, the check and padding count are wrong on decryption, except by chance about once in
+  a billion.
+- **Padding count.** The number of zero bytes before the trailer, so that the whole is a multiple of 4 bytes and at
+  least 8, the smallest block XXTEA can encrypt.
+
+The layer adds 4 to 8 bytes, or 16 to 19 with the rolling code. Its `max_packet_size` is that of the layer below
+rounded down to a multiple of 4, less the trailer. XXTEA works on 32-bit words in the byte order of the device,
+which is little endian on every supported platform.
+
+Without the rolling code, the same packet always encrypts to the same bytes, and a recorded packet can be sent
+again by anyone and is accepted.
+
+### Rolling code
+
+With `rolling_code_enable`, which is off by default as in `packet_transport`, the trailer also holds:
+
+- **Boot number.** Saved in flash and increased at every boot, before any packet is sent, so it costs one flash
+  write per boot. A boot number is never used twice.
+- **Counter.** Starts at 0 at every boot and increases with every packet. If it wraps, the boot number is increased.
+- **Echo.** The highest boot number this device has heard from the peer, sent back to it.
+
+A packet is delivered only if:
+
+- its echo is this device's current boot number, so it was made after this device last started; and
+- its boot number and counter are higher than those of the last packet accepted from the peer, so it is not a
+  repeat of a packet from this boot.
+
+The echo does the job of `packet_transport`'s ping and pong, without extra packets: the boot number is a fresh
+challenge after every restart, and every packet answers it. The peer's boot number is learnt from any packet that
+passes the check, even one dropped because its echo is wrong, so after a restart each device's first packets are
+dropped until the other has heard from it. Above this layer, the reliability layer resends them.
+
+If the peer's flash is erased, its boot number starts again from 1, and its packets are dropped until this device
+restarts. Packets that arrive out of order are also dropped.
+
 ## Fragmentation layer
 
 Planned. A link limits the packet size: a UART link by its buffers, ESP-NOW to 250 bytes, LoRa to 255 bytes. The
@@ -274,10 +329,6 @@ the objects does not matter.
 
 - **Wire format.** The header layout of each layer, and whether a link layer needs a byte that says which layers are
   in use, so that badly matched configurations are detected rather than producing garbage.
-- **Replay protection.** Whether the encryption layer needs a counter or nonce, or whether the session layer
-  provides it. The reliability layer does not help here: its CRC detects damage, not forged or replayed frames. An
-  application such as `entity_transport` should not need packet_transport's ping and pong exchange if this is
-  solved below it.
 - **Link up event.** The session layer reports when the peer is connected, including after a restart.
   `entity_transport` could send all states once at that point, instead of resending them at a fixed interval, since
   on a reliable link states are only missed across a reset. How an application finds the session layer in the stack

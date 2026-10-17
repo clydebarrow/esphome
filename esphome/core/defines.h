@@ -247,6 +247,7 @@
 #define USE_OUTPUT_FLOAT_POWER_SCALING
 #define USE_PACKET_INTERFACE_BASIC_SESSION
 #define USE_PACKET_INTERFACE_HDLC
+#define USE_PACKET_INTERFACE_XXTEA
 #define USE_POWER_SUPPLY
 // Only defined by key-lookup preference backends; the slot-based platforms
 // (esp8266, rp2040) never set it in generated builds, and their preferences

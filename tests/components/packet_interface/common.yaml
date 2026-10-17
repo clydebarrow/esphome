@@ -9,6 +9,9 @@ packet_interface:
   - platform: uart
     id: packet_interface_uart
     max_packet_size: 256
+    encryption:
+      key: Johnny Cash
+      rolling_code_enable: true
     reliability:
       timeout: 300ms
       max_queue_length: 3
@@ -21,6 +24,7 @@ packet_interface:
   - platform: udp
     id: packet_interface_network
     udp_id: packet_interface_udp
+    encryption: Johnny Cash
     reliability:
     session:
 

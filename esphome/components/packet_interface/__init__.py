@@ -1,3 +1,4 @@
+import hashlib
 from typing import Any
 
 import esphome.codegen as cg
@@ -5,7 +6,9 @@ from esphome.components import binary_sensor
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_BINARY_SENSOR,
+    CONF_ENCRYPTION,
     CONF_ID,
+    CONF_KEY,
     CONF_TIMEOUT,
     DEVICE_CLASS_CONNECTIVITY,
     ENTITY_CATEGORY_DIAGNOSTIC,
@@ -13,7 +16,7 @@ from esphome.const import (
 from esphome.cpp_generator import MockObj, MockObjClass
 from esphome.types import ConfigType
 
-AUTO_LOAD = ["binary_sensor"]
+AUTO_LOAD = ["binary_sensor", "xxtea"]
 CODEOWNERS = ["@clydebarrow"]
 DOMAIN = "packet_interface"
 IS_PLATFORM_COMPONENT = True
@@ -22,6 +25,7 @@ packet_interface_ns = cg.esphome_ns.namespace("packet_interface")
 PacketInterface = packet_interface_ns.class_("PacketInterface", cg.Component)
 HdlcReliability = packet_interface_ns.class_("HdlcReliability", PacketInterface)
 BasicSession = packet_interface_ns.class_("BasicSession", PacketInterface)
+XxteaEncryption = packet_interface_ns.class_("XxteaEncryption", PacketInterface)
 
 CONF_KEEP_ALIVE = "keep_alive"
 CONF_PACKET_INTERFACE = "packet_interface"
@@ -29,8 +33,10 @@ CONF_MAX_PACKET_SIZE = "max_packet_size"
 CONF_MAX_QUEUE_LENGTH = "max_queue_length"
 CONF_MAX_RETRIES = "max_retries"
 CONF_RELIABILITY = "reliability"
+CONF_ROLLING_CODE_ENABLE = "rolling_code_enable"
 CONF_SESSION = "session"
 
+ENCRYPTION_XXTEA = "xxtea"
 RELIABILITY_HDLC = "hdlc"
 SESSION_BASIC = "basic"
 
@@ -38,6 +44,30 @@ SESSION_BASIC = "basic"
 def _empty_dict(value: Any) -> Any:
     """Allow a layer to be enabled with no options, e.g. `reliability:`."""
     return {} if value is None else value
+
+
+def _key_only(value: Any) -> Any:
+    """Allow the encryption key to be given on its own, e.g. `encryption: my secret`."""
+    return {CONF_KEY: value} if isinstance(value, str) else value
+
+
+ENCRYPTION_SCHEMA = cv.All(
+    _key_only,
+    cv.typed_schema(
+        {
+            ENCRYPTION_XXTEA: cv.Schema(
+                {
+                    cv.GenerateID(): cv.declare_id(XxteaEncryption),
+                    cv.Required(CONF_KEY): cv.All(
+                        cv.sensitive(cv.string), cv.Length(min=1)
+                    ),
+                    cv.Optional(CONF_ROLLING_CODE_ENABLE, default=False): cv.boolean,
+                }
+            ).extend(cv.COMPONENT_SCHEMA),
+        },
+        default_type=ENCRYPTION_XXTEA,
+    ),
+)
 
 
 RELIABILITY_SCHEMA = cv.All(
@@ -112,10 +142,22 @@ def packet_interface_schema(
             cv.Optional(
                 CONF_MAX_PACKET_SIZE, default=default_max_packet_size
             ): cv.int_range(16, max_packet_size_limit),
+            cv.Optional(CONF_ENCRYPTION): ENCRYPTION_SCHEMA,
             cv.Optional(CONF_RELIABILITY): RELIABILITY_SCHEMA,
             cv.Optional(CONF_SESSION): SESSION_SCHEMA,
         }
     ).extend(cv.COMPONENT_SCHEMA)
+
+
+async def _new_encryption(config: ConfigType, lower: MockObj) -> MockObj:
+    cg.add_define("USE_PACKET_INTERFACE_XXTEA")
+    var = cg.new_Pvariable(config[CONF_ID], lower, config[CONF_ROLLING_CODE_ENABLE])
+    # A 256-bit key from the SHA-256 of the key text, as 32-bit words in little endian order
+    digest = hashlib.sha256(config[CONF_KEY].encode()).digest()
+    key = [int.from_bytes(digest[i : i + 4], "little") for i in range(0, 32, 4)]
+    cg.add(var.set_key(key))
+    await cg.register_component(var, config)
+    return var
 
 
 async def _new_reliability(config: ConfigType, lower: MockObj) -> MockObj:
@@ -149,6 +191,8 @@ async def new_packet_interface(config: ConfigType, *args: Any) -> MockObj:
     cg.add(var.set_max_packet_size(config[CONF_MAX_PACKET_SIZE]))
     await cg.register_component(var, config)
     top = var
+    if (encryption := config.get(CONF_ENCRYPTION)) is not None:
+        top = await _new_encryption(encryption, top)
     if (reliability := config.get(CONF_RELIABILITY)) is not None:
         top = await _new_reliability(reliability, top)
     if (session := config.get(CONF_SESSION)) is not None:

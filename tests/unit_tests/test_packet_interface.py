@@ -5,6 +5,7 @@ import pytest
 from esphome import config_validation as cv
 from esphome.components import packet_interface
 from esphome.components.packet_interface import (
+    CONF_ENCRYPTION,
     CONF_KEEP_ALIVE,
     CONF_MAX_PACKET_SIZE,
     CONF_MAX_QUEUE_LENGTH,
@@ -80,3 +81,21 @@ def test_session_timeout(setup_core) -> None:
         )
     with pytest.raises(cv.Invalid):
         uart_packet_interface.CONFIG_SCHEMA({CONF_SESSION: {CONF_KEEP_ALIVE: "500ms"}})
+
+
+def test_encryption_key_only(setup_core) -> None:
+    """The key can be given on its own, and selects XXTEA."""
+    encryption = uart_packet_interface.CONFIG_SCHEMA({CONF_ENCRYPTION: "secret"})[
+        CONF_ENCRYPTION
+    ]
+    assert encryption["type"] == "xxtea"
+    assert encryption["key"] == "secret"
+    assert encryption["rolling_code_enable"] is False
+
+
+def test_encryption_requires_key(setup_core) -> None:
+    """An encryption layer without a key is rejected."""
+    with pytest.raises(cv.Invalid):
+        uart_packet_interface.CONFIG_SCHEMA({CONF_ENCRYPTION: {}})
+    with pytest.raises(cv.Invalid):
+        uart_packet_interface.CONFIG_SCHEMA({CONF_ENCRYPTION: ""})
