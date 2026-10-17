@@ -14,7 +14,7 @@ static constexpr uint8_t PACKET_TYPE_KEEP_ALIVE = 0x01;
 static constexpr size_t KEEP_ALIVE_SIZE = 5;
 
 BasicSession::BasicSession(PacketInterface *lower) : lower_(lower) {
-  this->stack_on_(lower);
+  this->stack_on_(lower, CAPABILITY_SESSION);
   this->max_packet_size_ = lower->get_max_packet_size() - HEADER_SIZE;
 }
 
@@ -72,7 +72,7 @@ void BasicSession::set_connected_(bool connected) {
   if (this->connected_sensor_ != nullptr)
     this->connected_sensor_->publish_state(connected);
 #endif
-  this->state_callback_.call(connected);
+  this->session_callback_.call(connected);
 }
 
 void BasicSession::receive_(const PacketBuffer &data, const PacketMetaData &meta_data) {

@@ -80,6 +80,8 @@ TEST_F(XxteaEncryptionTest, MaxPacketSizeAllowsForTrailerAndWords) {
   Peer a;
   EXPECT_EQ(a.encryption->get_max_packet_size(), 64 - ROLLING_TRAILER_SIZE);
   EXPECT_EQ(a.link.top(), a.encryption.get());
+  EXPECT_TRUE(a.encryption->has_capability(CAPABILITY_ENCRYPTION));
+  EXPECT_FALSE(a.encryption->has_capability(CAPABILITY_SESSION));
   Peer b(0x12345678, 63);
   EXPECT_EQ(b.encryption->get_max_packet_size(), 60 - ROLLING_TRAILER_SIZE);
   Peer c(0x12345678, 64, false);

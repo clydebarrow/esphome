@@ -32,7 +32,7 @@ static uint32_t get_uint32(const uint8_t *buf) { return encode_uint32(buf[3], bu
 
 XxteaEncryption::XxteaEncryption(PacketInterface *lower, bool rolling_code)
     : lower_(lower), trailer_size_(rolling_code ? ROLLING_SIZE + CHECK_SIZE : CHECK_SIZE), rolling_code_(rolling_code) {
-  this->stack_on_(lower);
+  this->stack_on_(lower, CAPABILITY_ENCRYPTION);
   // XXTEA works on whole 32-bit words
   this->max_packet_size_ = (lower->get_max_packet_size() & ~size_t{3}) - this->trailer_size_;
 }

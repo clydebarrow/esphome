@@ -105,6 +105,7 @@ TEST_F(HdlcReliabilityTest, MaxPacketSizeAllowsForOverhead) {
   Peer a;
   EXPECT_EQ(a.hdlc->get_max_packet_size(), 64 - HdlcReliability::FRAME_OVERHEAD);
   EXPECT_EQ(a.link.top(), a.hdlc.get());
+  EXPECT_EQ(a.hdlc->get_capabilities(), CAPABILITY_RELIABILITY);
 }
 
 TEST_F(HdlcReliabilityTest, ResetHandshake) {

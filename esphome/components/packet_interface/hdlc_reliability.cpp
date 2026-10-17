@@ -25,7 +25,7 @@ static uint16_t frame_crc(uint8_t control, const uint8_t *payload, size_t length
 }
 
 HdlcReliability::HdlcReliability(PacketInterface *lower) : lower_(lower) {
-  this->stack_on_(lower);
+  this->stack_on_(lower, CAPABILITY_RELIABILITY);
   this->max_packet_size_ = lower->get_max_packet_size() - FRAME_OVERHEAD;
 }
 

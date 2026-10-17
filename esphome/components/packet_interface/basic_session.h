@@ -36,10 +36,6 @@ class BasicSession : public PacketInterface {
 #endif
 
   bool is_connected() const { return this->connected_; }
-  /// Called with true when the peer is first heard, and false when it is lost or has restarted.
-  template<typename F> void add_on_state_callback(F &&callback) {
-    this->state_callback_.add(std::forward<F>(callback));
-  }
 
  protected:
   void receive_(const PacketBuffer &data, const PacketMetaData &meta_data);
@@ -48,7 +44,6 @@ class BasicSession : public PacketInterface {
   void set_connected_(bool connected);
 
   PacketInterface *lower_;
-  LazyCallbackManager<void(bool)> state_callback_;
 #ifdef USE_BINARY_SENSOR
   binary_sensor::BinarySensor *connected_sensor_{nullptr};
 #endif

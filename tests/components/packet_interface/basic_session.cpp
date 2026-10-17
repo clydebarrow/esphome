@@ -38,7 +38,7 @@ struct Peer {
     this->session->set_session_timeout(3000);
     this->session->add_packet_interface_listener(
         [this](const PacketBuffer &data, const PacketMetaData &) { this->received.push_back(data.to_vector()); });
-    this->session->add_on_state_callback([this](bool connected) { this->states.push_back(connected); });
+    this->session->add_on_session_state_callback([this](bool connected) { this->states.push_back(connected); });
     this->session->setup();
   }
   bool send(const Packet &data) { return this->session->send_to_interface(PacketBuffer(data), {}); }
@@ -84,6 +84,7 @@ TEST_F(BasicSessionTest, MaxPacketSizeAllowsForHeader) {
   Peer a;
   EXPECT_EQ(a.session->get_max_packet_size(), 64 - BasicSession::HEADER_SIZE);
   EXPECT_EQ(a.link.top(), a.session.get());
+  EXPECT_EQ(a.session->get_capabilities(), CAPABILITY_SESSION);
 }
 
 TEST_F(BasicSessionTest, KeepAliveSentAtSetup) {
