@@ -1,7 +1,8 @@
 # Packet interface design
 
-This document describes where the `packet_interface` component is going. Only the link layers (`uart`, `udp`) and
-the `packet_transport` bridge exist today. The other layers described here are planned.
+This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`), the
+reliability and session layers, and the `packet_transport` bridge exist today. The other layers described here are
+planned.
 
 ## Goals
 
@@ -16,14 +17,15 @@ the `packet_transport` bridge exist today. The other layers described here are p
 
 From the bottom up:
 
-| Layer        | Job                                                                         |
-|--------------|-----------------------------------------------------------------------------|
-| Link         | Moves packets over a real channel: UART, UDP, and later radio links.        |
-| Addressing   | Adds source and destination addresses; drops packets not addressed to us.   |
-| Encryption   | Encrypts and authenticates packets with a shared key.                       |
-| Reliability  | Acknowledges packets and resends those not acknowledged in time.            |
-| Session      | Sends keep-alive packets and reports whether the peer can be reached.       |
-| Application  | Uses the packets, for example `packet_transport`. Not part of the stack.    |
+| Layer         | Job                                                                       |
+|---------------|---------------------------------------------------------------------------|
+| Link          | Moves packets over a real channel: UART, UDP, and later radio links.      |
+| Addressing    | Adds source and destination addresses; drops packets not addressed to us. |
+| Encryption    | Encrypts and authenticates packets with a shared key.                     |
+| Reliability   | Acknowledges packets and resends those not acknowledged in time.          |
+| Fragmentation | Splits packets larger than the layers below allow, and joins them again.  |
+| Session       | Sends keep-alive packets and reports whether the peer can be reached.     |
+| Application   | Uses the packets, for example `packet_transport`. Not part of the stack.  |
 
 Every layer except the application is a `PacketInterface`. A layer above the link layer holds a pointer to the layer
 below it and registers itself as that layer's listener. To the layer above, it looks like any other
@@ -37,6 +39,11 @@ The order is fixed by the code, not by the user. The proposed order and the reas
   RS485) without spending time decrypting them.
 - **Encryption below reliability.** Acknowledgements are encrypted too, so they cannot be forged, and a resent
   packet is identical to the original.
+- **Reliability below fragmentation.** Each fragment is acknowledged and resent on its own, so a lost fragment
+  costs one fragment, not the whole packet. Fragments also arrive in order with none missing, so joining them needs
+  no timers or reordering. The reliability queue holds fragments, so its slots stay the size of a link packet.
+- **Fragmentation below session.** The session layer stays at the top of the stack, where an application finds it
+  with `top()`, and adds its header once per packet rather than once per fragment.
 - **Reliability below session.** Keep-alive packets reach the peer reliably, so a single lost packet does not mark
   the session as down.
 
@@ -58,7 +65,8 @@ on it.
 1. Reliability.
 2. Session.
 3. Encryption.
-4. Addressing, last. Until it exists, reliability and session work only between two devices on one channel.
+4. Fragmentation.
+5. Addressing, last. Until it exists, reliability and session work only between two devices on one channel.
 
 ## Example configuration
 
@@ -72,6 +80,8 @@ packet_interface:
     reliability:
       timeout: 0.2s # Retransmit if no ack within 200ms
       max_queue_length: 4 # Buffer up to 4 packets
+    fragmentation:
+      max_packet_size: 1024 # Largest packet the application can send
     session:
       keep_alive: 11s
       binary_sensor: # Sensor ON when connected
@@ -179,6 +189,68 @@ Control byte, using the HDLC encoding (`P/F`, bit 4, is sent as 0 and ignored):
 
 The queue uses `max_queue_length` times `max_packet_size` bytes, allocated in `setup()`.
 
+## Session layer: `basic`
+
+The first session implementation tells whether the peer can be reached, and notices when it restarts. Like the
+reliability layer, it works between two devices only.
+
+### Packet format
+
+```
++------+-------------------+
+| type | data              |
+| 1    | 0 or more bytes   |
++------+-------------------+
+```
+
+| Type   | Packet     | Data                                                  |
+|--------|------------|-------------------------------------------------------|
+| `0x00` | Data       | The packet from the layer above                       |
+| `0x01` | Keep-alive | A 32-bit random number chosen at boot, little endian  |
+
+Other types are dropped, so later versions can add their own.
+
+### Behavior
+
+- **Keep-alive.** A keep-alive is sent at setup and every `keep_alive` interval after that. With a reliability layer
+  below, the first one waits in its queue until the link is up.
+- **Connected.** Any data or keep-alive packet received marks the peer as connected.
+- **Lost.** The peer is lost when nothing has been received from it for `timeout`. This is checked every
+  `keep_alive` interval, so it is noticed between `timeout` and `timeout` plus `keep_alive` after the last packet.
+- **Restart.** A keep-alive with a different random number from the one last seen means the peer has restarted. This
+  is reported as lost then connected, so an application can send its state again. A device answers a keep-alive with
+  a number it has not seen with its own keep-alive at once, so both devices learn of each other without waiting for
+  the next interval. The answer cannot repeat, because the other device has already seen that number.
+
+An application can read `is_connected()` and register a callback with `add_on_state_callback()`. This is the link up
+event that `entity_transport` needs.
+
+### Options
+
+| Option          | Default            | Range                          |
+|-----------------|--------------------|--------------------------------|
+| `keep_alive`    | 10s                | 1s or more                     |
+| `timeout`       | 3 times keep_alive | Longer than keep_alive         |
+| `binary_sensor` |                    | ON while the peer is connected |
+
+## Fragmentation layer
+
+Planned. A link limits the packet size: a UART link by its buffers, ESP-NOW to 250 bytes, LoRa to 255 bytes. The
+fragmentation layer lets an application send packets up to its own `max_packet_size`, larger than the layers below
+allow, by splitting each into fragments that fit and joining them again at the other end.
+
+- **Header.** Each fragment carries a short header: an 8-bit packet number, the fragment's index within the packet,
+  and a flag on the last fragment. A packet that fits in one fragment still has the header.
+- **Joining.** The receiver copies fragments into one buffer of `max_packet_size`, allocated in `setup()`. When the
+  packet number changes or an index is skipped, the incomplete packet is dropped. Above a reliability layer this
+  never happens. Without one, for example on UDP, a lost fragment loses the packet, and fragments that arrive out of
+  order are not handled.
+- **Sending.** Each fragment is copied from the upper packet with `copy_to()` into a buffer on the stack, so the
+  upper packet is not held after `send_to_interface()` returns.
+- **Partial sends.** If the layer below refuses a fragment part way through a packet, for example because the
+  reliability queue is full, the peer receives an incomplete packet and drops it. A packet must only be started when
+  the layer below can take all of its fragments; see the open questions.
+
 ## Applications
 
 `packet_transport` keeps its own encryption, rolling code and ping-pong features for now, and is used through the
@@ -206,9 +278,10 @@ the objects does not matter.
   provides it. The reliability layer does not help here: its CRC detects damage, not forged or replayed frames. An
   application such as `entity_transport` should not need packet_transport's ping and pong exchange if this is
   solved below it.
-- **Link up event.** The reliability layer could report when the link comes up, passed up the stack so that an
-  application can reach it through `top()`. `entity_transport` could then send all states once at that point,
-  instead of resending them at a fixed interval, since on a reliable link states are only missed across a reset.
+- **Link up event.** The session layer reports when the peer is connected, including after a restart.
+  `entity_transport` could send all states once at that point, instead of resending them at a fixed interval, since
+  on a reliable link states are only missed across a reset. How an application finds the session layer in the stack
+  is still open: `top()` returns it only when it is the top layer.
 - **Best effort packets.** HDLC unnumbered information (UI, control byte `0x03`) frames could carry data that is
   only useful while fresh, such as streamed readings, without a sequence number, queue slot or retry. A flag in
   `PacketMetaData` would select them. A UI frame must not be sent while I-frames are unacknowledged, or it could
@@ -218,4 +291,8 @@ the objects does not matter.
 - **Ciphers.** Which ciphers are offered besides XXTEA, and how much each adds to the packet size.
 - **Reliability with several peers.** How acknowledgements and the send queue work when there is more than one
   destination address.
+- **Room to send.** The fragmentation layer needs to know, before it starts a packet, that the layer below will take
+  all of its fragments. A `PacketInterface` method that reports how many packets can be sent now would do this. The
+  reliability queue must also be at least as long as the number of fragments in the largest packet.
+- **Fragment header size.** Whether the index needs more than 7 bits, which limits a packet to 128 fragments.
 - **Session sensor.** With several peers, whether there is one sensor per peer or one for the whole channel.

@@ -5,9 +5,11 @@ import pytest
 from esphome import config_validation as cv
 from esphome.components import packet_interface
 from esphome.components.packet_interface import (
+    CONF_KEEP_ALIVE,
     CONF_MAX_PACKET_SIZE,
     CONF_MAX_QUEUE_LENGTH,
     CONF_RELIABILITY,
+    CONF_SESSION,
 )
 from esphome.components.uart import packet_interface as uart_packet_interface
 from esphome.components.udp import packet_interface as udp_packet_interface
@@ -56,3 +58,25 @@ def test_reliability_queue_length_limit(setup_core) -> None:
         uart_packet_interface.CONFIG_SCHEMA(
             {CONF_RELIABILITY: {CONF_MAX_QUEUE_LENGTH: 8}}
         )
+
+
+def test_session_defaults(setup_core) -> None:
+    """An empty session key selects the basic session, timing out after three keep-alives."""
+    session = uart_packet_interface.CONFIG_SCHEMA({CONF_SESSION: None})[CONF_SESSION]
+    assert session["type"] == "basic"
+    assert session[CONF_KEEP_ALIVE].total_milliseconds == 10000
+    assert session["timeout"].total_milliseconds == 30000
+
+
+def test_session_timeout(setup_core) -> None:
+    """The timeout follows keep_alive unless given, and must be longer than it."""
+    session = uart_packet_interface.CONFIG_SCHEMA(
+        {CONF_SESSION: {CONF_KEEP_ALIVE: "2s"}}
+    )[CONF_SESSION]
+    assert session["timeout"].total_milliseconds == 6000
+    with pytest.raises(cv.Invalid):
+        uart_packet_interface.CONFIG_SCHEMA(
+            {CONF_SESSION: {CONF_KEEP_ALIVE: "5s", "timeout": "5s"}}
+        )
+    with pytest.raises(cv.Invalid):
+        uart_packet_interface.CONFIG_SCHEMA({CONF_SESSION: {CONF_KEEP_ALIVE: "500ms"}})

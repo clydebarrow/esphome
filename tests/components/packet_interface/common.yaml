@@ -13,10 +13,16 @@ packet_interface:
       timeout: 300ms
       max_queue_length: 3
       max_retries: 4
+    session:
+      keep_alive: 5s
+      timeout: 12s
+      binary_sensor:
+        name: UART session
   - platform: udp
     id: packet_interface_network
     udp_id: packet_interface_udp
     reliability:
+    session:
 
 sensor:
   - platform: template
