@@ -6,17 +6,21 @@ import pytest
 
 from esphome import config_validation as cv
 from esphome.components import packet_interface
-from esphome.components.packet_interface import (
+from esphome.components.packet_interface import CONF_MAX_PACKET_SIZE
+from esphome.components.packet_interface.layers import (
     CONF_ADDRESSING,
-    CONF_ENCRYPTION,
-    CONF_KEEP_ALIVE,
-    CONF_MAX_PACKET_SIZE,
-    CONF_MAX_QUEUE_LENGTH,
     CONF_RELIABILITY,
     CONF_SESSION,
+    RELIABILITY,
+    STACK_ORDER,
+)
+from esphome.components.packet_interface.layers.basic_session import CONF_KEEP_ALIVE
+from esphome.components.packet_interface.layers.hdlc_reliability import (
+    CONF_MAX_QUEUE_LENGTH,
 )
 from esphome.components.uart import packet_interface as uart_packet_interface
 from esphome.components.udp import packet_interface as udp_packet_interface
+from esphome.const import CONF_ENCRYPTION
 
 
 @pytest.mark.parametrize(
@@ -170,3 +174,27 @@ def test_addressing_peers_invalid(
         uart_packet_interface.CONFIG_SCHEMA(
             {CONF_ADDRESSING: {"address": 1, **addressing}, **layers}
         )
+
+
+def test_layer_types_registered() -> None:
+    """Importing packet_interface registers the built-in layer types."""
+    assert {kind.key: set(kind.types) for kind in STACK_ORDER} == {
+        CONF_ENCRYPTION: {"xxtea"},
+        CONF_RELIABILITY: {"hdlc"},
+        CONF_SESSION: {"basic"},
+    }
+
+
+def test_registered_type_selectable(setup_core) -> None:
+    """A newly registered layer type can be selected with type."""
+
+    async def build(config: dict, lower: Any) -> Any:
+        return lower
+
+    RELIABILITY.register("test", schema=cv.Schema({}))(build)
+    try:
+        config = RELIABILITY.schema()({"type": "test"})
+        assert config["type"] == "test"
+        assert RELIABILITY.get_type(config).build is build
+    finally:
+        del RELIABILITY.types["test"]

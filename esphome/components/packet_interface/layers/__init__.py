@@ -1,0 +1,143 @@
+"""The kinds of layer that can be stacked on a packet interface, and the registry of their implementations.
+
+Each module in this package implements one layer type and registers it with its kind, for example:
+
+    @RELIABILITY.register("hdlc", schema=HDLC_SCHEMA, single_peer=lambda config: True)
+    async def build_hdlc(config: ConfigType, lower: MockObj) -> MockObj:
+        ...
+
+The packet_interface component imports every module here before it builds its schemas, so a new layer type needs
+only a new module. The kinds, and the order in which they are stacked, are fixed here.
+"""
+
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
+from typing import Any
+
+import esphome.codegen as cg
+import esphome.config_validation as cv
+from esphome.const import CONF_ENCRYPTION, CONF_KEY, CONF_TYPE
+from esphome.cpp_generator import MockObj
+from esphome.types import ConfigType
+
+packet_interface_ns = cg.esphome_ns.namespace("packet_interface")
+PacketInterface = packet_interface_ns.class_("PacketInterface", cg.Component)
+
+CONF_ADDRESSING = "addressing"
+CONF_DESTINATION = "destination"
+CONF_PEERS = "peers"
+CONF_RELIABILITY = "reliability"
+CONF_SESSION = "session"
+
+BROADCAST_ADDRESS = 0xFFFF
+
+# Builds a layer above lower and returns it. An addressing layer instead returns a list of (port, config) pairs, one
+# for each stack it carries, where config holds the layers for that stack, or is None for the layers on the link.
+LayerBuilder = Callable[[ConfigType, MockObj], Awaitable[Any]]
+
+
+def _never(config: ConfigType) -> bool:
+    return False
+
+
+@dataclass(frozen=True)
+class LayerType:
+    """One implementation of a kind of layer."""
+
+    # Returns the schema; called once every layer type is registered, as some schemas contain other layers
+    schema_factory: Callable[[], Any]
+    build: LayerBuilder
+    # True if this configuration keeps state for one peer, so cannot be used with broadcast addressing
+    single_peer: Callable[[ConfigType], bool]
+
+
+class LayerKind:
+    """A kind of layer, such as encryption, with the types that implement it."""
+
+    def __init__(
+        self, key: str, default_type: str, shorthand: str | None = None
+    ) -> None:
+        self.key = key
+        self.default_type = default_type
+        # The option that a plain string value sets, as in `encryption: my key`
+        self.shorthand = shorthand
+        self.types: dict[str, LayerType] = {}
+
+    def register(
+        self,
+        name: str,
+        *,
+        schema: Any = None,
+        schema_factory: Callable[[], Any] | None = None,
+        single_peer: Callable[[ConfigType], bool] = _never,
+    ) -> Callable[[LayerBuilder], LayerBuilder]:
+        """Register a type with its schema, or with a function returning a schema that contains other layers."""
+
+        def fixed_schema() -> Any:
+            return schema
+
+        def decorator(build: LayerBuilder) -> LayerBuilder:
+            self.types[name] = LayerType(
+                schema_factory or fixed_schema, build, single_peer
+            )
+            return build
+
+        return decorator
+
+    def _expand(self, value: Any) -> Any:
+        """Allow a layer to be enabled with no options, as in `reliability:`, or with its shorthand."""
+        if value is None:
+            return {}
+        if self.shorthand is not None and isinstance(value, str):
+            return {self.shorthand: value}
+        return value
+
+    def schema(self) -> Callable[[Any], ConfigType]:
+        """The schema for this kind, from the types registered so far."""
+        return cv.All(
+            self._expand,
+            cv.typed_schema(
+                {name: layer.schema_factory() for name, layer in self.types.items()},
+                default_type=self.default_type,
+            ),
+        )
+
+    def get_type(self, config: ConfigType) -> LayerType:
+        return self.types[config[CONF_TYPE]]
+
+
+# An addressing type's configuration has either a destination or a list of peers, each with an id, a destination
+# and its own layers.
+ADDRESSING = LayerKind(CONF_ADDRESSING, "basic")
+ENCRYPTION = LayerKind(CONF_ENCRYPTION, "xxtea", shorthand=CONF_KEY)
+RELIABILITY = LayerKind(CONF_RELIABILITY, "hdlc")
+SESSION = LayerKind(CONF_SESSION, "basic")
+# The kinds stacked above the link, or above each port of an addressing layer, from the bottom up
+STACK_ORDER = (ENCRYPTION, RELIABILITY, SESSION)
+
+
+def stack_schema() -> dict:
+    """Schema entries for the layers of one stack; call only once all layer types are registered."""
+    return {cv.Optional(kind.key): kind.schema() for kind in STACK_ORDER}
+
+
+def check_single_peer(config: ConfigType, destination: int) -> None:
+    """Layers that keep state for one peer need a destination other than broadcast."""
+    if destination != BROADCAST_ADDRESS:
+        return
+    for kind in STACK_ORDER:
+        if (layer := config.get(kind.key)) is not None and kind.get_type(
+            layer
+        ).single_peer(layer):
+            raise cv.Invalid(
+                f"This '{kind.key}' works between two devices only, so it needs a '{CONF_DESTINATION}' other than "
+                "broadcast",
+                path=[kind.key],
+            )
+
+
+async def build_stack(config: ConfigType, lower: MockObj) -> None:
+    """Create the layers configured in config, from the bottom up, above lower."""
+    for kind in STACK_ORDER:
+        if (layer := config.get(kind.key)) is not None:
+            lower = await kind.get_type(layer).build(layer, lower)

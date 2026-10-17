@@ -437,11 +437,37 @@ always the top layer, so an application registers it on `top()`.
 
 ## Code generation
 
-The layer schemas are defined once in `esphome/components/packet_interface/__init__.py` and added to every link
-platform by `packet_interface_schema()`. A link platform only adds its own options.
+### Layer registry
 
-`new_packet_interface()` creates the link layer, then creates each configured layer in the fixed order, passing each
-one the layer below to its constructor. Each layer is registered as a component.
+The kinds of layer, their config keys, default types and stacking order are fixed in
+`packet_interface/layers/__init__.py`, as `LayerKind` objects: `ADDRESSING`, then `STACK_ORDER` of `ENCRYPTION`,
+`RELIABILITY` and `SESSION`. The order is part of the design, so it is not pluggable.
+
+Each implementation is a module in `packet_interface/layers/` that registers itself with its kind; its C++ files stay
+in `packet_interface/`:
+
+```python
+@RELIABILITY.register("hdlc", schema=HDLC_SCHEMA, single_peer=lambda config: True)
+async def build_hdlc(config: ConfigType, lower: MockObj) -> MockObj: ...
+```
+
+- **Registration.** `packet_interface/__init__.py` imports every module in `layers/`, as `lvgl` does for its
+  widgets, and only then builds the schemas, so they are ordinary schemas that the schema extractor can read. A new
+  layer type is a new module and its C++ files; nothing else changes.
+- **Schema.** A kind's schema is a `typed_schema` of its registered types, with a default type. A kind may take a
+  shorthand, such as `encryption: my key`. A type whose schema contains other layers, as the addressing peers do,
+  registers a `schema_factory` instead, called once every type is registered.
+- **single_peer.** Says whether a configuration keeps state for one peer, such as `hdlc`, `basic` session, or `xxtea`
+  with the rolling code. Validation uses it to reject these with broadcast addressing, without naming the layers.
+- **Building.** `build(config, lower)` creates the layer above `lower` and returns it; `build_stack()` calls the
+  builders of one stack in `STACK_ORDER`. An addressing type's builder returns a list of (port, config) pairs, one
+  for each stack, and `new_packet_interface()` builds a stack on each.
+- **Contract for addressing types.** Their configuration has either `destination` or `peers`, each peer with `id`,
+  `destination` and the layers of its stack, so the generic validation and application checks work for any of them.
+
+The layer schemas are added to every link platform by `packet_interface_schema()`. A link platform only adds its
+own options. Each layer is registered as a component, and its defines are added by its builder, so the C++ of unused
+types compiles to nothing.
 
 The ID in the configuration is declared with the link layer's class, but an application needs the top of the stack.
 Each layer's constructor records itself as the layer above the one it is given, and `PacketInterface::top()` walks up
