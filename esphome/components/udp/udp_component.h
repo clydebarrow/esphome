@@ -20,8 +20,8 @@ class UDPComponent final : public Component {
   void set_listen_address(const char *listen_addr) { this->listen_address_ = listen_addr; }
   void set_listen_port(uint16_t port) { this->listen_port_ = port; }
   void set_broadcast_port(uint16_t port) { this->broadcast_port_ = port; }
-  void set_should_broadcast(bool should_broadcast = true) { this->should_broadcast_ = should_broadcast; }
-  void set_should_listen(bool should_listen = true);
+  void set_should_broadcast() { this->should_broadcast_ = true; }
+  void set_should_listen() { this->should_listen_ = true; }
 #ifdef USE_UDP_IPV6_SEND
   /// This instance has IPv6 destinations; multicast ones also need an egress interface.
   void set_ipv6_send(bool multicast) {

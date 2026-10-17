@@ -1,11 +1,13 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
+#include <span>
 #include <vector>
 
-namespace esphome {
-namespace packet_interface {
+namespace esphome::packet_interface {
 
 /**
  * A buffer class that efficiently represents a composite buffer with three sections:
@@ -41,6 +43,8 @@ class PacketBuffer {
    * Construct from a vector.
    */
   explicit PacketBuffer(const std::vector<uint8_t> &vec) : pre_buffer_(vec.data()), pre_length_(vec.size()) {}
+  // A temporary vector would leave the buffer dangling
+  explicit PacketBuffer(std::vector<uint8_t> &&) = delete;
 
   /**
    * Construct with pre and post buffers.
@@ -74,6 +78,16 @@ class PacketBuffer {
    * Check if the buffer is empty.
    */
   bool empty() const { return this->size() == 0; }
+
+  /**
+   * Check if all the data is held in the pre-buffer, so it can be read as one span.
+   */
+  bool is_contiguous() const { return this->mid_buffer_ == nullptr && this->post_length_ == 0; }
+
+  /**
+   * Get the data as one span. Only valid when is_contiguous() is true.
+   */
+  std::span<const uint8_t> as_span() const { return {this->pre_buffer_, this->pre_length_}; }
 
   /**
    * Access a byte at a specific position.
@@ -126,24 +140,20 @@ class PacketBuffer {
     }
 
     // Copy from mid_buffer
-    if (copied < to_copy && this->mid_buffer_ != nullptr) {
+    size_t mid_size = this->mid_buffer_ != nullptr ? this->mid_buffer_->size() : 0;
+    if (copied < to_copy && offset < this->pre_length_ + mid_size) {
       size_t mid_offset = offset - this->pre_length_;
-      size_t mid_available = this->mid_buffer_->size() - mid_offset;
+      size_t mid_available = mid_size - mid_offset;
       size_t mid_copy = (to_copy - copied) < mid_available ? (to_copy - copied) : mid_available;
-      if (mid_copy > 0) {
-        this->mid_buffer_->copy_to(dest, mid_copy, mid_offset);
-        copied += mid_copy;
-        dest += mid_copy;
-        offset += mid_copy;
-      }
+      this->mid_buffer_->copy_to(dest, mid_copy, mid_offset);
+      copied += mid_copy;
+      dest += mid_copy;
+      offset += mid_copy;
     }
 
     // Copy from post_buffer
-    if (copied<to_copy &&this->post_length_> 0) {
-      size_t post_offset = offset - this->pre_length_;
-      if (this->mid_buffer_ != nullptr) {
-        post_offset -= this->mid_buffer_->size();
-      }
+    if ((copied < to_copy) && (this->post_length_ > 0)) {
+      size_t post_offset = offset - this->pre_length_ - mid_size;
       size_t post_available = this->post_length_ - post_offset;
       size_t post_copy = (to_copy - copied) < post_available ? (to_copy - copied) : post_available;
       std::memcpy(dest, this->post_buffer_ + post_offset, post_copy);
@@ -168,6 +178,7 @@ class PacketBuffer {
    * Create a PacketBuffer from a vector (convenience method).
    */
   static PacketBuffer from_vector(const std::vector<uint8_t> &vec) { return PacketBuffer(vec); }
+  static PacketBuffer from_vector(std::vector<uint8_t> &&) = delete;
 
   /**
    * Assignment operator from std::vector.
@@ -181,12 +192,7 @@ class PacketBuffer {
     this->post_length_ = 0;
     return *this;
   }
-
-  /**
-   * Conversion operator to std::vector.
-   * Creates a copy of the buffer data.
-   */
-  operator std::vector<uint8_t>() const { return this->to_vector(); }
+  PacketBuffer &operator=(std::vector<uint8_t> &&) = delete;
 
   /**
    * Iterator class for PacketBuffer.
@@ -265,5 +271,4 @@ class PacketBuffer {
   size_t post_length_{0};
 };
 
-}  // namespace packet_interface
-}  // namespace esphome
+}  // namespace esphome::packet_interface

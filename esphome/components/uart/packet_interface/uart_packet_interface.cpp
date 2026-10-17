@@ -1,14 +1,20 @@
 #include "esphome/core/log.h"
 #include "uart_packet_interface.h"
 
-namespace esphome {
-namespace uart {
+namespace esphome::uart {
 
-static const char *const TAG = "uart.packet_interface";
+using packet_interface::PacketBuffer;
+using packet_interface::PacketMetaData;
 
-static const uint16_t MAX_PACKET_SIZE = 508;
-static const uint8_t FLAG_BYTE = 0x7E;
-static const uint8_t CONTROL_BYTE = 0x7D;
+ESPHOME_LOG_TAG(TAG, "uart.packet_interface");
+
+static constexpr uint8_t FLAG_BYTE = 0x7E;
+static constexpr uint8_t CONTROL_BYTE = 0x7D;
+static constexpr uint8_t ESCAPE_XOR = 0x20;
+// Raw bytes escaped and written per UART write
+static constexpr size_t TX_CHUNK_SIZE = 32;
+
+void UartPacketInterface::setup() { this->rx_buffer_ = std::make_unique<uint8_t[]>(this->max_packet_size_); }
 
 void UartPacketInterface::loop() {
   while (this->available()) {
@@ -18,14 +24,13 @@ void UartPacketInterface::loop() {
       return;
     }
     if (byte == FLAG_BYTE) {
-      if (this->rx_started_ && !this->receive_buffer_.empty()) {
-        PacketBuffer buffer(this->receive_buffer_);
-        this->on_receive_from_interface_(buffer, {});
+      if (this->rx_started_ && this->rx_length_ != 0) {
+        this->on_receive_from_interface_(PacketBuffer(this->rx_buffer_.get(), this->rx_length_), {});
         this->rx_started_ = false;
       } else {
         this->rx_started_ = true;
       }
-      this->receive_buffer_.clear();
+      this->rx_length_ = 0;
       this->rx_control_ = false;
       continue;
     }
@@ -36,51 +41,49 @@ void UartPacketInterface::loop() {
       continue;
     }
     if (this->rx_control_) {
-      byte ^= 0x20;
+      byte ^= ESCAPE_XOR;
       this->rx_control_ = false;
     }
-    if (this->receive_buffer_.size() >= this->rx_buffer_size_) {
+    if (this->rx_length_ >= this->max_packet_size_) {
       ESP_LOGD(TAG, "Packet too large, discarding");
       this->rx_started_ = false;
-      this->receive_buffer_.clear();
+      this->rx_length_ = 0;
       continue;
     }
-    this->receive_buffer_.push_back(byte);
+    this->rx_buffer_[this->rx_length_++] = byte;
   }
 }
 
-/**
- * Write a byte to the UART bus. If the byte is a flag or control byte, it will be escaped.
- * @param byte The byte to write.
- */
-void UartPacketInterface::write_byte_(uint8_t byte) {
-  if (byte == FLAG_BYTE || byte == CONTROL_BYTE) {
-    this->write_byte(CONTROL_BYTE);
-    byte ^= 0x20;
-  }
-  this->write_byte(byte);
-}
-
-bool UartPacketInterface::send_to_interface(const PacketBuffer &data, PacketMetaData meta_data) {
+bool UartPacketInterface::send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) {
   size_t size = data.size();
-  if (size == 0) {
+  if (size == 0)
     return true;
+  if (size > this->max_packet_size_) {
+    ESP_LOGW(TAG, "Packet of %zu bytes is larger than %zu", size, this->max_packet_size_);
+    return false;
   }
-
-  // Write frame start
-  this->write_byte(FLAG_BYTE);
-
-  // Write data with byte stuffing
-  for (size_t i = 0; i < size; i++) {
-    this->write_byte_(data[i]);
+  uint8_t raw[TX_CHUNK_SIZE];
+  // Every byte may be escaped, plus a flag byte at each end
+  uint8_t out[TX_CHUNK_SIZE * 2 + 2];
+  size_t out_len = 0;
+  out[out_len++] = FLAG_BYTE;
+  for (size_t offset = 0; offset < size;) {
+    size_t count = data.copy_to(raw, TX_CHUNK_SIZE, offset);
+    offset += count;
+    for (size_t i = 0; i != count; i++) {
+      uint8_t byte = raw[i];
+      if (byte == FLAG_BYTE || byte == CONTROL_BYTE) {
+        out[out_len++] = CONTROL_BYTE;
+        byte ^= ESCAPE_XOR;
+      }
+      out[out_len++] = byte;
+    }
+    if (offset == size)
+      out[out_len++] = FLAG_BYTE;
+    this->write_array(out, out_len);
+    out_len = 0;
   }
-
-  // Write frame end
-  this->write_byte(FLAG_BYTE);
-
   return true;
 }
 
-size_t UartPacketInterface::get_max_packet_size() { return MAX_PACKET_SIZE; }
-}  // namespace uart
-}  // namespace esphome
+}  // namespace esphome::uart

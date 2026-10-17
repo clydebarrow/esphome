@@ -193,18 +193,36 @@ TEST(PacketBufferTest, AssignmentFromVector) {
   EXPECT_EQ(buffer[2], 0x99);
 }
 
-// Test conversion to vector
-TEST(PacketBufferTest, ConversionToVector) {
+// Test copying from an offset past the mid buffer
+TEST(PacketBufferTest, CopyToOffsetPastMid) {
+  uint8_t pre[] = {0x01, 0x02};
+  uint8_t mid_data[] = {0x03};
+  uint8_t post[] = {0x04, 0x05, 0x06};
+  PacketBuffer mid(mid_data, 1);
+  PacketBuffer buffer(pre, 2, &mid, post, 3);
+
+  uint8_t dest[4]{};
+  ASSERT_EQ(buffer.copy_to(dest, 4, 4), 2);
+  EXPECT_EQ(dest[0], 0x05);
+  EXPECT_EQ(dest[1], 0x06);
+}
+
+// Test single span access
+TEST(PacketBufferTest, ContiguousSpan) {
   uint8_t data[] = {0x10, 0x20, 0x30, 0x40};
   PacketBuffer buffer(data, 4);
 
-  std::vector<uint8_t> vec = buffer;  // Implicit conversion
+  ASSERT_TRUE(buffer.is_contiguous());
+  auto span = buffer.as_span();
+  EXPECT_EQ(span.data(), data);
+  EXPECT_EQ(span.size(), 4);
 
-  EXPECT_EQ(vec.size(), 4);
-  EXPECT_EQ(vec[0], 0x10);
-  EXPECT_EQ(vec[1], 0x20);
-  EXPECT_EQ(vec[2], 0x30);
-  EXPECT_EQ(vec[3], 0x40);
+  uint8_t post[] = {0x50};
+  PacketBuffer split(data, 4, post, 1);
+  EXPECT_FALSE(split.is_contiguous());
+
+  PacketBuffer nested(nullptr, 0, &buffer, nullptr, 0);
+  EXPECT_FALSE(nested.is_contiguous());
 }
 
 // Test iterator begin and end

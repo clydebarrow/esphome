@@ -6,9 +6,9 @@ namespace esphome::uart {
 
 ESPHOME_LOG_TAG(TAG, "uart_transport");
 
-static const uint16_t MAX_PACKET_SIZE = 508;
-static const uint8_t FLAG_BYTE = 0x7E;
-static const uint8_t CONTROL_BYTE = 0x7D;
+static constexpr uint16_t MAX_PACKET_SIZE = 508;
+static constexpr uint8_t FLAG_BYTE = 0x7E;
+static constexpr uint8_t CONTROL_BYTE = 0x7D;
 
 void UARTTransport::loop() {
   PacketTransport::loop();

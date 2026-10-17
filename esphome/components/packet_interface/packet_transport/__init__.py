@@ -5,6 +5,7 @@ from esphome.components.packet_transport import (
     transport_schema,
 )
 import esphome.config_validation as cv
+from esphome.types import ConfigType
 
 from .. import CONF_PACKET_INTERFACE, PacketInterface, packet_interface_ns
 
@@ -22,6 +23,6 @@ CONFIG_SCHEMA = transport_schema(PacketInterfaceTransport).extend(
 )
 
 
-async def to_code(config):
-    pi = await cg.get_variable(config[CONF_PACKET_INTERFACE])
-    await new_packet_transport(config, pi)
+async def to_code(config: ConfigType) -> None:
+    interface = await cg.get_variable(config[CONF_PACKET_INTERFACE])
+    await new_packet_transport(config, interface)

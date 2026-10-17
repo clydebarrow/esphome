@@ -1,12 +1,11 @@
 #pragma once
 
+#include <memory>
+
 #include "esphome/components/packet_interface/packet_interface.h"
 #include "esphome/components/uart/uart.h"
 
-namespace esphome {
-namespace uart {
-
-using namespace packet_interface;
+namespace esphome::uart {
 
 /**
  * A packet interface for sending and receiving framed packets over a UART connection.
@@ -15,21 +14,19 @@ using namespace packet_interface;
  * Any occurrence of FLAG_BYTE or CONTROL_BYTE in the data is escaped by emitting CONTROL_BYTE followed by the byte
  * XORed with 0x20.
  */
-
-class UartPacketInterface : public PacketInterface, public UARTDevice {
+class UartPacketInterface : public packet_interface::PacketInterface, public UARTDevice {
  public:
+  void setup() override;
   void loop() override;
-  void set_rx_buffer_size(size_t rx_buffer_size) { this->rx_buffer_size_ = rx_buffer_size; }
-  bool send_to_interface(const PacketBuffer &data, PacketMetaData) override;
-  size_t get_max_packet_size() override;
+  bool send_to_interface(const packet_interface::PacketBuffer &data,
+                         const packet_interface::PacketMetaData &meta_data) override;
 
  protected:
-  void write_byte_(uint8_t byte);
-  std::vector<uint8_t> receive_buffer_{};
-  size_t rx_buffer_size_{1024};
+  // Holds max_packet_size_ bytes of unescaped received data
+  std::unique_ptr<uint8_t[]> rx_buffer_;
+  size_t rx_length_{0};
   bool rx_started_{};
   bool rx_control_{};
 };
 
-}  // namespace uart
-}  // namespace esphome
+}  // namespace esphome::uart

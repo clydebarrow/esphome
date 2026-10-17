@@ -11,11 +11,6 @@ ESPHOME_LOG_TAG(TAG, "udp");
 static constexpr uint32_t NETWORK_POLL_ID = 0;
 static constexpr uint32_t NETWORK_POLL_INTERVAL_MS = 1000;
 
-void UDPComponent::set_should_listen(bool should_listen) {
-  this->should_listen_ = should_listen;
-  this->enable_loop();
-}
-
 void UDPComponent::setup() {
   size_t address_count = 0;
   for (const char *const *it = this->addresses_; it != nullptr && *it != nullptr; it++)

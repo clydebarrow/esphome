@@ -7,9 +7,10 @@
 #include "esphome/components/uart/uart_component.h"
 #include "common.h"
 
-namespace esphome {
-namespace uart {
-namespace testing {
+namespace esphome::uart::testing {
+
+using packet_interface::PacketBuffer;
+using packet_interface::PacketMetaData;
 
 // Test fixture
 class UartPacketInterfaceTest : public ::testing::Test {
@@ -21,9 +22,11 @@ class UartPacketInterfaceTest : public ::testing::Test {
   void SetUp() override {
     received_packets_.clear();
     interface_.set_uart_parent(&uart_);
+    interface_.setup();
 
-    interface_.add_packet_interface_listener(
-        [this](const PacketBuffer &data, PacketMetaData meta) { received_packets_.push_back(data.to_vector()); });
+    interface_.add_packet_interface_listener([this](const PacketBuffer &data, const PacketMetaData &meta) {
+      received_packets_.push_back(data.to_vector());
+    });
   }
 };
 
@@ -221,7 +224,8 @@ TEST_F(UartPacketInterfaceTest, IgnoreDataBeforeFirstFlag) {
 
 // Test oversized packet is discarded
 TEST_F(UartPacketInterfaceTest, OversizedPacketDiscarded) {
-  interface_.set_rx_buffer_size(10);
+  interface_.set_max_packet_size(10);
+  interface_.setup();
 
   // Create a packet larger than buffer
   std::vector<uint8_t> frame_data = {0x7E};
@@ -312,6 +316,35 @@ TEST_F(UartPacketInterfaceTest, AllByteValues) {
   EXPECT_EQ(received_packets_[0], data);
 }
 
-}  // namespace testing
-}  // namespace uart
-}  // namespace esphome
+// Test a packet larger than max_packet_size is not sent
+TEST_F(UartPacketInterfaceTest, OversizedPacketNotSent) {
+  interface_.set_max_packet_size(4);
+  std::vector<uint8_t> data = {0x01, 0x02, 0x03, 0x04, 0x05};
+  PacketBuffer buffer(data);
+
+  EXPECT_FALSE(interface_.send_to_interface(buffer, {}));
+  EXPECT_EQ(uart_.written_data.size(), 0);
+}
+
+// Test a composite buffer longer than one write chunk is framed correctly
+TEST_F(UartPacketInterfaceTest, SendCompositeAcrossChunks) {
+  std::vector<uint8_t> pre(40, 0x7E);
+  std::vector<uint8_t> mid_data = {0x11, 0x22};
+  std::vector<uint8_t> post(30, 0x33);
+  PacketBuffer mid(mid_data);
+  PacketBuffer buffer(pre.data(), pre.size(), &mid, post.data(), post.size());
+
+  ASSERT_TRUE(interface_.send_to_interface(buffer, {}));
+
+  std::vector<uint8_t> expected = {0x7E};
+  for (size_t i = 0; i != pre.size(); i++) {
+    expected.push_back(0x7D);
+    expected.push_back(0x5E);
+  }
+  expected.insert(expected.end(), mid_data.begin(), mid_data.end());
+  expected.insert(expected.end(), post.begin(), post.end());
+  expected.push_back(0x7E);
+  EXPECT_EQ(uart_.written_data, expected);
+}
+
+}  // namespace esphome::uart::testing
