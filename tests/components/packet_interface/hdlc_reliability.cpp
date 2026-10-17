@@ -16,12 +16,19 @@ class MockLink : public PacketInterface {
  public:
   MockLink() { this->set_max_packet_size(64); }
   bool send_to_interface(const PacketBuffer &data, const PacketMetaData &) override {
+    if (this->budget == 0) {
+      this->refused++;
+      return false;
+    }
+    this->budget--;
     this->sent.push_back(data.to_vector());
     return true;
   }
   void inject(const Frame &frame) { this->on_receive_from_interface_(PacketBuffer(frame), {}); }
 
   std::vector<Frame> sent;
+  size_t budget{SIZE_MAX};  // frames accepted before the link refuses, like a full network stack
+  size_t refused{0};
 };
 
 class TestHdlc : public HdlcReliability {
@@ -239,6 +246,20 @@ TEST_F(HdlcReliabilityTest, PeerRestart) {
   pump(a, *b);
   EXPECT_EQ(b->received, (std::vector<Frame>{{0x02}}));
   EXPECT_EQ(a.received, (std::vector<Frame>{{0x03}}));
+}
+
+TEST_F(HdlcReliabilityTest, RefusedFrameStopsBurst) {
+  Peer a, b;
+  for (uint8_t i = 0; i != 3; i++)
+    ASSERT_TRUE(a.send({i}));
+  a.link.budget = 3;  // SABM, UA to the peer's SABM, and the first queued frame
+  pump(a, b);
+  EXPECT_EQ(a.link.refused, 1);
+  EXPECT_EQ(b.received, (std::vector<Frame>{{0}}));
+  a.link.budget = SIZE_MAX;
+  a.hdlc->on_timeout_();
+  pump(a, b);
+  EXPECT_EQ(b.received, (std::vector<Frame>{{0}, {1}, {2}}));
 }
 
 }  // namespace esphome::packet_interface::testing

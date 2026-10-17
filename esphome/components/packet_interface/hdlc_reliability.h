@@ -49,9 +49,9 @@ class HdlcReliability : public PacketInterface {
 
   void receive_(const PacketBuffer &data, const PacketMetaData &meta_data);
   void receive_info_(uint8_t control, const uint8_t *payload, size_t length, const PacketMetaData &meta_data);
-  void send_frame_(uint8_t control, const uint8_t *payload, size_t length);
+  bool send_frame_(uint8_t control, const uint8_t *payload, size_t length);
   void send_supervisory_(uint8_t type);
-  void send_queued_(uint8_t seq);
+  bool send_queued_(uint8_t seq);
   void resend_outstanding_();
   void process_ack_(uint8_t nr);
   void on_timeout_();

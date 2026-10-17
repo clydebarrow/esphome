@@ -22,8 +22,7 @@ bool UdpPacketInterface::send_to_interface(const PacketBuffer &data, const Packe
     return false;
   if (data.is_contiguous()) {
     auto span = data.as_span();
-    this->parent_->send_packet(span.data(), span.size());
-    return true;
+    return this->parent_->send_packet(span.data(), span.size());
   }
   if (data.size() > MAX_PACKET_SIZE) {
     ESP_LOGW(TAG, "Packet of %zu bytes is larger than %zu", data.size(), MAX_PACKET_SIZE);
@@ -31,8 +30,7 @@ bool UdpPacketInterface::send_to_interface(const PacketBuffer &data, const Packe
   }
   std::array<uint8_t, MAX_PACKET_SIZE> buf;
   size_t len = data.copy_to(buf.data(), buf.size());
-  this->parent_->send_packet(buf.data(), len);
-  return true;
+  return this->parent_->send_packet(buf.data(), len);
 }
 
 }  // namespace esphome::udp

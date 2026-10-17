@@ -84,29 +84,34 @@ bool HdlcReliability::send_to_interface(const PacketBuffer &data, const PacketMe
   return true;
 }
 
-void HdlcReliability::send_frame_(uint8_t control, const uint8_t *payload, size_t length) {
+bool HdlcReliability::send_frame_(uint8_t control, const uint8_t *payload, size_t length) {
   uint16_t crc = frame_crc(control, payload, length);
   uint8_t trailer[2] = {static_cast<uint8_t>(crc), static_cast<uint8_t>(crc >> 8)};
   PacketBuffer body(payload, length);
   PacketBuffer frame(&control, 1, length != 0 ? &body : nullptr, trailer, sizeof(trailer));
-  if (!this->lower_->send_to_interface(frame, {}))
-    ESP_LOGV(TAG, "%s: Lower layer did not accept frame 0x%02X", this->name_, control);
+  if (this->lower_->send_to_interface(frame, {}))
+    return true;
+  ESP_LOGV(TAG, "%s: Lower layer did not accept frame 0x%02X", this->name_, control);
+  return false;
 }
 
 void HdlcReliability::send_supervisory_(uint8_t type) {
   this->send_frame_(SUPERVISORY_FRAME | (type << 2) | (this->vr_ << 5), nullptr, 0);
 }
 
-void HdlcReliability::send_queued_(uint8_t seq) {
+bool HdlcReliability::send_queued_(uint8_t seq) {
   // Every I-frame carries an acknowledgement, so a pending RR is no longer needed
   this->ack_pending_ = false;
   uint8_t control = (seq << 1) | (this->vr_ << 5);
-  this->send_frame_(control, this->slot_(seq), this->tx_lengths_[this->slot_index_(seq)]);
+  return this->send_frame_(control, this->slot_(seq), this->tx_lengths_[this->slot_index_(seq)]);
 }
 
 void HdlcReliability::resend_outstanding_() {
-  for (uint8_t seq = this->va_; seq != this->vs_; seq = (seq + 1) & 7)
-    this->send_queued_(seq);
+  // Once the lower layer refuses a frame, sending more is likely to fail too; the timer resends them all
+  for (uint8_t seq = this->va_; seq != this->vs_; seq = (seq + 1) & 7) {
+    if (!this->send_queued_(seq))
+      return;
+  }
 }
 
 void HdlcReliability::start_timer_() {

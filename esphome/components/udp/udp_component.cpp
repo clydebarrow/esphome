@@ -241,9 +241,10 @@ void UDPComponent::dump_config() {
                 YESNO(this->should_broadcast_), YESNO(this->should_listen_));
 }
 
-void UDPComponent::send_packet(const uint8_t *data, size_t size) {
+bool UDPComponent::send_packet(const uint8_t *data, size_t size) {
   if (this->is_failed())
-    return;  // a send socket may be missing
+    return false;  // a send socket may be missing
+  bool sent = true;
   for (const auto &entry : this->sockaddrs_) {
 #ifdef USE_UDP_IPV6_SEND
     const bool v6 = entry.sa.sa_family == AF_INET6;
@@ -260,13 +261,21 @@ void UDPComponent::send_packet(const uint8_t *data, size_t size) {
 #endif
     if (sock == nullptr) {
       ESP_LOGW(TAG, "Broadcast socket not initialized");
-      return;
+      return false;
     }
     auto result = sock->sendto(data, size, 0, &entry.sa, sockaddr_size);
     if (result < 0) {
-      ESP_LOGW(TAG, "sendto() error %d", errno);
+      // lwIP refuses a packet with ENOMEM while the destination's ARP lookup is pending and its queue is full;
+      // the packet can be sent again later
+      if (errno == ENOMEM) {
+        ESP_LOGV(TAG, "sendto() out of memory");
+      } else {
+        ESP_LOGW(TAG, "sendto() error %d", errno);
+      }
+      sent = false;
     }
   }
+  return sent;
 }
 }  // namespace esphome::udp
 
