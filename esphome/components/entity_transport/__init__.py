@@ -6,7 +6,10 @@ from typing import Any
 import esphome.codegen as cg
 from esphome.components import packet_interface
 from esphome.components.binary_sensor import BinarySensor
-from esphome.components.packet_interface import CONF_PACKET_INTERFACE
+from esphome.components.packet_interface import (
+    CONF_PACKET_INTERFACE,
+    final_validate_interface,
+)
 from esphome.components.sensor import Sensor
 import esphome.config_validation as cv
 from esphome.const import (
@@ -68,6 +71,8 @@ CONFIG_SCHEMA = cv.Schema(
         ),
     }
 ).extend(cv.COMPONENT_SCHEMA)
+
+FINAL_VALIDATE_SCHEMA = final_validate_interface(CONF_PACKET_INTERFACE)
 
 
 def _validate_remote_id(config: ConfigType) -> ConfigType:

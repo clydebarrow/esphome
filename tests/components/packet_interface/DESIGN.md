@@ -255,17 +255,57 @@ packet on a slow bus, and could be a second implementation.
 - **Receiving.** A packet is dropped unless its destination is this device or broadcast. Packets from this device's
   own address are dropped too, since a half-duplex bus or a radio repeater can echo them. Addressing sits below
   encryption, so these are dropped without being decrypted.
-- **Point to point.** With a `destination` other than broadcast, the layer sends only to that device and accepts
-  packets only from it, broadcast or not. The reliability and session layers and the rolling code keep state for one
-  peer, so configuration validation requires a `destination` when they are used with addressing.
-- **Broadcast.** With the default `destination: broadcast`, every device hears every packet. This suits
-  `entity_transport`, which tells senders apart by dictionary id.
+- **Ports.** Above `BasicAddressing`, one per link, are one or more `AddressingPort`s, each the bottom of its own
+  stack of layers. A received packet goes to the port whose destination is its source address; if none, to the
+  broadcast port; if none, it is dropped. So each device with a port of its own is heard only there, and the broadcast
+  port hears the rest.
+- **Point to point.** A port with a destination other than broadcast sends only to that device and receives only its
+  packets, broadcast or not. The reliability and session layers and the rolling code keep state for one peer, so
+  configuration validation requires a destination for them.
+- **Broadcast.** A port with `destination: broadcast` sends to every device. This suits `entity_transport`, which
+  tells senders apart by dictionary id.
 - **Metadata.** Received packets report their source and destination addresses in `PacketMetaData`, which the layers
   above pass up. A destination address in the metadata of a packet being sent overrides the configured one; the
   reliability layer sends its frames without metadata, so this only works without it.
 - **Capability.** The layer adds `CAPABILITY_ADDRESSING`.
 
 The layer adds 4 bytes. It needs the received packet in one piece, which the link layers provide.
+
+### Several peers
+
+```yaml
+packet_interface:
+  - platform: uart
+    id: rs485
+    addressing:
+      address: 0x0001
+      peers:
+        - id: pump_link
+          destination: 0x0002
+          encryption: !secret pump_key
+          reliability:
+          session:
+        - id: valve_link
+          destination: 0x0003
+          reliability:
+        - id: bus_link
+          destination: broadcast
+```
+
+- **Forms.** With `destination` under `addressing`, there is one port, and the layers are configured on the link as
+  usual; the port is the link's top, so applications use the link's id. With `peers`, each peer has its own id,
+  destination and layers, the layers cannot be configured on the link, and applications must use a peer's id. Final
+  validation of `entity_transport` and the `packet_transport` bridge rejects the link's id.
+- **Names.** Each peer's port is named after its id, and the layers above take that name, so each stack has its own
+  log prefix and its own encryption boot number preference.
+- **Stacking.** A port with siblings takes the link's name and capabilities through `inherit_from_()`, which unlike
+  `stack_on_()` does not make it the link's top. `top()` on the link then returns the link itself.
+- **Collisions.** Devices that send whenever they like can collide on a half-duplex bus. The reliability layer
+  resends, and its retransmit timeout has up to a quarter added at random, so devices whose frames collided do not
+  resend at the same moment again. A bus that needs polling or arbitration is a separate design.
+- **Cost.** Each reliable peer has its own queue and buffers, about 3 KB at 508-byte packets. Each peer's
+  acknowledgements and keep-alives use channel time, which matters on LoRa with its duty cycle limits. States that
+  every device needs are cheaper sent once to a broadcast port than once per reliable peer.
 
 ## Encryption layer: `xxtea`
 
@@ -417,10 +457,8 @@ the objects does not matter.
   `PacketMetaData` would select them. A UI frame must not be sent while I-frames are unacknowledged, or it could
   arrive before older data that is still being resent.
 - **Ciphers.** Which ciphers are offered besides XXTEA, and how much each adds to the packet size.
-- **Reliability with several peers.** How acknowledgements and the send queue work when there is more than one
-  destination address. Until then, a device can use the reliability and session layers with one other device on a
-  shared channel. One link layer instance per bus also means one stack per bus, so several point-to-point stacks on
-  one UART would need the link layer to pass each packet to several stacks.
+- **Polled buses.** On RS485, a bus where one device polls the others would avoid collisions altogether. This would
+  be a different link or addressing implementation.
 - **Room to send.** The fragmentation layer needs to know, before it starts a packet, that the layer below will take
   all of its fragments. A `PacketInterface` method that reports how many packets can be sent now would do this. The
   reliability queue must also be at least as long as the number of fragments in the largest packet.

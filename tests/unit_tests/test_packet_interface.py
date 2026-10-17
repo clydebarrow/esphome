@@ -1,5 +1,7 @@
 """Unit tests for the packet_interface component and its platforms."""
 
+from typing import Any
+
 import pytest
 
 from esphome import config_validation as cv
@@ -126,3 +128,45 @@ def test_two_device_layers_need_destination(setup_core, layers: dict) -> None:
     uart_packet_interface.CONFIG_SCHEMA(
         {CONF_ADDRESSING: {"address": 1, "destination": 2}, **layers}
     )
+
+
+def _peer(peer_id: str, destination: Any, **layers: Any) -> dict:
+    return {"id": peer_id, "destination": destination, **layers}
+
+
+def test_addressing_peers(setup_core) -> None:
+    """Each peer has its own destination and layers."""
+    config = uart_packet_interface.CONFIG_SCHEMA(
+        {
+            CONF_ADDRESSING: {
+                "address": 1,
+                "peers": [
+                    _peer("peer_a", 2, reliability=None, session=None),
+                    _peer("peer_b", 3, encryption="secret"),
+                    _peer("everyone", "broadcast"),
+                ],
+            }
+        }
+    )
+    peers = config[CONF_ADDRESSING]["peers"]
+    assert [peer["destination"] for peer in peers] == [2, 3, 0xFFFF]
+    assert CONF_RELIABILITY in peers[0]
+
+
+@pytest.mark.parametrize(
+    ("addressing", "layers", "match"),
+    [
+        ({"peers": [_peer("a", 2), _peer("b", 2)]}, {}, "different destination"),
+        ({"peers": [_peer("a", "broadcast", reliability=None)]}, {}, "broadcast"),
+        ({"peers": [_peer("a", 2)]}, {CONF_RELIABILITY: None}, "goes in each peer"),
+        ({"destination": 2, "peers": [_peer("a", 3)]}, {}, "destination"),
+    ],
+)
+def test_addressing_peers_invalid(
+    setup_core, addressing: dict, layers: dict, match: str
+) -> None:
+    """Peers need different destinations, two-device layers need a destination, and layers go in the peers."""
+    with pytest.raises(cv.Invalid, match=match):
+        uart_packet_interface.CONFIG_SCHEMA(
+            {CONF_ADDRESSING: {"address": 1, **addressing}, **layers}
+        )

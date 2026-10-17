@@ -106,6 +106,10 @@ class PacketInterface : public Component {
   /// Called by a layer's constructor to record itself as the layer above \p lower, adding its own capability.
   void stack_on_(PacketInterface *lower, Capability capability) {
     lower->upper_ = this;
+    this->inherit_from_(lower, capability);
+  }
+  /// Takes the name and capabilities of \p lower without becoming its top, for one of several stacks on a link.
+  void inherit_from_(const PacketInterface *lower, Capability capability) {
     this->name_ = lower->name_;
     this->capabilities_ = lower->capabilities_ | capability;
   }

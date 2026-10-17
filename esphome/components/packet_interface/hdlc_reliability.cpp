@@ -118,6 +118,8 @@ void HdlcReliability::start_timer_() {
   uint32_t interval = this->timeout_ms_;
   if (this->state_ != LinkState::LINK_STATE_CONNECTED && interval < RESET_INTERVAL_MS)
     interval = RESET_INTERVAL_MS;
+  // Up to a quarter longer at random, so devices whose frames collided on a shared channel do not resend together
+  interval += random_uint32() % (interval / 4 + 1);
   this->set_timeout(RETRANSMIT_TIMER_ID, interval, [this]() { this->on_timeout_(); });
 }
 
