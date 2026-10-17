@@ -28,7 +28,7 @@ void BasicSession::setup() {
       [this](const PacketBuffer &data, const PacketMetaData &meta_data) { this->receive_(data, meta_data); });
   // A reliability layer below queues this until its link is up, so the peer hears of a restart straight away
   this->send_keep_alive_();
-  this->set_interval(this->keep_alive_ms_, [this]() { this->on_interval_(); });
+  this->set_interval(this->keep_alive_ms_, [this] { this->on_interval_(); });
 }
 
 void BasicSession::dump_config() {
