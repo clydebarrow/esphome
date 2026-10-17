@@ -259,8 +259,8 @@ that relies on the packet interface layers for these features.
 
 ## Code generation
 
-The layer schemas are defined once in `packet_interface/__init__.py` and added to every link platform by
-`packet_interface_schema()`. A link platform only adds its own options.
+The layer schemas are defined once in `esphome/components/packet_interface/__init__.py` and added to every link
+platform by `packet_interface_schema()`. A link platform only adds its own options.
 
 `new_packet_interface()` creates the link layer, then creates each configured layer in the fixed order, passing each
 one the layer below to its constructor. Each layer is registered as a component.
