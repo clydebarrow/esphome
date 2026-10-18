@@ -1,6 +1,7 @@
 #include "udp_packet_interface.h"
 #ifdef USE_NETWORK
 #include <array>
+#include <cstring>
 #include "esphome/components/network/util.h"
 #include "esphome/core/log.h"
 
@@ -11,8 +12,20 @@ using packet_interface::PacketMetaData;
 
 ESPHOME_LOG_TAG(TAG, "udp.packet_interface");
 
+UdpPacketInterface::UdpPacketInterface(UDPComponent *udp_component, std::array<uint8_t, 4> peer)
+    : parent_(udp_component), peer_(peer) {
+  if (this->peer_ != std::array<uint8_t, 4>{})
+    this->capabilities_ = packet_interface::CAPABILITY_ADDRESSING;
+}
+
 void UdpPacketInterface::setup() {
   this->parent_->add_listener([this](std::span<const uint8_t> buf) {
+    if (this->has_capability(packet_interface::CAPABILITY_ADDRESSING)) {
+      uint32_t source;
+      if (!socket::sockaddr_to_ipv4(this->parent_->get_rx_source(), &source) ||
+          memcmp(&source, this->peer_.data(), sizeof(source)) != 0)
+        return;
+    }
     this->on_receive_from_interface_(PacketBuffer(buf.data(), buf.size()), {});
   });
 }

@@ -210,15 +210,20 @@ void UDPComponent::loop() {
     return;
   }
   std::array<uint8_t, MAX_PACKET_SIZE> buf;
+  struct sockaddr_storage source;
   for (;;) {
     if (!this->listen_socket_->ready())
       break;
-    auto len = this->listen_socket_->read(buf.data(), buf.size());
+    socklen_t source_len = sizeof(source);
+    auto len =
+        this->listen_socket_->recvfrom(buf.data(), buf.size(), reinterpret_cast<sockaddr *>(&source), &source_len);
     if (len <= 0)
       break;
     size_t packet_len = static_cast<size_t>(len);
     ESP_LOGV(TAG, "Received packet of length %zu", packet_len);
+    this->rx_source_ = reinterpret_cast<sockaddr *>(&source);
     this->packet_listeners_.call(std::span<const uint8_t>(buf.data(), packet_len));
+    this->rx_source_ = nullptr;
   }
 }
 
