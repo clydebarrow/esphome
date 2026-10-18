@@ -548,7 +548,8 @@ async def build_hdlc(config: ConfigType, lower: MockObj) -> MockObj: ...
   shorthand, such as `encryption: my key`. A type whose schema contains other layers, as the addressing peers do,
   registers a `schema_factory` instead, called once every type is registered.
 - **single_peer.** Says whether a configuration keeps state for one peer, such as `hdlc`, `basic` session, or `xxtea`
-  with the rolling code. Validation uses it to reject these with broadcast addressing, without naming the layers.
+  with the rolling code. Validation uses it to reject these with broadcast addressing, and on a link that every
+  device hears (broadcast UDP, broadcast ESP-NOW) without addressing, without naming the layers.
 - **Building.** `build(config, lower)` creates the layer above `lower` and returns it; `build_stack()` calls the
   builders of one stack in `STACK_ORDER`. An addressing type's builder returns a list of (port, config) pairs, one
   for each stack, and `new_packet_interface()` builds a stack on each.
