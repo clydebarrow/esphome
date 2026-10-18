@@ -1,8 +1,7 @@
 # Packet interface design
 
-This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`, `sx126x`,
-`sx127x`), the
-addressing, encryption, reliability and session layers, the `entity_transport` application and the `packet_transport`
+This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`, `tcp`,
+`sx126x`, `sx127x`), the addressing, encryption, reliability, fragmentation and session layers, the `entity_transport` application and the `packet_transport`
 bridge exist today.
 
 ## Goals
@@ -57,9 +56,9 @@ Each type of layer may have more than one implementation, for example a choice o
 addressing modes. The key for a layer takes a `type` option that picks the implementation, with a default, using
 `cv.typed_schema()`. Implementations of the same layer type are interchangeable to the layers above and below them.
 
-A link layer may also do the job of another layer itself. For example, a UDP link layer already has addresses. Such
-a link platform declares which layer types it provides, and the user cannot configure a separate layer of that type
-on it.
+A link layer may also do the job of another layer itself. The link platform passes the keys of those layers as
+`provides` to `packet_interface_schema()`, which leaves them out of its schema, and sets their capability bits in its
+constructor. The `tcp` link provides reliability, addressing and session.
 
 ### Implementation order
 
@@ -398,6 +397,25 @@ splitting each into fragments that fit the layer below and joining them again at
   once make the receiver drop both packets.
 - **Capability.** The layer adds `CAPABILITY_FRAGMENTATION`.
 
+## Link: `tcp`
+
+A TCP connection between two devices, as a client that connects to a host, or a server that accepts one client at a
+time, built on the socket component's `TcpClientLink` and `TcpListener`, as `tcp_uart` is.
+
+- **Framing.** Each packet is sent with its length, 2 bytes little endian, in front. A length larger than
+  `max_packet_size` cannot be resynchronised, so the connection is closed and made again.
+- **Provided layers.** TCP resends what is lost and delivers in order, and a connection joins exactly two devices, so
+  the link provides reliability, addressing and session. Its connection state is the session state: connected when
+  the connection comes up, lost when it goes down. A peer that restarts is seen as a new connection.
+- **Keep-alive.** An empty packet is sent when nothing else has been sent for `keep_alive`; the connection is closed
+  and made again when nothing has been received for three intervals. TCP alone can take minutes to notice a peer that
+  lost power. In testing, a server noticed a client reset within about 5 seconds anyway, as the client answered the
+  server's next write with a reset once it was back on the network.
+- **Sending.** Each packet is queued in the socket link's 1 KB buffer and written at once, so `max_packet_size` is at
+  most 1022. The link keeps the default, unlimited, send capacity: a stream that flushes as it goes is not a bounded
+  queue, and reporting how many full-size packets fit in the buffer stopped the fragmentation layer from ever starting
+  a packet of two fragments.
+
 ## Applications
 
 `packet_transport` keeps its own encryption, rolling code and ping-pong features, and is used through the
@@ -454,8 +472,10 @@ reports the whole stack. A link layer that does a layer's job itself, such as on
 the bit in its own constructor. An application asks `top()->has_capability()` and adapts: `entity_transport` resends
 periodically unless both session and reliability are present.
 
-The session state callback is in `PacketInterface`, so an application needs no session class. The session layer is
-always the top layer, so an application registers it on `top()`.
+The session state callback is in `PacketInterface`, so an application needs no session class. An application
+registers it on `top()`. The session layer is the top layer when configured; when a link provides the session, as
+TCP does, each layer above registers on the one below and calls its own callbacks, in `inherit_from_()`, so the state
+still reaches the top.
 
 ## Code generation
 

@@ -113,9 +113,13 @@ class PacketInterface : public Component {
     this->inherit_from_(lower, capability);
   }
   /// Takes the name and capabilities of \p lower without becoming its top, for one of several stacks on a link.
-  void inherit_from_(const PacketInterface *lower, Capability capability) {
+  void inherit_from_(PacketInterface *lower, Capability capability) {
     this->name_ = lower->name_;
     this->capabilities_ = lower->capabilities_ | capability;
+    // A link that has a session of its own, such as TCP, reports it to whatever is stacked above
+    if (lower->has_capability(CAPABILITY_SESSION) && capability != CAPABILITY_SESSION) {
+      lower->add_on_session_state_callback([this](bool connected) { this->session_callback_.call(connected); });
+    }
   }
 
   LazyCallbackManager<void(const PacketBuffer &, const PacketMetaData &)> callback_;
