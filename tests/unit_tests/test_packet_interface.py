@@ -202,6 +202,13 @@ def test_registered_type_selectable(setup_core) -> None:
         del RELIABILITY.types["test"]
 
 
+def test_reliability_timeout_minimum(setup_core) -> None:
+    """A timeout shorter than a few loop passes cannot work."""
+    uart_packet_interface.CONFIG_SCHEMA({CONF_RELIABILITY: {"timeout": "50ms"}})
+    with pytest.raises(cv.Invalid):
+        uart_packet_interface.CONFIG_SCHEMA({CONF_RELIABILITY: {"timeout": "40ms"}})
+
+
 def test_ack_delay_shorter_than_timeout(setup_core) -> None:
     """The acknowledgement must not wait longer than the peer's timeout."""
     reliability = uart_packet_interface.CONFIG_SCHEMA(
