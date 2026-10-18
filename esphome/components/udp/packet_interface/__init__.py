@@ -19,7 +19,7 @@ CODEOWNERS = ["@clydebarrow"]
 
 DEPENDENCIES = ["udp"]
 
-# Size of the receive buffer in udp_component.h
+# Size of the receive buffer of the udp component
 MAX_PACKET_SIZE = 508
 
 UdpPacketInterface = udp_ns.class_(
@@ -70,6 +70,7 @@ FINAL_VALIDATE_SCHEMA = _final_validate
 async def to_code(config: ConfigType) -> None:
     udp_var = await cg.get_variable(config[CONF_UDP_ID])
     cg.add(udp_var.set_should_listen())
+    # The udp component sends to its addresses through its broadcast socket
     cg.add(udp_var.set_should_broadcast())
     peer = _peer(_udp_config(CORE.config, config))
     peer_bytes = peer.packed if peer is not None else bytes(4)
