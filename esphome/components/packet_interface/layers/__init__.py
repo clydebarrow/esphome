@@ -84,6 +84,10 @@ class LayerKind:
             return schema
 
         def decorator(build: LayerBuilder) -> LayerBuilder:
+            if name in self.types:
+                raise ValueError(
+                    f"{self.key} layer type '{name}' is already registered"
+                )
             self.types[name] = LayerType(
                 schema_factory or fixed_schema, build, single_peer, auto_load
             )

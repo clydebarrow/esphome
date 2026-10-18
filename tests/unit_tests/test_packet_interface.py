@@ -204,6 +204,20 @@ def test_registered_type_selectable(setup_core) -> None:
         del RELIABILITY.types["test"]
 
 
+def test_duplicate_layer_type_rejected(setup_core) -> None:
+    """Registering a type under a name already in use is an error, not a silent replacement."""
+
+    async def build(config: dict, lower: Any) -> Any:
+        return lower
+
+    RELIABILITY.register("test", schema=cv.Schema({}))(build)
+    try:
+        with pytest.raises(ValueError, match="already registered"):
+            RELIABILITY.register("test", schema=cv.Schema({}))(build)
+    finally:
+        del RELIABILITY.types["test"]
+
+
 def test_reliability_timeout_minimum(setup_core) -> None:
     """A timeout shorter than a few loop passes cannot work."""
     uart_packet_interface.CONFIG_SCHEMA({CONF_RELIABILITY: {"timeout": "50ms"}})
