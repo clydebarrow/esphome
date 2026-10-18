@@ -501,9 +501,17 @@ the objects does not matter.
   With `timeout: 500ms` and `ack_delay: 100ms` at SF7 and 125 kHz, two boards each sending a value every 2 s for
   3 minutes, over addressing, encryption with the rolling code, reliability and session, lost no values and did not
   reset the link; there were a few timeouts a minute. Before these changes the same test reset the link several times
-  and lost values. A fourth change is kept in reserve:
-  4. **Checkpointing** on timeout: send one RR with the poll bit and resend from the N(R) in the answer, as HDLC does,
-     rather than resending every unacknowledged frame.
+  and lost values.
+
+  **Checkpointing was tried and dropped.** On a timeout, instead of resending every unacknowledged frame, the layer
+  polled the peer for its N(R) and resent only from there. Two forms were tested in the same setup: a poll as an RR
+  with the poll bit, and a poll on the oldest frame, resent with the poll bit. Neither lost values or reset the link,
+  but neither had fewer timeouts than go-back-N: at SF7 a frame takes about 70 ms, so resending the window is cheap.
+  Both added a failure mode: when the poll or its answer collides, recovery waits a whole extra timeout, and the
+  oldest-frame form, being a longer frame, went unanswered about a third of the time. The answer also had to be a
+  plain RR, not one with the final bit as in HDLC: HDLC tells a final from a poll by the address field, and without one
+  a late answer was taken for a new poll and the two devices answered each other forever. It may still be worth
+  measuring at high spreading factors, where each frame takes hundreds of milliseconds.
 - **Polled buses.** On RS485, a bus where one device polls the others would avoid collisions altogether. This would
   be a different link or addressing implementation.
 - **Room to send.** The fragmentation layer needs to know, before it starts a packet, that the layer below will take
