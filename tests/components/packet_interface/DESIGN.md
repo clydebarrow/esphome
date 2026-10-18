@@ -1,6 +1,7 @@
 # Packet interface design
 
-This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`), the
+This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`, `sx126x`,
+`sx127x`), the
 addressing, encryption, reliability and session layers, the `entity_transport` application and the `packet_transport`
 bridge exist today. The fragmentation layer is planned.
 
@@ -483,6 +484,20 @@ the objects does not matter.
   `PacketMetaData` would select them. A UI frame must not be sent while I-frames are unacknowledged, or it could
   arrive before older data that is still being resent.
 - **Ciphers.** Which ciphers are offered besides XXTEA, and how much each adds to the packet size.
+- **Half-duplex radio links.** Testing `sx126x` and `sx127x` links between two boards found that the radio itself
+  loses about 1.5% of packets, but the reliability layer still timed out often and reset the link a few times a
+  minute. A radio cannot receive while it transmits, and transmitting blocks the loop for tens of milliseconds. The
+  receiver answers a frame with an RR about one loop later, which often collides with a second frame the sender
+  transmits straight after the first. Go-back-N then resends a burst, which collides again. Two devices sending at the
+  same period can also stay in step and collide every time. Possible fixes, in order of value:
+  1. **Listen before talk** in the radio link: refuse to send while the radio is receiving a packet (SX126x preamble
+     or header IRQ, SX127x modem status), so a reply waits for the other device to finish.
+  2. **Refused frames sent again promptly** in the reliability layer: an RR or I-frame the link refuses is sent from
+     the next `loop()`, rather than lost or left for the retransmit timeout.
+  3. **Acknowledgement delay** on half-duplex links: wait about one frame time before sending an RR, so it can cover
+     several frames or be carried on a reply.
+  4. **Checkpointing** on timeout: send one RR with the poll bit and resend from the N(R) in the answer, as HDLC does,
+     rather than resending every unacknowledged frame.
 - **Polled buses.** On RS485, a bus where one device polls the others would avoid collisions altogether. This would
   be a different link or addressing implementation.
 - **Room to send.** The fragmentation layer needs to know, before it starts a packet, that the layer below will take
