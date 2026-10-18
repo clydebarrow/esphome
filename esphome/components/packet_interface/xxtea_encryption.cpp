@@ -116,6 +116,7 @@ void XxteaEncryption::receive_(const PacketBuffer &data, const PacketMetaData &m
   if (length % 4 != 0 || length < std::max(MIN_LENGTH, this->trailer_size_) ||
       length > this->lower_->get_max_packet_size()) {
     ESP_LOGV(TAG, "%s: Packet of %zu bytes dropped", this->name_, length);
+    this->note_received_(false);
     return;
   }
   auto *buf = reinterpret_cast<uint8_t *>(this->rx_buffer_.get());
@@ -127,8 +128,10 @@ void XxteaEncryption::receive_(const PacketBuffer &data, const PacketMetaData &m
   if (memcmp(check, expected, sizeof(CHECK_BYTES)) != 0 || padding > MAX_PADDING ||
       padding > length - this->trailer_size_) {
     ESP_LOGV(TAG, "%s: Packet failed authentication", this->name_);
+    this->note_received_(false);
     return;
   }
+  this->note_received_(true);
   if (this->rolling_code_) {
     uint32_t boot = get_uint32(check - ROLLING_SIZE);
     uint32_t counter = get_uint32(check - ROLLING_SIZE + 4);

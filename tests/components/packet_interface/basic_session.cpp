@@ -29,6 +29,7 @@ class TestSession : public BasicSession {
  public:
   using BasicSession::BasicSession;
   using BasicSession::on_interval_;
+  unsigned get_not_understood_count() const { return this->not_understood_count_; }
 };
 
 struct Peer {
@@ -122,6 +123,16 @@ TEST_F(BasicSessionTest, DataPassesThroughWithHeader) {
   pump(a, b);
   EXPECT_EQ(b.received, (std::vector<Packet>{{0x10, 0x11}}));
   EXPECT_TRUE(a.received.empty());
+}
+
+TEST_F(BasicSessionTest, NotUnderstoodPacketsCountedUntilOneIsUnderstood) {
+  Peer a;
+  for (int i = 0; i != 20; i++)
+    a.link.inject({0x7F, 0x00});
+  // The count stops where the mismatch is logged, so it is logged once
+  EXPECT_EQ(a.session->get_not_understood_count(), 10);
+  a.link.inject({0x00, 0x55});
+  EXPECT_EQ(a.session->get_not_understood_count(), 0);
 }
 
 TEST_F(BasicSessionTest, DataMarksPeerConnected) {

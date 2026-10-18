@@ -82,12 +82,15 @@ void BasicSession::receive_(const PacketBuffer &data, const PacketMetaData &meta
     return;
   }
   auto packet = data.as_span();
-  if (packet.empty())
+  if (packet.empty()) {
+    this->note_received_(false);
     return;
+  }
   uint8_t type = packet[0];
   if (type == PACKET_TYPE_KEEP_ALIVE) {
     if (packet.size() != KEEP_ALIVE_SIZE) {
       ESP_LOGV(TAG, "%s: Keep-alive of %zu bytes dropped", this->name_, packet.size());
+      this->note_received_(false);
       return;
     }
     uint32_t boot_id = encode_uint32(packet[4], packet[3], packet[2], packet[1]);
@@ -104,8 +107,10 @@ void BasicSession::receive_(const PacketBuffer &data, const PacketMetaData &meta
     }
   } else if (type != PACKET_TYPE_DATA) {
     ESP_LOGV(TAG, "%s: Unknown packet type 0x%02X dropped", this->name_, type);
+    this->note_received_(false);
     return;
   }
+  this->note_received_(true);
   this->last_receive_ms_ = App.get_loop_component_start_time();
   if (!this->connected_)
     this->set_connected_(true);

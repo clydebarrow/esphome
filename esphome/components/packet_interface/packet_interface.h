@@ -107,6 +107,11 @@ class PacketInterface : public Component {
    * @param meta_data Metadata about the received packet
    */
   void on_receive_from_interface_(const PacketBuffer &data, const PacketMetaData &meta_data);
+  /**
+   * Called by a layer for each received packet it understood, or could not make sense of. A run of packets that
+   * cannot be understood usually means the peer has different layers configured, which is logged once per run.
+   */
+  void note_received_(bool understood);
   /// Called by a layer's constructor to record itself as the layer above \p lower, adding its own capability.
   void stack_on_(PacketInterface *lower, Capability capability) {
     lower->upper_ = this;
@@ -128,5 +133,6 @@ class PacketInterface : public Component {
   const char *name_{""};
   size_t max_packet_size_{512};
   uint8_t capabilities_{0};
+  uint8_t not_understood_count_{0};
 };
 }  // namespace esphome::packet_interface

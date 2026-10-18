@@ -238,16 +238,20 @@ void HdlcReliability::receive_(const PacketBuffer &data, const PacketMetaData &m
     return;
   }
   auto frame = data.as_span();
-  if (frame.size() < FRAME_OVERHEAD)
+  if (frame.size() < FRAME_OVERHEAD) {
+    this->note_received_(false);
     return;
+  }
   size_t length = frame.size() - FRAME_OVERHEAD;
   uint8_t control = frame[0];
   const uint8_t *payload = frame.data() + 1;
   uint16_t crc = frame[length + 1] | (frame[length + 2] << 8);
   if (frame_crc(control, payload, length) != crc) {
     ESP_LOGV(TAG, "%s: CRC error, frame dropped", this->name_);
+    this->note_received_(false);
     return;
   }
+  this->note_received_(true);
 
   uint8_t command = control & ~POLL_FINAL_BIT;
   if (command == UNNUMBERED_SABM) {

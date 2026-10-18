@@ -1,8 +1,8 @@
 # Packet interface design
 
-This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`, `tcp`,
-`sx126x`, `sx127x`), the addressing, encryption, reliability, fragmentation and session layers, the `entity_transport` application and the `packet_transport`
-bridge exist today.
+This document describes the `packet_interface` component. The link layers (`uart`, `udp`, `tcp`, `espnow`,
+`sx126x`, `sx127x`), the addressing, encryption, reliability, fragmentation and session layers, the `entity_transport`
+application and the `packet_transport` bridge exist today.
 
 ## Goals
 
@@ -19,7 +19,7 @@ From the bottom up:
 
 | Layer         | Job                                                                       |
 |---------------|---------------------------------------------------------------------------|
-| Link          | Moves packets over a real channel: UART, UDP, and later radio links.      |
+| Link          | Moves packets over a real channel: UART, UDP, TCP, ESP-NOW or LoRa.       |
 | Addressing    | Adds source and destination addresses; drops packets not addressed to us. |
 | Encryption    | Encrypts and authenticates packets with a shared key.                     |
 | Reliability   | Acknowledges packets and resends those not acknowledged in time.          |
@@ -59,14 +59,6 @@ addressing modes. The key for a layer takes a `type` option that picks the imple
 A link layer may also do the job of another layer itself. The link platform passes the keys of those layers as
 `provides` to `packet_interface_schema()`, which leaves them out of its schema, and sets their capability bits in its
 constructor. The `tcp` link provides reliability, addressing and session.
-
-### Implementation order
-
-1. Reliability.
-2. Session.
-3. Encryption.
-4. Fragmentation.
-5. Addressing, done before fragmentation, for multi-drop serial buses and shared radio channels such as LoRa.
 
 ## Example configuration
 
@@ -130,9 +122,10 @@ sees the space left for its payload after every layer has taken its share.
 
 ### Metadata
 
-`PacketMetaData` travels with each packet. Layers read it on the way down and fill it in on the way up. For example,
-the addressing layer would take the destination address from it when sending, and report the source address when
-receiving. `PacketMetaData` will need fields for this.
+`PacketMetaData` travels with each packet. Layers read it on the way down and fill it in on the way up. The
+addressing layer reports `source_address` and `destination_address` when receiving; when sending, a
+`destination_address` of 0 uses the configured destination. Radio links fill in `rssi` and `snr`, and the ESP-NOW
+link the sender's `mac_address`.
 
 ## Reliability layer: `hdlc`
 
@@ -416,6 +409,31 @@ time, built on the socket component's `TcpClientLink` and `TcpListener`, as `tcp
   queue, and reporting how many full-size packets fit in the buffer stopped the fragmentation layer from ever starting
   a packet of two fragments.
 
+## Link: `udp`
+
+UDP packets through a `udp` component, which sends each packet to every address in its `addresses`.
+
+- **Point to point.** When the `udp` component sends to one unicast IPv4 address, the link accepts packets only from
+  that address and provides addressing. The `udp` component tells the link the sender of each packet it passes on.
+  An address ending in `.255` is taken as a subnet broadcast, since the subnet is not known when the configuration
+  is checked; such a link works, but without the filter.
+- **Broadcast.** Otherwise every packet is accepted, and the addressing layer can be configured to tell devices apart.
+- **No session.** UDP has no connection, so a session layer is needed to know whether the peer can be reached.
+
+## Link: `espnow`
+
+ESP-NOW packets through an `espnow` component, between ESP32 and ESP8266 devices on the same Wi-Fi channel.
+
+- **Point to point.** With a `peer_address` other than broadcast, packets go to that device only and only packets
+  from it are accepted, so the link provides addressing. The peer is added to the `espnow` component's peers.
+- **Broadcast.** With the default broadcast `peer_address`, every packet is accepted, and the addressing layer can be
+  configured to tell devices apart.
+- **Packet size.** `max_packet_size` defaults to 250 bytes, the ESP-NOW v1 limit, and may be raised up to the `espnow`
+  component's `max_payload_size`.
+- **Metadata.** The sender's MAC address, and on ESP32 the RSSI, are passed up with each packet.
+- **Sending.** ESP-NOW queues each packet and reports delivery later; the link refuses a packet only when the queue
+  is full or the peer cannot be added. Lost packets are left to a reliability layer.
+
 ## Applications
 
 `packet_transport` keeps its own encryption, rolling code and ping-pong features, and is used through the
@@ -435,7 +453,9 @@ Every packet starts with a type byte, whose high nibble is the format version, a
 of the device name and every entity's type and id. Per packet, this is the only metadata:
 
 - It tells a receiver which device sent a data packet, so several devices can share a broadcast channel without
-  their names in every packet. Once the addressing layer exists, its source address could do this instead.
+  their names in every packet. The addressing layer's source address is not used instead: a stack with one peer has
+  only one possible sender, and on a broadcast channel the dictionary id is still needed to tell old dictionaries
+  from new ones, so it would save nothing.
 - It changes whenever the device's entities change, so a receiver never applies numbers from an old dictionary.
 - With session and reliability layers it is not strictly needed, but 4 bytes is little, and keeping one packet format
   is simpler than two.
@@ -466,10 +486,10 @@ built in one buffer allocated in `setup()`. Nothing is allocated after setup.
 
 ## Capabilities
 
-Each layer adds a bit to the capabilities of the stack: `CAPABILITY_ENCRYPTION`, `CAPABILITY_RELIABILITY` or
-`CAPABILITY_SESSION`. A layer copies the bits of the layer below in `stack_on_()` and adds its own, so the top layer
-reports the whole stack. A link layer that does a layer's job itself, such as one with built-in encryption, would set
-the bit in its own constructor. An application asks `top()->has_capability()` and adapts: `entity_transport` resends
+Each layer adds a bit to the capabilities of the stack: `CAPABILITY_ADDRESSING`, `CAPABILITY_ENCRYPTION`,
+`CAPABILITY_RELIABILITY`, `CAPABILITY_FRAGMENTATION` or `CAPABILITY_SESSION`. A layer copies the bits of the layer
+below in `stack_on_()` and adds its own, so the top layer reports the whole stack. A link layer that does a layer's
+job itself sets the bit in its own constructor, as `tcp` does for addressing, reliability and session. An application asks `top()->has_capability()` and adapts: `entity_transport` resends
 periodically unless both session and reliability are present.
 
 The session state callback is in `PacketInterface`, so an application needs no session class. An application
@@ -483,7 +503,7 @@ still reaches the top.
 
 The kinds of layer, their config keys, default types and stacking order are fixed in
 `packet_interface/layers/__init__.py`, as `LayerKind` objects: `ADDRESSING`, then `STACK_ORDER` of `ENCRYPTION`,
-`RELIABILITY` and `SESSION`. The order is part of the design, so it is not pluggable.
+`RELIABILITY`, `FRAGMENTATION` and `SESSION`. The order is part of the design, so it is not pluggable.
 
 Each implementation is a module in `packet_interface/layers/` that registers itself with its kind; its C++ files stay
 in `packet_interface/`:
@@ -518,8 +538,13 @@ the objects does not matter.
 
 ## Open questions
 
-- **Wire format.** The header layout of each layer, and whether a link layer needs a byte that says which layers are
-  in use, so that badly matched configurations are detected rather than producing garbage.
+- **Mismatched stacks.** Two devices with different layers configured cannot understand each other. Each layer
+  counts packets in a row that it cannot make sense of (encryption: a bad length or failed check; reliability: a short
+  frame or bad CRC; session: an unknown type or a bad keep-alive), and logs a warning at 10, once per run; any packet
+  it understands resets the count. Nothing changes on the wire. Addressing and fragmentation do not count: a packet
+  for another device is normal on a shared channel, and a fragment header cannot be checked. A byte on every packet
+  saying which layers are in use would detect every mismatch, but costs a byte per packet, needs every link and
+  every peer stack to carry it, and breaks the UART link's compatibility with `packet_transport`'s framing.
 - **Best effort packets.** HDLC unnumbered information (UI, control byte `0x03`) frames could carry data that is
   only useful while fresh, such as streamed readings, without a sequence number, queue slot or retry. A flag in
   `PacketMetaData` would select them. A UI frame must not be sent while I-frames are unacknowledged, or it could
@@ -550,4 +575,5 @@ the objects does not matter.
   measuring at high spreading factors, where each frame takes hundreds of milliseconds.
 - **Polled buses.** On RS485, a bus where one device polls the others would avoid collisions altogether. This would
   be a different link or addressing implementation.
-- **Session sensor.** With several peers, whether there is one sensor per peer or one for the whole channel.
+- **Session sensor.** With several peers, each peer that has a session layer has its own session and its own
+  binary sensor. A sensor for the whole channel is not offered.
