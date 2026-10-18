@@ -16,6 +16,13 @@ static constexpr size_t KEEP_ALIVE_SIZE = 5;
 BasicSession::BasicSession(PacketInterface *lower) : lower_(lower) {
   this->stack_on_(lower, CAPABILITY_SESSION);
   this->max_packet_size_ = lower->get_max_packet_size() - HEADER_SIZE;
+  // Data lost by a reliability layer below must be sent again, as after a restart of the peer
+  if (lower->has_capability(CAPABILITY_RELIABILITY)) {
+    lower->add_on_session_state_callback([this](bool connected) {
+      if (!connected && this->connected_)
+        this->set_connected_(false);
+    });
+  }
 }
 
 void BasicSession::setup() {

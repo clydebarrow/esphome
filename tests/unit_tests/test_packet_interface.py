@@ -225,3 +225,34 @@ def test_fragmentation_defaults(setup_core) -> None:
         uart_packet_interface.CONFIG_SCHEMA(
             {CONF_FRAGMENTATION: {"max_packet_size": 8}}
         )
+
+
+@pytest.mark.parametrize(
+    ("config", "loads"),
+    [
+        ({}, []),
+        ({CONF_RELIABILITY: None, "session": None}, []),
+        ({"session": {"binary_sensor": {"name": "Link"}}}, ["binary_sensor"]),
+        ({CONF_ENCRYPTION: "secret"}, ["xxtea"]),
+        (
+            {
+                CONF_ADDRESSING: {
+                    "address": 1,
+                    "peers": [_peer("a", 2, encryption="secret"), _peer("b", 3)],
+                }
+            },
+            ["xxtea"],
+        ),
+    ],
+)
+def test_auto_load_follows_layers(
+    setup_core, config: dict[str, Any], loads: list[str]
+) -> None:
+    """Only the components that the configured layers use are loaded."""
+    validated = uart_packet_interface.CONFIG_SCHEMA(config)
+    assert packet_interface.AUTO_LOAD([validated]) == loads
+
+
+def test_auto_load_without_config() -> None:
+    """Tooling that lists dependencies gets everything a layer could load."""
+    assert packet_interface.AUTO_LOAD() == ["binary_sensor", "xxtea"]

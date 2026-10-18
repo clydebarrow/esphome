@@ -1,5 +1,6 @@
 #pragma once
 
+#include "esphome/components/packet_interface/listen_before_talk.h"
 #include "esphome/components/packet_interface/packet_interface.h"
 #include "esphome/components/sx127x/sx127x.h"
 
@@ -19,8 +20,7 @@ class SX127xPacketInterface : public packet_interface::PacketInterface, public S
 
  protected:
   SX127x *radio_;
-  uint32_t busy_since_ms_{0};
-  uint32_t last_refused_ms_{0};
+  packet_interface::ListenBeforeTalk listen_before_talk_;
 };
 
 }  // namespace esphome::sx127x

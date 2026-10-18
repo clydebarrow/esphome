@@ -10,7 +10,13 @@ from esphome.components.entity_transport import (
     remote_entity_schema,
 )
 from esphome.components.sensor import sensor_schema
-from esphome.const import CONF_ID, CONF_NAME, CONF_UPDATE_INTERVAL, SCHEDULER_DONT_RUN
+from esphome.const import (
+    CONF_ID,
+    CONF_NAME,
+    CONF_TIMEOUT,
+    CONF_UPDATE_INTERVAL,
+    SCHEDULER_DONT_RUN,
+)
 from esphome.core import ID
 
 
@@ -36,3 +42,14 @@ def test_update_interval_never(setup_core) -> None:
     assert config[CONF_UPDATE_INTERVAL].total_milliseconds == SCHEDULER_DONT_RUN
     with pytest.raises(cv.Invalid):
         CONFIG_SCHEMA({**base, CONF_UPDATE_INTERVAL: "500ms"})
+
+
+def test_timeout(setup_core) -> None:
+    """The timeout is optional, and at least a second."""
+    base = {"packet_interface": "link"}
+    assert CONF_TIMEOUT not in CONFIG_SCHEMA(base)
+    assert (
+        CONFIG_SCHEMA({**base, CONF_TIMEOUT: "1min"})[CONF_TIMEOUT].total_seconds == 60
+    )
+    with pytest.raises(cv.Invalid):
+        CONFIG_SCHEMA({**base, CONF_TIMEOUT: "500ms"})

@@ -20,6 +20,9 @@ class MockLink : public PacketInterface {
     return true;
   }
   void inject(const Packet &packet) { this->on_receive_from_interface_(PacketBuffer(packet), {}); }
+  // Act as a reliability layer that resets and discards data
+  void set_reliable() { this->capabilities_ = CAPABILITY_RELIABILITY; }
+  void report_data_lost() { this->session_callback_.call(false); }
 
   std::vector<Packet> sent;
   bool accept{true};
@@ -203,6 +206,24 @@ TEST_F(BasicSessionTest, MalformedPacketsDropped) {
   a.link.inject({0x01, 0x00, 0x00});
   EXPECT_FALSE(a.session->is_connected());
   EXPECT_TRUE(a.received.empty());
+}
+
+TEST_F(BasicSessionTest, DataLostBelowReportedAsSessionLost) {
+  MockLink link;
+  link.set_reliable();
+  TestSession session(&link);
+  std::vector<bool> states;
+  session.add_on_session_state_callback([&states](bool connected) { states.push_back(connected); });
+  session.setup();
+  // Not yet connected, so nothing to report
+  link.report_data_lost();
+  EXPECT_TRUE(states.empty());
+  link.inject({0x00, 0x55});
+  link.report_data_lost();
+  EXPECT_FALSE(session.is_connected());
+  // Connected again when the peer is next heard
+  link.inject({0x00, 0x56});
+  EXPECT_EQ(states, (std::vector<bool>{true, false, true}));
 }
 
 }  // namespace esphome::packet_interface::session_testing

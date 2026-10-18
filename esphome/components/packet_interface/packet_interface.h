@@ -71,6 +71,8 @@ class PacketInterface : public Component {
   /**
    * With CAPABILITY_SESSION, the callback is called with true when the peer can be reached, including after it
    * restarts, and with false when it is lost. The session layer is always the top layer, so register on top().
+   * A reliability layer calls it with false when it resets the link and discards data, which the session layer above
+   * reports as the session lost.
    */
   template<typename F> void add_on_session_state_callback(F &&callback) {
     this->session_callback_.add(std::forward<F>(callback));
@@ -121,8 +123,10 @@ class PacketInterface : public Component {
   void inherit_from_(PacketInterface *lower, Capability capability) {
     this->name_ = lower->name_;
     this->capabilities_ = lower->capabilities_ | capability;
-    // A link that has a session of its own, such as TCP, reports it to whatever is stacked above
-    if (lower->has_capability(CAPABILITY_SESSION) && capability != CAPABILITY_SESSION) {
+    // A link that has a session of its own, such as TCP, reports it to whatever is stacked above, as does a
+    // reliability layer that discards data; the session layer handles the latter itself
+    if ((lower->has_capability(CAPABILITY_SESSION) || lower->has_capability(CAPABILITY_RELIABILITY)) &&
+        capability != CAPABILITY_SESSION) {
       lower->add_on_session_state_callback([this](bool connected) { this->session_callback_.call(connected); });
     }
   }

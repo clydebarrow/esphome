@@ -32,6 +32,7 @@ static constexpr uint32_t DEFAULT_UPDATE_INTERVAL_MS = 15000;
 static constexpr uint32_t REQUEST_INTERVAL_MS = 5000;
 static constexpr uint32_t RETRY_DELAY_MS = 1000;
 static constexpr uint32_t RETRY_TIMER_ID = 0;
+static constexpr uint32_t TIMEOUT_CHECK_INTERVAL_MS = 1000;
 
 static void put_uint32(uint8_t *buf, uint32_t value) {
   for (size_t i = 0; i != 4; i++)
@@ -90,6 +91,8 @@ void EntityTransport::setup() {
                                     : DEFAULT_UPDATE_INTERVAL_MS;
   if (this->update_interval_ms_ != SCHEDULER_DONT_RUN)
     this->set_interval(this->update_interval_ms_, [this] { this->send_all_(); });
+  if (this->remote_timeout_ms_ != 0)
+    this->set_interval(TIMEOUT_CHECK_INTERVAL_MS, [this] { this->clear_remote_states_(true); });
   this->send_all_();
 }
 
@@ -110,6 +113,9 @@ void EntityTransport::dump_config() {
     ESP_LOGCONFIG(TAG, "  Update Interval: never");
   } else {
     ESP_LOGCONFIG(TAG, "  Update Interval: %" PRIu32 "ms", this->update_interval_ms_);
+  }
+  if (this->remote_timeout_ms_ != 0) {
+    ESP_LOGCONFIG(TAG, "  Remote Timeout: %" PRIu32 "ms", this->remote_timeout_ms_);
   }
   for (const auto &entity : this->entities_) {
     ESP_LOGCONFIG(TAG, "  %s %u: %s", entity.is_sensor ? LOG_STR_LITERAL("Sensor") : LOG_STR_LITERAL("Binary Sensor"),
@@ -359,14 +365,18 @@ void EntityTransport::receive_data_(std::span<const uint8_t> packet, uint32_t di
     ESP_LOGV(TAG, "Data packet of %zu bytes is malformed", packet.size());
     return;
   }
+  uint32_t now = App.get_loop_component_start_time();
 #ifdef ENTITY_TRANSPORT_REMOTE_SENSOR_COUNT
   for (size_t pos = DATA_HEADER_SIZE; pos != sensor_end; pos += SENSOR_RECORD_SIZE) {
     uint32_t bits = encode_uint32(packet[pos + 4], packet[pos + 3], packet[pos + 2], packet[pos + 1]);
     float value;
     memcpy(&value, &bits, sizeof(value));
     for (auto &remote : this->remote_sensors_) {
-      if (remote.known && remote.dictionary_id == dictionary_id && remote.number == packet[pos])
+      if (remote.known && remote.dictionary_id == dictionary_id && remote.number == packet[pos]) {
+        remote.last_state_ms = now;
+        remote.has_state = true;
         remote.entity->publish_state(value);
+      }
     }
   }
 #endif
@@ -375,6 +385,8 @@ void EntityTransport::receive_data_(std::span<const uint8_t> packet, uint32_t di
     for (auto &remote : this->remote_binary_sensors_) {
       if (!remote.known || remote.dictionary_id != dictionary_id || remote.number != packet[pos])
         continue;
+      remote.last_state_ms = now;
+      remote.has_state = true;
       if (packet[pos + 1] == BINARY_SENSOR_NO_STATE) {
         remote.entity->invalidate_state();
       } else {
@@ -404,13 +416,27 @@ void EntityTransport::on_session_(bool connected) {
     this->send_all_();
     return;
   }
+  this->clear_remote_states_(false);
+}
+
+// Clears the state of every remote entity, or with timed_out_only, of those whose state is older than the timeout
+void EntityTransport::clear_remote_states_(bool timed_out_only) {
+  uint32_t now = App.get_loop_component_start_time();
 #ifdef ENTITY_TRANSPORT_REMOTE_SENSOR_COUNT
-  for (auto &remote : this->remote_sensors_)
+  for (auto &remote : this->remote_sensors_) {
+    if (timed_out_only && (!remote.has_state || now - remote.last_state_ms <= this->remote_timeout_ms_))
+      continue;
+    remote.has_state = false;
     remote.entity->publish_state(NAN);
+  }
 #endif
 #ifdef ENTITY_TRANSPORT_REMOTE_BINARY_SENSOR_COUNT
-  for (auto &remote : this->remote_binary_sensors_)
+  for (auto &remote : this->remote_binary_sensors_) {
+    if (timed_out_only && (!remote.has_state || now - remote.last_state_ms <= this->remote_timeout_ms_))
+      continue;
+    remote.has_state = false;
     remote.entity->invalidate_state();
+  }
 #endif
 }
 

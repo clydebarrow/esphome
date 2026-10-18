@@ -16,6 +16,7 @@ from esphome.const import (
     CONF_BINARY_SENSORS,
     CONF_ID,
     CONF_SENSORS,
+    CONF_TIMEOUT,
     CONF_UPDATE_INTERVAL,
 )
 from esphome.cpp_generator import MockObj, MockObjClass
@@ -61,6 +62,11 @@ CONFIG_SCHEMA = cv.Schema(
         # Defaults to a periodic resend unless the interface has session and reliability layers
         cv.Optional(CONF_UPDATE_INTERVAL): cv.All(
             cv.update_interval, cv.Range(min=cv.TimePeriod(seconds=1))
+        ),
+        # Remote entities lose their state when none arrives for this long
+        cv.Optional(CONF_TIMEOUT): cv.All(
+            cv.positive_time_period_milliseconds,
+            cv.Range(min=cv.TimePeriod(seconds=1)),
         ),
         # Entities are numbered with one byte
         cv.Optional(CONF_SENSORS): cv.All(
@@ -119,6 +125,8 @@ async def to_code(config: ConfigType) -> None:
     await cg.register_component(var, config)
     if (interval := config.get(CONF_UPDATE_INTERVAL)) is not None:
         cg.add(var.set_update_interval(interval))
+    if (timeout := config.get(CONF_TIMEOUT)) is not None:
+        cg.add(var.set_remote_timeout(timeout))
     sensors = config.get(CONF_SENSORS, [])
     binary_sensors = config.get(CONF_BINARY_SENSORS, [])
     if count := len(sensors) + len(binary_sensors):

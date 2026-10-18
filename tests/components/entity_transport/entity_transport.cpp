@@ -50,6 +50,7 @@ class TestTransport : public EntityTransport {
   using EntityTransport::EntityTransport;
   uint32_t get_dictionary_id() const { return this->dictionary_id_; }
   uint32_t get_update_interval() const { return this->update_interval_ms_; }
+  using EntityTransport::clear_remote_states_;
 };
 
 static Packet header(uint8_t type, uint32_t dictionary_id) {
@@ -75,8 +76,9 @@ class EntityTransportTest : public ::testing::Test {
     return transport;
   }
   // The receiver, showing the sender's entities; both run on this device, so they share its name
-  std::unique_ptr<TestTransport> make_receiver(const char *provider = DEVICE_NAME) {
+  std::unique_ptr<TestTransport> make_receiver(const char *provider = DEVICE_NAME, uint32_t timeout_ms = 0) {
     auto transport = std::make_unique<TestTransport>(&this->link_b);
+    transport->set_remote_timeout(timeout_ms);
     transport->add_remote_sensor(provider, "temp", &this->remote_temp);
     transport->add_remote_binary_sensor(provider, "door", &this->remote_door);
     transport->setup();
@@ -256,6 +258,24 @@ TEST_F(EntityTransportTest, RefusedDictionaryPartResumes) {
   this->link_a.deliver_to(this->link_b);
   EXPECT_EQ(this->remote_temp.get_state(), 4.0f);
   EXPECT_TRUE(this->remote_door.state);
+}
+
+TEST_F(EntityTransportTest, RemoteStatesTimeOut) {
+  this->temp.publish_state(6.0f);
+  this->door.publish_state(true);
+  auto sender = this->make_sender();
+  auto receiver = this->make_receiver(DEVICE_NAME, 5000);
+  { LoopBlockingGuard guard{nullptr, nullptr, 1000}; }
+  sender->loop();
+  this->link_a.deliver_to(this->link_b);
+  { LoopBlockingGuard guard{nullptr, nullptr, 6000}; }
+  receiver->clear_remote_states_(true);
+  EXPECT_EQ(this->remote_temp.get_state(), 6.0f);
+  EXPECT_TRUE(this->remote_door.has_state());
+  { LoopBlockingGuard guard{nullptr, nullptr, 6001}; }
+  receiver->clear_remote_states_(true);
+  EXPECT_TRUE(std::isnan(this->remote_temp.get_state()));
+  EXPECT_FALSE(this->remote_door.has_state());
 }
 
 }  // namespace esphome::entity_transport::testing

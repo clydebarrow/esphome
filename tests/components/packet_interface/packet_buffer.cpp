@@ -169,30 +169,6 @@ TEST(PacketBufferTest, ToVector) {
   EXPECT_EQ(vec[2], 0xCC);
 }
 
-// Test from_vector static method
-TEST(PacketBufferTest, FromVector) {
-  std::vector<uint8_t> vec = {0x11, 0x22, 0x33};
-  PacketBuffer buffer = PacketBuffer::from_vector(vec);
-
-  EXPECT_EQ(buffer.size(), 3);
-  EXPECT_EQ(buffer[0], 0x11);
-  EXPECT_EQ(buffer[1], 0x22);
-  EXPECT_EQ(buffer[2], 0x33);
-}
-
-// Test assignment operator from vector
-TEST(PacketBufferTest, AssignmentFromVector) {
-  std::vector<uint8_t> vec = {0x77, 0x88, 0x99};
-  PacketBuffer buffer;
-
-  buffer = vec;
-
-  EXPECT_EQ(buffer.size(), 3);
-  EXPECT_EQ(buffer[0], 0x77);
-  EXPECT_EQ(buffer[1], 0x88);
-  EXPECT_EQ(buffer[2], 0x99);
-}
-
 // Test copying from an offset past the mid buffer
 TEST(PacketBufferTest, CopyToOffsetPastMid) {
   uint8_t pre[] = {0x01, 0x02};
@@ -225,79 +201,14 @@ TEST(PacketBufferTest, ContiguousSpan) {
   EXPECT_FALSE(nested.is_contiguous());
 }
 
-// Test iterator begin and end
-TEST(PacketBufferTest, Iterator) {
-  uint8_t data[] = {0x01, 0x02, 0x03};
-  PacketBuffer buffer(data, 3);
-
-  auto it = buffer.begin();
-  EXPECT_EQ(*it, 0x01);
-  ++it;
-  EXPECT_EQ(*it, 0x02);
-  ++it;
-  EXPECT_EQ(*it, 0x03);
-  ++it;
-  EXPECT_EQ(it, buffer.end());
-}
-
-// Test range-based for loop
-TEST(PacketBufferTest, RangeBasedFor) {
-  uint8_t data[] = {0x10, 0x20, 0x30};
-  PacketBuffer buffer(data, 3);
-
-  std::vector<uint8_t> collected;
-  for (uint8_t byte : buffer) {
-    collected.push_back(byte);
-  }
-
-  EXPECT_EQ(collected.size(), 3);
-  EXPECT_EQ(collected[0], 0x10);
-  EXPECT_EQ(collected[1], 0x20);
-  EXPECT_EQ(collected[2], 0x30);
-}
-
-// Test set_pre_buffer
-TEST(PacketBufferTest, SetPreBuffer) {
-  PacketBuffer buffer;
-  uint8_t data[] = {0xAA, 0xBB};
-
-  buffer.set_pre_buffer(data, 2);
-
-  EXPECT_EQ(buffer.size(), 2);
-  EXPECT_EQ(buffer[0], 0xAA);
-  EXPECT_EQ(buffer[1], 0xBB);
-}
-
-// Test set_mid_buffer
-TEST(PacketBufferTest, SetMidBuffer) {
-  uint8_t data1[] = {0x01};
-  uint8_t data2[] = {0x02, 0x03};
-  uint8_t data3[] = {0x04};
-
-  PacketBuffer mid(data2, 2);
-  PacketBuffer buffer;
-
-  buffer.set_pre_buffer(data1, 1);
-  buffer.set_mid_buffer(&mid);
-  buffer.set_post_buffer(data3, 1);
-
-  EXPECT_EQ(buffer.size(), 4);
-  EXPECT_EQ(buffer[0], 0x01);
+// Test indexing past the end
+TEST(PacketBufferTest, IndexPastEnd) {
+  uint8_t pre[] = {0x01};
+  uint8_t post[] = {0x02};
+  PacketBuffer buffer(pre, 1, post, 1);
   EXPECT_EQ(buffer[1], 0x02);
-  EXPECT_EQ(buffer[2], 0x03);
-  EXPECT_EQ(buffer[3], 0x04);
-}
-
-// Test set_post_buffer
-TEST(PacketBufferTest, SetPostBuffer) {
-  uint8_t data[] = {0xCC, 0xDD};
-  PacketBuffer buffer;
-
-  buffer.set_post_buffer(data, 2);
-
-  EXPECT_EQ(buffer.size(), 2);
-  EXPECT_EQ(buffer[0], 0xCC);
-  EXPECT_EQ(buffer[1], 0xDD);
+  EXPECT_EQ(buffer[2], 0);
+  EXPECT_EQ(PacketBuffer()[0], 0);
 }
 
 // Test empty buffer operations

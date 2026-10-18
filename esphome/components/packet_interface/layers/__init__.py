@@ -40,6 +40,10 @@ def _never(config: ConfigType) -> bool:
     return False
 
 
+def _nothing(config: ConfigType) -> list[str]:
+    return []
+
+
 @dataclass(frozen=True)
 class LayerType:
     """One implementation of a kind of layer."""
@@ -49,6 +53,8 @@ class LayerType:
     build: LayerBuilder
     # True if this configuration keeps state for one peer, so cannot be used with broadcast addressing
     single_peer: Callable[[ConfigType], bool]
+    # The components this configuration needs loaded
+    auto_load: Callable[[ConfigType], list[str]]
 
 
 class LayerKind:
@@ -70,6 +76,7 @@ class LayerKind:
         schema: Any = None,
         schema_factory: Callable[[], Any] | None = None,
         single_peer: Callable[[ConfigType], bool] = _never,
+        auto_load: Callable[[ConfigType], list[str]] = _nothing,
     ) -> Callable[[LayerBuilder], LayerBuilder]:
         """Register a type with its schema, or with a function returning a schema that contains other layers."""
 
@@ -78,7 +85,7 @@ class LayerKind:
 
         def decorator(build: LayerBuilder) -> LayerBuilder:
             self.types[name] = LayerType(
-                schema_factory or fixed_schema, build, single_peer
+                schema_factory or fixed_schema, build, single_peer, auto_load
             )
             return build
 
@@ -135,6 +142,15 @@ def check_single_peer(config: ConfigType, destination: int) -> None:
                 "broadcast",
                 path=[kind.key],
             )
+
+
+def stack_auto_load(config: ConfigType) -> set[str]:
+    """The components that the layers configured in config need loaded."""
+    loads: set[str] = set()
+    for kind in STACK_ORDER:
+        if (layer := config.get(kind.key)) is not None:
+            loads.update(kind.get_type(layer).auto_load(layer))
+    return loads
 
 
 async def build_stack(config: ConfigType, lower: MockObj) -> None:

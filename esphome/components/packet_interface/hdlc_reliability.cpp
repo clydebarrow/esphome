@@ -186,8 +186,10 @@ void HdlcReliability::on_timeout_() {
   this->start_timer_();
 }
 
-// Unacknowledged frames are discarded; frames queued from now on are numbered from 0 and sent once the link is up
+// Unacknowledged frames are discarded; frames queued from now on are numbered from 0 and sent once the link is up.
+// Resetting a connected link can lose data both ways, which is reported to the layers above.
 void HdlcReliability::start_reset_() {
+  bool was_connected = this->state_ == LinkState::LINK_STATE_CONNECTED;
   this->state_ = LinkState::LINK_STATE_RESET_PENDING;
   this->va_ = this->vs_ = this->vn_ = 0;
   this->head_ = 0;
@@ -197,6 +199,8 @@ void HdlcReliability::start_reset_() {
   this->ack_sent_();
   this->cancel_timeout(RETRANSMIT_TIMER_ID);
   this->request_loop_();
+  if (was_connected)
+    this->session_callback_.call(false);
 }
 
 void HdlcReliability::link_up_() {

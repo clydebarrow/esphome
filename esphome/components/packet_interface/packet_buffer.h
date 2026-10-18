@@ -3,7 +3,6 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <iterator>
 #include <span>
 #include <vector>
 
@@ -92,7 +91,7 @@ class PacketBuffer {
   /**
    * Access a byte at a specific position.
    * @param index The position to access
-   * @return The byte at the specified position
+   * @return The byte at the specified position, or 0 past the end
    */
   uint8_t operator[](size_t index) const {
     if (index < this->pre_length_) {
@@ -108,7 +107,7 @@ class PacketBuffer {
       index -= mid_size;
     }
 
-    return this->post_buffer_[index];
+    return index < this->post_length_ ? this->post_buffer_[index] : 0;
   }
 
   /**
@@ -172,95 +171,6 @@ class PacketBuffer {
     result.resize(total_size);
     this->copy_to(result.data(), total_size);
     return result;
-  }
-
-  /**
-   * Create a PacketBuffer from a vector (convenience method).
-   */
-  static PacketBuffer from_vector(const std::vector<uint8_t> &vec) { return PacketBuffer(vec); }
-  static PacketBuffer from_vector(std::vector<uint8_t> &&) = delete;
-
-  /**
-   * Assignment operator from std::vector.
-   * Creates a PacketBuffer that references the vector's data.
-   */
-  PacketBuffer &operator=(const std::vector<uint8_t> &vec) {
-    this->pre_buffer_ = vec.data();
-    this->pre_length_ = vec.size();
-    this->mid_buffer_ = nullptr;
-    this->post_buffer_ = nullptr;
-    this->post_length_ = 0;
-    return *this;
-  }
-  PacketBuffer &operator=(std::vector<uint8_t> &&) = delete;
-
-  /**
-   * Iterator class for PacketBuffer.
-   */
-  class Iterator {
-   public:
-    using iterator_category = std::forward_iterator_tag;
-    using value_type = uint8_t;
-    using difference_type = std::ptrdiff_t;
-    using pointer = const uint8_t *;
-    using reference = uint8_t;
-
-    Iterator(const PacketBuffer *buffer, size_t index) : buffer_(buffer), index_(index) {}
-
-    reference operator*() const { return (*this->buffer_)[this->index_]; }
-
-    const Iterator &operator++() {
-      ++this->index_;
-      return *this;
-    }
-
-    // clang-tidy wants this changed but if it's changed, it wants it changed back.
-    Iterator operator++(int) {  // NOLINT
-      Iterator tmp = *this;
-      ++(*this);
-      return tmp;
-    }
-
-    bool operator==(const Iterator &other) const {
-      return this->buffer_ == other.buffer_ && this->index_ == other.index_;
-    }
-
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
-
-   private:
-    const PacketBuffer *buffer_;
-    size_t index_;
-  };
-
-  /**
-   * Begin iterator.
-   */
-  Iterator begin() const { return Iterator(this, 0); }
-
-  /**
-   * End iterator.
-   */
-  Iterator end() const { return Iterator(this, this->size()); }
-
-  /**
-   * Set the pre-buffer.
-   */
-  void set_pre_buffer(const uint8_t *data, size_t length) {
-    this->pre_buffer_ = data;
-    this->pre_length_ = length;
-  }
-
-  /**
-   * Set the mid-buffer.
-   */
-  void set_mid_buffer(const PacketBuffer *buffer) { this->mid_buffer_ = buffer; }
-
-  /**
-   * Set the post-buffer.
-   */
-  void set_post_buffer(const uint8_t *data, size_t length) {
-    this->post_buffer_ = data;
-    this->post_length_ = length;
   }
 
  private:

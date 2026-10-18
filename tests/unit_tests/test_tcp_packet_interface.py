@@ -24,3 +24,12 @@ def test_provided_layers_rejected(setup_core, layer: str) -> None:
         tcp_packet_interface.CONFIG_SCHEMA(
             {"host": "192.168.1.50", "port": 6060, layer: {"address": 1}}
         )
+
+
+def test_auto_load_binary_sensor_for_connected(setup_core) -> None:
+    """The binary_sensor component is loaded only for the connected sensor."""
+    assert tcp_packet_interface.AUTO_LOAD() == ["socket", "binary_sensor"]
+    config = {"host": "192.168.1.50", "port": 6060}
+    assert tcp_packet_interface.AUTO_LOAD(config) == ["socket"]
+    config["connected"] = {"name": "Link"}
+    assert tcp_packet_interface.AUTO_LOAD(config) == ["socket", "binary_sensor"]

@@ -102,6 +102,10 @@ void BasicFragmentation::receive_(const PacketBuffer &data, const PacketMetaData
     }
     this->rx_joining_ = false;
     if (last) {
+      if (length > this->max_packet_size_) {
+        ESP_LOGV(TAG, "%s: Packet %u is larger than %zu, dropped", this->name_, number, this->max_packet_size_);
+        return;
+      }
       this->on_receive_from_interface_(PacketBuffer(payload, length), meta_data);
       return;
     }

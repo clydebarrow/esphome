@@ -42,6 +42,9 @@ void ESPNowPacketInterface::dump_config() {
 }
 
 bool ESPNowPacketInterface::send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) {
+  // Layers above are set up first, and may send while setup waits for another component
+  if (!this->is_ready())
+    return false;
   size_t size = data.size();
   if (size > this->max_packet_size_) {
     ESP_LOGW(TAG, "%s: Packet of %zu bytes is larger than %zu", this->name_, size, this->max_packet_size_);

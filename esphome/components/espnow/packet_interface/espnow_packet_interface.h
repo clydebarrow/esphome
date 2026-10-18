@@ -32,7 +32,6 @@ class ESPNowPacketInterface : public packet_interface::PacketInterface,
 
   void setup() override;
   void dump_config() override;
-  float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
   bool send_to_interface(const packet_interface::PacketBuffer &data,
                          const packet_interface::PacketMetaData &meta_data) override;
 

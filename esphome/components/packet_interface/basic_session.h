@@ -16,7 +16,8 @@ namespace esphome::packet_interface {
  * carries a random number chosen at boot, so that a restart of the peer is noticed even if it is quicker than the
  * timeout. A keep-alive is sent every keep_alive interval, and at once when a new peer is heard. The peer is
  * considered gone when nothing has been received from it for the timeout; this is checked every keep_alive interval.
- * A restart of the peer is reported as a disconnect followed by a connect.
+ * A restart of the peer is reported as a disconnect followed by a connect. So is a reset of a reliability layer below,
+ * which discards data: the session is reported lost, and connected again when the peer is next heard.
  */
 class BasicSession : public PacketInterface {
  public:

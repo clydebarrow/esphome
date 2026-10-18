@@ -46,12 +46,14 @@ struct Peer {
     this->hdlc->setup();
     this->hdlc->add_packet_interface_listener(
         [this](const PacketBuffer &data, const PacketMetaData &) { this->received.push_back(data.to_vector()); });
+    this->hdlc->add_on_session_state_callback([this](bool connected) { this->states.push_back(connected); });
   }
   bool send(const Frame &data) { return this->hdlc->send_to_interface(PacketBuffer(data), {}); }
 
   MockLink link;
   std::unique_ptr<TestHdlc> hdlc;
   std::vector<Frame> received;
+  std::vector<bool> states;
 };
 
 // Returns true to drop a frame on its way from one peer to the other
@@ -226,9 +228,11 @@ TEST_F(HdlcReliabilityTest, RetriesExhaustedResetsLink) {
     a.hdlc->on_timeout_();
     pump(a, b, [](const Frame &frame) { return is_info(frame); });
   }
-  // The unacknowledged frame was discarded and the link was reset
+  // The unacknowledged frame was discarded and the link was reset, which both report as data lost
   EXPECT_TRUE(b.received.empty());
   EXPECT_TRUE(a.hdlc->is_connected());
+  EXPECT_EQ(a.states, std::vector<bool>{false});
+  EXPECT_EQ(b.states, std::vector<bool>{false});
   a.send({0x02});
   pump(a, b);
   EXPECT_EQ(b.received, (std::vector<Frame>{{0x02}}));
@@ -248,6 +252,9 @@ TEST_F(HdlcReliabilityTest, PeerRestart) {
   pump(a, *b);
   EXPECT_EQ(b->received, (std::vector<Frame>{{0x02}}));
   EXPECT_EQ(a.received, (std::vector<Frame>{{0x03}}));
+  // The restarted peer's reset discarded what a had not yet had acknowledged
+  EXPECT_EQ(a.states, std::vector<bool>{false});
+  EXPECT_TRUE(b->states.empty());
 }
 
 TEST_F(HdlcReliabilityTest, RefusedFramesSentAgainWithoutTimeout) {

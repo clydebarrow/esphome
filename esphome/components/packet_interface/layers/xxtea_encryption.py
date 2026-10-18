@@ -28,6 +28,7 @@ XXTEA_SCHEMA = cv.Schema(
     "xxtea",
     schema=XXTEA_SCHEMA,
     single_peer=lambda config: config[CONF_ROLLING_CODE_ENABLE],
+    auto_load=lambda config: ["xxtea"],
 )
 async def build_xxtea(config: ConfigType, lower: MockObj) -> MockObj:
     cg.add_define("USE_PACKET_INTERFACE_XXTEA")

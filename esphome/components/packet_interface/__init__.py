@@ -23,10 +23,10 @@ from .layers import (
     build_stack,
     check_single_peer,
     packet_interface_ns,
+    stack_auto_load,
     stack_schema,
 )
 
-AUTO_LOAD = ["binary_sensor", "xxtea"]
 CODEOWNERS = ["@clydebarrow"]
 DOMAIN = "packet_interface"
 IS_PLATFORM_COMPONENT = True
@@ -52,6 +52,21 @@ __all__ = [
     "packet_interface_ns",
     "packet_interface_schema",
 ]
+
+
+def AUTO_LOAD(config: list[ConfigType] | None = None) -> list[str]:
+    """Load only what the configured layers use, on the link and in each addressing peer.
+
+    Without a config, as tooling that lists dependencies calls it, everything a layer could load.
+    """
+    if config is None:
+        return ["binary_sensor", "xxtea"]
+    loads: set[str] = set()
+    for interface in config:
+        loads |= stack_auto_load(interface)
+        for peer in interface.get(CONF_ADDRESSING, {}).get(CONF_PEERS, []):
+            loads |= stack_auto_load(peer)
+    return sorted(loads)
 
 
 def _validate_layers(config: ConfigType) -> ConfigType:

@@ -161,6 +161,12 @@ Control byte, using the HDLC encoding (`P/F`, bit 4, is sent as 0 and ignored):
   and sends SABM, repeated every second (or every `timeout`, if longer) until UA arrives. A device that receives
   SABM resets its sequence numbers, answers UA and considers the link up, so two devices that start at the same time
   both connect.
+- **Data lost on a reset.** A reset of a connected link, after `max_retries` or on SABM from a peer that restarted,
+  can lose data both ways. The layer calls its session state callback with false, which the layers above pass on. The
+  session layer reports the session lost, and connected again when the peer is next heard, so `entity_transport`
+  sends its dictionary and all states again, as after a restart. A Wi-Fi test found this: a peer joining its network
+  moved its radio between channels and missed ESP-NOW frames for about a second, the sender reset the link, and two
+  values were lost for good, because the session stayed up and no periodic resend was configured.
 - **Sending.** Each packet is copied into a free queue slot, numbered, and sent at once if the link is up and no
   earlier frame is waiting. While the link is being reset, packets wait in the queue. When the queue is full,
   `send_to_interface()` returns false.
@@ -479,7 +485,9 @@ request, at most every 5 seconds; the device with that dictionary id answers wit
   dictionary and states are then sent on every connect and arrive in order. Otherwise it defaults to 15 seconds.
 - A packet the interface refuses is sent again after a second, with the latest states. Data waits for the dictionary.
 
-When the session layer reports the peer lost, the remote entities lose their state.
+When the session layer reports the peer lost, the remote entities lose their state. With `timeout`, a remote entity also loses its state when
+none arrives for it within the timeout, for interfaces without a session layer; the timeout should be longer than the
+provider's `update_interval`.
 
 A dictionary in several packets resumes after the last packet the interface accepted, so a refused packet does not
 make the earlier ones be sent again. Retrying from the start made a large dictionary over fragmentation resend its

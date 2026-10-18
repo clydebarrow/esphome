@@ -1,6 +1,5 @@
 #include "tcp_packet_interface.h"
 #include "esphome/core/application.h"
-#include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
@@ -149,7 +148,7 @@ bool TcpPacketInterface::queue_frame_(const PacketBuffer *data, size_t size) {
   if (data != nullptr)
     data->copy_to(tail + LENGTH_SIZE, size);
   this->link_.tx_commit(size + LENGTH_SIZE);
-  this->last_tx_ms_ = millis();
+  this->last_tx_ms_ = App.get_loop_component_start_time();
   return true;
 }
 

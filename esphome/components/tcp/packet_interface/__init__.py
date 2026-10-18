@@ -28,7 +28,14 @@ from esphome.types import ConfigType
 
 CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["network"]
-AUTO_LOAD = ["socket"]
+
+
+def AUTO_LOAD(config: ConfigType | None = None) -> list[str]:
+    """The binary_sensor component only for the connected sensor; without a config, as tooling calls it, both."""
+    if config is None or CONF_CONNECTED in config:
+        return ["socket", "binary_sensor"]
+    return ["socket"]
+
 
 # Each packet and its 2 byte length must fit the socket link's 1024 byte send buffer
 MAX_PACKET_SIZE = 1022

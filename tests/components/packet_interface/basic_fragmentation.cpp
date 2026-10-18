@@ -178,4 +178,17 @@ TEST_F(BasicFragmentationTest, OverReliabilityWithLosses) {
   EXPECT_EQ(b.received, std::vector<Packet>{packet});
 }
 
+TEST_F(BasicFragmentationTest, OversizedSingleFragmentDropped) {
+  // A link packet holds more than this layer's max_packet_size
+  BasicFragmentation fragmentation(&this->link_a, 4);
+  std::vector<Packet> received;
+  fragmentation.add_packet_interface_listener(
+      [&received](const PacketBuffer &data, const PacketMetaData &) { received.push_back(data.to_vector()); });
+  fragmentation.setup();
+  this->link_a.inject({0x01, 0x80, 1, 2, 3, 4, 5});
+  EXPECT_TRUE(received.empty());
+  this->link_a.inject({0x02, 0x80, 1, 2, 3, 4});
+  EXPECT_EQ(received, std::vector<Packet>{Packet({1, 2, 3, 4})});
+}
+
 }  // namespace esphome::packet_interface::fragmentation_testing

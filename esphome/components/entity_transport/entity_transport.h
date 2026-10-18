@@ -47,7 +47,8 @@ namespace esphome::entity_transport {
  * Changed states are sent from loop(). The dictionary and all states are sent at boot, when a session layer reports
  * the peer connected, when the dictionary is requested, and every update interval. Unless the interface has both a
  * session and a reliability layer, the update interval defaults to DEFAULT_UPDATE_INTERVAL_MS. When the interface
- * refuses a packet, sending is tried again after a delay.
+ * refuses a packet, sending is tried again after a delay. With a remote timeout, a remote entity loses its state when
+ * none arrives for it within the timeout.
  */
 class EntityTransport : public Component {
  public:
@@ -59,6 +60,8 @@ class EntityTransport : public Component {
 
   /// 0 chooses the default for the interface's layers; SCHEDULER_DONT_RUN never resends.
   void set_update_interval(uint32_t interval_ms) { this->update_interval_ms_ = interval_ms; }
+  /// Remote entities lose their state when none arrives for this long; 0 keeps the last state.
+  void set_remote_timeout(uint32_t timeout_ms) { this->remote_timeout_ms_ = timeout_ms; }
   void set_entity_count(size_t count) { this->entities_.init(count); }
   // Sensors must be added before binary sensors, so that data packets hold sensor records first
 #ifdef USE_SENSOR
@@ -96,8 +99,10 @@ class EntityTransport : public Component {
     const char *remote_id;
     T *entity;
     uint32_t dictionary_id{0};  // learnt from the provider's dictionary
+    uint32_t last_state_ms{0};
     uint8_t number{0};
     bool known{false};
+    bool has_state{false};  // a state arrived, and has not yet timed out
   };
 
   void send_all_();
@@ -113,6 +118,7 @@ class EntityTransport : public Component {
               size_t id_length, uint32_t dictionary_id);
   void request_dictionary_(uint32_t dictionary_id);
   void on_session_(bool connected);
+  void clear_remote_states_(bool timed_out_only);
 
   packet_interface::PacketInterface *interface_;
   FixedVector<LocalEntity> entities_;
@@ -127,6 +133,7 @@ class EntityTransport : public Component {
   std::unique_ptr<uint8_t[]> buffer_;
   size_t max_packet_size_{0};
   uint32_t update_interval_ms_{0};
+  uint32_t remote_timeout_ms_{0};
   uint32_t dictionary_id_{0};
   uint32_t last_request_ms_{0};
   uint8_t sensor_count_{0};
