@@ -134,19 +134,24 @@ bool HdlcReliability::send_supervisory_(uint8_t type) {
   return true;
 }
 
-// Sends the queued frames not yet sent; if the lower layer refuses one, it and the rest are sent again shortly
+// Sends the next queued frame not yet sent, and returns true if none are left. One frame per loop pass lets other
+// components run between frames: on a radio, sending blocks, and the peer's frames are received in between. If the
+// lower layer refuses the frame, it is sent again shortly.
 bool HdlcReliability::send_pending_() {
-  while (this->vn_ != this->vs_) {
-    uint8_t control = (this->vn_ << 1) | (this->vr_ << 5);
-    if (!this->send_frame_(control, this->slot_(this->vn_), this->tx_lengths_[this->slot_index_(this->vn_)])) {
-      this->retry_send_();
-      return false;
-    }
-    // Every I-frame carries an acknowledgement, so a pending RR is no longer needed
-    this->ack_sent_();
-    this->vn_ = (this->vn_ + 1) & 7;
+  if (this->vn_ == this->vs_)
+    return true;
+  uint8_t control = (this->vn_ << 1) | (this->vr_ << 5);
+  if (!this->send_frame_(control, this->slot_(this->vn_), this->tx_lengths_[this->slot_index_(this->vn_)])) {
+    this->retry_send_();
+    return false;
   }
-  return true;
+  // Every I-frame carries an acknowledgement, so a pending RR is no longer needed
+  this->ack_sent_();
+  this->vn_ = (this->vn_ + 1) & 7;
+  if (this->vn_ == this->vs_)
+    return true;
+  this->request_loop_();
+  return false;
 }
 
 void HdlcReliability::resend_outstanding_() {
