@@ -107,7 +107,8 @@ Two layers must copy:
 - **Reliability** must keep each unacknowledged packet until it is acknowledged or given up, so it copies the packet
   into one of `max_queue_length` slots.
 
-These buffers are allocated once in `setup()`, sized from `max_packet_size`.
+These buffers are allocated once in `setup()`, sized from `max_packet_size`. A link is given its buffer by code
+generation as a `std::span`, so the buffer's size is the link's `max_packet_size` and the two cannot differ.
 
 ### Receiving
 
@@ -117,8 +118,9 @@ decrypts into its own buffer first.
 
 ### Packet size
 
-Each layer's `max_packet_size` is the size of the layer below minus its own header and trailer. The application
-sees the space left for its payload after every layer has taken its share.
+`max_packet_size` is fixed when a layer is constructed: a link takes it from the buffer it is given, and a layer
+above takes the size of the layer below minus its own header and trailer. The application sees the space left for
+its payload after every layer has taken its share.
 
 ### Metadata
 

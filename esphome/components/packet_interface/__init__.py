@@ -132,12 +132,14 @@ def packet_interface_schema(
 async def new_packet_interface(config: ConfigType, *args: Any) -> MockObj:
     """Create the link layer and the layers configured on it, from the bottom up.
 
+    The link's constructor takes its maximum packet size, usually as a std::span over a buffer that code generation
+    sized from the configuration, so the two cannot differ.
+
     Returns the link layer; applications reach the top layer with PacketInterface::top(). With several addressing
     peers, applications use the peers' ids instead.
     """
     var = cg.new_Pvariable(config[CONF_ID], *args)
     cg.add(var.set_name(config[CONF_ID].id))
-    cg.add(var.set_max_packet_size(config[CONF_MAX_PACKET_SIZE]))
     await cg.register_component(var, config)
     if (addressing := config.get(CONF_ADDRESSING)) is None:
         await build_stack(config, var)

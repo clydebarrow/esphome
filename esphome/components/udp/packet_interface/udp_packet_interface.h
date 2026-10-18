@@ -22,9 +22,9 @@ namespace esphome::udp {
  */
 class UdpPacketInterface : public packet_interface::PacketInterface {
  public:
-  /// @param tx_buffer Holds max_packet_size bytes, for packets split across buffers; must outlive the link
+  /// @param tx_buffer Joins packets split across buffers; its size is the largest packet, and it must outlive the link
   /// @param peer The IPv4 address of the one peer, in network byte order; all zeros if packets are broadcast
-  UdpPacketInterface(UDPComponent *udp_component, uint8_t *tx_buffer, std::array<uint8_t, 4> peer);
+  UdpPacketInterface(UDPComponent *udp_component, std::span<uint8_t> tx_buffer, std::array<uint8_t, 4> peer);
 
   void setup() override;
   bool send_to_interface(const packet_interface::PacketBuffer &data,
@@ -36,7 +36,7 @@ class UdpPacketInterface : public packet_interface::PacketInterface {
   bool accepts_from_(const sockaddr *source) const;
 
   UDPComponent *parent_;
-  uint8_t *const tx_buffer_;
+  const std::span<uint8_t> tx_buffer_;
   std::array<uint8_t, 4> peer_;
 };
 }  // namespace esphome::udp
