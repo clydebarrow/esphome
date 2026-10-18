@@ -29,6 +29,8 @@ packet_interface:
         - id: packet_interface_peer_b
           destination: 0x0003
           reliability:
+          fragmentation:
+            max_packet_size: 2048
           session:
         - id: packet_interface_bus
           destination: broadcast
@@ -40,6 +42,7 @@ packet_interface:
       destination: 0x0002
     encryption: Johnny Cash
     reliability:
+    fragmentation:
     session:
 
 sensor:

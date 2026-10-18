@@ -9,6 +9,7 @@ from esphome.components import packet_interface
 from esphome.components.packet_interface import CONF_MAX_PACKET_SIZE
 from esphome.components.packet_interface.layers import (
     CONF_ADDRESSING,
+    CONF_FRAGMENTATION,
     CONF_RELIABILITY,
     CONF_SESSION,
     RELIABILITY,
@@ -181,6 +182,7 @@ def test_layer_types_registered() -> None:
     assert {kind.key: set(kind.types) for kind in STACK_ORDER} == {
         CONF_ENCRYPTION: {"xxtea"},
         CONF_RELIABILITY: {"hdlc"},
+        CONF_FRAGMENTATION: {"basic"},
         CONF_SESSION: {"basic"},
     }
 
@@ -209,4 +211,17 @@ def test_ack_delay_shorter_than_timeout(setup_core) -> None:
     with pytest.raises(cv.Invalid, match="shorter"):
         uart_packet_interface.CONFIG_SCHEMA(
             {CONF_RELIABILITY: {"timeout": "500ms", "ack_delay": "500ms"}}
+        )
+
+
+def test_fragmentation_defaults(setup_core) -> None:
+    """An empty fragmentation key joins packets of up to 1024 bytes."""
+    fragmentation = uart_packet_interface.CONFIG_SCHEMA({CONF_FRAGMENTATION: None})[
+        CONF_FRAGMENTATION
+    ]
+    assert fragmentation["type"] == "basic"
+    assert fragmentation["max_packet_size"] == 1024
+    with pytest.raises(cv.Invalid):
+        uart_packet_interface.CONFIG_SCHEMA(
+            {CONF_FRAGMENTATION: {"max_packet_size": 8}}
         )

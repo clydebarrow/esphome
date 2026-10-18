@@ -16,7 +16,7 @@ from typing import Any
 
 import esphome.codegen as cg
 import esphome.config_validation as cv
-from esphome.const import CONF_ENCRYPTION, CONF_KEY, CONF_TYPE
+from esphome.const import CONF_ENCRYPTION, CONF_FRAGMENTATION, CONF_KEY, CONF_TYPE
 from esphome.cpp_generator import MockObj
 from esphome.types import ConfigType
 
@@ -111,9 +111,10 @@ class LayerKind:
 ADDRESSING = LayerKind(CONF_ADDRESSING, "basic")
 ENCRYPTION = LayerKind(CONF_ENCRYPTION, "xxtea", shorthand=CONF_KEY)
 RELIABILITY = LayerKind(CONF_RELIABILITY, "hdlc")
+FRAGMENTATION = LayerKind(CONF_FRAGMENTATION, "basic")
 SESSION = LayerKind(CONF_SESSION, "basic")
 # The kinds stacked above the link, or above each port of an addressing layer, from the bottom up
-STACK_ORDER = (ENCRYPTION, RELIABILITY, SESSION)
+STACK_ORDER = (ENCRYPTION, RELIABILITY, FRAGMENTATION, SESSION)
 
 
 def stack_schema() -> dict:

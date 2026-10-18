@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cmath>
+#include <cstdint>
 #include <utility>
 
 #include "esphome/core/string_ref.h"
@@ -16,6 +17,7 @@ enum Capability : uint8_t {
   CAPABILITY_RELIABILITY = 1 << 1,
   CAPABILITY_SESSION = 1 << 2,
   CAPABILITY_ADDRESSING = 1 << 3,
+  CAPABILITY_FRAGMENTATION = 1 << 4,
 };
 
 /**
@@ -60,6 +62,8 @@ class PacketInterface : public Component {
   virtual bool send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) = 0;
 
   size_t get_max_packet_size() const { return this->max_packet_size_; }
+  /// How many packets send_to_interface() would accept now, so a layer above can tell before sending a series.
+  virtual size_t get_send_capacity() const { return SIZE_MAX; }
   void set_max_packet_size(size_t size) { this->max_packet_size_ = size; }
   /// The capabilities of this layer and every layer below it.
   uint8_t get_capabilities() const { return this->capabilities_; }

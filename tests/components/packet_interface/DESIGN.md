@@ -3,7 +3,7 @@
 This document describes where the `packet_interface` component is going. The link layers (`uart`, `udp`, `sx126x`,
 `sx127x`), the
 addressing, encryption, reliability and session layers, the `entity_transport` application and the `packet_transport`
-bridge exist today. The fragmentation layer is planned.
+bridge exist today.
 
 ## Goals
 
@@ -169,8 +169,13 @@ Control byte, using the HDLC encoding (`P/F`, bit 4, is sent as 0 and ignored):
   and sends SABM, repeated every second (or every `timeout`, if longer) until UA arrives. A device that receives
   SABM resets its sequence numbers, answers UA and considers the link up, so two devices that start at the same time
   both connect.
-- **Sending.** Each packet is copied into a free queue slot, numbered, and sent at once if the link is up. While the
-  link is being reset, packets wait in the queue. When the queue is full, `send_to_interface()` returns false.
+- **Sending.** Each packet is copied into a free queue slot, numbered, and sent at once if the link is up and no
+  earlier frame is waiting. While the link is being reset, packets wait in the queue. When the queue is full,
+  `send_to_interface()` returns false.
+- **Pacing.** At most one I-frame is sent per loop pass, and the loop is requested again for the next. On a radio,
+  sending blocks while the frame is on air, about 400 ms for a 250 byte LoRa frame at SF7; sending a whole window at
+  once blocked the loop for seconds, during which the peer's frames and acknowledgements were missed and both
+  devices timed out and resent, over and over. Between frames, the radio's own loop now receives the peer's frames.
 - **Refused frames.** A pointer V(N) marks the next frame to send, between V(A) and V(S). When the layer below
   refuses a frame, for example while a radio is receiving, that frame and the rest are sent again 50 ms later, with
   no need for the retransmit timeout; a refused RR is retried the same way. A timeout or REJ moves V(N) back to V(A).
@@ -368,23 +373,30 @@ dropped until the other has heard from it. Above this layer, the reliability lay
 If the peer's flash is erased, its boot number starts again from 1, and its packets are dropped until this device
 restarts. Packets that arrive out of order are also dropped.
 
-## Fragmentation layer
+## Fragmentation layer: `basic`
 
-Planned. A link limits the packet size: a UART link by its buffers, ESP-NOW to 250 bytes, LoRa to 255 bytes. The
-fragmentation layer lets an application send packets up to its own `max_packet_size`, larger than the layers below
-allow, by splitting each into fragments that fit and joining them again at the other end.
+A link limits the packet size: a UART link by its buffers, ESP-NOW to 250 bytes, LoRa to 255 bytes. The
+fragmentation layer lets an application send packets up to the layer's own `max_packet_size`, default 1024, by
+splitting each into fragments that fit the layer below and joining them again at the other end.
 
-- **Header.** Each fragment carries a short header: an 8-bit packet number, the fragment's index within the packet,
-  and a flag on the last fragment. A packet that fits in one fragment still has the header.
-- **Joining.** The receiver copies fragments into one buffer of `max_packet_size`, allocated in `setup()`. When the
-  packet number changes or an index is skipped, the incomplete packet is dropped. Above a reliability layer this
-  never happens. Without one, for example on UDP, a lost fragment loses the packet, and fragments that arrive out of
-  order are not handled.
-- **Sending.** Each fragment is copied from the upper packet with `copy_to()` into a buffer on the stack, so the
-  upper packet is not held after `send_to_interface()` returns.
-- **Partial sends.** If the layer below refuses a fragment part way through a packet, for example because the
-  reliability queue is full, the peer receives an incomplete packet and drops it. A packet must only be started when
-  the layer below can take all of its fragments; see the open questions.
+- **Header.** 2 bytes per fragment: an 8-bit packet number, then the fragment's index in bits 0-6 with bit 7 set on
+  the last fragment, so a packet has at most 128 fragments; setup fails if `max_packet_size` needs more. Packet
+  numbers start at a random value at boot. A packet that fits in one fragment still has the header.
+- **Sending.** A packet in one fragment is sent with no copy, the header as the pre-buffer and the packet as the
+  mid-buffer. A larger one is copied fragment by fragment, with `copy_to()` at an offset, into one buffer of a
+  fragment's size allocated in `setup()`; the layer below copies or sends each fragment before the next is made.
+- **Room to send.** `PacketInterface::get_send_capacity()` reports how many packets a layer accepts now: unlimited by
+  default, the free queue slots in the reliability layer. A packet is started only if all of its fragments fit, so a
+  full queue never leaves the peer with part of a packet. This works because fragmentation is directly above
+  reliability; another layer in between would have to pass the capacity on. `dump_config` warns when the largest
+  packet needs more fragments than the queue holds.
+- **Joining.** Fragments are copied into one buffer of `max_packet_size`, allocated in `setup()`; a packet in one
+  fragment is passed up with no copy. A fragment with a gap in the index, another packet number, or another source
+  address in `PacketMetaData` drops the packet being joined. Above a reliability layer this never happens; without
+  one, a lost fragment loses the packet, and fragments out of order are not handled. Checking the source address lets
+  several devices on a broadcast channel send fragmented packets; without an addressing layer, two devices sending at
+  once make the receiver drop both packets.
+- **Capability.** The layer adds `CAPABILITY_FRAGMENTATION`.
 
 ## Applications
 
@@ -424,6 +436,10 @@ request, at most every 5 seconds; the device with that dictionary id answers wit
 - A packet the interface refuses is sent again after a second, with the latest states. Data waits for the dictionary.
 
 When the session layer reports the peer lost, the remote entities lose their state.
+
+A dictionary in several packets resumes after the last packet the interface accepted, so a refused packet does not
+make the earlier ones be sent again. Retrying from the start made a large dictionary over fragmentation resend its
+first, largest packet whenever the queue had room for it, so the rest never went out.
 
 ### Memory
 
@@ -514,8 +530,4 @@ the objects does not matter.
   measuring at high spreading factors, where each frame takes hundreds of milliseconds.
 - **Polled buses.** On RS485, a bus where one device polls the others would avoid collisions altogether. This would
   be a different link or addressing implementation.
-- **Room to send.** The fragmentation layer needs to know, before it starts a packet, that the layer below will take
-  all of its fragments. A `PacketInterface` method that reports how many packets can be sent now would do this. The
-  reliability queue must also be at least as long as the number of fragments in the largest packet.
-- **Fragment header size.** Whether the index needs more than 7 bits, which limits a packet to 128 fragments.
 - **Session sensor.** With several peers, whether there is one sensor per peer or one for the whole channel.
