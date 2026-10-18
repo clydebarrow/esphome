@@ -129,6 +129,7 @@ void EntityTransport::dump_config() {
 
 void EntityTransport::send_all_() {
   this->dictionary_pending_ = true;
+  this->dictionary_next_ = 0;
   for (auto &entity : this->entities_)
     entity.updated = true;
   this->enable_loop();
@@ -162,7 +163,9 @@ bool EntityTransport::send_dictionary_() {
   size_t length = header;
   size_t count_offset = 0;
   uint8_t section_type = 0;  // none
-  for (const auto &entity : this->entities_) {
+  // A dictionary in several packets resumes after the last packet accepted, so a refused one does not resend the rest
+  for (size_t i = this->dictionary_next_; i != this->entities_.size(); i++) {
+    const auto &entity = this->entities_[i];
     uint8_t type = entity.is_sensor ? TYPE_SENSOR : TYPE_BINARY_SENSOR;
     size_t id_length = strlen(entity.id);
     if (id_length > MAX_STRING_LENGTH || header + SECTION_HEADER_SIZE + 1 + id_length > this->max_packet_size_) {
@@ -174,6 +177,7 @@ bool EntityTransport::send_dictionary_() {
     if (length + (new_section ? SECTION_HEADER_SIZE : 0) + 1 + id_length > this->max_packet_size_) {
       if (!this->interface_->send_to_interface(PacketBuffer(buf, length), {}))
         return false;
+      this->dictionary_next_ = i;
       length = header;
       new_section = true;
     }
@@ -192,6 +196,7 @@ bool EntityTransport::send_dictionary_() {
   if (length != header && !this->interface_->send_to_interface(PacketBuffer(buf, length), {}))
     return false;
   this->dictionary_pending_ = false;
+  this->dictionary_next_ = 0;
   return true;
 }
 

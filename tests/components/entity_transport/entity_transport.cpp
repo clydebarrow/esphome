@@ -23,8 +23,9 @@ class MockInterface : public packet_interface::PacketInterface {
  public:
   MockInterface() { this->set_max_packet_size(64); }
   bool send_to_interface(const PacketBuffer &data, const PacketMetaData &) override {
-    if (!this->accept)
+    if (!this->accept || this->budget == 0)
       return false;
+    this->budget--;
     this->sent.push_back(data.to_vector());
     return true;
   }
@@ -41,6 +42,7 @@ class MockInterface : public packet_interface::PacketInterface {
 
   std::vector<Packet> sent;
   bool accept{true};
+  size_t budget{SIZE_MAX};  // packets accepted before refusing, like a full queue
 };
 
 class TestTransport : public EntityTransport {
@@ -233,6 +235,27 @@ TEST_F(EntityTransportTest, SessionConnectSendsAllAndLossClearsRemote) {
   this->link_b.report_session(false);
   EXPECT_TRUE(std::isnan(this->remote_temp.get_state()));
   EXPECT_FALSE(this->remote_door.has_state());
+}
+
+TEST_F(EntityTransportTest, RefusedDictionaryPartResumes) {
+  // One entity in each dictionary packet
+  this->link_a.set_max_packet_size(5 + 1 + strlen(DEVICE_NAME) + 3 + 5);
+  this->temp.publish_state(4.0f);
+  this->door.publish_state(true);
+  auto sender = this->make_sender();
+  auto receiver = this->make_receiver();
+  this->link_a.budget = 1;
+  sender->loop();
+  ASSERT_EQ(this->link_a.sent.size(), 1);
+  this->link_a.budget = SIZE_MAX;
+  sender->loop();
+  int dictionaries = 0;
+  for (auto &packet : this->link_a.sent)
+    dictionaries += packet[0] == PACKET_DICTIONARY;
+  EXPECT_EQ(dictionaries, 2);  // the first part was not sent again
+  this->link_a.deliver_to(this->link_b);
+  EXPECT_EQ(this->remote_temp.get_state(), 4.0f);
+  EXPECT_TRUE(this->remote_door.state);
 }
 
 }  // namespace esphome::entity_transport::testing

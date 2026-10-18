@@ -131,6 +131,7 @@ class EntityTransport : public Component {
   uint32_t last_request_ms_{0};
   uint8_t sensor_count_{0};
   uint8_t binary_sensor_count_{0};
+  size_t dictionary_next_{0};  // the first entity of the next dictionary packet to send
   bool dictionary_pending_{true};
   bool request_sent_{false};
 };
