@@ -21,6 +21,7 @@ from .layers import (
     STACK_ORDER,
     PacketInterface,
     build_stack,
+    check_session,
     check_single_peer,
     packet_interface_ns,
     stack_auto_load,
@@ -71,6 +72,7 @@ def AUTO_LOAD(config: list[ConfigType] | None = None) -> list[str]:
 
 def _validate_layers(config: ConfigType) -> ConfigType:
     """With peers, the layers go in each peer; otherwise check them against the one destination."""
+    check_session(config)
     if (addressing := config.get(CONF_ADDRESSING)) is None:
         return config
     if CONF_PEERS in addressing:

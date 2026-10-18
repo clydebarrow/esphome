@@ -15,6 +15,7 @@ from . import (
     CONF_DESTINATION,
     CONF_PEERS,
     PacketInterface,
+    check_session,
     check_single_peer,
     packet_interface_ns,
     stack_schema,
@@ -36,6 +37,7 @@ def _destination(value: Any) -> int:
 
 
 def _validate_peer(config: ConfigType) -> ConfigType:
+    check_session(config)
     check_single_peer(config, config[CONF_DESTINATION])
     return config
 

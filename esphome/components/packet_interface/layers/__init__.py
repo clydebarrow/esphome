@@ -53,6 +53,8 @@ class LayerType:
     build: LayerBuilder
     # True if this configuration keeps state for one peer, so cannot be used with broadcast addressing
     single_peer: Callable[[ConfigType], bool]
+    # True if this configuration works only when the peer sends packets back, which a session layer makes sure of
+    needs_session: Callable[[ConfigType], bool]
     # The components this configuration needs loaded
     auto_load: Callable[[ConfigType], list[str]]
 
@@ -76,6 +78,7 @@ class LayerKind:
         schema: Any = None,
         schema_factory: Callable[[], Any] | None = None,
         single_peer: Callable[[ConfigType], bool] = _never,
+        needs_session: Callable[[ConfigType], bool] = _never,
         auto_load: Callable[[ConfigType], list[str]] = _nothing,
     ) -> Callable[[LayerBuilder], LayerBuilder]:
         """Register a type with its schema, or with a function returning a schema that contains other layers."""
@@ -89,7 +92,11 @@ class LayerKind:
                     f"{self.key} layer type '{name}' is already registered"
                 )
             self.types[name] = LayerType(
-                schema_factory or fixed_schema, build, single_peer, auto_load
+                schema_factory or fixed_schema,
+                build,
+                single_peer,
+                needs_session,
+                auto_load,
             )
             return build
 
@@ -131,6 +138,21 @@ STACK_ORDER = (ENCRYPTION, RELIABILITY, FRAGMENTATION, SESSION)
 def stack_schema() -> dict:
     """Schema entries for the layers of one stack; call only once all layer types are registered."""
     return {cv.Optional(kind.key): kind.schema() for kind in STACK_ORDER}
+
+
+def check_session(config: ConfigType) -> None:
+    """Layers that need packets back from the peer need a session layer, whose keep-alives send them."""
+    if CONF_SESSION in config:
+        return
+    for kind in STACK_ORDER:
+        if (layer := config.get(kind.key)) is not None and kind.get_type(
+            layer
+        ).needs_session(layer):
+            raise cv.Invalid(
+                f"This '{kind.key}' needs packets from the peer, so it needs a '{CONF_SESSION}' layer, whose "
+                "keep-alives make sure they are sent",
+                path=[kind.key],
+            )
 
 
 def check_single_peer(config: ConfigType, destination: int) -> None:

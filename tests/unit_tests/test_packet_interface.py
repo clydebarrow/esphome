@@ -111,6 +111,15 @@ def test_encryption_requires_key(setup_core) -> None:
         uart_packet_interface.CONFIG_SCHEMA({CONF_ENCRYPTION: ""})
 
 
+def test_rolling_code_requires_session(setup_core) -> None:
+    """The rolling code needs the session's keep-alives, so the peer sends this device's boot number back."""
+    rolling = {CONF_ENCRYPTION: {"key": "secret", "rolling_code_enable": True}}
+    with pytest.raises(cv.Invalid, match="session"):
+        uart_packet_interface.CONFIG_SCHEMA(rolling)
+    uart_packet_interface.CONFIG_SCHEMA({**rolling, CONF_SESSION: None})
+    uart_packet_interface.CONFIG_SCHEMA({CONF_ENCRYPTION: "secret"})
+
+
 def test_addressing_defaults_to_broadcast(setup_core) -> None:
     """Without a destination, packets are broadcast; broadcast can also be named."""
     for addressing in ({"address": 1}, {"address": 1, "destination": "broadcast"}):
@@ -125,7 +134,10 @@ def test_addressing_defaults_to_broadcast(setup_core) -> None:
     [
         {CONF_RELIABILITY: None},
         {CONF_SESSION: None},
-        {CONF_ENCRYPTION: {"key": "secret", "rolling_code_enable": True}},
+        {
+            CONF_ENCRYPTION: {"key": "secret", "rolling_code_enable": True},
+            CONF_SESSION: None,
+        },
     ],
 )
 def test_two_device_layers_need_destination(setup_core, layers: dict) -> None:
