@@ -11,14 +11,13 @@ using packet_interface::PacketMetaData;
 
 ESPHOME_LOG_TAG(TAG, "udp.packet_interface");
 
-UdpPacketInterface::UdpPacketInterface(UDPComponent *udp_component, std::array<uint8_t, 4> peer)
-    : parent_(udp_component), peer_(peer) {
+UdpPacketInterface::UdpPacketInterface(UDPComponent *udp_component, uint8_t *tx_buffer, std::array<uint8_t, 4> peer)
+    : parent_(udp_component), tx_buffer_(tx_buffer), peer_(peer) {
   if (this->peer_ != std::array<uint8_t, 4>{})
     this->capabilities_ = packet_interface::CAPABILITY_ADDRESSING;
 }
 
 void UdpPacketInterface::setup() {
-  this->tx_buffer_ = std::make_unique<uint8_t[]>(this->max_packet_size_);
   this->parent_->add_listener(
       [this](std::span<const uint8_t> data) { this->receive_(data, this->parent_->get_rx_source()); });
 }
@@ -53,8 +52,8 @@ bool UdpPacketInterface::send_to_interface(const PacketBuffer &data, const Packe
     auto span = data.as_span();
     return this->parent_->send_packet(span.data(), span.size());
   }
-  data.copy_to(this->tx_buffer_.get(), size);
-  return this->parent_->send_packet(this->tx_buffer_.get(), size);
+  data.copy_to(this->tx_buffer_, size);
+  return this->parent_->send_packet(this->tx_buffer_, size);
 }
 
 }  // namespace esphome::udp

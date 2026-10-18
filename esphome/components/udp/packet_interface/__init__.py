@@ -3,6 +3,7 @@ from ipaddress import IPv4Address
 import esphome.codegen as cg
 from esphome.components import packet_interface
 from esphome.components.packet_interface import (
+    CONF_MAX_PACKET_SIZE,
     new_packet_interface,
     packet_interface_schema,
 )
@@ -74,4 +75,11 @@ async def to_code(config: ConfigType) -> None:
     cg.add(udp_var.set_should_broadcast())
     peer = _peer(_udp_config(CORE.config, config))
     peer_bytes = peer.packed if peer is not None else bytes(4)
-    await new_packet_interface(config, udp_var, [HexInt(x) for x in peer_bytes])
+    # The copy buffer's size is known here, so it is a static array rather than allocated at run time
+    tx_buffer = f"{config[CONF_ID].id}__tx_buffer"
+    cg.add_global(
+        cg.RawStatement(f"static uint8_t {tx_buffer}[{config[CONF_MAX_PACKET_SIZE]}];")
+    )
+    await new_packet_interface(
+        config, udp_var, cg.RawExpression(tx_buffer), [HexInt(x) for x in peer_bytes]
+    )
