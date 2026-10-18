@@ -35,6 +35,7 @@ class HdlcReliability : public PacketInterface {
   bool send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) override;
 
   void set_ack_timeout(uint32_t timeout_ms) { this->timeout_ms_ = timeout_ms; }
+  void set_ack_delay(uint32_t ack_delay_ms) { this->ack_delay_ms_ = ack_delay_ms; }
   void set_max_queue_length(uint8_t length) { this->max_queue_length_ = length; }
   void set_max_retries(uint8_t retries) { this->max_retries_ = retries; }
 
@@ -50,9 +51,13 @@ class HdlcReliability : public PacketInterface {
   void receive_(const PacketBuffer &data, const PacketMetaData &meta_data);
   void receive_info_(uint8_t control, const uint8_t *payload, size_t length, const PacketMetaData &meta_data);
   bool send_frame_(uint8_t control, const uint8_t *payload, size_t length);
-  void send_supervisory_(uint8_t type);
-  bool send_queued_(uint8_t seq);
+  bool send_supervisory_(uint8_t type);
+  bool send_pending_();
   void resend_outstanding_();
+  void retry_send_();
+  /// An RR is owed: at once, or after the ack delay unless an I-frame carries it first.
+  void owe_ack_(bool now);
+  void ack_sent_();
   void process_ack_(uint8_t nr);
   void on_timeout_();
   void start_reset_();
@@ -68,15 +73,18 @@ class HdlcReliability : public PacketInterface {
   std::unique_ptr<uint8_t[]> tx_slots_;
   std::array<uint16_t, MAX_WINDOW> tx_lengths_{};  // indexed like the slots
   uint32_t timeout_ms_{200};
+  uint32_t ack_delay_ms_{0};
   uint8_t max_queue_length_{4};
   uint8_t max_retries_{5};
   uint8_t retries_{0};
   uint8_t head_{0};
   uint8_t vs_{0};  // sequence number of the next new frame
+  uint8_t vn_{0};  // next frame to send; frames from va_ up to it have been sent
   uint8_t va_{0};  // oldest unacknowledged frame
   uint8_t vr_{0};  // next frame expected from the peer
   LinkState state_{LinkState::LINK_STATE_RESET_PENDING};
-  bool ack_pending_{false};
+  bool ack_pending_{false};  // an RR is owed
+  bool ack_due_{false};      // and should be sent now
   bool rej_sent_{false};
 };
 

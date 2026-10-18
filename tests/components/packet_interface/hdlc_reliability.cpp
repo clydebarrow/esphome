@@ -35,6 +35,7 @@ class TestHdlc : public HdlcReliability {
  public:
   using HdlcReliability::HdlcReliability;
   using HdlcReliability::on_timeout_;
+  using HdlcReliability::outstanding_;
 };
 
 struct Peer {
@@ -249,18 +250,52 @@ TEST_F(HdlcReliabilityTest, PeerRestart) {
   EXPECT_EQ(a.received, (std::vector<Frame>{{0x03}}));
 }
 
-TEST_F(HdlcReliabilityTest, RefusedFrameStopsBurst) {
+TEST_F(HdlcReliabilityTest, RefusedFramesSentAgainWithoutTimeout) {
   Peer a, b;
   for (uint8_t i = 0; i != 3; i++)
     ASSERT_TRUE(a.send({i}));
   a.link.budget = 3;  // SABM, UA to the peer's SABM, and the first queued frame
   pump(a, b);
-  EXPECT_EQ(a.link.refused, 1);
+  EXPECT_GE(a.link.refused, 1);
   EXPECT_EQ(b.received, (std::vector<Frame>{{0}}));
-  a.link.budget = SIZE_MAX;
-  a.hdlc->on_timeout_();
+  a.link.budget = SIZE_MAX;  // the lower layer accepts again, as when a radio stops receiving
   pump(a, b);
   EXPECT_EQ(b.received, (std::vector<Frame>{{0}, {1}, {2}}));
+  EXPECT_EQ(a.hdlc->outstanding_(), 0);
+}
+
+TEST_F(HdlcReliabilityTest, RefusedAckSentAgain) {
+  Peer a, b;
+  pump(a, b);
+  a.send({1});
+  for (auto &frame : a.link.sent)
+    b.link.inject(frame);
+  a.link.sent.clear();
+  b.link.budget = 0;
+  b.hdlc->loop();
+  EXPECT_TRUE(b.link.sent.empty());
+  b.link.budget = SIZE_MAX;
+  pump(a, b);
+  EXPECT_EQ(a.hdlc->outstanding_(), 0);
+}
+
+TEST_F(HdlcReliabilityTest, AckDelayLetsReplyCarryAck) {
+  Peer a, b;
+  b.hdlc->set_ack_delay(100);
+  pump(a, b);
+  a.send({1});
+  for (auto &frame : a.link.sent)
+    b.link.inject(frame);
+  a.link.sent.clear();
+  b.hdlc->loop();
+  EXPECT_TRUE(b.link.sent.empty());  // no RR yet
+  b.send({2});
+  ASSERT_EQ(b.link.sent.size(), 1);
+  EXPECT_TRUE(is_info(b.link.sent[0]));
+  EXPECT_EQ(b.link.sent[0][0] >> 5, 1);  // N(R) acknowledges the frame from a
+  b.link.sent.clear();
+  b.hdlc->loop();
+  EXPECT_TRUE(b.link.sent.empty());  // the RR is no longer owed
 }
 
 }  // namespace esphome::packet_interface::testing

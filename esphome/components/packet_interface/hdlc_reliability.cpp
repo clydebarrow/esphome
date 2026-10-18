@@ -8,6 +8,10 @@ namespace esphome::packet_interface {
 ESPHOME_LOG_TAG(TAG, "packet_interface.hdlc");
 
 static constexpr uint32_t RETRANSMIT_TIMER_ID = 0;
+static constexpr uint32_t ACK_TIMER_ID = 1;
+static constexpr uint32_t SEND_RETRY_TIMER_ID = 2;
+// A frame or acknowledgement the lower layer refused, for example while a radio was receiving, is sent again after this
+static constexpr uint32_t SEND_RETRY_MS = 50;
 // SABM is repeated at this interval, or the timeout if longer, until the peer answers
 static constexpr uint32_t RESET_INTERVAL_MS = 1000;
 
@@ -40,9 +44,11 @@ void HdlcReliability::dump_config() {
                 "HDLC Reliability on '%s':\n"
                 "  Max Packet Size: %zu\n"
                 "  Timeout: %" PRIu32 "ms\n"
+                "  Ack Delay: %" PRIu32 "ms\n"
                 "  Max Queue Length: %u\n"
                 "  Max Retries: %u",
-                this->name_, this->max_packet_size_, this->timeout_ms_, this->max_queue_length_, this->max_retries_);
+                this->name_, this->max_packet_size_, this->timeout_ms_, this->ack_delay_ms_, this->max_queue_length_,
+                this->max_retries_);
 }
 
 void HdlcReliability::loop() {
@@ -53,9 +59,35 @@ void HdlcReliability::loop() {
     this->start_timer_();
     this->send_frame_(UNNUMBERED_SABM, nullptr, 0);
   }
-  if (this->ack_pending_ && this->state_ == LinkState::LINK_STATE_CONNECTED)
-    this->send_supervisory_(SUPERVISORY_RR);
+  if (this->state_ != LinkState::LINK_STATE_CONNECTED)
+    return;
+  // Queued frames go first, as each carries the acknowledgement
+  if (this->send_pending_() && this->ack_due_ && !this->send_supervisory_(SUPERVISORY_RR))
+    this->retry_send_();
+}
+
+void HdlcReliability::retry_send_() {
+  this->set_timeout(SEND_RETRY_TIMER_ID, SEND_RETRY_MS, [this]() { this->request_loop_(); });
+}
+
+void HdlcReliability::owe_ack_(bool now) {
+  if (now || this->ack_delay_ms_ == 0) {
+    this->ack_due_ = true;
+    this->request_loop_();
+  } else if (!this->ack_pending_) {
+    // Waiting lets one acknowledgement cover several frames, or a reply carry it
+    this->set_timeout(ACK_TIMER_ID, this->ack_delay_ms_, [this]() {
+      this->ack_due_ = true;
+      this->request_loop_();
+    });
+  }
+  this->ack_pending_ = true;
+}
+
+void HdlcReliability::ack_sent_() {
   this->ack_pending_ = false;
+  this->ack_due_ = false;
+  this->cancel_timeout(ACK_TIMER_ID);
 }
 
 void HdlcReliability::request_loop_() { this->enable_loop(); }
@@ -77,7 +109,7 @@ bool HdlcReliability::send_to_interface(const PacketBuffer &data, const PacketMe
   this->vs_ = (seq + 1) & 7;
   // While the link is being reset, the frame waits in the queue and is sent when UA arrives
   if (this->state_ == LinkState::LINK_STATE_CONNECTED) {
-    this->send_queued_(seq);
+    this->send_pending_();
     if (outstanding == 0)
       this->start_timer_();
   }
@@ -95,23 +127,31 @@ bool HdlcReliability::send_frame_(uint8_t control, const uint8_t *payload, size_
   return false;
 }
 
-void HdlcReliability::send_supervisory_(uint8_t type) {
-  this->send_frame_(SUPERVISORY_FRAME | (type << 2) | (this->vr_ << 5), nullptr, 0);
+bool HdlcReliability::send_supervisory_(uint8_t type) {
+  if (!this->send_frame_(SUPERVISORY_FRAME | (type << 2) | (this->vr_ << 5), nullptr, 0))
+    return false;
+  this->ack_sent_();
+  return true;
 }
 
-bool HdlcReliability::send_queued_(uint8_t seq) {
-  // Every I-frame carries an acknowledgement, so a pending RR is no longer needed
-  this->ack_pending_ = false;
-  uint8_t control = (seq << 1) | (this->vr_ << 5);
-  return this->send_frame_(control, this->slot_(seq), this->tx_lengths_[this->slot_index_(seq)]);
+// Sends the queued frames not yet sent; if the lower layer refuses one, it and the rest are sent again shortly
+bool HdlcReliability::send_pending_() {
+  while (this->vn_ != this->vs_) {
+    uint8_t control = (this->vn_ << 1) | (this->vr_ << 5);
+    if (!this->send_frame_(control, this->slot_(this->vn_), this->tx_lengths_[this->slot_index_(this->vn_)])) {
+      this->retry_send_();
+      return false;
+    }
+    // Every I-frame carries an acknowledgement, so a pending RR is no longer needed
+    this->ack_sent_();
+    this->vn_ = (this->vn_ + 1) & 7;
+  }
+  return true;
 }
 
 void HdlcReliability::resend_outstanding_() {
-  // Once the lower layer refuses a frame, sending more is likely to fail too; the timer resends them all
-  for (uint8_t seq = this->va_; seq != this->vs_; seq = (seq + 1) & 7) {
-    if (!this->send_queued_(seq))
-      return;
-  }
+  this->vn_ = this->va_;
+  this->send_pending_();
 }
 
 void HdlcReliability::start_timer_() {
@@ -144,11 +184,12 @@ void HdlcReliability::on_timeout_() {
 // Unacknowledged frames are discarded; frames queued from now on are numbered from 0 and sent once the link is up
 void HdlcReliability::start_reset_() {
   this->state_ = LinkState::LINK_STATE_RESET_PENDING;
-  this->va_ = this->vs_ = 0;
+  this->va_ = this->vs_ = this->vn_ = 0;
   this->head_ = 0;
   this->vr_ = 0;
   this->retries_ = 0;
   this->rej_sent_ = false;
+  this->ack_sent_();
   this->cancel_timeout(RETRANSMIT_TIMER_ID);
   this->request_loop_();
 }
@@ -172,6 +213,9 @@ void HdlcReliability::process_ack_(uint8_t nr) {
   }
   if (acked == 0)
     return;
+  // The peer may have had frames that were refused when last resent
+  if (acked > ((this->vn_ - this->va_) & 7))
+    this->vn_ = nr;
   this->head_ = (this->head_ + acked) % this->max_queue_length_;
   this->va_ = nr;
   this->retries_ = 0;
@@ -243,21 +287,19 @@ void HdlcReliability::receive_info_(uint8_t control, const uint8_t *payload, siz
                                     const PacketMetaData &meta_data) {
   uint8_t ns = (control >> 1) & 7;
   if (ns != this->vr_) {
-    // A gap or a duplicate; ask once for a resend from the expected frame, then just acknowledge
+    // A gap or a duplicate; ask once for a resend from the expected frame, then just acknowledge at once
     if (!this->rej_sent_) {
-      this->rej_sent_ = true;
-      this->send_supervisory_(SUPERVISORY_REJ);
-    } else {
-      this->ack_pending_ = true;
-      this->request_loop_();
+      this->rej_sent_ = this->send_supervisory_(SUPERVISORY_REJ);
+      if (this->rej_sent_)
+        return;
     }
+    this->owe_ack_(true);
     return;
   }
   this->vr_ = (this->vr_ + 1) & 7;
   this->rej_sent_ = false;
   // The acknowledgement is sent from loop(), so a reply sent from the callback can carry it instead
-  this->ack_pending_ = true;
-  this->request_loop_();
+  this->owe_ack_(false);
   this->on_receive_from_interface_(PacketBuffer(payload, length), meta_data);
 }
 

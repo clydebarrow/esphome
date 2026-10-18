@@ -171,21 +171,26 @@ Control byte, using the HDLC encoding (`P/F`, bit 4, is sent as 0 and ignored):
   both connect.
 - **Sending.** Each packet is copied into a free queue slot, numbered, and sent at once if the link is up. While the
   link is being reset, packets wait in the queue. When the queue is full, `send_to_interface()` returns false.
+- **Refused frames.** A pointer V(N) marks the next frame to send, between V(A) and V(S). When the layer below
+  refuses a frame, for example while a radio is receiving, that frame and the rest are sent again 50 ms later, with
+  no need for the retransmit timeout; a refused RR is retried the same way. A timeout or REJ moves V(N) back to V(A).
 - **Acknowledging.** Every I-frame carries N(R), the next sequence number expected from the peer. When a frame
-  arrives in sequence, an RR is sent from the next `loop()`, unless the layer above sends a reply first, which
-  carries the acknowledgement instead.
+  arrives in sequence, an RR is sent from the next `loop()`, or after `ack_delay` if set, unless an I-frame is sent
+  first, which carries the acknowledgement instead. On a half-duplex link, the delay keeps the RR from colliding with
+  a second frame the peer sends straight after the first.
 - **Out of sequence frames.** The first one after a frame arrives in sequence triggers a REJ, asking the peer to
   resend from N(R). Later ones, including duplicates, trigger an RR, so the peer always gets an answer.
-- **Timeout.** If the oldest unacknowledged frame is not acknowledged within `timeout`, all unacknowledged frames are
-  resent.
+- **Timeout.** If the oldest unacknowledged frame is not acknowledged within `timeout`, plus up to a quarter at
+  random, all unacknowledged frames are resent.
 
 ### Options
 
-| Option             | Default | Range       |
-|--------------------|---------|-------------|
-| `timeout`          | 200ms   |             |
-| `max_queue_length` | 4       | 1 to 7      |
-| `max_retries`      | 5       | 1 to 255    |
+| Option             | Default | Range               |
+|--------------------|---------|---------------------|
+| `timeout`          | 200ms   |                     |
+| `ack_delay`        | 0ms     | Less than `timeout` |
+| `max_queue_length` | 4       | 1 to 7              |
+| `max_retries`      | 5       | 1 to 255            |
 
 The queue uses `max_queue_length` times `max_packet_size` bytes, allocated in `setup()`.
 
@@ -222,7 +227,7 @@ Other types are dropped, so later versions can add their own.
   a number it has not seen with its own keep-alive at once, so both devices learn of each other without waiting for
   the next interval. The answer cannot repeat, because the other device has already seen that number.
 
-An application can read `is_connected()` and register a callback with `add_on_state_callback()`. This is the link up
+An application can read `is_connected()`, or register a callback with `add_on_session_state_callback()` on `top()`. This is the link up
 event that `entity_transport` needs.
 
 ### Options
@@ -485,17 +490,18 @@ the objects does not matter.
   arrive before older data that is still being resent.
 - **Ciphers.** Which ciphers are offered besides XXTEA, and how much each adds to the packet size.
 - **Half-duplex radio links.** Testing `sx126x` and `sx127x` links between two boards found that the radio itself
-  loses about 1.5% of packets, but the reliability layer still timed out often and reset the link a few times a
-  minute. A radio cannot receive while it transmits, and transmitting blocks the loop for tens of milliseconds. The
-  receiver answers a frame with an RR about one loop later, which often collides with a second frame the sender
-  transmits straight after the first. Go-back-N then resends a burst, which collides again. Two devices sending at the
-  same period can also stay in step and collide every time. Possible fixes, in order of value:
-  1. **Listen before talk** in the radio link: refuse to send while the radio is receiving a packet (SX126x preamble
-     or header IRQ, SX127x modem status), so a reply waits for the other device to finish.
-  2. **Refused frames sent again promptly** in the reliability layer: an RR or I-frame the link refuses is sent from
-     the next `loop()`, rather than lost or left for the retransmit timeout.
-  3. **Acknowledgement delay** on half-duplex links: wait about one frame time before sending an RR, so it can cover
-     several frames or be carried on a reply.
+  loses about 1.5% of packets, but the reliability layer timed out often and reset the link a few times a minute. A
+  radio cannot receive while it transmits, so an RR sent about one loop after a frame collided with a second frame the
+  peer sent straight after the first, and go-back-N resent bursts that collided again. Three changes are done:
+  1. **Listen before talk:** the radio links refuse to send while the radio is receiving a packet (SX126x valid
+     header or sync word flags, SX127x modem status, or a received packet not yet read), for at most 2 s.
+  2. **Refused frames sent again promptly** by the reliability layer, as described above.
+  3. **Acknowledgement delay:** `ack_delay`, about one frame time on a radio link.
+
+  With `timeout: 500ms` and `ack_delay: 100ms` at SF7 and 125 kHz, two boards each sending a value every 2 s for
+  3 minutes, over addressing, encryption with the rolling code, reliability and session, lost no values and did not
+  reset the link; there were a few timeouts a minute. Before these changes the same test reset the link several times
+  and lost values. A fourth change is kept in reserve:
   4. **Checkpointing** on timeout: send one RR with the poll bit and resend from the N(R) in the answer, as HDLC does,
      rather than resending every unacknowledged frame.
 - **Polled buses.** On RS485, a bus where one device polls the others would avoid collisions altogether. This would

@@ -6,7 +6,8 @@
 namespace esphome::sx127x {
 
 /// A packet interface link over an SX127x radio: each packet is one radio packet, with the RSSI and SNR of received
-/// packets in the metadata. Sending waits for the radio to finish transmitting.
+/// packets in the metadata. Sending waits for the radio to finish transmitting. A radio cannot hear while it
+/// sends, so sending is refused while the radio is receiving a packet; the layers above send again shortly.
 class SX127xPacketInterface : public packet_interface::PacketInterface, public SX127xListener {
  public:
   explicit SX127xPacketInterface(SX127x *radio) : radio_(radio) {}
@@ -18,6 +19,8 @@ class SX127xPacketInterface : public packet_interface::PacketInterface, public S
 
  protected:
   SX127x *radio_;
+  uint32_t busy_since_ms_{0};
+  uint32_t last_refused_ms_{0};
 };
 
 }  // namespace esphome::sx127x

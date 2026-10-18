@@ -198,3 +198,15 @@ def test_registered_type_selectable(setup_core) -> None:
         assert RELIABILITY.get_type(config).build is build
     finally:
         del RELIABILITY.types["test"]
+
+
+def test_ack_delay_shorter_than_timeout(setup_core) -> None:
+    """The acknowledgement must not wait longer than the peer's timeout."""
+    reliability = uart_packet_interface.CONFIG_SCHEMA(
+        {CONF_RELIABILITY: {"timeout": "500ms", "ack_delay": "100ms"}}
+    )[CONF_RELIABILITY]
+    assert reliability["ack_delay"].total_milliseconds == 100
+    with pytest.raises(cv.Invalid, match="shorter"):
+        uart_packet_interface.CONFIG_SCHEMA(
+            {CONF_RELIABILITY: {"timeout": "500ms", "ack_delay": "500ms"}}
+        )
