@@ -2,6 +2,8 @@
 
 #if defined(USE_ESP32) || defined(USE_ESP8266)
 
+#include <cstring>
+
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 
@@ -20,8 +22,13 @@ ESPNowPacketInterface::ESPNowPacketInterface(ESPNowComponent *parent, peer_addre
 
 void ESPNowPacketInterface::setup() {
   this->tx_buffer_ = std::make_unique<uint8_t[]>(this->max_packet_size_);
-  this->parent_->register_receive_handler(this);
-  this->parent_->register_broadcast_handler(this);
+  // Each mode hears only its own kind of packet, so a peer link and a broadcast link can share the component
+  if (!this->is_broadcast_() || !ESPNOW_REPORTS_DESTINATION)
+    this->parent_->register_receive_handler(this);
+  if (this->is_broadcast_()) {
+    this->parent_->register_broadcast_handler(this);
+    this->parent_->register_unknown_peer_handler(this);
+  }
 }
 
 void ESPNowPacketInterface::dump_config() {
@@ -62,6 +69,15 @@ bool ESPNowPacketInterface::on_receive(const ESPNowRecvInfo &info, const uint8_t
 
 bool ESPNowPacketInterface::on_broadcast(const ESPNowRecvInfo &info, const uint8_t *data, uint16_t size) {
   this->receive_(info, data, size);
+  return false;
+}
+
+bool ESPNowPacketInterface::on_unknown_peer(const ESPNowRecvInfo &info, const uint8_t *data, uint16_t size) {
+  // Only known peers reach the other handlers; with auto_add_peer this sender is added and arrives there
+  if (this->parent_->get_auto_add_peer())
+    return false;
+  if (!ESPNOW_REPORTS_DESTINATION || memcmp(info.des_addr, ESPNOW_BROADCAST_ADDR, ESP_NOW_ETH_ALEN) == 0)
+    this->receive_(info, data, size);
   return false;
 }
 

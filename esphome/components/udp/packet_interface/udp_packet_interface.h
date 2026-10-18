@@ -5,6 +5,7 @@
 // udp_component.h declares nothing without USE_NETWORK
 #ifdef USE_NETWORK
 #include "esphome/components/packet_interface/packet_interface.h"
+#include "esphome/components/socket/socket.h"
 #include "../udp_component.h"
 #include <array>
 
@@ -27,6 +28,9 @@ class UdpPacketInterface : public packet_interface::PacketInterface {
                          const packet_interface::PacketMetaData &meta_data) override;
 
  protected:
+  /// True if packets from \p source are accepted: from anywhere, or with a peer, only from the peer.
+  bool accepts_from_(const sockaddr *source) const;
+
   UDPComponent *parent_;
   std::array<uint8_t, 4> peer_;
 };

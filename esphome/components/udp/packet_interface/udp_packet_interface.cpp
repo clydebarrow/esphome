@@ -20,14 +20,16 @@ UdpPacketInterface::UdpPacketInterface(UDPComponent *udp_component, std::array<u
 
 void UdpPacketInterface::setup() {
   this->parent_->add_listener([this](std::span<const uint8_t> buf) {
-    if (this->has_capability(packet_interface::CAPABILITY_ADDRESSING)) {
-      uint32_t source;
-      if (!socket::sockaddr_to_ipv4(this->parent_->get_rx_source(), &source) ||
-          memcmp(&source, this->peer_.data(), sizeof(source)) != 0)
-        return;
-    }
-    this->on_receive_from_interface_(PacketBuffer(buf.data(), buf.size()), {});
+    if (this->accepts_from_(this->parent_->get_rx_source()))
+      this->on_receive_from_interface_(PacketBuffer(buf.data(), buf.size()), {});
   });
+}
+
+bool UdpPacketInterface::accepts_from_(const sockaddr *source) const {
+  if (!this->has_capability(packet_interface::CAPABILITY_ADDRESSING))
+    return true;
+  uint32_t address;
+  return socket::sockaddr_to_ipv4(source, &address) && memcmp(&address, this->peer_.data(), sizeof(address)) == 0;
 }
 
 bool UdpPacketInterface::send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) {

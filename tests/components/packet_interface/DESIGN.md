@@ -424,10 +424,16 @@ UDP packets through a `udp` component, which sends each packet to every address 
 
 ESP-NOW packets through an `espnow` component, between ESP32 and ESP8266 devices on the same Wi-Fi channel.
 
-- **Point to point.** With a `peer_address` other than broadcast, packets go to that device only and only packets
-  from it are accepted, so the link provides addressing. The peer is added to the `espnow` component's peers.
-- **Broadcast.** With the default broadcast `peer_address`, every packet is accepted, and the addressing layer can be
-  configured to tell devices apart.
+- **Point to point.** With a `peer_address` other than broadcast, packets go to that device only and only packets it
+  sends to this device are accepted, so the link provides addressing. The peer is added to the `espnow` component's
+  peers.
+- **Broadcast.** With the default broadcast `peer_address`, every broadcast packet is accepted, and the addressing
+  layer can be configured to tell devices apart. The `espnow` component passes packets on only from known peers, so
+  the link also listens for packets from unknown senders; with `auto_add_peer` the sender is added and the packet
+  arrives as from a known peer.
+- **Sharing.** A peer link listens only for packets sent to this device, and a broadcast link only for broadcasts, so
+  both kinds can use one `espnow` component. ESP8266 does not report a packet's destination, so there a broadcast
+  link also receives packets meant for a peer link.
 - **Packet size.** `max_packet_size` defaults to 250 bytes, the ESP-NOW v1 limit, and may be raised up to the `espnow`
   component's `max_payload_size`.
 - **Metadata.** The sender's MAC address, and on ESP32 the RSSI, are passed up with each packet.
