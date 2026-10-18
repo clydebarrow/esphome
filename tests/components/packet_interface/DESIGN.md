@@ -446,6 +446,20 @@ ESP-NOW packets through an `espnow` component, between ESP32 and ESP8266 devices
 - **Sending.** ESP-NOW queues each packet and reports delivery later; the link refuses a packet only when the queue
   is full or the peer cannot be added. Lost packets are left to a reliability layer.
 
+## Links: `sx126x` and `sx127x`
+
+LoRa or FSK radio packets through an `sx126x` or `sx127x` component.
+
+- **Packets.** Each packet is one radio packet, so the radio marks where it starts and ends, and checks it with its
+  CRC when `crc_enable` is set. The radio's `payload_length` must be 0, for packets of varying length. Packets are at
+  most 255 bytes, or 64 on an SX127x without LoRa. Received packets carry the RSSI and SNR.
+- **Shared channel.** Every device in range hears every packet, so the addressing layer is usually configured.
+- **Sending.** A send waits until the radio has transmitted, which takes from a few milliseconds to over a second.
+  Sends are refused until the radio has been set up, as the layers above are set up first.
+- **Listen before talk.** A radio cannot hear while it sends, so a send is refused while the radio is receiving a
+  packet, and the layers above send again shortly. `ListenBeforeTalk` limits this to 2 seconds, so a busy flag that
+  never clears cannot stop sending for good. Testing on real radios is described under Open questions.
+
 ## Applications
 
 `packet_transport` keeps its own encryption, rolling code and ping-pong features, and is used through the
