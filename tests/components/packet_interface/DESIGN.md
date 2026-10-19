@@ -267,11 +267,13 @@ packet on a slow bus, and could be a second implementation.
   own address are dropped too, since a half-duplex bus or a radio repeater can echo them. Addressing sits below
   encryption, so these are dropped without being decrypted.
 - **Ports.** Above `BasicAddressing`, one per link, are one or more `AddressingPort`s, each the bottom of its own
-  stack of layers. A received packet goes to the port whose destination is its source address; if none, to the
-  broadcast port; if none, it is dropped. So each device with a port of its own is heard only there, and the broadcast
-  port hears the rest.
+  stack of layers. A broadcast goes to the broadcast port; any other packet goes to the port whose destination is
+  its source address, and if there is none, to the broadcast port. Without a broadcast port, a broadcast goes to the
+  source's port, and a packet with no port to go to is dropped. A broadcast from a device with a port of its own
+  cannot go to that port when there is a broadcast port, as that port's layers (reliability, encryption) expect only
+  its point-to-point packets, so a hub can send states that every device needs once, on its broadcast port.
 - **Point to point.** A port with a destination other than broadcast sends only to that device and receives only its
-  packets, broadcast or not. The reliability and session layers and the rolling code keep state for one peer, so
+  packets. The reliability and session layers and the rolling code keep state for one peer, so
   configuration validation requires a destination for them.
 - **Broadcast.** A port with `destination: broadcast` sends to every device. This suits `entity_transport`, which
   tells senders apart by dictionary id.
@@ -391,11 +393,13 @@ splitting each into fragments that fit the layer below and joining them again at
   reliability; another layer in between would have to pass the capacity on. `dump_config` warns when the largest
   packet needs more fragments than the queue holds.
 - **Joining.** Fragments are copied into one buffer of `max_packet_size`, allocated in `setup()`; a packet in one
-  fragment is passed up with no copy. A fragment with a gap in the index, another packet number, or another source
-  address in `PacketMetaData` drops the packet being joined. Above a reliability layer this never happens; without
-  one, a lost fragment loses the packet, and fragments out of order are not handled. Checking the source address lets
-  several devices on a broadcast channel send fragmented packets; without an addressing layer, two devices sending at
-  once make the receiver drop both packets.
+  fragment is passed up with no copy. A fragment with a gap in the index or another packet number drops the packet
+  being joined, as does the first fragment of a new packet. Other fragments from another source address in
+  `PacketMetaData` are dropped alone, and a packet in one fragment from another source is passed up, both leaving
+  the packet being joined intact. Above a reliability layer none of this happens; without one, a lost fragment loses
+  the packet, and fragments out of order are not handled. So of two devices on a broadcast port sending fragmented
+  packets at once, the one that started last gets through; without an addressing layer, the receiver can drop both.
+  The two buffers are one block from `RAMAllocator`; if it cannot be allocated, the layer is marked failed.
 - **Capability.** The layer adds `CAPABILITY_FRAGMENTATION`.
 
 ## Link: `tcp`
@@ -488,9 +492,12 @@ of the device name and every entity's type and id. Per packet, this is the only 
 - With session and reliability layers it is not strictly needed, but 4 bytes is little, and keeping one packet format
   is simpler than two.
 
-A receiver keeps, for each remote entity, the dictionary id and number it learnt, not whole dictionaries. A data packet
-with a dictionary id the receiver does not know, while some of its remote entities are not yet learnt, makes it send a
-request, at most every 5 seconds; the device with that dictionary id answers with its dictionary and all states.
+A receiver keeps, for each remote entity, the dictionary id and number it learnt, not whole dictionaries, and the
+last 8 dictionary ids it has received. A data packet with a dictionary id that no remote entity learnt and that is
+not among those makes it send a request, at most every 5 seconds; the device with that dictionary id answers with its
+dictionary and all states. A provider's new dictionary is so asked for, while one that names none of the receiver's
+entities is not asked for again, since every answer resends everything to every device. With more than 8 providers
+on one channel, the oldest are forgotten and asked for once more.
 
 ### When states are sent
 
