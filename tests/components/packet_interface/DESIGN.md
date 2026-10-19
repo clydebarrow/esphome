@@ -465,6 +465,9 @@ short `__init__.py`.
   CRC when `crc_enable` is set. The radio's `payload_length` must be 0, for packets of varying length. Packets are at
   most 255 bytes, or 64 on an SX127x without LoRa, which must then be in packet mode. Received packets carry the RSSI
   and SNR.
+- **Listening after a send.** Both drivers put the radio to sleep after a send unless `rx_start` is set, so a link
+  whose layers need packets back from the peer (those that keep state for one peer) is rejected without it. A
+  send-only link may leave it off.
 - **Shared channel.** Every device in range hears every packet, so the addressing layer is usually configured.
 - **Sending.** A send waits until the radio has transmitted, which takes from a few milliseconds to over a second.
   Sends are refused until the radio has been set up, as the layers above are set up first.
