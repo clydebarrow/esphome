@@ -476,10 +476,45 @@ LoRa or FSK radio packets through an `sx126x` or `sx127x` component.
 
 ### Dictionary
 
-Each device numbers its sensors and its binary sensors from 0. A dictionary packet gives the device name and the id
-for each number, and data packets then refer to entities by number: a sensor record is 5 bytes, a binary sensor record
-2, with no names. Records for both types share a data packet, sensors first, with a count of sensor records in the
-header so a receiver can skip numbers it does not use.
+Each device numbers the entities of each type from 0, up to 255 of each. A dictionary packet gives the device name
+and, in a section for each type, the id for each number. Data packets then refer to entities by type and number, with
+no names.
+
+### Data records
+
+Each record in a data packet starts with a 16-bit tag, little endian:
+
+| bits  | field                                                                                  |
+|-------|----------------------------------------------------------------------------------------|
+| 0-7   | the entity's number                                                                    |
+| 8-12  | its type: 1 sensor, 2 binary sensor; 0 is not used, so up to 31 types                  |
+| 13-14 | the payload: 0 none, 1 four bytes, 2 a length byte and that many bytes, 3 no state     |
+| 15    | with payload 0, the state                                                              |
+
+A binary sensor record is 2 bytes, with its state in bit 15; a sensor record is 6, with its float state, or 2 when it
+has no state (NaN). Records of any type can be mixed in one packet, in any order. The payload field gives each
+record's size without knowing its type, so a device skips records of types it does not know, and a type added later,
+such as a text sensor with a length byte, does not break older devices. Larger entities such as a climate entity
+would use the length form, with a layout of their own.
+
+Two other layouts were considered:
+
+- **Sections**, like the dictionary: a type and a count, then records of a number and a payload. A full send of many
+  entities of one type is a few bytes smaller, but a single change, the usual packet, costs a byte more, and the
+  sender must group the changed entities by type.
+- **Payload sizes in the dictionary**, with no tag: every receiver would have to keep a table of sizes for each
+  provider and type, where it now keeps only what it learnt for its own remote entities.
+
+The tag costs a sensor one byte over a layout without types, which a full send pays once per sensor, and which the
+session layer makes rare.
+
+### Checking packets
+
+A data or dictionary packet is checked in full before anything in it is used: each record or section must fit, its
+type must not be 0, the value bit is only allowed with payload 0, sensors and binary sensors must use their own
+payload forms, and a dictionary section's numbers must fit in one byte. A packet that fails is dropped whole, so a
+damaged or forged packet that gets past the layers below changes no state and teaches nothing. A request packet must
+be exactly 5 bytes.
 
 Every packet starts with a type byte, whose high nibble is the format version, and a 32-bit **dictionary id**: a hash
 of the device name and every entity's type and id. Per packet, this is the only metadata:
