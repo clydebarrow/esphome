@@ -480,6 +480,12 @@ Each device numbers the entities of each type from 0, up to 255 of each. A dicti
 and, in a section for each type, the id for each number. Data packets then refer to entities by type and number, with
 no names.
 
+A dictionary too large for one packet is sent in parts. Each part has a byte after the header: its index in bits 0-6,
+counting from 0 and wrapping after 127, and bit 7 on the last part. A receiver counts a dictionary as received in full
+only when its last part follows all the others in order. Before the part byte, the first part to arrive could mark the
+dictionary as received, so a lost later part naming the receiver's entities was never asked for again, and with
+`update_interval: never` never arrived.
+
 ### Data records
 
 Each record in a data packet starts with a 16-bit tag, little endian:
@@ -514,7 +520,8 @@ A data or dictionary packet is checked in full before anything in it is used: ea
 type must not be 0, the value bit is only allowed with payload 0, sensors and binary sensors must use their own
 payload forms, and a dictionary section's numbers must fit in one byte. A packet that fails is dropped whole, so a
 damaged or forged packet that gets past the layers below changes no state and teaches nothing. A request packet must
-be exactly 5 bytes.
+be exactly 5 bytes. A packet that is too short, malformed, or of another format version is logged as a warning, at
+most once a minute, as it points to a device with other firmware or a fault, and such packets can arrive steadily.
 
 Every packet starts with a type byte, whose high nibble is the format version, and a 32-bit **dictionary id**: a hash
 of the device name and every entity's type and id. Per packet, this is the only metadata:
@@ -528,11 +535,13 @@ of the device name and every entity's type and id. Per packet, this is the only 
   is simpler than two.
 
 A receiver keeps, for each remote entity, the dictionary id and number it learnt, not whole dictionaries, and the
-last 8 dictionary ids it has received. A data packet with a dictionary id that no remote entity learnt and that is
-not among those makes it send a request, at most every 5 seconds; the device with that dictionary id answers with its
-dictionary and all states. A provider's new dictionary is so asked for, while one that names none of the receiver's
-entities is not asked for again, since every answer resends everything to every device. With more than 8 providers
-on one channel, the oldest are forgotten and asked for once more.
+last 8 dictionary ids it has received in full. A data packet with a dictionary id not among those makes it send a
+request, at most every 5 seconds, even when some remote entities already learnt that id from the parts that arrived;
+the device with that dictionary id answers with its dictionary and all states. A provider's new dictionary, or one
+with a lost part, is so asked for, while one received in full is not asked for again, even if it names none of the
+receiver's entities, since every answer resends everything to every device. With more than 8 providers on one
+channel, the oldest are forgotten and asked for once more. A request the interface refuses does not start the 5
+seconds, so the next data packet tries again.
 
 ### When states are sent
 
