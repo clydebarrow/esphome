@@ -390,8 +390,10 @@ splitting each into fragments that fit the layer below and joining them again at
 - **Room to send.** `PacketInterface::get_send_capacity()` reports how many packets a layer accepts now: unlimited by
   default, the free queue slots in the reliability layer. A packet is started only if all of its fragments fit, so a
   full queue never leaves the peer with part of a packet. This works because fragmentation is directly above
-  reliability; another layer in between would have to pass the capacity on. `dump_config` warns when the largest
-  packet needs more fragments than the queue holds.
+  reliability; another layer in between would have to pass the capacity on. Validation rejects a configuration
+  whose largest packet needs more fragments than the queue holds: each layer type registers its packet size and send
+  capacity, mirroring the C++, so the fragment size is known before the build. `dump_config` still warns if the
+  two ever disagree.
 - **Joining.** Fragments are copied into one buffer of `max_packet_size`, allocated in `setup()`; a packet in one
   fragment is passed up with no copy. A fragment with a gap in the index or another packet number drops the packet
   being joined, as does the first fragment of a new packet. Other fragments from another source address in
