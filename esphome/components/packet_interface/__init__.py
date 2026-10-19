@@ -47,6 +47,7 @@ LINK_LAYER_SCHEMAS = {
 __all__ = [
     "CONF_MAX_PACKET_SIZE",
     "CONF_PACKET_INTERFACE",
+    "interface_layers",
     "PacketInterface",
     "final_validate_interface",
     "new_packet_interface",
@@ -86,6 +87,20 @@ def _validate_layers(config: ConfigType) -> ConfigType:
     addressing.setdefault(CONF_DESTINATION, BROADCAST_ADDRESS)
     check_single_peer(config, addressing[CONF_DESTINATION])
     return config
+
+
+def interface_layers(interface_id: ID) -> ConfigType | None:
+    """During final validation, the configuration holding the layers of the packet interface with this id.
+
+    The id is a link's, or an addressing peer's.
+    """
+    for interface in fv.full_config.get().get(DOMAIN, []):
+        if interface[CONF_ID].id == interface_id.id:
+            return interface
+        for peer in interface.get(CONF_ADDRESSING, {}).get(CONF_PEERS, []):
+            if peer[CONF_ID].id == interface_id.id:
+                return peer
+    return None
 
 
 def final_validate_interface(key: str) -> Callable[[ConfigType], ConfigType]:

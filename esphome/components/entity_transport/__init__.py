@@ -9,7 +9,9 @@ from esphome.components.binary_sensor import BinarySensor
 from esphome.components.packet_interface import (
     CONF_PACKET_INTERFACE,
     final_validate_interface,
+    interface_layers,
 )
+from esphome.components.packet_interface.layers import CONF_SESSION
 from esphome.components.sensor import Sensor
 import esphome.config_validation as cv
 from esphome.const import (
@@ -98,7 +100,22 @@ CONFIG_SCHEMA = cv.Schema(
     }
 ).extend(cv.COMPONENT_SCHEMA)
 
-FINAL_VALIDATE_SCHEMA = final_validate_interface(CONF_PACKET_INTERFACE)
+
+def _final_validate(config: ConfigType) -> ConfigType:
+    """With a session layer, which clears the states when the peer is lost, nothing would refresh an unchanged state."""
+    layers = interface_layers(config[CONF_PACKET_INTERFACE])
+    if CONF_TIMEOUT in config and layers is not None and CONF_SESSION in layers:
+        raise cv.Invalid(
+            f"Not allowed with a '{CONF_SESSION}' layer, which already clears the states when the other device "
+            "cannot be reached; unchanged states may never be sent again, so they would time out on a working link",
+            path=[CONF_TIMEOUT],
+        )
+    return config
+
+
+FINAL_VALIDATE_SCHEMA = cv.All(
+    final_validate_interface(CONF_PACKET_INTERFACE), _final_validate
+)
 
 
 def _validate_remote_id(config: ConfigType) -> ConfigType:
