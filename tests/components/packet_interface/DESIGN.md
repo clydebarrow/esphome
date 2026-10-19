@@ -415,7 +415,9 @@ time, built on the socket component's `TcpClientLink` and `TcpListener`, as `tcp
   the link provides reliability, addressing and session. Its connection state is the session state: connected when
   the connection comes up, lost when it goes down. A peer that restarts is seen as a new connection.
 - **Keep-alive.** An empty packet is sent when nothing else has been sent for `keep_alive`; the connection is closed
-  and made again when nothing has been received for three intervals. TCP alone can take minutes to notice a peer that
+  and made again when nothing has been received for `timeout`, three intervals by default. As with the session
+  layer, the peer's `keep_alive` sets how often packets arrive, so `timeout` is set when the two differ. The
+  `connected` sensor is published off at setup. TCP alone can take minutes to notice a peer that
   lost power. In testing, a server noticed a client reset within about 5 seconds anyway, as the client answered the
   server's next write with a reset once it was back on the network.
 - **Sending.** Each packet is queued in the socket link's 1 KB buffer and written at once, so `max_packet_size` is at
