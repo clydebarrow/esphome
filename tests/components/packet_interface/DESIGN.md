@@ -239,8 +239,8 @@ event that `entity_transport` needs.
 
 | Option          | Default            | Range                          |
 |-----------------|--------------------|--------------------------------|
-| `keep_alive`    | 10s                | 1s or more                     |
-| `timeout`       | 3 times keep_alive | Longer than keep_alive         |
+| `keep_alive`    | 10s                | 1s to 1h                       |
+| `timeout`       | 3 times keep_alive | Longer than keep_alive, to 3h  |
 | `binary_sensor` |                    | ON while the peer is connected |
 
 ## Addressing layer: `basic`
