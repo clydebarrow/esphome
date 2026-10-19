@@ -472,7 +472,8 @@ short `__init__.py`.
 - **Sending.** A send waits until the radio has transmitted, which takes from a few milliseconds to over a second.
   Sends are refused until the radio has been set up, as the layers above are set up first.
 - **Listen before talk.** A radio cannot hear while it sends, so a send is refused while the radio is receiving a
-  packet, and the layers above send again shortly. `ListenBeforeTalk` limits this to the airtime of the largest
+  packet. A reliability layer sends it again shortly and `entity_transport` after a delay; other callers, such as
+  the `packet_transport` platform, drop it and log at debug level. `ListenBeforeTalk` limits this to the airtime of the largest
   packet, at least 2 seconds, so a busy flag that never clears cannot stop sending for good. While a busy period
   lasts, the link's `loop()` polls the radio and ends the period once it is free, so a later reception starts a new
   period rather than counting from an old one; the loop is disabled otherwise. Testing on real radios is described
