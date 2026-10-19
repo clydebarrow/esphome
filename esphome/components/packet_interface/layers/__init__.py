@@ -88,6 +88,8 @@ class LayerKind:
         # The option that a plain string value sets, as in `encryption: my key`
         self.shorthand = shorthand
         self.types: dict[str, LayerType] = {}
+        # Set once the schema is built, as types registered after that would not be in it
+        self.frozen = False
 
     def register(
         self,
@@ -108,6 +110,11 @@ class LayerKind:
             return schema
 
         def decorator(build: LayerBuilder) -> LayerBuilder:
+            if self.frozen:
+                raise ValueError(
+                    f"{self.key} layer type '{name}' is registered after the schemas were built; register it "
+                    "before the packet_interface component is imported"
+                )
             if name in self.types:
                 raise ValueError(
                     f"{self.key} layer type '{name}' is already registered"
@@ -135,7 +142,8 @@ class LayerKind:
         return value
 
     def schema(self) -> Callable[[Any], ConfigType]:
-        """The schema for this kind, from the types registered so far."""
+        """The schema for this kind; no type can be registered after this."""
+        self.frozen = True
         return cv.All(
             self._expand,
             cv.typed_schema(
