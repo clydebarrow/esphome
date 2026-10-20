@@ -1,0 +1,7 @@
+storage:
+  - platform: sd_spi
+    id: sd_spi_card
+    cs_pin: ${cs_pin}
+    card_detect_pin:
+      number: ${card_detect_pin}
+      inverted: true
