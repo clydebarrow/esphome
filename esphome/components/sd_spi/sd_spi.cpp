@@ -308,7 +308,7 @@ uint32_t SdSpi::read_block_count_() {
 // Reads clock out 0xFF, as the card may take anything else as the start of a command.
 void SdSpi::receive_(uint8_t *buf, uint32_t len) {
 #ifdef USE_ESP32
-  // SPI DMA cannot reach PSRAM or unaligned buffers; stage them here so the driver does not allocate a copy
+  // ESP-IDF allocates a heap copy of a PSRAM or unaligned buffer on every transfer; stage it on the stack instead
   if (!esp_ptr_dma_capable(buf) || (reinterpret_cast<uintptr_t>(buf) & 3) != 0) {
     alignas(4) uint8_t staged[SECTOR_SIZE];
     memset(staged, 0xFF, len);
