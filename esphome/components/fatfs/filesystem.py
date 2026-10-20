@@ -13,4 +13,6 @@ CONFIG_SCHEMA = cv.All(filesystem.filesystem_schema(FatFs), cv.only_on_esp32)
 
 async def to_code(config: ConfigType) -> None:
     esp32.require_fatfs()
+    # Use ESPHome's time zone for file times; see __wrap_get_fattime() in fatfs.cpp
+    cg.add_build_flag("-Wl,--wrap=get_fattime")
     await filesystem.new_filesystem(config)

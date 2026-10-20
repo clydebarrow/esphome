@@ -5,6 +5,10 @@
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
 
+#ifdef USE_FILE
+#include "esphome/components/file/file_ref.h"
+#endif
+
 #include <string>
 
 namespace esphome::filesystem {
@@ -12,7 +16,8 @@ namespace esphome::filesystem {
 /** An image decoded at run time from a file.
  *
  * load() opens the file and returns; the file is then read and decoded in loop(), a few chunks per pass, so the
- * main loop is never held up for long. update() loads the configured path.
+ * main loop is never held up for long. update() loads the configured path, or the current path of the file set
+ * with set_file().
  */
 class FilesystemImage : public PollingComponent, public runtime_image::RuntimeImage {
  public:
@@ -34,6 +39,9 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   void load(const std::string &path) { this->load(path.c_str()); }
   /// Stop any load in progress and free the image.
   void release();
+#ifdef USE_FILE
+  void set_file(file::FileRef *file) { this->file_ref_ = file; }
+#endif
 
   template<typename F> void add_on_load_finished_callback(F &&callback) {
     this->finished_callback_.add(std::forward<F>(callback));
@@ -49,11 +57,16 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   void fail_(const LogString *reason);
   void stop_();
   bool reserve_(size_t size);
+  /// The path update() loads, or nullptr when there is none.
+  const char *update_path_() const;
 
   LazyCallbackManager<void()> finished_callback_;
   LazyCallbackManager<void()> error_callback_;
   Filesystem *fs_;
   const char *path_;
+#ifdef USE_FILE
+  file::FileRef *file_ref_{nullptr};
+#endif
   File file_;
   uint8_t *read_buffer_{nullptr};  // Kept between loads so they do not churn the heap
   size_t read_buffer_size_{0};

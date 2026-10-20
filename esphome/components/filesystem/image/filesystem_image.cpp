@@ -32,18 +32,30 @@ static ImageFormat sniff_format(const uint8_t *data, size_t len) {
 
 void FilesystemImage::setup() { this->disable_loop(); }
 
+const char *FilesystemImage::update_path_() const {
+#ifdef USE_FILE
+  if (this->file_ref_ != nullptr) {
+    const char *path = this->file_ref_->get_path();
+    return path[0] == 0 ? nullptr : path;
+  }
+#endif
+  return this->path_;
+}
+
 void FilesystemImage::update() {
-  if (this->path_ != nullptr)
-    this->load(this->path_);
+  const char *path = this->update_path_();
+  if (path != nullptr)
+    this->load(path);
 }
 
 void FilesystemImage::dump_config() {
+  const char *path = this->update_path_();
   ESP_LOGCONFIG(TAG,
                 "Filesystem image:\n"
                 "  Path: %s\n"
                 "  Format: %s\n"
                 "  Chunk size: %" PRIu32,
-                this->path_ != nullptr ? this->path_ : LOG_STR_LITERAL("none"),
+                path != nullptr ? path : LOG_STR_LITERAL("none"),
                 LOG_STR_ARG(runtime_image::get_format_name(this->get_format())), this->chunk_size_);
   LOG_UPDATE_INTERVAL(this);
 }

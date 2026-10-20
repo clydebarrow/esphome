@@ -48,6 +48,14 @@ def _get_data() -> FilesystemData:
     return CORE.data[DOMAIN]
 
 
+def validate_path(value: object) -> str:
+    """Validate an absolute path on a filesystem."""
+    value = cv.string_strict(value)
+    if not value.startswith("/"):
+        raise cv.Invalid("The path must start with '/'")
+    return value
+
+
 def request_open_handles(filesystem_id: ID, files: int = 1, dirs: int = 0) -> None:
     """Reserve file and directory handles that a consumer keeps open at the same time.
 

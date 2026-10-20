@@ -21,6 +21,7 @@ image:
       - logger.log: Image failed
   - platform: filesystem
     id: filesystem_auto_image
+    filesystem_id: filesystem_fat
     format: AUTO
     type: RGB565
     resize: 64x64

@@ -1,5 +1,6 @@
 import re
 
+from esphome import automation
 import esphome.codegen as cg
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
@@ -21,6 +22,12 @@ STORAGE_ID_SCHEMA = cv.Schema(
     {
         cv.GenerateID(CONF_STORAGE_ID): cv.use_id(BlockDevice),
     }
+)
+
+automation.register_apply_condition(
+    "storage.has_media",
+    automation.maybe_simple_id({cv.GenerateID(): cv.use_id(BlockDevice)}),
+    "has_media()",
 )
 
 _SIZE_UNITS = {"": 1, "K": 1024, "M": 1024 * 1024, "G": 1024 * 1024 * 1024}

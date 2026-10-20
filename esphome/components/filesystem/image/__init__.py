@@ -1,6 +1,6 @@
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components import runtime_image
+from esphome.components import file, runtime_image
 from esphome.components.image import CONF_TRANSPARENCY, add_metadata
 from esphome.components.runtime_image import IMAGE_FORMATS
 from esphome.components.storage import storage_size
@@ -8,12 +8,19 @@ import esphome.config_validation as cv
 from esphome.const import CONF_FORMAT, CONF_ID, CONF_ON_ERROR, CONF_PATH, CONF_TYPE
 from esphome.types import ConfigType
 
-from .. import CONF_FILESYSTEM_ID, Filesystem, filesystem_ns, request_open_handles
+from .. import (
+    CONF_FILESYSTEM_ID,
+    Filesystem,
+    filesystem_ns,
+    request_open_handles,
+    validate_path,
+)
 
 AUTO_LOAD = ["runtime_image"]
 CODEOWNERS = ["@clydebarrow"]
 
 CONF_CHUNK_SIZE = "chunk_size"
+CONF_FILE_ID = "file_id"
 CONF_ON_LOAD_FINISHED = "on_load_finished"
 
 FilesystemImage = filesystem_ns.class_(
@@ -21,19 +28,27 @@ FilesystemImage = filesystem_ns.class_(
 )
 
 
-def validate_path(value: object) -> str:
-    value = cv.string_strict(value)
-    if not value.startswith("/"):
-        raise cv.Invalid("The path must start with '/'")
-    return value
+def _default_filesystem(config: ConfigType) -> ConfigType:
+    # A file names its own filesystem; otherwise pick the only one when none is given, as GenerateID would
+    if CONF_FILE_ID in config:
+        if CONF_FILESYSTEM_ID in config:
+            raise cv.Invalid(
+                f"{CONF_FILESYSTEM_ID} cannot be used with {CONF_FILE_ID}; the file sets it",
+                path=[CONF_FILESYSTEM_ID],
+            )
+    elif CONF_FILESYSTEM_ID not in config:
+        config[CONF_FILESYSTEM_ID] = None
+    return config
 
 
 CONFIG_SCHEMA = cv.All(
+    _default_filesystem,
     runtime_image.runtime_image_schema(FilesystemImage)
     .extend(
         {
-            cv.GenerateID(CONF_FILESYSTEM_ID): cv.use_id(Filesystem),
+            cv.Optional(CONF_FILESYSTEM_ID): cv.use_id(Filesystem),
             cv.Optional(CONF_PATH): validate_path,
+            cv.Optional(CONF_FILE_ID): cv.use_id(file.FileRef),
             # AUTO tells the format from the first bytes of the file, at the cost of building every decoder
             cv.Required(CONF_FORMAT): cv.one_of(*IMAGE_FORMATS, "AUTO", upper=True),
             cv.Optional(CONF_CHUNK_SIZE, default=4096): cv.All(
@@ -44,6 +59,7 @@ CONFIG_SCHEMA = cv.All(
         }
     )
     .extend(cv.polling_component_schema("never")),
+    cv.has_at_most_one_key(CONF_PATH, CONF_FILE_ID),
     runtime_image.validate_runtime_image_settings,
 )
 
@@ -90,7 +106,11 @@ async def to_code(config: ConfigType) -> None:
         config[CONF_TYPE],
         config[CONF_TRANSPARENCY],
     )
-    fs = await cg.get_variable(config[CONF_FILESYSTEM_ID])
+    if (file_id := config.get(CONF_FILE_ID)) is not None:
+        fs_id = file.get_filesystem_id(file_id)
+    else:
+        fs_id = config[CONF_FILESYSTEM_ID]
+    fs = await cg.get_variable(fs_id)
     var = cg.new_Pvariable(
         config[CONF_ID],
         fs,
@@ -105,5 +125,6 @@ async def to_code(config: ConfigType) -> None:
         settings.byte_order_big_endian,
     )
     await cg.register_component(var, config)
-    request_open_handles(config[CONF_FILESYSTEM_ID], files=1)
+    await cg.add_variable(var.set_file, config.get(CONF_FILE_ID))
+    request_open_handles(fs_id, files=1)
     await automation.build_callback_automations(var, config, _CALLBACK_AUTOMATIONS)

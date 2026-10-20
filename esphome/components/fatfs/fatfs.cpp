@@ -4,9 +4,11 @@
 
 #include <cstdio>
 #include <cstring>
+#include <ctime>
 
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
+#include "esphome/core/time.h"
 
 namespace esphome::fatfs {
 
@@ -21,6 +23,22 @@ static constexpr size_t MAX_PATH = 260;
 static constexpr size_t FORMAT_BUFFER_SIZE = 4096;
 
 static FatFs *drives[FF_VOLUMES];  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+// FAT stores local time with no zone, in two second steps. Both directions use ESPHome's time zone, which the
+// C library's localtime() and mktime() do not know about.
+static time_t fat_time_to_time(WORD fdate, WORD ftime) {
+  if (fdate == 0)
+    return 0;
+  ESPTime local{};
+  local.year = (fdate >> 9) + 1980;
+  local.month = (fdate >> 5) & 0x0F;
+  local.day_of_month = fdate & 0x1F;
+  local.hour = ftime >> 11;
+  local.minute = (ftime >> 5) & 0x3F;
+  local.second = (ftime & 0x1F) * 2;
+  local.recalc_timestamp_local();
+  return local.timestamp == -1 ? 0 : local.timestamp;
+}
 
 static FsError to_fs_error(FRESULT res) {
   switch (res) {
@@ -276,6 +294,7 @@ FsError FatFs::fs_read_dir(uint8_t slot, FileInfo &info, char *name, size_t name
       break;
   }
   info.size = entry.fsize;
+  info.mtime = fat_time_to_time(entry.fdate, entry.ftime);
   info.is_dir = (entry.fattrib & AM_DIR) != 0;
   strncpy(name, entry.fname, name_size - 1);
   name[name_size - 1] = 0;
@@ -303,6 +322,7 @@ FsError FatFs::fs_stat(const char *path, FileInfo &info) {
   // FatFs has no entry for the root directory
   if (strcmp(path, "/") == 0 || path[0] == 0) {
     info.size = 0;
+    info.mtime = 0;
     info.is_dir = true;
     return FsError::FS_ERROR_NONE;
   }
@@ -314,6 +334,7 @@ FsError FatFs::fs_stat(const char *path, FileInfo &info) {
   if (res != FR_OK)
     return to_fs_error(res);
   info.size = entry.fsize;
+  info.mtime = fat_time_to_time(entry.fdate, entry.ftime);
   info.is_dir = (entry.fattrib & AM_DIR) != 0;
   return FsError::FS_ERROR_NONE;
 }
@@ -340,5 +361,19 @@ FsError FatFs::fs_space(uint64_t &total, uint64_t &free) {
 }
 
 }  // namespace esphome::fatfs
+
+// FatFs takes the time for each file it writes from get_fattime(); -Wl,--wrap=get_fattime replaces ESP-IDF's
+// version, which uses localtime() and so always writes UTC.
+// NOLINTBEGIN(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
+extern "C" DWORD __wrap_get_fattime() {
+  static constexpr DWORD FAT_EPOCH = (1 << 21) | (1 << 16);  // 1980-01-01 00:00, the earliest time FAT can hold
+  const esphome::ESPTime now = esphome::ESPTime::from_epoch_local(::time(nullptr));
+  if (now.year < 1980 || now.year > 2107)
+    return FAT_EPOCH;
+  return (static_cast<DWORD>(now.year - 1980) << 25) | (static_cast<DWORD>(now.month) << 21) |
+         (static_cast<DWORD>(now.day_of_month) << 16) | (static_cast<DWORD>(now.hour) << 11) |
+         (static_cast<DWORD>(now.minute) << 5) | (now.second >> 1);
+}
+// NOLINTEND(bugprone-reserved-identifier,cert-dcl37-c,cert-dcl51-cpp,readability-identifier-naming)
 
 #endif  // USE_ESP32

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <ctime>
 
 #include "esphome/components/storage/block_device.h"
 #include "esphome/core/component.h"
@@ -45,6 +46,7 @@ enum class Whence : uint8_t {
 
 struct FileInfo {
   uint32_t size{0};
+  time_t mtime{0};  // Last modification, in seconds since 1970; 0 when the filesystem does not record it
   bool is_dir{false};
 };
 
