@@ -31,18 +31,42 @@ from ..lvgl.lvcode import lv_add
 from ..lvgl.types import LvCompound, LvType
 from ..lvgl.widgets import Widget, WidgetType
 from ..lvgl.widgets.label import CONF_LABEL
+from ..lvgl.widgets.line import CONF_LINE
 from . import CONF_SKYECHO_ID, DOMAIN, KEY_NEEDS_IMAGES, SkyEchoComponent
 
+CONF_BORDER_WIDTH = "border_width"
 CONF_SKYECHO_TRAFFIC = "skyecho_traffic"
 CONF_MAX_TARGETS = "max_targets"
 CONF_RANGE_RINGS = "range_rings"
 CONF_OWNSHIP_SIZE = "ownship_size"
 CONF_TARGET_SIZE = "target_size"
+CONF_ALARM_DISTANCE = "alarm_distance"
+CONF_ALARM_ALTITUDE = "alarm_altitude"
+CONF_ALARM_TIME = "alarm_time"
+CONF_MAX_DISTANCE = "max_distance"
+CONF_MAX_ALTITUDE_DIFFERENCE = "max_altitude_difference"
+
+METERS_PER_NAUTICAL_MILE = 1852.0
+METERS_PER_FOOT = 0.3048
 
 # Must not exceed MAX_TRAFFIC_TRACKED in skyecho.h.
 MAX_TARGETS = 20
 
 IMAGES_DIR = Path(__file__).parent / "images"
+
+
+def length(value):
+    """A length in meters, also accepting nautical miles ("nm") and feet ("ft")."""
+    if isinstance(value, str):
+        text = value.strip()
+        for suffix, meters in (
+            ("nm", METERS_PER_NAUTICAL_MILE),
+            ("ft", METERS_PER_FOOT),
+        ):
+            if text.lower().endswith(suffix):
+                return cv.positive_float(text[: -len(suffix)].strip()) * meters
+    return cv.distance(value)
+
 
 TrafficWidgetType = LvType("esphome::skyecho::TrafficWidget", parents=(LvCompound,))
 
@@ -55,6 +79,21 @@ TRAFFIC_SCHEMA = {
     cv.Optional(CONF_RANGE_RINGS, default=3): cv.int_range(min=0, max=6),
     cv.Optional(CONF_OWNSHIP_SIZE, default=20): cv.int_range(min=1, max=200),
     cv.Optional(CONF_TARGET_SIZE, default=20): cv.int_range(min=1, max=200),
+    # Close proximity, and how long before reaching it the alarm is raised.
+    cv.Optional(CONF_ALARM_DISTANCE, default="0.5nm"): cv.All(
+        length, cv.float_range(min_included=False, min=0.0)
+    ),
+    cv.Optional(CONF_ALARM_ALTITUDE, default="500ft"): cv.All(
+        length, cv.float_range(min_included=False, min=0.0)
+    ),
+    cv.Optional(CONF_ALARM_TIME, default="30s"): cv.positive_time_period_seconds,
+    # Targets further away than these are not shown at all, unless they raise the alarm.
+    cv.Optional(CONF_MAX_DISTANCE, default="10nm"): cv.All(
+        length, cv.float_range(min_included=False, min=0.0)
+    ),
+    cv.Optional(CONF_MAX_ALTITUDE_DIFFERENCE, default="3000ft"): cv.All(
+        length, cv.float_range(min_included=False, min=0.0)
+    ),
 }
 
 
@@ -106,14 +145,22 @@ class SkyEchoTrafficWidgetType(WidgetType):
         return value
 
     def get_uses(self):
-        return CONF_IMAGE, CONF_LABEL
+        return CONF_IMAGE, CONF_LABEL, CONF_LINE
 
     async def to_code(self, w: Widget, config: dict):
+        # No border by default: it adds nothing and is clipped by rounded screen corners.
+        if CONF_BORDER_WIDTH not in config:
+            w.set_style(CONF_BORDER_WIDTH, 0)
         parent = await cg.get_variable(config[CONF_SKYECHO_ID])
         lv_add(w.var.set_parent(parent))
         lv_add(w.var.set_range(config[CONF_RANGE]))
         lv_add(w.var.set_max_targets(config[CONF_MAX_TARGETS]))
         lv_add(w.var.set_range_rings(config[CONF_RANGE_RINGS]))
+        lv_add(w.var.set_alarm_distance(config[CONF_ALARM_DISTANCE]))
+        lv_add(w.var.set_alarm_altitude(config[CONF_ALARM_ALTITUDE]))
+        lv_add(w.var.set_alarm_time(config[CONF_ALARM_TIME].total_seconds))
+        lv_add(w.var.set_max_distance(config[CONF_MAX_DISTANCE]))
+        lv_add(w.var.set_max_altitude_difference(config[CONF_MAX_ALTITUDE_DIFFERENCE]))
 
         widget_id = config[CONF_ID].id
         ownship_image = await _bundle_image(

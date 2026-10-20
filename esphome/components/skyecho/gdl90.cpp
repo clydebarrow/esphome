@@ -134,13 +134,16 @@ static gdl90Err_t decodePosition(const uint8_t *buffer, gdl90Data_t *out) {
   out->positionReport.isInFlight = FLAGSET(byte, 3);
   out->positionReport.isExtrapolated = FLAGSET(byte, 2);
   out->positionReport.isHeading = FLAGSET(byte, 1);
+  // The low two bits are the track type; zero means the track field is not valid.
+  out->positionReport.isTrackValid = (byte & 3) != 0;
   out->positionReport.nic = buffer[13] >> 4;
   out->positionReport.NACp = buffer[13] & 0xF;
   // convert speed in knots to m/s
   out->positionReport.groundSpeed = ((float) ((buffer[14] << 4) + (buffer[15] >> 4))) * 1852.0f / 3600;
   uint16_t vs = buffer[16] + ((buffer[15] & 0xF) << 8);
   int16_t value = -4096;
-  if (vs < 0x1FF || vs > 0xE01)
+  out->positionReport.isVerticalSpeedValid = vs < 0x1FF || vs > 0xE01;
+  if (out->positionReport.isVerticalSpeedValid)
     value = (int16_t) ((int16_t) (vs << 4) >> 4);  // sign extend
   out->positionReport.verticalSpeed = fromFt((float) value * 64.0f / 60);
   out->positionReport.track = (float) buffer[17] * 360 / 256.0f;

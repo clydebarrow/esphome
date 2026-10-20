@@ -120,6 +120,8 @@ typedef struct {
   bool isInFlight;
   bool isExtrapolated;
   bool isHeading;
+  bool isTrackValid;
+  bool isVerticalSpeedValid;
   bool isHazard;
 } gdl90PositionReport_t;
 

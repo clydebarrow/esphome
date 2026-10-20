@@ -181,7 +181,9 @@ void SkyEcho::generate_simulated_ownship_() {
   sim_ownship.altitude = 1500.0f + (time_offset * 2.0f);  // 1500-1700m
   sim_ownship.groundSpeed = 30.0f;                        // 30 m/s (~60 knots)
   sim_ownship.track = 90.0f;                              // Heading east
-  sim_ownship.verticalSpeed = 0.5f;                       // Slight climb
+  sim_ownship.isTrackValid = true;
+  sim_ownship.verticalSpeed = 0.5f;  // Slight climb
+  sim_ownship.isVerticalSpeedValid = true;
   sim_ownship.address = 0x123456;
   sim_ownship.addressType = EmitterAdsbIcao;
   sim_ownship.category = Small;
@@ -220,8 +222,10 @@ void SkyEcho::generate_simulated_traffic_() {
     sim_traffic.altitude = this->ownship_.report.altitude + (i == 0 ? 100.0f : -50.0f);  // +100m or -50m
     sim_traffic.groundSpeed = 25.0f + i * 5.0f;                                          // 25 or 30 m/s
     sim_traffic.track = 45.0f + i * 90.0f;                                               // 45° or 135°
-    sim_traffic.verticalSpeed = (i == 0 ? 2.0f : -1.0f);                                 // +2 or -1 m/s
-    sim_traffic.address = 0xABCD00 + i;                                                  // Simulated addresses
+    sim_traffic.isTrackValid = true;
+    sim_traffic.verticalSpeed = (i == 0 ? 2.0f : -1.0f);  // +2 or -1 m/s
+    sim_traffic.isVerticalSpeedValid = true;
+    sim_traffic.address = 0xABCD00 + i;  // Simulated addresses
     sim_traffic.addressType = EmitterAdsbIcao;
     sim_traffic.category = (i == 0 ? Small : Glider);
     snprintf(sim_traffic.callsign, sizeof(sim_traffic.callsign), "SIM%d", i + 1);

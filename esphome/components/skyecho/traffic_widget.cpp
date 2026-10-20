@@ -3,11 +3,14 @@
 
 #include "gdl90.h"
 #include "riemann.h"
+#include "threat.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace esphome::skyecho {
 
@@ -20,6 +23,34 @@ static constexpr uint32_t REFRESH_INTERVAL_MS = 250;
 static constexpr float MAX_EXTRAPOLATE_S = 2.0f;
 // Meters per degree of latitude (approx), used for the extrapolation.
 static constexpr float METERS_PER_DEGREE = 111111.0f;
+// Gap between the info box and the edges of the widget, clear of rounded screen corners.
+static constexpr lv_coord_t INFO_MARGIN = 12;
+// The ownship sits this share of the widget height below the centre, leaving more
+// room for traffic ahead.
+static constexpr float OWNSHIP_OFFSET = 0.25f;
+// The info box swaps its colors at this interval while the alarm is raised.
+static constexpr uint32_t ALARM_FLASH_MS = 500;
+// The info box shows the time to the closest approach in this format.
+static constexpr const char *APPROACH_TIME_FORMAT = "%.0f s";
+// The longest time to the closest approach that is shown; the threat look-ahead.
+static constexpr float MAX_APPROACH_TIME = 120.0f;
+
+// The width of a line of text when each of its digits may be any digit: the font's
+// digits are not all the same width.
+static lv_coord_t widest_number_text(const char *text, const lv_font_t *font) {
+  char buf[32];
+  lv_coord_t widest = 0;
+  for (char digit = '0'; digit <= '9'; digit++) {
+    size_t i = 0;
+    for (; text[i] != 0 && i != sizeof(buf) - 1; i++)
+      buf[i] = isdigit(static_cast<unsigned char>(text[i])) ? digit : text[i];
+    buf[i] = 0;
+    lv_point_t size;
+    lv_text_get_size(&size, buf, font, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    widest = std::max(widest, static_cast<lv_coord_t>(size.x));
+  }
+  return widest;
+}
 
 static void refresh_timer_cb(lv_timer_t *timer) {
   static_cast<TrafficWidget *>(lv_timer_get_user_data(timer))->update();
@@ -28,13 +59,17 @@ static void refresh_timer_cb(lv_timer_t *timer) {
 void TrafficWidget::build() {
   lv_obj_t *root = this->obj;
   lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+  // Kept for the info boxes and the target ring, and so an alarm can swap them.
+  this->bg_color_ = lv_obj_get_style_bg_color(root, LV_PART_MAIN);
+  this->text_color_ = lv_obj_get_style_text_color(root, LV_PART_MAIN);
 
   // Concentric range rings, created first so they sit behind everything else.
-  // The spacing is snapped to a round number and rings are drawn at multiples
-  // of it out to the range.
+  // The spacing is snapped to a round number of distance units and rings are
+  // drawn at multiples of it out to the range.
   size_t ring_count = 0;
   if (this->num_rings_ > 0 && this->range_ > 0.0f) {
-    this->ring_step_ = nice_number_(this->range_ / this->num_rings_);
+    const float unit = this->units_.get_distance_unit_meters();
+    this->ring_step_ = nice_number_(this->range_ / unit / this->num_rings_) * unit;
     if (this->ring_step_ > 0.0f) {
       ring_count = static_cast<size_t>(this->range_ / this->ring_step_ + 1e-3f);
     }
@@ -56,15 +91,13 @@ void TrafficWidget::build() {
     lv_obj_set_style_shadow_width(ring.circle, 0, 0);
     lv_obj_set_style_border_width(ring.circle, 1, 0);
     lv_obj_set_style_border_color(ring.circle, lv_color_hex(0x808080), 0);
-    lv_obj_align(ring.circle, LV_ALIGN_CENTER, 0, 0);
 
     ring.label = lv_label_create(root);
     this->rings_.push_back(ring);
   }
 
-  // Ownship symbol at the centre. The scene is heading-up so it never rotates.
+  // Ownship symbol, placed below the centre in update(). The scene is track-up so it never rotates.
   this->ownship_obj_ = lv_image_create(root);
-  lv_obj_align(this->ownship_obj_, LV_ALIGN_CENTER, 0, 0);
   if (this->ownship_image_ != nullptr) {
     lvgl::lv_image_set_src(this->ownship_obj_, this->ownship_image_);
   }
@@ -82,6 +115,11 @@ void TrafficWidget::build() {
     Target t{};
     t.image = lv_image_create(root);
     lv_obj_add_flag(t.image, LV_OBJ_FLAG_HIDDEN);
+    // The ring drawn round the target shown in the info box; its width turns it on.
+    lv_obj_set_style_radius(t.image, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_outline_pad(t.image, 3, 0);
+    lv_obj_set_style_outline_color(t.image, this->text_color_, 0);
+    lv_obj_set_style_outline_width(t.image, 0, 0);
     if (this->target_image_ != nullptr) {
       lvgl::lv_image_set_src(t.image, this->target_image_);
     }
@@ -90,15 +128,100 @@ void TrafficWidget::build() {
     this->targets_.push_back(t);
   }
 
+  // Info boxes, created last so they sit above the targets. Top left: the ownship.
+  // Top right: an arrow pointing towards the most significant target, then its details.
+  this->ownship_box_ = this->create_box_(LV_ALIGN_TOP_LEFT, INFO_MARGIN);
+  this->ownship_label_ = lv_label_create(this->ownship_box_);
+  this->info_box_ = this->create_box_(LV_ALIGN_TOP_RIGHT, -INFO_MARGIN);
+
+  // The arrow is two text lines high, drawn in the text color.
+  this->arrow_size_ =
+      static_cast<lv_coord_t>(lv_font_get_line_height(lv_obj_get_style_text_font(root, LV_PART_MAIN)) * 2);
+  this->info_arrow_ = lv_line_create(this->info_box_);
+  lv_obj_set_size(this->info_arrow_, this->arrow_size_, this->arrow_size_);
+  lv_obj_set_style_line_width(this->info_arrow_, 2, 0);
+  lv_obj_set_style_line_rounded(this->info_arrow_, true, 0);
+  lv_obj_set_style_line_color(this->info_arrow_, this->text_color_, 0);
+  lv_obj_align(this->info_arrow_, LV_ALIGN_LEFT_MID, 0, 0);
+  this->info_label_ = lv_label_create(this->info_box_);
+  lv_obj_set_style_text_align(this->info_label_, LV_TEXT_ALIGN_RIGHT, 0);
+  lv_obj_set_pos(this->info_label_, this->arrow_size_ + 4, 0);
+  this->fix_label_sizes_();
+
   lv_timer_create(refresh_timer_cb, REFRESH_INTERVAL_MS, this);
   this->update();
+}
+
+void TrafficWidget::fix_label_sizes_() {
+  // Size the labels for the widest text they can show, so the boxes keep their size
+  // as the numbers change. Sample values give each line its most digits.
+  const lv_font_t *font = lv_obj_get_style_text_font(this->info_label_, LV_PART_MAIN);
+  static constexpr float FEET = 0.3048f;
+  const float unit = this->units_.get_distance_unit_meters();
+  char buf[24];
+  lv_coord_t width = 0;
+  this->units_.format_altitude_difference(buf, sizeof(buf), -9900.0f * FEET);
+  width = std::max(width, widest_number_text(buf, font));
+  this->units_.format_distance(buf, sizeof(buf), 9.9f * unit);
+  width = std::max(width, widest_number_text(buf, font));
+  this->units_.format_distance(buf, sizeof(buf), 99.0f * unit);
+  width = std::max(width, widest_number_text(buf, font));
+  snprintf(buf, sizeof(buf), APPROACH_TIME_FORMAT, MAX_APPROACH_TIME);
+  width = std::max(width, widest_number_text(buf, font));
+  this->info_number_width_ = width;
+  // Always four lines high, whether or not the time to the closest approach is shown.
+  lv_point_t size;
+  lv_text_get_size(&size, "0\n0\n0\n0", font, 0, lv_obj_get_style_text_line_space(this->info_label_, LV_PART_MAIN),
+                   LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+  lv_obj_set_height(this->info_label_, size.y);
+
+  width = 0;
+  this->units_.format_altitude(buf, sizeof(buf), 45000.0f * FEET);
+  width = std::max(width, widest_number_text(buf, font));
+  this->units_.format_speed(buf, sizeof(buf), 999.0f * 1852.0f / 3600.0f);
+  width = std::max(width, widest_number_text(buf, font));
+  lv_obj_set_width(this->ownship_label_, width);
+}
+
+lv_obj_t *TrafficWidget::create_box_(lv_align_t align, lv_coord_t x_offset) {
+  // The opaque background keeps the box readable when a target passes underneath.
+  lv_obj_t *root = this->obj;
+  lv_obj_t *box = lv_obj_create(root);
+  lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_color(box, this->bg_color_, 0);
+  lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+  // The theme styles the box's own text color, which would hide the widget's from the label.
+  lv_obj_set_style_text_color(box, this->text_color_, 0);
+  lv_obj_set_style_border_width(box, 1, 0);
+  lv_obj_set_style_border_color(box, lv_color_hex(0x808080), 0);
+  lv_obj_set_style_radius(box, 4, 0);
+  lv_obj_set_style_pad_all(box, 4, 0);
+  lv_obj_align(box, align, x_offset, INFO_MARGIN);
+  lv_obj_add_flag(box, LV_OBJ_FLAG_HIDDEN);
+  return box;
+}
+
+void TrafficWidget::update_ownship_(const gdl90PositionReport_t *report) {
+  if (report == nullptr) {
+    lv_obj_add_flag(this->ownship_box_, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  char altitude[16];
+  char speed[16];
+  this->units_.format_altitude(altitude, sizeof(altitude), report->altitude);
+  this->units_.format_speed(speed, sizeof(speed), report->groundSpeed);
+  char buf[40];
+  snprintf(buf, sizeof(buf), "%s\n%s", altitude, speed);
+  lv_label_set_text(this->ownship_label_, buf);
+  lv_obj_remove_flag(this->ownship_box_, LV_OBJ_FLAG_HIDDEN);
 }
 
 void TrafficWidget::extrapolate_(gdl90PositionReport_t &report, float dt) {
   // Only the horizontal position is dead-reckoned so the image and label move
   // smoothly; the altitude (and hence the relative-altitude label) is left at
   // its last reported value.
-  if (dt <= 0.0f || report.groundSpeed <= 0.0f) {
+  if (dt <= 0.0f || report.groundSpeed <= 0.0f || !report.isTrackValid) {
     return;
   }
   float distance = report.groundSpeed * dt;  // meters travelled since the report
@@ -107,19 +230,6 @@ void TrafficWidget::extrapolate_(gdl90PositionReport_t &report, float dt) {
   float delta_east = distance * sinf(track);
   report.latitude += delta_north / METERS_PER_DEGREE;
   report.longitude += delta_east / (METERS_PER_DEGREE * cosf(toRadians(report.latitude)));
-}
-
-void TrafficWidget::format_range_(char *buf, size_t len, float meters) {
-  if (meters >= 1000.0f) {
-    float km = meters / 1000.0f;
-    if (km == floorf(km)) {
-      snprintf(buf, len, "%.0fkm", km);
-    } else {
-      snprintf(buf, len, "%.1fkm", km);
-    }
-  } else {
-    snprintf(buf, len, "%.0fm", meters);
-  }
 }
 
 float TrafficWidget::nice_number_(float value) {
@@ -147,13 +257,81 @@ void TrafficWidget::layout_rings_(float radius) {
     float distance = this->ring_step_ * (i + 1);
     auto ring_radius = static_cast<lv_coord_t>(distance / this->range_ * radius);
     lv_obj_set_size(ring.circle, ring_radius * 2, ring_radius * 2);
+    lv_obj_align(ring.circle, LV_ALIGN_CENTER, 0, this->ownship_y_);
 
     char buf[16];
-    format_range_(buf, sizeof(buf), distance);
+    this->units_.format_range(buf, sizeof(buf), distance);
     lv_label_set_text(ring.label, buf);
-    // Place the label just inside the ring, on the vertical below the centre.
-    lv_obj_align(ring.label, LV_ALIGN_CENTER, 0, ring_radius - 8);
+    // Place the label just inside the ring, straight ahead of the ownship.
+    lv_obj_align(ring.label, LV_ALIGN_CENTER, 0, this->ownship_y_ - ring_radius + 8);
   }
+}
+
+void TrafficWidget::point_arrow_(float angle) {
+  // Shaft through the centre, then the two sides of the head at the tip.
+  static constexpr float HEAD_ANGLE = 0.5f;  // radians either side of the shaft
+  const float centre = this->arrow_size_ / 2.0f;
+  const float length = centre - 2.0f;  // keep the rounded line ends inside the object
+  const float head = length * 0.6f;
+  const float dx = sinf(angle);
+  const float dy = -cosf(angle);
+  const float tip_x = centre + dx * length;
+  const float tip_y = centre + dy * length;
+  // lv_value_precise_t is an integer unless LVGL is built with float support.
+  auto point = [](float x, float y) {
+    return lv_point_precise_t{static_cast<lv_value_precise_t>(x), static_cast<lv_value_precise_t>(y)};
+  };
+  this->arrow_points_[0] = point(centre - dx * length, centre - dy * length);
+  this->arrow_points_[1] = point(tip_x, tip_y);
+  this->arrow_points_[2] = point(tip_x - head * sinf(angle - HEAD_ANGLE), tip_y + head * cosf(angle - HEAD_ANGLE));
+  this->arrow_points_[3] = point(tip_x, tip_y);
+  this->arrow_points_[4] = point(tip_x - head * sinf(angle + HEAD_ANGLE), tip_y + head * cosf(angle + HEAD_ANGLE));
+  lv_line_set_points(this->info_arrow_, this->arrow_points_, 5);
+}
+
+void TrafficWidget::update_info_(const gdl90PositionReport_t *report, const ThreatAssessment &assessment,
+                                 float altitude_difference, float delta_north, float delta_east, uint32_t now) {
+  if (report == nullptr) {
+    lv_obj_add_flag(this->info_box_, LV_OBJ_FLAG_HIDDEN);
+    return;
+  }
+  // The bearing on screen, clockwise from straight up, after the track-up rotation.
+  const float x = delta_east * this->cos_t_ + delta_north * this->sin_t_;
+  const float y = delta_east * this->sin_t_ - delta_north * this->cos_t_;
+  this->point_arrow_(atan2f(x, -y));
+  // Callsigns are padded with trailing spaces.
+  int callsign_len = static_cast<int>(strnlen(report->callsign, GDL_CALLSIGN_LENGTH));
+  while (callsign_len > 0 && report->callsign[callsign_len - 1] == ' ')
+    callsign_len--;
+  char altitude[16];
+  char range[16];
+  this->units_.format_altitude_difference(altitude, sizeof(altitude), altitude_difference);
+  this->units_.format_distance(range, sizeof(range), hypotf(delta_north, delta_east));
+  char buf[80];
+  int len = snprintf(buf, sizeof(buf), "%.*s\n%s\n%s", callsign_len, report->callsign, altitude, range);
+  // While closing, add how soon the closest approach is predicted.
+  if (assessment.approach_time > 0.0f && len > 0 && static_cast<size_t>(len) + 1 < sizeof(buf)) {
+    buf[len++] = '\n';
+    snprintf(buf + len, sizeof(buf) - len, APPROACH_TIME_FORMAT, assessment.approach_time);
+  }
+  lv_label_set_text(this->info_label_, buf);
+  // Wide enough for any numbers, or for this callsign if that is wider.
+  char callsign[GDL_CALLSIGN_LENGTH + 1];
+  snprintf(callsign, sizeof(callsign), "%.*s", callsign_len, report->callsign);
+  lv_point_t size;
+  lv_text_get_size(&size, callsign, lv_obj_get_style_text_font(this->info_label_, LV_PART_MAIN), 0, 0, LV_COORD_MAX,
+                   LV_TEXT_FLAG_NONE);
+  lv_obj_set_width(this->info_label_, std::max(this->info_number_width_, static_cast<lv_coord_t>(size.x)));
+
+  // Flash the box by swapping its colors while the alarm is raised.
+  const bool inverted = assessment.alarm && (now / ALARM_FLASH_MS) % 2 == 0;
+  const lv_color_t background = inverted ? this->text_color_ : this->bg_color_;
+  const lv_color_t foreground = inverted ? this->bg_color_ : this->text_color_;
+  lv_obj_set_style_bg_color(this->info_box_, background, 0);
+  lv_obj_set_style_text_color(this->info_box_, foreground, 0);
+  lv_obj_set_style_line_color(this->info_arrow_, foreground, 0);
+  lv_obj_remove_flag(this->info_box_, LV_OBJ_FLAG_HIDDEN);
+  this->highlight_on_ = !inverted;
 }
 
 void TrafficWidget::translate_(lv_obj_t *obj, float delta_north, float delta_east) {
@@ -162,13 +340,36 @@ void TrafficWidget::translate_(lv_obj_t *obj, float delta_north, float delta_eas
   // maps to negative y.
   auto x = static_cast<lv_coord_t>(delta_east * this->cos_t_ + delta_north * this->sin_t_);
   auto y = static_cast<lv_coord_t>(delta_east * this->sin_t_ - delta_north * this->cos_t_);
-  lv_obj_align(obj, LV_ALIGN_CENTER, x, y);
+  lv_obj_align(obj, LV_ALIGN_CENTER, x, this->ownship_y_ + y);
+}
+
+void TrafficWidget::place_north_(float margin) {
+  // Screen direction of true north from the ownship (y grows downward), then the
+  // furthest point along it that keeps the indicator inside the widget.
+  const float dx = this->sin_t_;
+  const float dy = -this->cos_t_;
+  const float half_width = lv_obj_get_width(this->obj) / 2.0f - margin;
+  const float half_height = lv_obj_get_height(this->obj) / 2.0f - margin;
+  float reach = INFINITY;
+  if (fabsf(dx) > 1e-6f)
+    reach = std::min(reach, half_width / fabsf(dx));
+  if (dy < -1e-6f) {
+    reach = std::min(reach, (half_height + this->ownship_y_) / -dy);
+  } else if (dy > 1e-6f) {
+    reach = std::min(reach, (half_height - this->ownship_y_) / dy);
+  }
+  lv_obj_align(this->north_obj_, LV_ALIGN_CENTER, static_cast<lv_coord_t>(dx * reach),
+               static_cast<lv_coord_t>(this->ownship_y_ + dy * reach));
 }
 
 void TrafficWidget::update() {
   lv_obj_t *root = this->obj;
-  float radius = std::min(lv_obj_get_width(root), lv_obj_get_height(root)) / 2.0f;
-  float scale = radius / this->range_;  // pixels per meter
+  const float height = lv_obj_get_height(root);
+  this->ownship_y_ = static_cast<lv_coord_t>(height * OWNSHIP_OFFSET);
+  // The range reaches from the ownship to the top edge, straight ahead.
+  const float radius = height / 2.0f + this->ownship_y_;
+  const float scale = radius / this->range_;  // pixels per meter
+  lv_obj_align(this->ownship_obj_, LV_ALIGN_CENTER, 0, this->ownship_y_);
 
   // Range rings are a fixed grid and are shown regardless of GPS state.
   this->layout_rings_(radius);
@@ -183,6 +384,8 @@ void TrafficWidget::update() {
       lv_obj_add_flag(t.image, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(t.label, LV_OBJ_FLAG_HIDDEN);
     }
+    this->update_info_(nullptr, {}, 0.0f, 0.0f, 0.0f, 0);
+    this->update_ownship_(nullptr);
     return;
   }
 
@@ -192,48 +395,75 @@ void TrafficWidget::update() {
   float own_dt = std::min((now - ownship.timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S);
   this->extrapolate_(ownship.report, own_dt);
 
-  // Cache the track-up rotation for this frame.
-  this->cos_t_ = cosf(toRadians(-ownship.report.track));
-  this->sin_t_ = sinf(toRadians(-ownship.report.track));
+  this->update_ownship_(&ownship.report);
 
-  // Position the north indicator at the edge in the direction of true north.
-  if (this->north_obj_ != nullptr) {
+  // Cache the track-up rotation for this frame. Without a valid track the display
+  // stays on the last known one, so it does not swing round to north up.
+  if (ownship.report.isTrackValid)
+    this->display_track_ = ownship.report.track;
+  this->cos_t_ = cosf(toRadians(-this->display_track_));
+  this->sin_t_ = sinf(toRadians(-this->display_track_));
+
+  // Place the north indicator at the edge in the direction of true north. It is
+  // only shown while the track is valid, since otherwise north is not known.
+  if (this->north_obj_ != nullptr && !ownship.report.isTrackValid) {
+    lv_obj_add_flag(this->north_obj_, LV_OBJ_FLAG_HIDDEN);
+  } else if (this->north_obj_ != nullptr) {
     lv_obj_remove_flag(this->north_obj_, LV_OBJ_FLAG_HIDDEN);
-    int north_angle = static_cast<int>(-ownship.report.track) % 360;
+    int north_angle = static_cast<int>(-this->display_track_) % 360;
     if (north_angle < 0) {
       north_angle += 360;
     }
     lv_image_set_rotation(this->north_obj_, static_cast<int16_t>(north_angle * 10));
-    float edge = radius - this->north_image_->get_height() / 2.0f;
-    this->translate_(this->north_obj_, edge, 0.0f);
+    this->place_north_(this->north_image_->get_height() / 2.0f + 2.0f);
   }
 
+  // Dead-reckon and assess every active target, then pick the most significant one
+  // for the info box. It may be beyond the targets drawn, which are the nearest ones.
   TrafficT traffic[MAX_TRAFFIC_TRACKED];
-  size_t cnt = std::min(this->targets_.size(), static_cast<size_t>(MAX_TRAFFIC_TRACKED));
-  this->parent_->get_traffic(traffic, cnt);
+  bool ignored[MAX_TRAFFIC_TRACKED];
+  this->parent_->get_traffic(traffic, MAX_TRAFFIC_TRACKED);
+  SignificantTargetSelector selector(ownship.report, this->threat_settings_);
+  size_t cnt = 0;
+  for (; cnt != MAX_TRAFFIC_TRACKED && traffic[cnt].active; cnt++) {
+    float target_dt = std::min((now - traffic[cnt].timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S);
+    this->extrapolate_(traffic[cnt].report, target_dt);
+    ignored[cnt] = selector.consider(cnt, traffic[cnt].report).ignored;
+  }
+  if (selector.get_best() < 0) {
+    this->update_info_(nullptr, {}, 0.0f, 0.0f, 0.0f, 0);
+  } else {
+    // update_info_() sets highlight_on_, so the target's ring flashes with the box.
+    const gdl90PositionReport_t &best = traffic[selector.get_best()].report;
+    this->update_info_(&best, selector.get_best_assessment(), best.altitude - ownship.report.altitude,
+                       trafficNorthing(&ownship.report, &best), trafficEasting(&ownship.report, &best), now);
+  }
 
-  for (size_t i = 0; i != this->targets_.size(); i++) {
-    Target &t = this->targets_[i];
-    if (i >= cnt || !traffic[i].active) {
+  // Draw the nearest targets that are not filtered out.
+  size_t next = 0;
+  for (Target &t : this->targets_) {
+    while (next != cnt && ignored[next])
+      next++;
+    if (next == cnt) {
       lv_obj_add_flag(t.image, LV_OBJ_FLAG_HIDDEN);
       lv_obj_add_flag(t.label, LV_OBJ_FLAG_HIDDEN);
       continue;
     }
+    const size_t i = next++;
 
-    // Copy so the position can be dead-reckoned without touching the source.
-    gdl90PositionReport_t report = traffic[i].report;
-    float target_dt = std::min((now - traffic[i].timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S);
-    this->extrapolate_(report, target_dt);
-
+    const gdl90PositionReport_t &report = traffic[i].report;
     float delta_east = trafficEasting(&ownship.report, &report) * scale;
     float delta_north = trafficNorthing(&ownship.report, &report) * scale;
 
     lv_obj_remove_flag(t.image, LV_OBJ_FLAG_HIDDEN);
     lv_obj_remove_flag(t.label, LV_OBJ_FLAG_HIDDEN);
     this->translate_(t.image, delta_north, delta_east);
+    // Ring the target shown in the info box.
+    const bool highlight = static_cast<int>(i) == selector.get_best() && this->highlight_on_;
+    lv_obj_set_style_outline_width(t.image, highlight ? 2 : 0, 0);
 
     // Rotate the icon to the target's track relative to the ownship heading.
-    int angle = static_cast<int>(report.track - ownship.report.track) % 360;
+    int angle = static_cast<int>(report.track - this->display_track_) % 360;
     if (angle < 0) {
       angle += 360;
     }
