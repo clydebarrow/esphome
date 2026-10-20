@@ -3,7 +3,7 @@
 
 namespace esphome::skyecho {
 
-static const char *const TAG = "skyecho";
+ESPHOME_LOG_TAG(TAG, "skyecho");
 
 void SkyEcho::setup() {
   this->socket_ = socket::socket_ip(SOCK_DGRAM, IPPROTO_IP);
@@ -13,6 +13,10 @@ void SkyEcho::setup() {
   if (err != 0) {
     ESP_LOGW(TAG, "Socket unable to set reuseaddr: errno %d", err);
     // we can still continue
+  }
+  err = this->ping_socket_->setsockopt(SOL_SOCKET, SO_BROADCAST, &enable, sizeof(int));
+  if (err != 0) {
+    ESP_LOGW(TAG, "Socket unable to set broadcast: errno %d", errno);
   }
   err = this->socket_->setblocking(false);
   if (err != 0) {
@@ -94,7 +98,7 @@ void SkyEcho::process_packet(gdl90Data_t *packet, struct in_addr *src_addr) {
   switch (packet->id) {
     case GDL90_HEARTBEAT:
       ESP_LOGV(TAG, "Heartbeat @%d GPSvalid %s", (int) packet->heartbeat.timeStamp,
-               packet->heartbeat.gpsPosValid ? "true" : "false");
+               packet->heartbeat.gpsPosValid ? LOG_STR_LITERAL("true") : LOG_STR_LITERAL("false"));
       this->set_heartbeat_(&packet->heartbeat);
       break;
 
