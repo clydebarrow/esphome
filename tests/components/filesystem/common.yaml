@@ -1,0 +1,48 @@
+storage:
+  - platform: ram_disk
+    id: filesystem_ram_disk
+    size: 64KB
+
+filesystem:
+  - platform: fatfs
+    id: filesystem_fat
+    storage_id: filesystem_ram_disk
+
+image:
+  - platform: filesystem
+    id: filesystem_bmp_image
+    filesystem_id: filesystem_fat
+    path: /images/logo.bmp
+    format: BMP
+    type: RGB565
+    on_load_finished:
+      - logger.log: Image loaded
+    on_error:
+      - logger.log: Image failed
+  - platform: filesystem
+    id: filesystem_auto_image
+    format: AUTO
+    type: RGB565
+    resize: 64x64
+    chunk_size: 1KB
+
+display:
+  - platform: ili9xxx
+    id: filesystem_image_display
+    model: ili9342
+    cs_pin: ${cs_pin}
+    dc_pin: ${dc_pin}
+    invert_colors: true
+    lambda: |-
+      it.image(0, 0, id(filesystem_bmp_image));
+
+interval:
+  - interval: 10s
+    then:
+      - filesystem.load_image:
+          id: filesystem_auto_image
+          path: !lambda 'return "/images/next.png";'
+      - filesystem.load_image:
+          id: filesystem_bmp_image
+          path: /images/other.bmp
+      - filesystem.release_image: filesystem_bmp_image

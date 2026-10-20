@@ -1,0 +1,66 @@
+#pragma once
+
+#include "esphome/components/filesystem/filesystem.h"
+#include "esphome/components/runtime_image/runtime_image.h"
+#include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
+
+#include <string>
+
+namespace esphome::filesystem {
+
+/** An image decoded at run time from a file.
+ *
+ * load() opens the file and returns; the file is then read and decoded in loop(), a few chunks per pass, so the
+ * main loop is never held up for long. update() loads the configured path.
+ */
+class FilesystemImage : public PollingComponent, public runtime_image::RuntimeImage {
+ public:
+  FilesystemImage(Filesystem *fs, const char *path, int width, int height, runtime_image::ImageFormat format,
+                  image::ImageType type, image::Transparency transparency, image::Image *placeholder,
+                  uint32_t chunk_size, bool is_big_endian)
+      : RuntimeImage(format, type, transparency, placeholder, is_big_endian, width, height),
+        fs_(fs),
+        path_(path),
+        chunk_size_(chunk_size) {}
+
+  void setup() override;
+  void update() override;
+  void loop() override;
+  void dump_config() override;
+
+  /// Start loading a file. Progress is reported through the finished and error callbacks.
+  void load(const char *path);
+  void load(const std::string &path) { this->load(path.c_str()); }
+  /// Stop any load in progress and free the image.
+  void release();
+
+  template<typename F> void add_on_load_finished_callback(F &&callback) {
+    this->finished_callback_.add(std::forward<F>(callback));
+  }
+  template<typename F> void add_on_error_callback(F &&callback) {
+    this->error_callback_.add(std::forward<F>(callback));
+  }
+
+ protected:
+  /// One read and decode step. Returns false when the load has ended, either way.
+  bool step_();
+  void finish_();
+  void fail_(const LogString *reason);
+  void stop_();
+  bool reserve_(size_t size);
+
+  LazyCallbackManager<void()> finished_callback_;
+  LazyCallbackManager<void()> error_callback_;
+  Filesystem *fs_;
+  const char *path_;
+  File file_;
+  uint8_t *read_buffer_{nullptr};  // Kept between loads so they do not churn the heap
+  size_t read_buffer_size_{0};
+  size_t unread_{0};
+  uint32_t chunk_size_;
+  uint32_t start_time_{0};
+  bool end_of_file_{false};
+};
+
+}  // namespace esphome::filesystem
