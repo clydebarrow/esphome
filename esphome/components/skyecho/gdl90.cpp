@@ -147,6 +147,7 @@ static gdl90Err_t decodePosition(const uint8_t *buffer, gdl90Data_t *out) {
     value = (int16_t) ((int16_t) (vs << 4) >> 4);  // sign extend
   out->positionReport.verticalSpeed = fromFt((float) value * 64.0f / 60);
   out->positionReport.track = (float) buffer[17] * 360 / 256.0f;
+  out->positionReport.turnRate = 0.0f;
   out->positionReport.category = (emitterCategory_t) buffer[18];
   memccpy(out->positionReport.callsign, buffer + 19, 0, GDL_CALLSIGN_LENGTH);
   out->positionReport.callsign[GDL_CALLSIGN_LENGTH] = 0;

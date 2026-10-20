@@ -117,6 +117,24 @@ TEST(SkyEchoThreat, ClosestApproachIsReported) {
   EXPECT_NEAR(assessment.approach_altitude, 300.0f * FT, 0.1f);
 }
 
+TEST(SkyEchoThreat, ClosestApproachHeightAllowsForClimb) {
+  // 3 NM ahead, 1000 ft below, climbing at 1000 ft/min, closing at 100 m/s: level when it passes.
+  TargetGeometry geometry = closing_north(3.0f * NM, -1000.0f * FT, 100.0f);
+  geometry.vertical_speed = 1000.0f * FT / 60.0f;
+  const ThreatAssessment assessment = assess_threat(geometry, ThreatSettings{});
+  EXPECT_NEAR(assessment.approach_time, 3.0f * NM / 100.0f, 0.1f);
+  EXPECT_NEAR(assessment.approach_altitude, -1000.0f * FT + 3.0f * NM / 100.0f * geometry.vertical_speed, 0.5f);
+  EXPECT_LT(threat_score(geometry), threat_score(closing_north(3.0f * NM, -1000.0f * FT, 100.0f)));
+}
+
+TEST(SkyEchoThreat, TargetWithNoHorizontalMovementIsClosestWhenLevel) {
+  TargetGeometry geometry = at(NM, 0.0f, -500.0f * FT);
+  geometry.vertical_speed = 5.0f;
+  const ThreatAssessment assessment = assess_threat(geometry, ThreatSettings{});
+  EXPECT_NEAR(assessment.approach_time, 500.0f * FT / 5.0f, 0.01f);
+  EXPECT_NEAR(assessment.approach_altitude, 0.0f, 0.01f);
+}
+
 TEST(SkyEchoThreat, HeadOnTargetRaisesTheAlarmThirtySecondsOut) {
   const ThreatSettings settings{};
   // Close proximity starts 0.5 NM out; at 150 m/s that is 30 s away from 0.5 NM + 4500 m.
@@ -166,6 +184,93 @@ TEST(SkyEchoThreat, AlarmThresholdsAreConfigurable) {
   const ThreatAssessment assessment = assess_threat(closing_north(NM + 5000.0f, 0.0f, 100.0f), settings);
   EXPECT_NEAR(assessment.proximity_time, 50.0f, 0.1f);
   EXPECT_TRUE(assessment.alarm);
+}
+
+TEST(SkyEchoThreat, GlidersUseASmallerAlarmHeight) {
+  // Head on, 300 ft above, 20 s from close proximity.
+  TargetGeometry geometry = closing_north(926.0f + 600.0f, 300.0f * FT, 30.0f);
+  EXPECT_TRUE(assess_threat(geometry, ThreatSettings{}).alarm);
+  geometry.gliders = true;
+  EXPECT_FALSE(assess_threat(geometry, ThreatSettings{}).alarm);
+  geometry.altitude = 150.0f * FT;
+  EXPECT_TRUE(assess_threat(geometry, ThreatSettings{}).alarm);
+}
+
+TEST(SkyEchoThreat, GeometryNotesWhenBothAreGliders) {
+  gdl90PositionReport_t ownship = report(-28.0f, 1000.0f, 25.0f, 0.0f);
+  gdl90PositionReport_t target = report(-27.99f, 1000.0f, 25.0f, 180.0f);
+  ownship.category = Glider;
+  target.category = Light;
+  EXPECT_FALSE(target_geometry(ownship, target).gliders);
+  target.category = HangGlider;
+  EXPECT_TRUE(target_geometry(ownship, target).gliders);
+}
+
+TEST(SkyEchoThreat, TurnRateComesFromTheChangeInTrack) {
+  gdl90PositionReport_t previous = report(-28.0f, 1000.0f, 25.0f, 350.0f);
+  const gdl90PositionReport_t current = report(-28.0f, 1000.0f, 25.0f, 10.0f);
+  // 20 degrees right across north in 1 s, smoothed: a third of the way from 0 to 20.
+  EXPECT_NEAR(estimate_turn_rate(previous, current, 1.0f), 20.0f / 3.0f, 0.01f);
+  // A steady turn converges on its rate.
+  for (int i = 0; i != 20; i++)
+    previous.turnRate = estimate_turn_rate(previous, current, 1.0f);
+  EXPECT_NEAR(previous.turnRate, 20.0f, 0.01f);
+  EXPECT_NEAR(estimate_turn_rate(current, previous, 1.0f), -20.0f / 3.0f, 0.01f);
+}
+
+TEST(SkyEchoThreat, TurnRateNeedsAValidTrackAndRecentReports) {
+  const gdl90PositionReport_t previous = report(-28.0f, 1000.0f, 25.0f, 0.0f);
+  gdl90PositionReport_t current = report(-28.0f, 1000.0f, 25.0f, 10.0f);
+  EXPECT_FLOAT_EQ(estimate_turn_rate(previous, current, 6.0f), 0.0f);
+  current.groundSpeed = 2.0f;
+  EXPECT_FLOAT_EQ(estimate_turn_rate(previous, current, 1.0f), 0.0f);
+  current.groundSpeed = 25.0f;
+  current.isTrackValid = false;
+  EXPECT_FLOAT_EQ(estimate_turn_rate(previous, current, 1.0f), 0.0f);
+}
+
+TEST(SkyEchoThreat, SlowTurnsCountAsStraight) {
+  const gdl90PositionReport_t ownship = report(-28.0f, 1000.0f, 50.0f, 0.0f);
+  gdl90PositionReport_t target = report(-27.99f, 1000.0f, 50.0f, 180.0f);
+  target.turnRate = 1.0f;
+  EXPECT_FLOAT_EQ(target_geometry(ownship, target).turn_rate, 0.0f);
+  target.turnRate = -3.0f;
+  EXPECT_NEAR(target_geometry(ownship, target).turn_rate, -3.0f * 3.14159265f / 180.0f, 1e-5f);
+}
+
+// A target 1 NM north flying east at 50 m/s while the ownship is stationary.
+static TargetGeometry crossing(float turn_rate) {
+  TargetGeometry geometry = at(NM, 0.0f, 0.0f);
+  geometry.velocity_east = 50.0f;
+  geometry.turn_rate = turn_rate;
+  return geometry;
+}
+
+TEST(SkyEchoThreat, TurnTowardsOwnshipBringsTheClosestApproachNearer) {
+  // Straight, it never gets closer than now. Turning right at 3 degrees per second its
+  // circle, of radius 50 / 0.0524 = 955 m, passes within 1852 - 2 * 955 = -58 m: through the ownship.
+  const ThreatAssessment straight = assess_threat(crossing(0.0f), ThreatSettings{});
+  const ThreatAssessment turning = assess_threat(crossing(3.0f * 3.14159265f / 180.0f), ThreatSettings{});
+  EXPECT_NEAR(straight.approach_distance, NM, 1.0f);
+  EXPECT_LT(turning.approach_distance, 100.0f);
+  EXPECT_NEAR(turning.approach_time, 60.0f, 2.0f);
+  EXPECT_GT(turning.proximity_time, 0.0f);
+  EXPECT_LT(threat_score(crossing(3.0f * 3.14159265f / 180.0f)), threat_score(crossing(0.0f)));
+}
+
+TEST(SkyEchoThreat, TurnAwayKeepsTheTargetClear) {
+  const ThreatAssessment turning = assess_threat(crossing(-3.0f * 3.14159265f / 180.0f), ThreatSettings{});
+  EXPECT_NEAR(turning.approach_distance, NM, 1.0f);
+  EXPECT_LT(turning.proximity_time, 0.0f);
+}
+
+TEST(SkyEchoThreat, OwnshipTurnIsFollowedToo) {
+  // The ownship flies west and turns right, towards a stationary target to the north.
+  TargetGeometry geometry = at(NM, 0.0f, 0.0f);
+  geometry.own_velocity_east = -50.0f;
+  geometry.velocity_east = 50.0f;
+  geometry.own_turn_rate = 3.0f * 3.14159265f / 180.0f;
+  EXPECT_LT(assess_threat(geometry, ThreatSettings{}).approach_distance, 100.0f);
 }
 
 TEST(SkyEchoThreat, FiltersIgnoreDistantTargets) {

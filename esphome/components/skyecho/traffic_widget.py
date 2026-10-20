@@ -9,6 +9,7 @@ class. The ownship and target symbols are bundled with the component (see the
 
 from pathlib import Path
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components.const import CONF_BYTE_ORDER
 from esphome.components.file.image import new_image
@@ -42,9 +43,15 @@ CONF_OWNSHIP_SIZE = "ownship_size"
 CONF_TARGET_SIZE = "target_size"
 CONF_ALARM_DISTANCE = "alarm_distance"
 CONF_ALARM_ALTITUDE = "alarm_altitude"
+CONF_GLIDER_ALARM_ALTITUDE = "glider_alarm_altitude"
 CONF_ALARM_TIME = "alarm_time"
 CONF_MAX_DISTANCE = "max_distance"
 CONF_MAX_ALTITUDE_DIFFERENCE = "max_altitude_difference"
+CONF_WARNING_TIMES = "warning_times"
+CONF_ON_THREAT_WARNING = "on_threat_warning"
+
+DEFAULT_ALARM_TIME = "30s"
+DEFAULT_WARNING_TIMES = ["30s", "20s", "10s", "5s"]
 
 METERS_PER_NAUTICAL_MILE = 1852.0
 METERS_PER_FOOT = 0.3048
@@ -86,7 +93,13 @@ TRAFFIC_SCHEMA = {
     cv.Optional(CONF_ALARM_ALTITUDE, default="500ft"): cv.All(
         length, cv.float_range(min_included=False, min=0.0)
     ),
-    cv.Optional(CONF_ALARM_TIME, default="30s"): cv.positive_time_period_seconds,
+    # Used instead of alarm_altitude when both the ownship and the target are gliders.
+    cv.Optional(CONF_GLIDER_ALARM_ALTITUDE, default="200ft"): cv.All(
+        length, cv.float_range(min_included=False, min=0.0)
+    ),
+    cv.Optional(
+        CONF_ALARM_TIME, default=DEFAULT_ALARM_TIME
+    ): cv.positive_time_period_seconds,
     # Targets further away than these are not shown at all, unless they raise the alarm.
     cv.Optional(CONF_MAX_DISTANCE, default="10nm"): cv.All(
         length, cv.float_range(min_included=False, min=0.0)
@@ -94,6 +107,11 @@ TRAFFIC_SCHEMA = {
     cv.Optional(CONF_MAX_ALTITUDE_DIFFERENCE, default="3000ft"): cv.All(
         length, cv.float_range(min_included=False, min=0.0)
     ),
+    # Times before close proximity at which on_threat_warning is called.
+    cv.Optional(CONF_WARNING_TIMES, default=DEFAULT_WARNING_TIMES): cv.ensure_list(
+        cv.positive_time_period_seconds
+    ),
+    cv.Optional(CONF_ON_THREAT_WARNING): automation.validate_automation({}),
 }
 
 
@@ -139,6 +157,18 @@ class SkyEchoTrafficWidgetType(WidgetType):
         )
 
     def validate(self, value):
+        # This runs before the schema, so parse the two values here.
+        alarm_time = cv.positive_time_period_seconds(
+            value.get(CONF_ALARM_TIME, DEFAULT_ALARM_TIME)
+        ).total_seconds
+        warning_times = cv.ensure_list(cv.positive_time_period_seconds)(
+            value.get(CONF_WARNING_TIMES, DEFAULT_WARNING_TIMES)
+        )
+        if any(t.total_seconds > alarm_time for t in warning_times):
+            raise cv.Invalid(
+                f"'{CONF_WARNING_TIMES}' must not be longer than '{CONF_ALARM_TIME}'",
+                path=[CONF_WARNING_TIMES],
+            )
         # Flag that the bundled images are needed so skyecho's AUTO_LOAD pulls in
         # the image/file components (which depend on display).
         CORE.data.setdefault(DOMAIN, {})[KEY_NEEDS_IMAGES] = True
@@ -158,9 +188,18 @@ class SkyEchoTrafficWidgetType(WidgetType):
         lv_add(w.var.set_range_rings(config[CONF_RANGE_RINGS]))
         lv_add(w.var.set_alarm_distance(config[CONF_ALARM_DISTANCE]))
         lv_add(w.var.set_alarm_altitude(config[CONF_ALARM_ALTITUDE]))
+        lv_add(w.var.set_glider_alarm_altitude(config[CONF_GLIDER_ALARM_ALTITUDE]))
         lv_add(w.var.set_alarm_time(config[CONF_ALARM_TIME].total_seconds))
         lv_add(w.var.set_max_distance(config[CONF_MAX_DISTANCE]))
         lv_add(w.var.set_max_altitude_difference(config[CONF_MAX_ALTITUDE_DIFFERENCE]))
+        warning_times = sorted(
+            {t.total_seconds for t in config[CONF_WARNING_TIMES]}, reverse=True
+        )
+        lv_add(w.var.set_warning_times(warning_times))
+        for conf in config.get(CONF_ON_THREAT_WARNING, []):
+            await automation.build_callback_automation(
+                w.var, "add_on_threat_warning_callback", [(cg.uint32, "seconds")], conf
+            )
 
         widget_id = config[CONF_ID].id
         ownship_image = await _bundle_image(

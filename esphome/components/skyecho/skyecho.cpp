@@ -1,4 +1,5 @@
 #include "skyecho.h"
+#include "threat.h"
 #include <cinttypes>
 
 namespace esphome::skyecho {
@@ -238,8 +239,14 @@ void SkyEcho::generate_simulated_traffic_() {
 }
 
 void SkyEcho::set_ownship_position_(const gdl90PositionReport_t *position) {
+  const uint32_t now = millis();
+  const float turn_rate =
+      this->ownship_.timestampMs == 0
+          ? 0.0f
+          : estimate_turn_rate(this->ownship_.report, *position, (now - this->ownship_.timestampMs) / 1000.0f);
   this->ownship_.report = *position;
-  this->ownship_.timestampMs = millis();
+  this->ownship_.report.turnRate = turn_rate;
+  this->ownship_.timestampMs = now;
   ESP_LOGV(TAG, "Ownship: lat=%.4f lon=%.4f alt=%.0fm spd=%.0fm/s", position->latitude, position->longitude,
            position->altitude, position->groundSpeed);
 }
@@ -286,8 +293,14 @@ TrafficT *SkyEcho::get_entry_() {
 }
 
 void SkyEcho::update_traffic_(TrafficT *tp, const gdl90PositionReport_t *report, float distance) {
-  tp->timestampMs = millis();
+  const uint32_t now = millis();
+  // A slot taken over from another aircraft has no track history to work from.
+  const bool same =
+      tp->active && tp->report.addressType == report->addressType && tp->report.address == report->address;
+  const float turn_rate = same ? estimate_turn_rate(tp->report, *report, (now - tp->timestampMs) / 1000.0f) : 0.0f;
+  tp->timestampMs = now;
   tp->report = *report;
+  tp->report.turnRate = turn_rate;
   tp->distance = distance;
   tp->active = true;
   ESP_LOGI(TAG, "Traffic: %s dist=%.0fm alt=%.0fm spd=%.0fm/s vs=%.0fm/s", report->callsign, distance, report->altitude,

@@ -52,6 +52,39 @@ static lv_coord_t widest_number_text(const char *text, const lv_font_t *font) {
   return widest;
 }
 
+// LVGL redraws an object whenever one of its styles or flags is set, even to the value
+// it already has. The display updates several times a second, so these helpers only
+// make the calls that change something.
+static void set_hidden(lv_obj_t *obj, bool hidden) {
+  if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) == hidden)
+    return;
+  if (hidden) {
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+static bool set_text_if_changed(lv_obj_t *label, const char *text) {
+  if (strcmp(lv_label_get_text(label), text) == 0)
+    return false;
+  lv_label_set_text(label, text);
+  return true;
+}
+
+static bool align_if_moved(lv_obj_t *obj, lv_align_t align, int32_t x, int32_t y) {
+  if (lv_obj_get_style_align(obj, LV_PART_MAIN) == align && lv_obj_get_style_x(obj, LV_PART_MAIN) == x &&
+      lv_obj_get_style_y(obj, LV_PART_MAIN) == y)
+    return false;
+  lv_obj_align(obj, align, x, y);
+  return true;
+}
+
+static void set_state(lv_obj_t *obj, lv_state_t state, bool on) {
+  if (lv_obj_has_state(obj, state) != on)
+    lv_obj_set_state(obj, state, on);
+}
+
 static void refresh_timer_cb(lv_timer_t *timer) {
   static_cast<TrafficWidget *>(lv_timer_get_user_data(timer))->update();
 }
@@ -106,7 +139,7 @@ void TrafficWidget::build() {
   if (this->north_image_ != nullptr) {
     this->north_obj_ = lv_image_create(root);
     lvgl::lv_image_set_src(this->north_obj_, this->north_image_);
-    lv_obj_add_flag(this->north_obj_, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(this->north_obj_, true);
   }
 
   // Pre-create the fixed pool of target image/label pairs, hidden until used.
@@ -114,25 +147,26 @@ void TrafficWidget::build() {
   for (size_t i = 0; i != this->max_targets_; i++) {
     Target t{};
     t.image = lv_image_create(root);
-    lv_obj_add_flag(t.image, LV_OBJ_FLAG_HIDDEN);
-    // The ring drawn round the target shown in the info box; its width turns it on.
+    set_hidden(t.image, true);
+    // The ring drawn round the target shown in the info box, while it is checked.
     lv_obj_set_style_radius(t.image, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_outline_pad(t.image, 3, 0);
     lv_obj_set_style_outline_color(t.image, this->text_color_, 0);
     lv_obj_set_style_outline_width(t.image, 0, 0);
+    lv_obj_set_style_outline_width(t.image, 2, LV_STATE_CHECKED);
     if (this->target_image_ != nullptr) {
       lvgl::lv_image_set_src(t.image, this->target_image_);
     }
     t.label = lv_label_create(root);
-    lv_obj_add_flag(t.label, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(t.label, true);
     this->targets_.push_back(t);
   }
 
-  // Info boxes, created last so they sit above the targets. Top left: the ownship.
-  // Top right: an arrow pointing towards the most significant target, then its details.
-  this->ownship_box_ = this->create_box_(LV_ALIGN_TOP_LEFT, INFO_MARGIN);
+  // Info boxes, created last so they sit above the targets. Bottom left: the ownship.
+  // Bottom right: an arrow pointing towards the most significant target, then its details.
+  this->ownship_box_ = this->create_box_(LV_ALIGN_BOTTOM_LEFT, INFO_MARGIN);
   this->ownship_label_ = lv_label_create(this->ownship_box_);
-  this->info_box_ = this->create_box_(LV_ALIGN_TOP_RIGHT, -INFO_MARGIN);
+  this->info_box_ = this->create_box_(LV_ALIGN_BOTTOM_RIGHT, -INFO_MARGIN);
 
   // The arrow is two text lines high, drawn in the text color.
   this->arrow_size_ =
@@ -142,6 +176,10 @@ void TrafficWidget::build() {
   lv_obj_set_style_line_width(this->info_arrow_, 2, 0);
   lv_obj_set_style_line_rounded(this->info_arrow_, true, 0);
   lv_obj_set_style_line_color(this->info_arrow_, this->text_color_, 0);
+  // Checked is the inverted phase of the alarm flash.
+  lv_obj_set_style_bg_color(this->info_box_, this->text_color_, LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(this->info_box_, this->bg_color_, LV_STATE_CHECKED);
+  lv_obj_set_style_line_color(this->info_arrow_, this->bg_color_, LV_STATE_CHECKED);
   lv_obj_align(this->info_arrow_, LV_ALIGN_LEFT_MID, 0, 0);
   this->info_label_ = lv_label_create(this->info_box_);
   lv_obj_set_style_text_align(this->info_label_, LV_TEXT_ALIGN_RIGHT, 0);
@@ -150,6 +188,25 @@ void TrafficWidget::build() {
 
   lv_timer_create(refresh_timer_cb, REFRESH_INTERVAL_MS, this);
   this->update();
+}
+
+void TrafficWidget::check_warnings_(const gdl90PositionReport_t *report, const ThreatAssessment &assessment) {
+  if (report == nullptr || !assessment.alarm) {
+    this->warning_address_ = 0;
+    return;
+  }
+  if (report->address != this->warning_address_) {
+    this->warning_address_ = report->address;
+    this->warning_next_ = 0;
+  }
+  bool due = false;
+  while (this->warning_next_ != this->warning_times_.size() &&
+         assessment.proximity_time <= this->warning_times_[this->warning_next_]) {
+    this->warning_next_++;
+    due = true;
+  }
+  if (due)
+    this->warning_callback_.call(this->warning_times_[this->warning_next_ - 1]);
 }
 
 void TrafficWidget::fix_label_sizes_() {
@@ -197,14 +254,14 @@ lv_obj_t *TrafficWidget::create_box_(lv_align_t align, lv_coord_t x_offset) {
   lv_obj_set_style_border_color(box, lv_color_hex(0x808080), 0);
   lv_obj_set_style_radius(box, 4, 0);
   lv_obj_set_style_pad_all(box, 4, 0);
-  lv_obj_align(box, align, x_offset, INFO_MARGIN);
-  lv_obj_add_flag(box, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_align(box, align, x_offset, -INFO_MARGIN);
+  set_hidden(box, true);
   return box;
 }
 
 void TrafficWidget::update_ownship_(const gdl90PositionReport_t *report) {
   if (report == nullptr) {
-    lv_obj_add_flag(this->ownship_box_, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(this->ownship_box_, true);
     return;
   }
   char altitude[16];
@@ -213,8 +270,8 @@ void TrafficWidget::update_ownship_(const gdl90PositionReport_t *report) {
   this->units_.format_speed(speed, sizeof(speed), report->groundSpeed);
   char buf[40];
   snprintf(buf, sizeof(buf), "%s\n%s", altitude, speed);
-  lv_label_set_text(this->ownship_label_, buf);
-  lv_obj_remove_flag(this->ownship_box_, LV_OBJ_FLAG_HIDDEN);
+  set_text_if_changed(this->ownship_label_, buf);
+  set_hidden(this->ownship_box_, false);
 }
 
 void TrafficWidget::extrapolate_(gdl90PositionReport_t &report, float dt) {
@@ -225,7 +282,9 @@ void TrafficWidget::extrapolate_(gdl90PositionReport_t &report, float dt) {
     return;
   }
   float distance = report.groundSpeed * dt;  // meters travelled since the report
-  float track = toRadians(report.track);
+  // Follow a turn by moving along the track half way through it, then turning.
+  float track = toRadians(report.track + report.turnRate * dt / 2.0f);
+  report.track = fmodf(report.track + report.turnRate * dt + 360.0f, 360.0f);
   float delta_north = distance * cosf(track);
   float delta_east = distance * sinf(track);
   report.latitude += delta_north / METERS_PER_DEGREE;
@@ -261,7 +320,7 @@ void TrafficWidget::layout_rings_(float radius) {
 
     char buf[16];
     this->units_.format_range(buf, sizeof(buf), distance);
-    lv_label_set_text(ring.label, buf);
+    set_text_if_changed(ring.label, buf);
     // Place the label just inside the ring, straight ahead of the ownship.
     lv_obj_align(ring.label, LV_ALIGN_CENTER, 0, this->ownship_y_ - ring_radius + 8);
   }
@@ -281,18 +340,23 @@ void TrafficWidget::point_arrow_(float angle) {
   auto point = [](float x, float y) {
     return lv_point_precise_t{static_cast<lv_value_precise_t>(x), static_cast<lv_value_precise_t>(y)};
   };
-  this->arrow_points_[0] = point(centre - dx * length, centre - dy * length);
-  this->arrow_points_[1] = point(tip_x, tip_y);
-  this->arrow_points_[2] = point(tip_x - head * sinf(angle - HEAD_ANGLE), tip_y + head * cosf(angle - HEAD_ANGLE));
-  this->arrow_points_[3] = point(tip_x, tip_y);
-  this->arrow_points_[4] = point(tip_x - head * sinf(angle + HEAD_ANGLE), tip_y + head * cosf(angle + HEAD_ANGLE));
+  const lv_point_precise_t points[5] = {
+      point(centre - dx * length, centre - dy * length),
+      point(tip_x, tip_y),
+      point(tip_x - head * sinf(angle - HEAD_ANGLE), tip_y + head * cosf(angle - HEAD_ANGLE)),
+      point(tip_x, tip_y),
+      point(tip_x - head * sinf(angle + HEAD_ANGLE), tip_y + head * cosf(angle + HEAD_ANGLE)),
+  };
+  if (memcmp(points, this->arrow_points_, sizeof(points)) == 0)
+    return;
+  memcpy(this->arrow_points_, points, sizeof(points));
   lv_line_set_points(this->info_arrow_, this->arrow_points_, 5);
 }
 
 void TrafficWidget::update_info_(const gdl90PositionReport_t *report, const ThreatAssessment &assessment,
                                  float altitude_difference, float delta_north, float delta_east, uint32_t now) {
   if (report == nullptr) {
-    lv_obj_add_flag(this->info_box_, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(this->info_box_, true);
     return;
   }
   // The bearing on screen, clockwise from straight up, after the track-up rotation.
@@ -314,33 +378,32 @@ void TrafficWidget::update_info_(const gdl90PositionReport_t *report, const Thre
     buf[len++] = '\n';
     snprintf(buf + len, sizeof(buf) - len, APPROACH_TIME_FORMAT, assessment.approach_time);
   }
-  lv_label_set_text(this->info_label_, buf);
+  set_text_if_changed(this->info_label_, buf);
   // Wide enough for any numbers, or for this callsign if that is wider.
   char callsign[GDL_CALLSIGN_LENGTH + 1];
   snprintf(callsign, sizeof(callsign), "%.*s", callsign_len, report->callsign);
   lv_point_t size;
   lv_text_get_size(&size, callsign, lv_obj_get_style_text_font(this->info_label_, LV_PART_MAIN), 0, 0, LV_COORD_MAX,
                    LV_TEXT_FLAG_NONE);
-  lv_obj_set_width(this->info_label_, std::max(this->info_number_width_, static_cast<lv_coord_t>(size.x)));
+  const lv_coord_t width = std::max(this->info_number_width_, static_cast<lv_coord_t>(size.x));
+  if (lv_obj_get_style_width(this->info_label_, LV_PART_MAIN) != width)
+    lv_obj_set_width(this->info_label_, width);
 
   // Flash the box by swapping its colors while the alarm is raised.
   const bool inverted = assessment.alarm && (now / ALARM_FLASH_MS) % 2 == 0;
-  const lv_color_t background = inverted ? this->text_color_ : this->bg_color_;
-  const lv_color_t foreground = inverted ? this->bg_color_ : this->text_color_;
-  lv_obj_set_style_bg_color(this->info_box_, background, 0);
-  lv_obj_set_style_text_color(this->info_box_, foreground, 0);
-  lv_obj_set_style_line_color(this->info_arrow_, foreground, 0);
-  lv_obj_remove_flag(this->info_box_, LV_OBJ_FLAG_HIDDEN);
+  set_state(this->info_box_, LV_STATE_CHECKED, inverted);
+  set_state(this->info_arrow_, LV_STATE_CHECKED, inverted);
+  set_hidden(this->info_box_, false);
   this->highlight_on_ = !inverted;
 }
 
-void TrafficWidget::translate_(lv_obj_t *obj, float delta_north, float delta_east) {
+bool TrafficWidget::translate_(lv_obj_t *obj, float delta_north, float delta_east) {
   // Rotate the (east, north) offset into screen space (track-up) and place the
   // object relative to the display centre. Screen y grows downward, so north
   // maps to negative y.
   auto x = static_cast<lv_coord_t>(delta_east * this->cos_t_ + delta_north * this->sin_t_);
   auto y = static_cast<lv_coord_t>(delta_east * this->sin_t_ - delta_north * this->cos_t_);
-  lv_obj_align(obj, LV_ALIGN_CENTER, x, this->ownship_y_ + y);
+  return align_if_moved(obj, LV_ALIGN_CENTER, x, this->ownship_y_ + y);
 }
 
 void TrafficWidget::place_north_(float margin) {
@@ -358,8 +421,8 @@ void TrafficWidget::place_north_(float margin) {
   } else if (dy > 1e-6f) {
     reach = std::min(reach, (half_height - this->ownship_y_) / dy);
   }
-  lv_obj_align(this->north_obj_, LV_ALIGN_CENTER, static_cast<lv_coord_t>(dx * reach),
-               static_cast<lv_coord_t>(this->ownship_y_ + dy * reach));
+  align_if_moved(this->north_obj_, LV_ALIGN_CENTER, static_cast<lv_coord_t>(dx * reach),
+                 static_cast<lv_coord_t>(this->ownship_y_ + dy * reach));
 }
 
 void TrafficWidget::update() {
@@ -369,20 +432,23 @@ void TrafficWidget::update() {
   // The range reaches from the ownship to the top edge, straight ahead.
   const float radius = height / 2.0f + this->ownship_y_;
   const float scale = radius / this->range_;  // pixels per meter
-  lv_obj_align(this->ownship_obj_, LV_ALIGN_CENTER, 0, this->ownship_y_);
-
-  // Range rings are a fixed grid and are shown regardless of GPS state.
-  this->layout_rings_(radius);
+  // The ownship and the range rings are a fixed grid, shown regardless of GPS state,
+  // so they only move when the widget changes size.
+  if (radius != this->layout_radius_) {
+    this->layout_radius_ = radius;
+    lv_obj_align(this->ownship_obj_, LV_ALIGN_CENTER, 0, this->ownship_y_);
+    this->layout_rings_(radius);
+  }
 
   OwnshipT ownship;
   bool pos_valid = this->parent_->get_ownship_position(&ownship);
   if (!pos_valid) {
     if (this->north_obj_ != nullptr) {
-      lv_obj_add_flag(this->north_obj_, LV_OBJ_FLAG_HIDDEN);
+      set_hidden(this->north_obj_, true);
     }
     for (Target &t : this->targets_) {
-      lv_obj_add_flag(t.image, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(t.label, LV_OBJ_FLAG_HIDDEN);
+      set_hidden(t.image, true);
+      set_hidden(t.label, true);
     }
     this->update_info_(nullptr, {}, 0.0f, 0.0f, 0.0f, 0);
     this->update_ownship_(nullptr);
@@ -407,9 +473,9 @@ void TrafficWidget::update() {
   // Place the north indicator at the edge in the direction of true north. It is
   // only shown while the track is valid, since otherwise north is not known.
   if (this->north_obj_ != nullptr && !ownship.report.isTrackValid) {
-    lv_obj_add_flag(this->north_obj_, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(this->north_obj_, true);
   } else if (this->north_obj_ != nullptr) {
-    lv_obj_remove_flag(this->north_obj_, LV_OBJ_FLAG_HIDDEN);
+    set_hidden(this->north_obj_, false);
     int north_angle = static_cast<int>(-this->display_track_) % 360;
     if (north_angle < 0) {
       north_angle += 360;
@@ -432,11 +498,13 @@ void TrafficWidget::update() {
   }
   if (selector.get_best() < 0) {
     this->update_info_(nullptr, {}, 0.0f, 0.0f, 0.0f, 0);
+    this->check_warnings_(nullptr, {});
   } else {
     // update_info_() sets highlight_on_, so the target's ring flashes with the box.
     const gdl90PositionReport_t &best = traffic[selector.get_best()].report;
     this->update_info_(&best, selector.get_best_assessment(), best.altitude - ownship.report.altitude,
                        trafficNorthing(&ownship.report, &best), trafficEasting(&ownship.report, &best), now);
+    this->check_warnings_(&best, selector.get_best_assessment());
   }
 
   // Draw the nearest targets that are not filtered out.
@@ -445,8 +513,8 @@ void TrafficWidget::update() {
     while (next != cnt && ignored[next])
       next++;
     if (next == cnt) {
-      lv_obj_add_flag(t.image, LV_OBJ_FLAG_HIDDEN);
-      lv_obj_add_flag(t.label, LV_OBJ_FLAG_HIDDEN);
+      set_hidden(t.image, true);
+      set_hidden(t.label, true);
       continue;
     }
     const size_t i = next++;
@@ -455,12 +523,11 @@ void TrafficWidget::update() {
     float delta_east = trafficEasting(&ownship.report, &report) * scale;
     float delta_north = trafficNorthing(&ownship.report, &report) * scale;
 
-    lv_obj_remove_flag(t.image, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_remove_flag(t.label, LV_OBJ_FLAG_HIDDEN);
-    this->translate_(t.image, delta_north, delta_east);
+    set_hidden(t.image, false);
+    set_hidden(t.label, false);
+    const bool moved = this->translate_(t.image, delta_north, delta_east);
     // Ring the target shown in the info box.
-    const bool highlight = static_cast<int>(i) == selector.get_best() && this->highlight_on_;
-    lv_obj_set_style_outline_width(t.image, highlight ? 2 : 0, 0);
+    set_state(t.image, LV_STATE_CHECKED, static_cast<int>(i) == selector.get_best() && this->highlight_on_);
 
     // Rotate the icon to the target's track relative to the ownship heading.
     int angle = static_cast<int>(report.track - this->display_track_) % 360;
@@ -473,8 +540,8 @@ void TrafficWidget::update() {
     char buf[24];
     float alt_diff_hundreds_ft = (report.altitude - ownship.report.altitude) / 0.3048f / 100.0f;
     snprintf(buf, sizeof(buf), "%+04.0f\n%.4s", alt_diff_hundreds_ft, report.callsign);
-    lv_label_set_text(t.label, buf);
-    lv_obj_align_to(t.label, t.image, LV_ALIGN_OUT_RIGHT_MID, 2, 0);
+    if (set_text_if_changed(t.label, buf) || moved)
+      lv_obj_align_to(t.label, t.image, LV_ALIGN_OUT_RIGHT_MID, 2, 0);
   }
 }
 

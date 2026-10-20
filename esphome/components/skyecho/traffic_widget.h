@@ -29,9 +29,19 @@ class TrafficWidget : public lvgl::LvCompound {
   void set_range_rings(size_t rings) { this->num_rings_ = rings; }
   void set_alarm_distance(float meters) { this->threat_settings_.alarm_distance = meters; }
   void set_alarm_altitude(float meters) { this->threat_settings_.alarm_altitude = meters; }
+  void set_glider_alarm_altitude(float meters) { this->threat_settings_.glider_alarm_altitude = meters; }
   void set_alarm_time(float seconds) { this->threat_settings_.alarm_time = seconds; }
   void set_max_distance(float meters) { this->threat_settings_.max_distance = meters; }
   void set_max_altitude_difference(float meters) { this->threat_settings_.max_altitude_difference = meters; }
+  /// Seconds before close proximity at which to warn about a threat, longest first.
+  void set_warning_times(std::initializer_list<uint16_t> seconds) { this->warning_times_ = seconds; }
+
+  /// Called once at each warning time with that time in seconds, while a threat
+  /// raises the alarm. A threat first seen after some warning times have passed
+  /// gives one call, for the shortest of those.
+  template<typename F> void add_on_threat_warning_callback(F &&callback) {
+    this->warning_callback_.add(std::forward<F>(callback));
+  }
 
   /**
    * Build the child objects and start the refresh timer. Called once from
@@ -47,8 +57,8 @@ class TrafficWidget : public lvgl::LvCompound {
 
  protected:
   // Position an object relative to the ownship, applying the track-up rotation.
-  // delta_north/delta_east are in pixels.
-  void translate_(lv_obj_t *obj, float delta_north, float delta_east);
+  // delta_north/delta_east are in pixels. Returns true if the object moved.
+  bool translate_(lv_obj_t *obj, float delta_north, float delta_east);
 
   // Place the north indicator on the edge of the widget, in the direction of true
   // north from the ownship, keeping its centre margin pixels inside the edge.
@@ -73,10 +83,13 @@ class TrafficWidget : public lvgl::LvCompound {
   // Point the info box arrow at an angle in radians, clockwise from straight up.
   void point_arrow_(float angle);
 
+  // Call the warning callbacks for any warning time the threat has reached.
+  void check_warnings_(const gdl90PositionReport_t *report, const ThreatAssessment &assessment);
+
   // Fix the sizes of the info box labels so they do not change as the numbers do.
   void fix_label_sizes_();
 
-  // Create a hidden, content-sized box in a top corner of the widget.
+  // Create a hidden, content-sized box in a bottom corner of the widget.
   lv_obj_t *create_box_(lv_align_t align, lv_coord_t x_offset);
 
   // Show the ownship altitude and groundspeed, or hide the box when report is null.
@@ -114,6 +127,10 @@ class TrafficWidget : public lvgl::LvCompound {
   lv_point_precise_t arrow_points_[5]{};  // LVGL keeps a pointer to these
   Units units_{};
   ThreatSettings threat_settings_{};
+  FixedVector<uint16_t> warning_times_{};
+  LazyCallbackManager<void(uint32_t)> warning_callback_{};
+  uint32_t warning_address_{0};  // the threat being warned about, or zero for none
+  size_t warning_next_{0};       // index of the next warning time for that threat
   lv_color_t bg_color_{};
   lv_color_t text_color_{};
   FixedVector<Target> targets_{};
@@ -121,6 +138,8 @@ class TrafficWidget : public lvgl::LvCompound {
 
   // How far the ownship sits below the widget centre, in pixels.
   lv_coord_t ownship_y_{0};
+  // The radius the ownship and range rings were laid out for.
+  float layout_radius_{-1.0f};
   // The track the display is rotated to: the ownship track while it is valid.
   float display_track_{0.0f};
   // Rotation for the display track (cached per update).

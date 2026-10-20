@@ -114,6 +114,7 @@ typedef struct {
   float track;
   float accuracy;
   float verticalSpeed;
+  float turnRate;  // degrees per second, positive to the right; estimated from track changes, not decoded
   uint8_t priorityCode;
   uint8_t nic;
   uint8_t NACp;
