@@ -61,21 +61,16 @@ void FilesystemImage::dump_config() {
   LOG_UPDATE_INTERVAL(this);
 }
 
-bool FilesystemImage::reserve_(size_t size) {
-  if (size <= this->read_buffer_size_)
+bool FilesystemImage::allocate_buffer_() {
+  if (this->read_buffer_ != nullptr)
     return true;
   RAMAllocator<uint8_t> allocator;
-  uint8_t *buffer = allocator.allocate(size);
-  if (buffer == nullptr) {
-    ESP_LOGE(TAG, "Cannot allocate a %zu byte read buffer", size);
+  this->read_buffer_ = allocator.allocate(this->chunk_size_);
+  if (this->read_buffer_ == nullptr) {
+    ESP_LOGE(TAG, "Cannot allocate a %" PRIu32 " byte read buffer", this->chunk_size_);
     return false;
   }
-  if (this->read_buffer_ != nullptr) {
-    memcpy(buffer, this->read_buffer_, this->unread_);
-    allocator.deallocate(this->read_buffer_, this->read_buffer_size_);
-  }
-  this->read_buffer_ = buffer;
-  this->read_buffer_size_ = size;
+  this->read_buffer_size_ = this->chunk_size_;
   return true;
 }
 
@@ -100,29 +95,40 @@ void FilesystemImage::load(const char *path) {
   const int32_t size = this->file_.size();
   this->unread_ = 0;
   this->end_of_file_ = false;
-  if (size <= 0 || !this->reserve_(this->chunk_size_)) {
-    this->fail_(size <= 0 ? LOG_STR("File is empty") : LOG_STR("Out of memory"));
+  if (size <= 0) {
+    this->fail_(LOG_STR("File is empty"));
     return;
   }
 
   ImageFormat format = this->get_format();
   if (format == runtime_image::AUTO) {
-    const int32_t n = this->file_.read(this->read_buffer_, std::min<size_t>(16, this->read_buffer_size_));
-    if (n > 0)
-      this->unread_ = n;
-    format = sniff_format(this->read_buffer_, this->unread_);
+    uint8_t head[16];
+    const int32_t n = this->file_.read(head, sizeof(head));
+    format = sniff_format(head, n > 0 ? n : 0);
     if (format == runtime_image::AUTO) {
       this->fail_(LOG_STR("Unknown image format"));
       return;
     }
-  }
-  // The JPEG decoder needs the whole file at once
-  if (format == runtime_image::JPEG && !this->reserve_(size)) {
-    this->fail_(LOG_STR("Out of memory"));
-    return;
+    if (this->file_.seek(0) != 0) {
+      this->fail_(LOG_STR("Read failed"));
+      return;
+    }
   }
   if (!this->begin_decode(size, format)) {
     this->fail_(LOG_STR("Cannot start the decoder"));
+    return;
+  }
+  if (this->decoder_supports_source()) {
+    const int err = this->begin_source(&this->source_);
+    if (err != 0) {
+      ESP_LOGE(TAG, "Decode failed: %s", runtime_image::decode_error_to_string(err));
+      this->fail_(LOG_STR("Cannot start the decoder"));
+      return;
+    }
+    this->reading_source_ = true;
+  } else if (!this->allocate_buffer_()) {
+    // Only decoders that are fed data need the chunk buffer
+    this->fail_(LOG_STR("Out of memory"));
     return;
   }
   ESP_LOGD(TAG, "Loading %s, %s, %" PRId32 " bytes", path, LOG_STR_ARG(runtime_image::get_format_name(format)), size);
@@ -139,6 +145,18 @@ void FilesystemImage::loop() {
 bool FilesystemImage::step_() {
   if (!this->is_decoding() || !this->file_) {
     this->stop_();
+    return false;
+  }
+  if (this->reading_source_) {
+    const int result = this->decode_step();
+    if (result == runtime_image::DECODE_STEP_MORE)
+      return true;
+    if (result == runtime_image::DECODE_STEP_DONE) {
+      this->finish_();
+    } else {
+      ESP_LOGE(TAG, "Decode failed: %s", runtime_image::decode_error_to_string(result));
+      this->fail_(LOG_STR("Decode failed"));
+    }
     return false;
   }
   if (!this->end_of_file_ && this->unread_ < this->read_buffer_size_) {
@@ -206,9 +224,7 @@ void FilesystemImage::fail_(const LogString *reason) {
 void FilesystemImage::stop_() {
   this->file_.close();
   this->unread_ = 0;
-  // A JPEG grows the buffer to the whole file; keep only a chunk sized one
-  if (this->read_buffer_size_ > this->chunk_size_)
-    this->free_buffer_();
+  this->reading_source_ = false;
   this->disable_loop();
 }
 
