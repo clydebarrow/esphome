@@ -56,13 +56,8 @@ static lv_coord_t widest_number_text(const char *text, const lv_font_t *font) {
 // it already has. The display updates several times a second, so these helpers only
 // make the calls that change something.
 static void set_hidden(lv_obj_t *obj, bool hidden) {
-  if (lv_obj_has_flag(obj, LV_OBJ_FLAG_HIDDEN) == hidden)
-    return;
-  if (hidden) {
-    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-  } else {
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
-  }
+  if (lv_obj_is_hidden(obj) != hidden)
+    lv_obj_set_hidden(obj, hidden);
 }
 
 static bool set_text_if_changed(lv_obj_t *label, const char *text) {
@@ -91,7 +86,7 @@ static void refresh_timer_cb(lv_timer_t *timer) {
 
 void TrafficWidget::build() {
   lv_obj_t *root = this->obj;
-  lv_obj_remove_flag(root, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollable(root, false);
   // Kept for the info boxes and the target ring, and so an alarm can swap them.
   this->bg_color_ = lv_obj_get_style_bg_color(root, LV_PART_MAIN);
   this->text_color_ = lv_obj_get_style_text_color(root, LV_PART_MAIN);
@@ -116,8 +111,8 @@ void TrafficWidget::build() {
   for (size_t i = 0; i != ring_count; i++) {
     Ring ring{};
     ring.circle = lv_obj_create(root);
-    lv_obj_remove_flag(ring.circle, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(ring.circle, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_scrollable(ring.circle, false);
+    lv_obj_set_clickable(ring.circle, false);
     lv_obj_set_style_radius(ring.circle, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_opa(ring.circle, LV_OPA_TRANSP, 0);
     lv_obj_set_style_pad_all(ring.circle, 0, 0);
@@ -244,7 +239,7 @@ lv_obj_t *TrafficWidget::create_box_(lv_align_t align, lv_coord_t x_offset) {
   // The opaque background keeps the box readable when a target passes underneath.
   lv_obj_t *root = this->obj;
   lv_obj_t *box = lv_obj_create(root);
-  lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_scrollable(box, false);
   lv_obj_set_size(box, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_color(box, this->bg_color_, 0);
   lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
