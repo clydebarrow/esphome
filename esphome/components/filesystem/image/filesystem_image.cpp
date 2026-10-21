@@ -153,6 +153,9 @@ bool FilesystemImage::step_() {
       return true;
     if (result == runtime_image::DECODE_STEP_DONE) {
       this->finish_();
+    } else if (result == runtime_image::DECODE_STEP_NEED_DATA) {
+      // A file has all its bytes there, so it is shorter than its size said
+      this->fail_(LOG_STR("File ended before the image was complete"));
     } else {
       ESP_LOGE(TAG, "Decode failed: %s", runtime_image::decode_error_to_string(result));
       this->fail_(LOG_STR("Decode failed"));
