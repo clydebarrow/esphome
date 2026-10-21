@@ -126,7 +126,8 @@ class Dir {
  * that fails is not tried again on the same media until mount() or format() is called. File and directory handles come
  * from fixed pools sized at build time; open() fails with FS_ERROR_TOO_MANY_OPEN when the pool is empty.
  *
- * Paths are absolute, with '/' between names. Calls are not thread safe.
+ * Paths are absolute, with '/' between names. Calls are not thread safe, and block until done: on an SD card one
+ * can take hundreds of milliseconds, and format() or space() several seconds on a large card.
  */
 class Filesystem : public Component {
  public:
