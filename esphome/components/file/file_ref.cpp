@@ -21,8 +21,8 @@ FileRef::FileRef(filesystem::Filesystem *fs, size_t max_path_length, const char 
 bool FileRef::set_path(const char *path) {
   const size_t len = path == nullptr ? 0 : strlen(path);
   if (len == 0 || path[0] != '/' || len > this->max_path_length_) {
-    ESP_LOGW(TAG, "Invalid path '%s', the limit is %u characters starting with '/'", path == nullptr ? "" : path,
-             static_cast<unsigned>(this->max_path_length_));
+    ESP_LOGW(TAG, "Invalid path '%s', the limit is %u characters starting with '/'",
+             path == nullptr ? LOG_STR_LITERAL("") : path, static_cast<unsigned>(this->max_path_length_));
     return false;
   }
   memcpy(this->path_.get(), path, len + 1);

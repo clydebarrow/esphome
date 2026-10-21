@@ -4,9 +4,9 @@ import esphome.codegen as cg
 from esphome.components.storage import CONF_STORAGE_ID, BlockDevice
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
-from esphome.core import CORE, ID, CoroPriority, coroutine_with_priority
+from esphome.core import CORE, ID, CoroPriority, EsphomeError, coroutine_with_priority
 from esphome.cpp_generator import MockObj, MockObjClass
-from esphome.types import ConfigType
+from esphome.types import ConfigType, SafeExpType
 
 CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["storage"]
@@ -17,6 +17,9 @@ CONF_FILESYSTEM_ID = "filesystem_id"
 CONF_FORMAT_IF_MOUNT_FAILED = "format_if_mount_failed"
 CONF_MAX_OPEN_DIRS = "max_open_dirs"
 CONF_MAX_OPEN_FILES = "max_open_files"
+
+MAX_OPEN_FILES = 32
+MAX_OPEN_DIRS = 8
 
 filesystem_ns = cg.esphome_ns.namespace("filesystem")
 Filesystem = filesystem_ns.class_("Filesystem", cg.Component)
@@ -73,8 +76,12 @@ def filesystem_schema(class_: MockObjClass) -> cv.Schema:
         {
             cv.GenerateID(): cv.declare_id(class_),
             cv.GenerateID(CONF_STORAGE_ID): cv.use_id(BlockDevice),
-            cv.Optional(CONF_MAX_OPEN_FILES, default=2): cv.int_range(min=0, max=32),
-            cv.Optional(CONF_MAX_OPEN_DIRS, default=1): cv.int_range(min=0, max=8),
+            cv.Optional(CONF_MAX_OPEN_FILES, default=2): cv.int_range(
+                min=0, max=MAX_OPEN_FILES
+            ),
+            cv.Optional(CONF_MAX_OPEN_DIRS, default=1): cv.int_range(
+                min=0, max=MAX_OPEN_DIRS
+            ),
             cv.Optional(CONF_FORMAT_IF_MOUNT_FAILED, default=False): cv.boolean,
         }
     ).extend(cv.COMPONENT_SCHEMA)
@@ -85,12 +92,18 @@ async def _emit_pool_sizes() -> None:
     data = _get_data()
     for key, pools in data.pools.items():
         files, dirs = data.requests.get(key, (0, 0))
-        files = min(pools.files + files, 32)
-        dirs = min(pools.dirs + dirs, 8)
+        files += pools.files
+        dirs += pools.dirs
+        if files > MAX_OPEN_FILES or dirs > MAX_OPEN_DIRS:
+            raise EsphomeError(
+                f"Filesystem '{key}' needs {files} open files and {dirs} open directories, counting those "
+                f"its users reserve; the limits are {MAX_OPEN_FILES} and {MAX_OPEN_DIRS}. Lower "
+                f"{CONF_MAX_OPEN_FILES} or {CONF_MAX_OPEN_DIRS}"
+            )
         cg.add(pools.var.set_pool_sizes(files, dirs))
 
 
-async def new_filesystem(config: ConfigType, *args) -> MockObj:
+async def new_filesystem(config: ConfigType, *args: SafeExpType) -> MockObj:
     """Create a filesystem platform component on its block device and register it."""
     device = await cg.get_variable(config[CONF_STORAGE_ID])
     var = cg.new_Pvariable(config[CONF_ID], device, *args)

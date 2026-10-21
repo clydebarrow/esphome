@@ -269,6 +269,70 @@ TEST_F(FilesystemTest, FormatsOnlyWhenAsked) {
   EXPECT_EQ(formatting.formats, 1);
 }
 
+TEST_F(FilesystemTest, StaleHandleRefusedBeforeAnyOtherCall) {
+  this->fs_.setup();
+  File a = this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE);
+  ASSERT_TRUE(a);
+  this->disk_.eject();
+  this->disk_.insert();
+  // Nothing has told the filesystem yet; the handle must still not reach the new media
+  EXPECT_EQ(a.write("x", 1), static_cast<int32_t>(FsError::FS_ERROR_CLOSED));
+  EXPECT_EQ(a.sync(), FsError::FS_ERROR_CLOSED);
+  EXPECT_EQ(this->fs_.files["/a"].size(), 0u);
+}
+
+TEST_F(FilesystemTest, MediaChangeDropsHandlesWithoutWriting) {
+  this->fs_.setup();
+  File a = this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE);
+  Dir d = this->fs_.open_dir("/");
+  this->disk_.eject();
+  this->disk_.insert();
+  File b = this->fs_.open("/b", OPEN_WRITE | OPEN_CREATE);
+  ASSERT_TRUE(b);
+  EXPECT_EQ(this->fs_.closes, 0);
+  // unmount() on the same media still closes, so buffered data is written
+  this->fs_.unmount();
+  EXPECT_EQ(this->fs_.closes, 1);
+}
+
+TEST_F(FilesystemTest, UnmountAfterMediaChangeWritesNothing) {
+  this->fs_.setup();
+  File a = this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE);
+  this->disk_.eject();
+  this->fs_.unmount();
+  EXPECT_FALSE(this->fs_.is_mounted());
+  EXPECT_EQ(this->fs_.closes, 0);
+}
+
+TEST_F(FilesystemTest, FailedMountNotRetriedOnSameMedia) {
+  this->fs_.has_filesystem = false;
+  this->fs_.setup();
+  EXPECT_EQ(this->fs_.mounts, 1);
+  FileInfo info;
+  EXPECT_EQ(this->fs_.stat("/a", info), FsError::FS_ERROR_NO_FILESYSTEM);
+  EXPECT_FALSE(this->fs_.open("/a", OPEN_READ));
+  EXPECT_EQ(this->fs_.last_error(), FsError::FS_ERROR_NO_FILESYSTEM);
+  EXPECT_EQ(this->fs_.mounts, 1);
+  // mount() asks again
+  EXPECT_EQ(this->fs_.mount(), FsError::FS_ERROR_NO_FILESYSTEM);
+  EXPECT_EQ(this->fs_.mounts, 2);
+  // So does new media
+  this->fs_.has_filesystem = true;
+  this->disk_.eject();
+  this->disk_.insert();
+  EXPECT_TRUE(this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE));
+  EXPECT_EQ(this->fs_.mounts, 3);
+}
+
+TEST_F(FilesystemTest, FormatClearsFailedMount) {
+  this->fs_.has_filesystem = false;
+  this->fs_.setup();
+  EXPECT_FALSE(this->fs_.is_mounted());
+  EXPECT_EQ(this->fs_.format(), FsError::FS_ERROR_NONE);
+  EXPECT_TRUE(this->fs_.is_mounted());
+  EXPECT_EQ(this->fs_.mounts, 2);
+}
+
 TEST_F(FilesystemTest, ListsDirectory) {
   this->fs_.setup();
   this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE).write("12", 2);

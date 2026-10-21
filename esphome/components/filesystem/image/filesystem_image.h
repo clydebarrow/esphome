@@ -57,6 +57,7 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   void fail_(const LogString *reason);
   void stop_();
   bool reserve_(size_t size);
+  void free_buffer_();
   /// The path update() loads, or nullptr when there is none.
   const char *update_path_() const;
 
@@ -68,7 +69,7 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   file::FileRef *file_ref_{nullptr};
 #endif
   File file_;
-  uint8_t *read_buffer_{nullptr};  // Kept between loads so they do not churn the heap
+  uint8_t *read_buffer_{nullptr};  // A chunk sized buffer is kept between loads so they do not churn the heap
   size_t read_buffer_size_{0};
   size_t unread_{0};
   uint32_t chunk_size_;

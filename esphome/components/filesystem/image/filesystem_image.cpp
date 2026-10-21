@@ -5,6 +5,7 @@
 #include <cstring>
 
 #include "esphome/components/runtime_image/image_decoder.h"
+#include "esphome/core/application.h"
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
@@ -78,6 +79,13 @@ bool FilesystemImage::reserve_(size_t size) {
   return true;
 }
 
+void FilesystemImage::free_buffer_() {
+  RAMAllocator<uint8_t> allocator;
+  allocator.deallocate(this->read_buffer_, this->read_buffer_size_);
+  this->read_buffer_ = nullptr;
+  this->read_buffer_size_ = 0;
+}
+
 void FilesystemImage::load(const char *path) {
   if (this->is_decoding() || this->file_) {
     ESP_LOGW(TAG, "Already loading an image");
@@ -123,7 +131,7 @@ void FilesystemImage::load(const char *path) {
 }
 
 void FilesystemImage::loop() {
-  const uint32_t start = millis();
+  const uint32_t start = App.get_loop_component_start_time();
   while (this->step_() && millis() - start < PASS_BUDGET_MS) {
   }
 }
@@ -198,11 +206,15 @@ void FilesystemImage::fail_(const LogString *reason) {
 void FilesystemImage::stop_() {
   this->file_.close();
   this->unread_ = 0;
+  // A JPEG grows the buffer to the whole file; keep only a chunk sized one
+  if (this->read_buffer_size_ > this->chunk_size_)
+    this->free_buffer_();
   this->disable_loop();
 }
 
 void FilesystemImage::release() {
   this->stop_();
+  this->free_buffer_();
   RuntimeImage::release();
 }
 
