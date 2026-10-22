@@ -17,6 +17,8 @@ using runtime_image::ImageFormat;
 
 // Time one loop pass may spend reading and decoding
 static constexpr uint32_t PASS_BUDGET_MS = 20;
+// Shortest time between two on_load_progress calls
+static constexpr uint32_t PROGRESS_INTERVAL_MS = 100;
 
 // The format, from the first bytes of the file
 static ImageFormat sniff_format(const uint8_t *data, size_t len) {
@@ -132,7 +134,10 @@ void FilesystemImage::load(const char *path) {
     return;
   }
   ESP_LOGD(TAG, "Loading %s, %s, %" PRId32 " bytes", path, LOG_STR_ARG(runtime_image::get_format_name(format)), size);
+  this->file_size_ = size;
   this->start_time_ = millis();
+  this->last_progress_time_ = this->start_time_;
+  this->progress_callback_.call(0.0f, 0);
   this->enable_loop();
 }
 
@@ -140,6 +145,20 @@ void FilesystemImage::loop() {
   const uint32_t start = App.get_loop_component_start_time();
   while (this->step_() && millis() - start < PASS_BUDGET_MS) {
   }
+  if (this->file_)
+    this->report_progress_(start);
+}
+
+void FilesystemImage::report_progress_(uint32_t now) {
+  if (now - this->last_progress_time_ < PROGRESS_INTERVAL_MS)
+    return;
+  const int32_t position = this->file_.tell();
+  if (position < 0)
+    return;
+  this->last_progress_time_ = now;
+  // Bytes still in the chunk buffer have been read but not decoded
+  const size_t used = this->reading_source_ ? position : position - this->unread_;
+  this->progress_callback_.call(std::min(100.0f, used * 100.0f / this->file_size_), used);
 }
 
 bool FilesystemImage::step_() {
@@ -210,6 +229,7 @@ bool FilesystemImage::step_() {
 }
 
 void FilesystemImage::finish_() {
+  this->progress_callback_.call(100.0f, this->file_size_);
   this->end_decode();
   ESP_LOGD(TAG, "Image loaded in %" PRIu32 " ms", millis() - this->start_time_);
   this->stop_();

@@ -46,7 +46,7 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   void loop() override;
   void dump_config() override;
 
-  /// Start loading a file. Progress is reported through the finished and error callbacks.
+  /// Start loading a file. Progress is reported through the progress, finished and error callbacks.
   void load(const char *path);
   void load(const std::string &path) { this->load(path.c_str()); }
   /// Stop any load in progress and free the image.
@@ -58,6 +58,10 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   template<typename F> void add_on_load_finished_callback(F &&callback) {
     this->finished_callback_.add(std::forward<F>(callback));
   }
+  /// Called with the percentage of the file decoded so far, and the bytes of it the decoder has used
+  template<typename F> void add_on_load_progress_callback(F &&callback) {
+    this->progress_callback_.add(std::forward<F>(callback));
+  }
   template<typename F> void add_on_error_callback(F &&callback) {
     this->error_callback_.add(std::forward<F>(callback));
   }
@@ -68,6 +72,8 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   void finish_();
   void fail_(const LogString *reason);
   void stop_();
+  /// Reports progress, at most every PROGRESS_INTERVAL_MS
+  void report_progress_(uint32_t now);
   bool allocate_buffer_();
   void free_buffer_();
   /// The path update() loads, or nullptr when there is none.
@@ -75,6 +81,7 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
 
   LazyCallbackManager<void()> finished_callback_;
   LazyCallbackManager<void()> error_callback_;
+  LazyCallbackManager<void(float, size_t)> progress_callback_;
   Filesystem *fs_;
   const char *path_;
 #ifdef USE_FILE
@@ -87,6 +94,8 @@ class FilesystemImage : public PollingComponent, public runtime_image::RuntimeIm
   size_t unread_{0};
   uint32_t chunk_size_;
   uint32_t start_time_{0};
+  uint32_t last_progress_time_{0};
+  uint32_t file_size_{0};
   bool end_of_file_{false};
   bool reading_source_{false};  // The decoder reads the file itself
 };

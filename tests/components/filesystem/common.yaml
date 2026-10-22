@@ -15,6 +15,10 @@ image:
     path: /images/logo.bmp
     format: BMP
     type: RGB565
+    on_load_progress:
+      - logger.log:
+          format: "Loaded %.0f%% (%zu bytes)"
+          args: [progress, bytes_read]
     on_load_finished:
       - logger.log: Image loaded
     on_error:
