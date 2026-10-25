@@ -27,6 +27,76 @@ in ordinary ESPHome YAML.
 The ESPHome component points `add_idf_component(path=...)` at a local XCSoar checkout (`xcsoar_path`).
 XCSoar is GPL-2.0-or-later, so firmware built with it is GPL as well.
 
+## How the application is structured
+
+### Start-up
+
+`XCSoarComponent::setup()` (ESPHome main task) prepares the environment and then starts XCSoar:
+
+1. `heap_caps_malloc_extmem_enable(64)`: from here on, allocations above 64 bytes go to PSRAM.
+2. Registers the eventfd VFS driver (4 descriptors) that XCSoar's event loop wakes up on.
+3. Gets a frame buffer or its own conversion buffer for the display, and calls `stop_poller()` on the display.
+4. Mounts `filesystem_vfs` at `/sdcard` and the embedded fonts at `/rom`.
+5. Starts the XCSoar main thread with `pthread_create()` (core 0, priority 1, stack in PSRAM). The
+   `esp_pthread_cfg` is set with `inherit_cfg`, so every thread XCSoar starts gets a PSRAM stack too.
+
+The XCSoar main thread waits up to 5 s for the card (`wait_ready()`), then calls `XCSoarEsp32::Run()`
+(`RunDemo()` with `demo: true`). `Run()` builds a command line (`-1280x720 -datapath=/sdcard/XCSoar`) and calls
+`XCSoarMain()`, which is XCSoar's normal `main()` under another name. From there XCSoar's own start-up
+(`src/Startup.cpp`) runs unchanged: data layout migration, the startup dialog (profile, FLY or SIM), the
+profile, then terrain, topography, waypoints and airspace.
+
+### Threads at run time
+
+| Thread | Created by | Does |
+|---|---|---|
+| ESPHome main task | ESP-IDF | `loop()`: shows finished frames, passes touches on. The only caller of the display. |
+| XCSoar main thread | the component (pthread) | XCSoar's UI: event loop, windows, dialogs, `TopCanvas::Flip()`. |
+| `DrawThread` | XCSoar | Draws the map into its own buffer (the build without OpenGL). |
+| `CalculationThread`, `MergeThread` | XCSoar | Glide computer: merges device data, runs the task and glide calculations. |
+| Terrain and topography threads | XCSoar | Load map tiles and shape files from the `.xcm` file in the background. |
+| `AsioThread`, `JobThread`, workers | XCSoar | Asynchronous I/O and one-off jobs (file loading at start-up). |
+
+All XCSoar threads are pthreads with PSRAM stacks. They talk to each other only through XCSoar's own locks and
+the event queue; the component touches none of XCSoar's state.
+
+### Data paths between ESPHome and XCSoar
+
+- **Frames:** XCSoar main thread -> `frame_ready_()` -> PPA into the back frame buffer -> `loop()` shows it
+  (see phase 1).
+- **Touch:** touchscreen component -> `XCSoarComponent::update()`/`release()` (main task) ->
+  `XCSoarEsp32::InjectPointer()` -> `EventQueue::Inject()`, which wakes the XCSoar event loop by its eventfd.
+- **Files:** XCSoar uses `open()`, `fopen()`, `opendir()` and `stat()`. Paths under `/sdcard` go through
+  `filesystem_vfs` to the ESPHome `filesystem` (FAT on the SD card), behind one mutex. At most 8 files and 4
+  directories can be open at once. `/rom` is the read-only font store in flash.
+- **Logging:** XCSoar writes its log to `/sdcard/XCSoar/xcsoar.log`; the component logs through ESPHome.
+
+### SD card layout
+
+XCSoar's data directory is `/XCSoar` on the card. At start-up XCSoar moves files it finds at the top level
+into these folders (`DataLayoutMigration.cpp`, marker file `.xcsoar-subdir-layout-v1`):
+
+| Folder | Files | Profile key |
+|---|---|---|
+| `profiles/` | `default.prf` (settings) | |
+| `maps/` | `*.xcm`: a zip with terrain (`terrain.jp2`), topography shape files, and sometimes waypoints and airspace | `MapFile` |
+| `waypoints/` | `*.cup`, `*.dat`, `*.wpt`, `*.cupx` | `WPFileList` |
+| `airspace/` | OpenAir `*.txt`, `*.openair` | `AirspaceFileList` |
+| `tasks/`, `logs/`, `planes/`, `flarm/`, `input/`, `lua/` | tasks, IGC logs, polars, FLARMnet, key maps, scripts | |
+| `fonts/` | TTF files that replace the embedded ones | |
+
+Files are picked in the profile (or in Config > System > Site Files). Values may start with `%LOCAL_PATH%\`,
+which stands for the data directory; list keys separate files with `|`. For example:
+
+```
+MapFile="%LOCAL_PATH%\maps\AUS_QLD.xcm"
+WPFileList="%LOCAL_PATH%\waypoints\warwck7e.cup"
+AirspaceFileList="%LOCAL_PATH%\airspace\AU-ASP-National-SoaringWeb.txt"
+HomeLocation="151.94305 -28.14945"
+```
+
+Maps, waypoints and airspace files are listed at `http://download.xcsoar.org/repository`.
+
 ## Phase 1: rendering (done)
 
 ```yaml
@@ -171,8 +241,9 @@ To do:
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
 - **Watchdog.** Just after start-up something on an XCSoar thread calls `esp_task_wdt_reset()`, which logs
   "task not found" once; find out what.
-- **Data.** The SD card has no waypoints, airspace, terrain or maps yet, so the map is empty; test with real
-  data files.
+- **Data.** The test card now has a map (`AUS_QLD.xcm`, south-east Queensland), the Warwick waypoints and the
+  Australian airspace, selected in `profiles/default.prf`; not yet run with them. Check terrain decoding
+  (JasPer), memory use and loading time.
 - **Networking** (`HAVE_HTTP`: curl, OpenSSL or mbedTLS) is left out for now.
 - **Settings.** XCSoar's profile stays XCSoar's own. A few values (e.g. altitude, vario) could be ESPHome
   sensors later.
