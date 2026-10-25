@@ -205,6 +205,7 @@ esphome/components/esp32_hosted/update/* @swoboda1337
 esphome/components/esp32_power_management/* @rwrozelle
 esphome/components/esp32_rmt/* @jesserockz
 esphome/components/esp32_rmt_led_strip/* @jesserockz
+esphome/components/esp32_ulp/* @swoboda1337
 esphome/components/esp8266/* @esphome/core
 esphome/components/esp_ldo/* @clydebarrow
 esphome/components/espectre/* @francescopace
@@ -220,8 +221,10 @@ esphome/components/ezo_pmp/* @carlos-sarmiento
 esphome/components/ezsp_proxy_tap/* @kbx81 @puddly
 esphome/components/factory_reset/* @anatoly-savchenkov
 esphome/components/fastled_base/* @OttoWinter
+esphome/components/fatfs/* @clydebarrow
 esphome/components/feedback/* @ianchi
 esphome/components/file/* @esphome/core
+esphome/components/filesystem/* @clydebarrow
 esphome/components/filter_lifetime/* @tuct
 esphome/components/fingerprint_grow/* @alexborro @loongyh @OnFreund
 esphome/components/font/* @clydebarrow @esphome/core
@@ -500,6 +503,7 @@ esphome/components/qwiic_pir/* @kahrendt
 esphome/components/radio_frequency/* @kbx81
 esphome/components/radon_eye_ble/* @jeffeb3
 esphome/components/radon_eye_rd200/* @jeffeb3
+esphome/components/ram_disk/* @clydebarrow
 esphome/components/rc522/* @glmnet
 esphome/components/rc522_i2c/* @glmnet
 esphome/components/rc522_spi/* @glmnet
@@ -530,6 +534,7 @@ esphome/components/safe_mode/* @jsuanet @kbx81 @paulmonigatti
 esphome/components/samsung/* @jorofi
 esphome/components/scd4x/* @martgras @sjtrny
 esphome/components/script/* @esphome/core
+esphome/components/sd_spi/* @clydebarrow
 esphome/components/sdl/* @bdm310 @clydebarrow
 esphome/components/sdm_meter/* @jesserockz @polyfaces
 esphome/components/sdp3x/* @Azimath
@@ -614,6 +619,7 @@ esphome/components/st7789v/* @kbx81
 esphome/components/st7920/* @marsjan155
 esphome/components/statsd/* @Links2004
 esphome/components/stcc4/* @j9brown
+esphome/components/storage/* @clydebarrow
 esphome/components/stts22h/* @B48D81EFCC
 esphome/components/substitutions/* @esphome/core
 esphome/components/sun/* @OttoWinter
@@ -694,9 +700,12 @@ esphome/components/usb_uart/* @clydebarrow
 esphome/components/valve/* @esphome/core
 esphome/components/vbus/* @ssieb
 esphome/components/veml3235/* @kbx81
+esphome/components/veml6040/* @aalaei
 esphome/components/veml7700/* @latonita
 esphome/components/version/* @esphome/core
 esphome/components/vevor_dtx/* @Bofr5555
+esphome/components/vl53l1x/* @will-tm
+esphome/components/vnc/* @MindFreeze
 esphome/components/voice_assistant/* @jesserockz @kahrendt
 esphome/components/wake_on_lan/* @clydebarrow @willwill2will54
 esphome/components/watchdog/* @oarcher

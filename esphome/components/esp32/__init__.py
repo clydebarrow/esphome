@@ -74,6 +74,7 @@ from .const import (
     KEY_EXTRA_BUILD_FILES,
     KEY_FLASH_SIZE,
     KEY_FULL_CERT_BUNDLE,
+    KEY_IDF_EXTRA_TARGETS,
     KEY_IDF_VERSION,
     KEY_MBEDTLS_SDKCONFIG,
     KEY_NETWORK_SDKCONFIG,
@@ -81,6 +82,7 @@ from .const import (
     KEY_REF,
     KEY_REPO,
     KEY_SDKCONFIG_OPTIONS,
+    KEY_SRC_CMAKE,
     KEY_VARIANT,
     VARIANT_ESP32,
     VARIANT_ESP32C2,
@@ -703,7 +705,18 @@ def set_core_data(config):
     CORE.data[KEY_ESP32][KEY_FLASH_SIZE] = config[CONF_FLASH_SIZE]
     CORE.data[KEY_ESP32][KEY_VARIANT] = variant
     CORE.data[KEY_ESP32][KEY_EXTRA_BUILD_FILES] = {}
+    CORE.data[KEY_ESP32][KEY_SRC_CMAKE] = []
+    CORE.data[KEY_ESP32][KEY_IDF_EXTRA_TARGETS] = set()
 
+    return config
+
+
+def _require_ipv4_on_arduino(config: ConfigType) -> ConfigType:
+    """The Arduino core's IPAddress.cpp does not compile with IPv4 disabled."""
+    if CORE.using_arduino:
+        from esphome.components import network
+
+        network.require_ipv4(PLATFORM_ESP32)(config)
     return config
 
 
@@ -1088,6 +1101,26 @@ def add_extra_script(stage: str, filename: str, path: Path):
     key = f"{stage}:{filename}"
     if add_extra_build_file(filename, path):
         cg.add_platformio_option("extra_scripts", [key])
+
+
+def add_idf_install_target(target: str) -> None:
+    """Install the ESP-IDF tools for another chip alongside the variant's own.
+
+    The native ESP-IDF toolchain install is limited to the variant being
+    built. A component that needs another architecture's compiler names that
+    chip here; ``target`` is an IDF chip name such as ``esp32c3``.
+    """
+    CORE.data[KEY_ESP32][KEY_IDF_EXTRA_TARGETS].add(target)
+
+
+def add_src_cmake(block: str) -> None:
+    """Append CMake to the generated src/CMakeLists.txt.
+
+    The block is emitted after ``idf_component_register`` so it can use
+    ``COMPONENT_LIB`` and friends; IDF's requirements pass stops at
+    ``idf_component_register`` so the block never runs in script mode.
+    """
+    CORE.data[KEY_ESP32][KEY_SRC_CMAKE].append(block)
 
 
 def add_extra_build_file(filename: str, path: Path) -> bool:
@@ -2184,9 +2217,18 @@ def require_fatfs() -> None:
     """Mark that FATFS support is required by a component.
 
     Call this from components that use FATFS (e.g., SD card, storage components).
-    This prevents FATFS from being disabled when disable_fatfs is set.
+    This prevents FATFS from being disabled when disable_fatfs is set, and builds the
+    IDF fatfs component with the components it requires.
     """
     CORE.data[KEY_ESP32][KEY_FATFS_REQUIRED] = True
+    for name in (
+        "fatfs",
+        "wear_levelling",
+        "sdmmc",
+        "esp_driver_sdmmc",
+        "esp_driver_sdspi",
+    ):
+        include_builtin_idf_component(name)
 
 
 def require_adc_oneshot_iram() -> None:
@@ -2470,6 +2512,7 @@ CONFIG_SCHEMA = cv.All(
     _set_default_framework,
     _check_versions,
     set_core_data,
+    _require_ipv4_on_arduino,
     cv.has_at_least_one_key(CONF_BOARD, CONF_VARIANT),
 )
 
@@ -2889,10 +2932,22 @@ async def _reconcile_vfs_fatfs_sdkconfig(
     user_picked_lfn = any(k in opts for k in lfn_keys)
     if CORE.data[KEY_ESP32].get(KEY_FATFS_REQUIRED, False):
         if not user_picked_lfn:
+            # On the stack, so a long name costs no heap allocation per call
             set_idf_sdkconfig_default("CONFIG_FATFS_LFN_NONE", False)
-            set_idf_sdkconfig_default("CONFIG_FATFS_LFN_HEAP", True)
+            set_idf_sdkconfig_default("CONFIG_FATFS_LFN_STACK", True)
             set_idf_sdkconfig_default("CONFIG_FATFS_MAX_LFN", 255)
         set_idf_sdkconfig_default("CONFIG_FATFS_VOLUME_COUNT", 4)
+        # One sector buffer per volume shared by its open files, and 512 byte sectors only, instead of
+        # a 4 KiB buffer per file sized for wear levelling
+        set_idf_sdkconfig_default("CONFIG_FATFS_PER_FILE_CACHE", False)
+        if not any(
+            k in opts
+            for k in ("CONFIG_WL_SECTOR_SIZE_512", "CONFIG_WL_SECTOR_SIZE_4096")
+        ):
+            set_idf_sdkconfig_default("CONFIG_WL_SECTOR_SIZE_4096", False)
+            set_idf_sdkconfig_default("CONFIG_WL_SECTOR_SIZE_512", True)
+        if "CONFIG_FATFS_API_ENCODING_ANSI_OEM" not in opts:
+            set_idf_sdkconfig_default("CONFIG_FATFS_API_ENCODING_UTF_8", True)
     elif disable_fatfs:
         if not user_picked_lfn:
             set_idf_sdkconfig_default("CONFIG_FATFS_LFN_NONE", True)

@@ -1,0 +1,12 @@
+storage:
+  - platform: ram_disk
+    id: fatfs_ram_disk
+    size: 64KB
+
+filesystem:
+  - platform: fatfs
+    id: fatfs_ram
+    storage_id: fatfs_ram_disk
+    format_if_mount_failed: true
+    max_open_files: 3
+    max_open_dirs: 2
