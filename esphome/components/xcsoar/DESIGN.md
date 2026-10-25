@@ -33,7 +33,8 @@ XCSoar is GPL-2.0-or-later, so firmware built with it is GPL as well.
 
 `XCSoarComponent::setup()` (ESPHome main task) prepares the environment and then starts XCSoar:
 
-1. `heap_caps_malloc_extmem_enable(64)`: from here on, allocations above 64 bytes go to PSRAM.
+1. `heap_caps_malloc_extmem_enable(0)`: from here on, every `malloc()` goes to PSRAM first. FreeRTOS objects and
+   DMA buffers ask for internal RAM explicitly.
 2. Registers the eventfd VFS driver (4 descriptors) that XCSoar's event loop wakes up on.
 3. Gets a frame buffer or its own conversion buffer for the display, and calls `stop_poller()` on the display.
 4. Mounts `filesystem_vfs` at `/sdcard` and the embedded fonts at `/rom`.
@@ -41,7 +42,8 @@ XCSoar is GPL-2.0-or-later, so firmware built with it is GPL as well.
    `esp_pthread_cfg` is set with `inherit_cfg`, so every thread XCSoar starts gets a PSRAM stack too.
 
 The XCSoar main thread waits up to 5 s for the card (`wait_ready()`), then calls `XCSoarEsp32::Run()`
-(`RunDemo()` with `demo: true`). `Run()` builds a command line (`-1280x720 -datapath=/sdcard/XCSoar`) and calls
+(`RunDemo()` with `demo: true`). `Run()` builds a command line (`-1280x720 -datapath=/sdcard/XCSoar`, and `-dpi=`
+with the `dpi` option) and calls
 `XCSoarMain()`, which is XCSoar's normal `main()` under another name. From there XCSoar's own start-up
 (`src/Startup.cpp`) runs unchanged: data layout migration, the startup dialog (profile, FLY or SIM), the
 profile, then terrain, topography, waypoints and airspace.
@@ -57,7 +59,7 @@ profile, then terrain, topography, waypoints and airspace.
 | Terrain and topography threads | XCSoar | Load map tiles and shape files from the `.xcm` file in the background. |
 | `AsioThread`, `JobThread`, workers | XCSoar | Asynchronous I/O and one-off jobs (file loading at start-up). |
 
-All XCSoar threads are pthreads with PSRAM stacks. They talk to each other only through XCSoar's own locks and
+All XCSoar threads are pthreads with 128 KB PSRAM stacks (640 KB elsewhere); the largest use seen is about 25 KB. They talk to each other only through XCSoar's own locks and
 the event queue; the component touches none of XCSoar's state.
 
 ### Data paths between ESPHome and XCSoar
@@ -118,10 +120,10 @@ xcsoar:
 ```
  XCSoar task (core 0, PSRAM stack)            ESPHome main loop (core 1)
  ---------------------------------            --------------------------
- draw into the memory canvas (BGRA)
+ draw into the memory canvas (RGB565)
  TopCanvas::Flip() -> frame_ready_()
    wait until the back buffer is off screen
-   PPA: BGRA -> RGB565, rotated, into
+   PPA: rotate (and RGB888 if needed) into
         the back frame buffer
    frame_pending_ = true
    enable_loop_soon_any_context() --------->  loop()
@@ -136,7 +138,7 @@ xcsoar:
   renderer `get_frame_buffer()`, `show_frame_buffer()` and `wait_frame_buffer_free()`. Showing a buffer is no
   copy: ESP-IDF switches the panel to it at its next refresh. The XCSoar task waits for that refresh before it
   writes into the buffer that was on screen, so there is no tearing.
-- **PPA.** The P4's pixel processing unit converts XCSoar's BGRA canvas (ARGB8888 in little endian order) to the
+- **PPA.** The P4's pixel processing unit copies XCSoar's canvas (RGB565 since phase 4, `BytesPerPixel()`) to the
   panel's RGB565 or RGB888 and rotates it to the display's `rotation` in the same pass. XCSoar draws at the
   rotated size (1280x720 on the Tab5 with `rotation: 90`).
 - **Without double buffering** (any other display, or `frame_buffers: 1`), the PPA converts into a buffer of
@@ -221,43 +223,73 @@ Done:
   hand-written configuration for lwIP. Boost and fmt are header only. RTTI is on
   (`CONFIG_COMPILER_CXX_RTTI`), for Boost's R-tree and fmt.
 - **Internal RAM.** FreeRTOS objects (including the lock of every `FILE`) and DMA buffers must be in internal
-  RAM. XCSoar allocates a great deal in small blocks, so the component sends every allocation above 64 bytes to
-  PSRAM (`heap_caps_malloc_extmem_enable()`); about 320 KB of internal RAM stays free with XCSoar running.
+  RAM. XCSoar allocates a great deal in small blocks (parsing an airspace file alone used 200 KB), so the component
+  sends all of `malloc()` to PSRAM (`heap_caps_malloc_extmem_enable(0)`); about 150 KB of internal RAM stays free
+  with XCSoar running.
+- **PSRAM.** Measured at 1280x720 with the test card, before RGB565: two RGB565 panel buffers 3.7 MB, XCSoar's
+  screen 3.7 MB, three map buffers (double buffer and work buffer) 7.2 MB, the topography and airspace caches
+  2.4 MB each, icons and other bitmaps several MB, terrain tiles 128 KB each, the welcome dialog's text cache
+  4.7 MB. That did not fit in 32 MB. Now: RGB565 drawing (phase 4) halves the screen, map buffers and bitmaps;
+  topography is drawn without a cache on ESP-IDF (as with OpenGL); at most 16 terrain tiles stay loaded. With
+  `dpi: 200`, 9.4 MB stays free; with `dpi: 294` (the Tab5's real density, larger icons) 4.3 MB.
+- **Stacks.** 128 KB per XCSoar thread. JasPer's wavelet code had 256 KB column buffers on the stack; on ESP-IDF
+  they are 16 KB, and longer columns use the heap as before.
+- **Watchdog.** `sd_spi` and `storage` fed the task watchdog during transfers from whatever task made them. On
+  an XCSoar thread that failed ("task not found") and also updated ESPHome's last feed time, so the main loop
+  stopped feeding it and the watchdog fired. They now feed it only on the main loop thread.
 - **Fonts.** XCSoar loads a FreeType face per font size and every face keeps its file open, more files than
   ESP-IDF allows; on ESP-IDF each font file is read once and its faces are made from memory.
-- **Result.** XCSoar starts on the Tab5; with simulated taps on SIM and on the welcome dialog's Close it shows
-  the map in simulator mode with its InfoBoxes. The firmware uses 7.99 MB of the 8.1 MB app partition.
-  `xcsoar-tests/xcsoar-tab5-app-sim.yaml` is that test.
+- **Display density.** XCSoar sizes fonts and symbols by DPI and assumes 96 without it, which is far too small
+  on the Tab5. The `dpi` option passes `-dpi=`.
+- **Flash.** The sounds (1.8 MB) are left out until there is sound output. The firmware uses 6.2 MB of the
+  8.1 MB app partition, so the default partition table with two OTA slots stays.
+- **Result.** With the Queensland map, the Warwick waypoints and the Australian airspace on the card, XCSoar starts
+  on the Tab5 and, with simulated taps on SIM and on the welcome dialog's Close, shows the map in simulator mode:
+  terrain, topography, waypoints, airspace, InfoBoxes and an airspace warning. No resets in 200 s.
+  `xcsoar-tests/xcsoar-tab5-app-sim.yaml` is that test; it also reports large and failed allocations
+  (`debug_helpers.h`), free memory and the unused stack of every task.
 
 To do:
 
-- **Flash space.** The app partition is nearly full. Options: a partition table with one app partition (no
-  OTA), dropping debug assertions (`NDEBUG`), or keeping the resources on the SD card.
-- **Thread stacks.** XCSoar asks for 640 KB per thread (`src/thread/Thread.cpp`); in PSRAM that works, but a
-  smaller ESP32 size would save several MB.
+- **Flash space.** 1.9 MB are left in each OTA slot. More room: dropping debug assertions (`NDEBUG`), or keeping
+  resources (sounds, large bitmaps) on the SD card.
 - **GPS and vario input.** A new port type, `PortType::EXTERNAL`: a `BufferedPort` fed by an ESPHome
   `uart::UARTDevice` through a ring buffer, drained in the component's `loop()`. `TCP_LISTENER`/`UDP_LISTENER`
   over lwIP work without code changes once Wi-Fi is up.
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
-- **Watchdog.** Just after start-up something on an XCSoar thread calls `esp_task_wdt_reset()`, which logs
-  "task not found" once; find out what.
-- **Data.** The test card now has a map (`AUS_QLD.xcm`, south-east Queensland), the Warwick waypoints and the
-  Australian airspace, selected in `profiles/default.prf`; not yet run with them. Check terrain decoding
-  (JasPer), memory use and loading time.
+- **Loading time.** The Australian airspace file (480 KB) takes 17 s to load; measure where the time goes (SD card
+  reads in SPI mode, or parsing).
+- **Real touch.** Only simulated touches so far.
 - **Networking** (`HAVE_HTTP`: curl, OpenSSL or mbedTLS) is left out for now.
 - **Settings.** XCSoar's profile stays XCSoar's own. A few values (e.g. altitude, vario) could be ESPHome
   sensors later.
 
 ## Phase 4: optional
 
-- **TODO: draw in RGB565.** Add an RGB565 `PixelTraits` to XCSoar's memory canvas (it has BGRA and greyscale
-  today), so XCSoar draws straight into the display's frame buffer. That halves the memory XCSoar draws into
-  and removes the PPA conversion (56 ms per frame on the Tab5). It needs 16-bit versions of the blending and
-  anti-aliased text code, and a rotation would then need the PPA again or XCSoar's own handling.
+- **RGB565 drawing (done).** `USE_RGB565` selects `RGB565PixelTraits` for the memory canvas and its bitmaps.
+  Channels are widened to 8 bits for the per-channel operations, so blending and anti-aliased text are unchanged;
+  like greyscale it has no alpha channel (bitmaps already lose theirs when loaded). The PPA still rotates. Drawing
+  straight into the panel's frame buffer without rotation would remove the PPA step too.
 - Overlap the PPA with drawing: start the conversion without waiting and draw the next frame into a second
   canvas, so a frame takes the longer of the two steps instead of their sum (3.7 MB more PSRAM).
 - Sound through an ESPHome speaker (XCSoar's vario tone generator, `PCMMixer`).
 - Live tracking and downloads once networking is in.
+
+## Work on the ESPHome main loop instead of threads
+
+Considered and not done. ESPHome expects each `loop()` to return within a few milliseconds, and XCSoar's
+threads exist because their work does not:
+
+- The UI thread runs nested modal loops (every dialog has its own event loop in `ShowModal()`), which cannot be
+  split into polled steps without rewriting XCSoar's dialogs.
+- `DrawThread` takes about 100 ms per map frame, and the terrain and topography loaders block on SD card reads and
+  JPEG 2000 decoding for seconds.
+- `CalculationThread` normally takes a few ms per GPS fix, but contest optimisation and terrain reach can take
+  hundreds.
+- `MergeThread` is light and could run in `loop()` next to a UART port, but it takes the same locks as the UI
+  thread, so it would make the main loop wait on XCSoar.
+
+A thread costs a 128 KB PSRAM stack and nothing else, so moving work into the main loop would save little.
 
 ## Risks
 
@@ -279,3 +311,6 @@ To do:
   its path. The real touch chip starts and reports its size, but no finger has touched it yet.
 - Phase 3 on the Tab5: the full XCSoar starts from the SD card and, with simulated taps, reaches the map in
   simulator mode; no resets in 100 s.
+- With RGB565 and real data (map, waypoints, airspace) on the Tab5: the map shows terrain, topography,
+  waypoints, airspace and an airspace warning; no resets in 200 s at `dpi: 200` and 150 s at `dpi: 294`. The host
+  test renders the test scene correctly in RGB565.

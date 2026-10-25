@@ -19,7 +19,6 @@ static constexpr int TASK_CORE = 0;
 // XCSoar allocates with plain new, a great deal in small blocks (an airspace file alone fills internal RAM), so all
 // of malloc() goes to PSRAM first. FreeRTOS objects and DMA buffers ask for internal RAM explicitly.
 static constexpr size_t MALLOC_INTERNAL_LIMIT = 0;
-static constexpr size_t XCSOAR_BYTES_PER_PIXEL = 4;
 // A panel refresh takes about 16 ms; this only guards against a stopped panel
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
 // XCSoar's event loop wakes up through an eventfd
@@ -154,12 +153,13 @@ void *XCSoarComponent::task_main_(void *param) {
 bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, uint8_t *dest, size_t dest_size) {
   ppa_srm_oper_config_t srm{};
   srm.in.buffer = pixels;
-  srm.in.pic_w = pitch / XCSOAR_BYTES_PER_PIXEL;
+  const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
+  srm.in.pic_w = pitch / bytes_per_pixel;
   srm.in.pic_h = this->config_.height;
   srm.in.block_w = this->config_.width;
   srm.in.block_h = this->config_.height;
-  // XCSoar's blue, green, red, alpha bytes are ARGB8888 in little endian order
-  srm.in.srm_cm = PPA_SRM_COLOR_MODE_ARGB8888;
+  // XCSoar draws RGB565, or blue, green, red, alpha bytes (ARGB8888 in little endian order)
+  srm.in.srm_cm = bytes_per_pixel == 2 ? PPA_SRM_COLOR_MODE_RGB565 : PPA_SRM_COLOR_MODE_ARGB8888;
   srm.out.buffer = dest;
   srm.out.buffer_size = dest_size;
   srm.out.pic_w = this->out_width_;

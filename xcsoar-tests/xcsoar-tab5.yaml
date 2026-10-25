@@ -96,7 +96,8 @@ xcsoar:
   touchscreen_id: touch
   filesystem_id: sd_fs
   task_stack_size: 262144
-  # 1280x720 on a 5 inch panel
+  # The panel has 294 dpi; XCSoar's layout looks the same at 200, which picks smaller icons and leaves 5 MB more
+  # PSRAM free
   dpi: 200
   xcsoar_path: ${xcsoar_path}
   fonts:
