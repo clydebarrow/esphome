@@ -48,6 +48,8 @@ filesystem:
   - platform: fatfs
     id: sd_fs
     storage_id: sd_card
+    # XCSoar opens its files through the C library
+    vfs_path: /sdcard
 
 i2c:
   - id: sys_i2c

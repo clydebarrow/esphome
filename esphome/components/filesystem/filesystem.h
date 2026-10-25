@@ -6,6 +6,7 @@
 
 #include "esphome/components/storage/block_device.h"
 #include "esphome/core/component.h"
+#include "esphome/core/defines.h"
 #include "esphome/core/log.h"
 
 namespace esphome::filesystem {
@@ -51,6 +52,9 @@ struct FileInfo {
 };
 
 class Filesystem;
+#ifdef USE_FILESYSTEM_VFS
+class Vfs;
+#endif
 
 /// A handle to an open file. It closes the file when destroyed; it can be moved but not copied.
 class File {
@@ -141,6 +145,11 @@ class Filesystem : public Component {
     this->max_dirs_ = max_dirs;
   }
   void set_format_if_mount_failed(bool format) { this->format_if_mount_failed_ = format; }
+#ifdef USE_FILESYSTEM_VFS
+  void set_vfs(Vfs *vfs) { this->vfs_ = vfs; }
+  /// The C library access to this filesystem, or nullptr without vfs_path
+  Vfs *get_vfs() const { return this->vfs_; }
+#endif
 
   /// Open a file; check the result with is_open(), and last_error() for the reason it failed.
   File open(const char *path, uint8_t flags);
@@ -202,6 +211,9 @@ class Filesystem : public Component {
   }
 
   storage::BlockDevice *device_;
+#ifdef USE_FILESYSTEM_VFS
+  Vfs *vfs_{nullptr};
+#endif
   uint32_t files_in_use_{0};  // One bit per slot
   uint8_t dirs_in_use_{0};
   uint8_t max_files_{2};

@@ -21,7 +21,7 @@ in ordinary ESPHome YAML.
 | XCSoar `esp32/host-test/` | Builds the test scene for Linux or macOS and writes a frame to a PPM file. No ESP toolchain needed. |
 | XCSoar `src/ui/display/Display.hpp` | `USE_EXTERNAL_FB` (with `USE_VFB`): the display hands each frame to the host application. |
 | XCSoar `src/ui/canvas/esp32/Files.cpp` | Font search paths: `/sdcard/XCSoar/fonts`, then `/rom/fonts`. |
-| ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display. `filesystem_vfs` makes a `filesystem` usable through the C library. |
+| ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display. |
 | ESPHome `xcsoar-tests/` | Device configs for testing on hardware, e.g. `xcsoar-tab5.yaml` for the M5Stack Tab5. |
 
 The ESPHome component points `add_idf_component(path=...)` at a local XCSoar checkout (`xcsoar_path`).
@@ -37,7 +37,8 @@ XCSoar is GPL-2.0-or-later, so firmware built with it is GPL as well.
    DMA buffers ask for internal RAM explicitly.
 2. Registers the eventfd VFS driver (4 descriptors) that XCSoar's event loop wakes up on.
 3. Gets a frame buffer or its own conversion buffer for the display, and calls `stop_poller()` on the display.
-4. Mounts `filesystem_vfs` at `/sdcard` and the embedded fonts at `/rom`.
+4. Takes its data path from the data filesystem's `vfs_path` (`/sdcard/XCSoar`) and mounts the embedded fonts
+   at `/rom`.
 5. Starts the XCSoar main thread with `pthread_create()` (core 0, priority 1, stack in PSRAM). The
    `esp_pthread_cfg` is set with `inherit_cfg`, so every thread XCSoar starts gets a PSRAM stack too.
 
@@ -69,8 +70,8 @@ the event queue; the component touches none of XCSoar's state.
 - **Touch:** touchscreen component -> `XCSoarComponent::update()`/`release()` (main task) ->
   `XCSoarEsp32::InjectPointer()` -> `EventQueue::Inject()`, which wakes the XCSoar event loop by its eventfd.
 - **Files:** XCSoar uses `open()`, `fopen()`, `opendir()` and `stat()`. Paths under `/sdcard` go through
-  `filesystem_vfs` to the ESPHome `filesystem` (FAT on the SD card), behind one mutex. At most 8 files and 4
-  directories can be open at once. `/rom` is the read-only font store in flash.
+  the `filesystem` component's VFS (`vfs_path: /sdcard`, FAT on the SD card), behind one mutex. XCSoar reserves
+  8 files and 4 directories on top of the filesystem's own. `/rom` is the read-only font store in flash.
 - **Logging:** XCSoar writes its log to `/sdcard/XCSoar/xcsoar.log`; the component logs through ESPHome.
 
 ### SD card layout
@@ -210,8 +211,9 @@ Done:
 - **Threads.** XCSoar's main thread is a pthread (`pthread_self()` aborts in other FreeRTOS tasks), started
   with `esp_pthread_set_cfg()` so that it and the threads it creates have their stacks in PSRAM.
   `InitThreadDebug()` records it as the main thread, as on Android.
-- **Storage.** The `storage` branch is merged: `sd_spi` and `fatfs` give the SD card, and `filesystem_vfs` in
-  the component makes any `filesystem::Filesystem` usable through the C library at `/sdcard`, behind one lock.
+- **Storage.** The `storage` branch is merged: `sd_spi` and `fatfs` give the SD card. `vfs_path` on a filesystem
+  (`filesystem::Vfs`) makes it usable through the C library below that path, behind one lock; it started in this
+  component and moved to `filesystem`, since any component may want it.
   XCSoar's data directory is `/sdcard/XCSoar`. On the Tab5 the card works in SPI mode on GPIO39 to GPIO44,
   which need LDO channel 4. XCSoar saves files (the profile, for one) by writing a temporary file and renaming it
   over the old one; FAT refuses to rename onto an existing file, so `rename()` removes the old file first.

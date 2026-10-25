@@ -132,6 +132,8 @@ def _get_data() -> XCSoarData:
 
 
 def _final_validate(config: ConfigType) -> None:
+    if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
+        filesystem.require_vfs_path(fs_id)
     disp = fv.get_declaring_config(config[CONF_DISPLAY_ID])
     if disp.get(CONF_PLATFORM) != MIPI_DSI_DOMAIN or disp[CONF_FRAME_BUFFERS] < 2:
         return
@@ -173,9 +175,7 @@ async def to_code(config: ConfigType) -> None:
     psram.request_external_task_stack()
     await cg.add_variable(var.set_touchscreen, config.get(CONF_TOUCHSCREEN_ID))
     if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
-        filesystem.request_open_handles(fs_id, VFS_MAX_FILES, VFS_MAX_DIRS)
-        cg.add_define("XCSOAR_VFS_MAX_FILES", VFS_MAX_FILES)
-        cg.add_define("XCSOAR_VFS_MAX_DIRS", VFS_MAX_DIRS)
+        filesystem.request_vfs_handles(fs_id, VFS_MAX_FILES, VFS_MAX_DIRS)
         await cg.add_variable(var.set_filesystem, fs_id)
     if _get_data().use_frame_buffers:
         cg.add_define("USE_XCSOAR_FRAME_BUFFERS")

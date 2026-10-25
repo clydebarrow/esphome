@@ -23,8 +23,8 @@ static constexpr size_t MALLOC_INTERNAL_LIMIT = 0;
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
 // XCSoar's event loop wakes up through an eventfd
 static constexpr size_t EVENTFD_COUNT = 4;
-static constexpr const char *DATA_MOUNT_POINT = "/sdcard";
-static constexpr const char *DATA_PATH = "/sdcard/XCSoar";
+// XCSoar's directory below the data filesystem's vfs_path
+static constexpr const char *DATA_DIR = "XCSoar";
 // How long XCSoar waits for its data filesystem, e.g. an SD card that is still starting
 static constexpr uint32_t DATA_READY_TIMEOUT_MS = 5000;
 
@@ -79,11 +79,9 @@ void XCSoarComponent::setup() {
   }
 #endif
 
-#ifdef XCSOAR_VFS_MAX_FILES
-  if (!this->data_vfs_->mount(DATA_MOUNT_POINT)) {
-    this->mark_failed(LOG_STR("Mounting the data filesystem failed"));
-    return;
-  }
+#ifdef USE_FILESYSTEM_VFS
+  if (this->data_fs_ != nullptr)
+    snprintf(this->data_path_, sizeof(this->data_path_), "%s/%s", this->data_fs_->get_vfs()->get_base_path(), DATA_DIR);
 #endif
 
 #ifdef XCSOAR_ROM_FILE_COUNT
@@ -99,8 +97,8 @@ void XCSoarComponent::setup() {
       .height = static_cast<unsigned>(height),
       .frame_ready = frame_ready_,
       .ctx = this,
-#ifdef XCSOAR_VFS_MAX_FILES
-      .data_path = DATA_PATH,
+#ifdef USE_FILESYSTEM_VFS
+      .data_path = this->data_fs_ != nullptr ? this->data_path_ : nullptr,
 #else
       .data_path = nullptr,
 #endif
@@ -134,8 +132,8 @@ void XCSoarComponent::setup() {
 
 void *XCSoarComponent::task_main_(void *param) {
   auto *self = static_cast<XCSoarComponent *>(param);
-#ifdef XCSOAR_VFS_MAX_FILES
-  if (!self->data_vfs_->wait_ready(DATA_READY_TIMEOUT_MS)) {
+#ifdef USE_FILESYSTEM_VFS
+  if (self->data_fs_ != nullptr && !self->data_fs_->get_vfs()->wait_ready(DATA_READY_TIMEOUT_MS)) {
     ESP_LOGW(TAG, "Data filesystem not ready; XCSoar starts without it");
   }
 #endif

@@ -1,4 +1,5 @@
 #include "filesystem.h"
+#include "vfs.h"
 
 #include <utility>
 
@@ -151,6 +152,12 @@ void Filesystem::setup() {
     this->mark_failed(fs_error_to_string(err));
     return;
   }
+#ifdef USE_FILESYSTEM_VFS
+  if (this->vfs_ != nullptr && !this->vfs_->mount()) {
+    this->mark_failed(LOG_STR("VFS registration failed"));
+    return;
+  }
+#endif
   if (this->device_->has_media())
     this->ready_();
 }

@@ -2,41 +2,49 @@
 
 #include "esphome/core/defines.h"
 
-#ifdef XCSOAR_VFS_MAX_FILES
+#ifdef USE_FILESYSTEM_VFS
 
-#include "esphome/components/filesystem/filesystem.h"
+#include "esphome/core/helpers.h"
+#include "filesystem.h"
 
-#include <array>
 #include <cstdint>
 #include <mutex>
 
 #include <dirent.h>
 
-namespace esphome::xcsoar {
+namespace esphome::filesystem {
 
-/// Makes a filesystem::Filesystem usable through the C library (open(), stat(), opendir() and so on) below a
-/// mount point, for code such as XCSoar that does its own file I/O.
+/// Makes a Filesystem usable through the C library (open(), stat(), opendir() and so on) below a mount point,
+/// for code that does its own file I/O, on any task.
 ///
-/// Every call holds a lock, so XCSoar's tasks can share the filesystem; nothing else may use it at the same time.
-/// An sd_spi card with a card detect pin is also polled from the main loop, so it needs no detect pin here.
-class FilesystemVfs {
+/// Every call holds mutex(). Filesystem calls are not thread safe, so any other user of the same filesystem
+/// must hold it too.
+class Vfs {
  public:
-  explicit FilesystemVfs(filesystem::Filesystem *fs) : fs_(fs) {}
+  Vfs(Filesystem *fs, const char *base_path) : fs_(fs), base_path_(base_path) {}
 
-  /// Register with ESP-IDF's VFS at base_path (e.g. "/sdcard"). Returns false on error.
-  bool mount(const char *base_path);
+  void set_pool_sizes(uint8_t max_files, uint8_t max_dirs) {
+    this->max_files_ = max_files;
+    this->max_dirs_ = max_dirs;
+  }
+
+  /// Register with ESP-IDF's VFS. Returns false on error.
+  bool mount();
 
   /// Wait until the filesystem has mounted, e.g. while the card starts. Returns false on timeout.
   bool wait_ready(uint32_t timeout_ms);
 
+  const char *get_base_path() const { return this->base_path_; }
+  std::mutex &mutex() { return this->mutex_; }
+
  protected:
   struct OpenDir {
     DIR dir;  // must be first: ESP-IDF fills in its header
-    filesystem::Dir handle;
+    Dir handle;
     struct dirent entry;
   };
 
-  filesystem::File *get_file_(int fd);
+  File *get_file_(int fd);
 
   // The VFS hooks, called with this object as the context
   static int vfs_open(void *ctx, const char *path, int flags, int mode);
@@ -56,12 +64,15 @@ class FilesystemVfs {
   static struct dirent *vfs_readdir(void *ctx, DIR *pdir);
   static int vfs_closedir(void *ctx, DIR *pdir);
 
-  filesystem::Filesystem *fs_;
+  Filesystem *fs_;
+  const char *base_path_;
   std::mutex mutex_;
-  std::array<filesystem::File, XCSOAR_VFS_MAX_FILES> files_{};
-  std::array<OpenDir, XCSOAR_VFS_MAX_DIRS> dirs_{};
+  FixedVector<File> files_;
+  FixedVector<OpenDir> dirs_;
+  uint8_t max_files_{4};
+  uint8_t max_dirs_{2};
 };
 
-}  // namespace esphome::xcsoar
+}  // namespace esphome::filesystem
 
-#endif  // XCSOAR_VFS_MAX_FILES
+#endif  // USE_FILESYSTEM_VFS

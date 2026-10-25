@@ -15,7 +15,9 @@
 #include "esphome/components/touchscreen/touchscreen.h"
 #endif
 
-#include "filesystem_vfs.h"
+#ifdef USE_FILESYSTEM_VFS
+#include "esphome/components/filesystem/vfs.h"
+#endif
 
 #include <XCSoarEsp32.hpp>
 
@@ -61,9 +63,9 @@ class XCSoarComponent : public Component
   void update(const touchscreen::TouchPoints_t &tpoints) override;
   void release() override;
 #endif
-#ifdef XCSOAR_VFS_MAX_FILES
-  /// The filesystem XCSoar keeps its data on, made available below DATA_MOUNT_POINT.
-  void set_filesystem(filesystem::Filesystem *fs) { this->data_vfs_ = new FilesystemVfs(fs); }  // NOLINT
+#ifdef USE_FILESYSTEM_VFS
+  /// The filesystem XCSoar keeps its data on, in XCSoar/ below its vfs_path.
+  void set_filesystem(filesystem::Filesystem *fs) { this->data_fs_ = fs; }
 #endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   /// Embed a file, e.g. a font, so XCSoar can open it below XCSoarEsp32::ROM_MOUNT_POINT.
@@ -110,8 +112,9 @@ class XCSoarComponent : public Component
   bool demo_{false};
   unsigned dpi_{0};
   uint32_t task_stack_size_{65536};
-#ifdef XCSOAR_VFS_MAX_FILES
-  FilesystemVfs *data_vfs_{nullptr};
+#ifdef USE_FILESYSTEM_VFS
+  filesystem::Filesystem *data_fs_{nullptr};
+  char data_path_[32]{};
 #endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   StaticVector<XCSoarEsp32::RomFile, XCSOAR_ROM_FILE_COUNT> rom_files_;

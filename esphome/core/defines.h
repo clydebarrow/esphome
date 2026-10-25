@@ -436,6 +436,7 @@
 // ESP32-specific feature flags
 #ifdef USE_ESP32
 #define USE_ESP32_CRASH_HANDLER
+#define USE_FILESYSTEM_VFS
 #define USE_ESP32_VASPRINTF_STUB
 #define USE_MQTT_IDF_ENQUEUE
 #define USE_MQTT_TLS
