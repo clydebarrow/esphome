@@ -277,10 +277,12 @@ To do:
 - **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
 - **Real touch.** Only simulated touches so far.
 - **SD card damage.** After many resets while XCSoar was writing (reflashing, and the reboots on Pan), the
-  test card's `XCSoar` directory held entries with garbage names and had lost `maps`, `airspace` and `profiles`.
-  XCSoar keeps writing its log in that directory. Find out whether this is only FAT's lack of protection
-  against resets during a write, or a fault in the `sd_spi` or `fatfs` write path, and consider keeping the
-  log elsewhere.
+  first sector of the card's `XCSoar` directory was overwritten: its `.` and `..` entries were gone, and from byte
+  96 on it held a repeating pattern that looks like SD bus traffic during a write (a data response token, busy
+  zeros, then 0xFF), found nowhere else on the card. `maps`, `airspace` and `profiles` were lost with it. Nothing
+  outside `XCSoar` was hurt, and no SD or SPI error was logged. `sd_spi` is the only device on its bus, so the
+  card most likely stored bytes from a transfer that went out of step. To do: a debug option in `sd_spi` that
+  reads every written sector back and logs a mismatch, run under XCSoar with repeated resets.
 - **Networking** (`HAVE_HTTP`: curl, OpenSSL or mbedTLS) is left out for now.
 - **Settings.** XCSoar's profile stays XCSoar's own. A few values (e.g. altitude, vario) could be ESPHome
   sensors later.
