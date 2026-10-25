@@ -377,5 +377,7 @@ A thread costs a 128 KB PSRAM stack and nothing else, so moving work into the ma
   waypoints, airspace and an airspace warning; no resets in 200 s at `dpi: 200` and 150 s at `dpi: 294`. The host
   test renders the test scene correctly in RGB565.
 - Pan mode with real data: no allocations when the map goes full screen, 5.6 MB of PSRAM free, no resets over
-  two minutes of dragging. The timings in "Performance" were measured in the same runs. The change that keeps
-  the old map on screen is not yet tested on the device: the card was damaged before that run (see above).
+  two minutes of dragging. The timings in "Performance" were measured in the same runs. With the old map kept on
+  screen until the new one is drawn, a probe that sampled the map area of every frame found white maps only in
+  the first 5 s after start-up (no map drawn yet), none after Pan and none in two minutes of dragging; before,
+  the map was white for 9 s after Pan and flashed white after drags.
