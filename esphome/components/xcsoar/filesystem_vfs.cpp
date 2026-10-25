@@ -287,7 +287,13 @@ int FilesystemVfs::vfs_unlink(void *ctx, const char *path) {
 int FilesystemVfs::vfs_rename(void *ctx, const char *from, const char *to) {
   auto *self = static_cast<FilesystemVfs *>(ctx);
   const std::lock_guard lock{self->mutex_};
-  return fail_with(self->fs_->rename(from, to));
+  filesystem::FsError err = self->fs_->rename(from, to);
+  // POSIX rename() replaces an existing file, which FAT does not; XCSoar saves files by renaming over them
+  filesystem::FileInfo info;
+  if (err == filesystem::FsError::FS_ERROR_EXISTS && self->fs_->stat(to, info) == filesystem::FsError::FS_ERROR_NONE &&
+      !info.is_dir && self->fs_->remove(to) == filesystem::FsError::FS_ERROR_NONE)
+    err = self->fs_->rename(from, to);
+  return fail_with(err);
 }
 
 int FilesystemVfs::vfs_mkdir(void *ctx, const char *path, mode_t mode) {

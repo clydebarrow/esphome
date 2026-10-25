@@ -1,6 +1,8 @@
 # xcsoar-tab5.yaml with scripted touches for testing XCSoar itself without anyone at the screen: 20 s after
-# boot it taps SIM on the start screen, 20 s later Close on the welcome dialog, which leaves the map in simulator
-# mode. It also logs the free internal RAM. Coordinates are in XCSoar's landscape screen (1280x720).
+# boot it taps SIM on the start screen, at 100 s Close on the welcome dialog, which leaves the map in simulator
+# mode. XCSoar finishes loading about 20 s after Close; at 135 s a double tap opens the menu and Pan Mode is
+# selected, and from 150 s the map is dragged for two minutes. It also logs the free internal RAM. Coordinates
+# are in XCSoar's landscape screen (1280x720).
 
 packages:
   tab5: !include xcsoar-tab5.yaml
@@ -32,25 +34,49 @@ interval:
   - interval: 100ms
     then:
       - lambda: |-
+          struct Tap {
+            uint32_t step;
+            int16_t x, y;
+            const char *what;
+          };
+          static constexpr Tap TAPS[] = {
+              {200, 870, 620, "SIM"},         // the SIM half of the FLY / SIM button
+              {1000, 30, 705, "Close"},       // the welcome dialog shown at the first start
+              {1350, 640, 300, "map"},        // a double tap on the map opens the menu
+              {1352, 640, 300, "map"},
+              {1380, 128, 216, "Display"},    // menu button 2, left column
+              {1410, 1152, 648, "Pan Mode"},  // menu button 9, right column
+          };
           static uint32_t step = 0;
           const uint32_t n = step++;
           auto *xcsoar = id(xcsoar_app);
-          touchscreen::TouchPoint tp{};
-          tp.id = 0;
-          // the SIM half of the FLY / SIM button
-          if (n == 200) {
-            tp.x = 870;
-            tp.y = 620;
-            xcsoar->touch(tp);
-            ESP_LOGI("touch_sim", "tap SIM");
-          } else if (n == 400) {
-            // Close on the welcome dialog shown at the first start, bottom left
-            tp.x = 30;
-            tp.y = 705;
-            xcsoar->touch(tp);
-            ESP_LOGI("touch_sim", "tap Close");
-          } else if (n == 201 || n == 401) {
-            xcsoar->release();
+          // from 150 s, drag the map left and right in pan mode, 1 s per drag
+          if (n >= 1500 && n < 2700) {
+            const uint32_t k = (n - 1500) % 10;
+            const int16_t dir = ((n - 1500) / 10) % 2 == 0 ? -1 : 1;
+            touchscreen::TouchPoint tp{};
+            tp.id = 0;
+            tp.x = 700 + dir * 30 * static_cast<int16_t>(k > 6 ? 6 : k);
+            tp.y = 350;
+            if (k == 0) {
+              xcsoar->touch(tp);
+            } else if (k <= 6) {
+              xcsoar->update({tp});
+            } else if (k == 7) {
+              xcsoar->release();
+            }
+          }
+          for (const auto &tap : TAPS) {
+            if (n == tap.step) {
+              touchscreen::TouchPoint tp{};
+              tp.id = 0;
+              tp.x = tap.x;
+              tp.y = tap.y;
+              xcsoar->touch(tp);
+              ESP_LOGI("touch_sim", "tap %s", tap.what);
+            } else if (n == tap.step + 1) {
+              xcsoar->release();
+            }
           }
   # internal RAM, which FreeRTOS objects need, and PSRAM
   - interval: 5s

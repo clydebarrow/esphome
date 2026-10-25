@@ -213,7 +213,8 @@ Done:
 - **Storage.** The `storage` branch is merged: `sd_spi` and `fatfs` give the SD card, and `filesystem_vfs` in
   the component makes any `filesystem::Filesystem` usable through the C library at `/sdcard`, behind one lock.
   XCSoar's data directory is `/sdcard/XCSoar`. On the Tab5 the card works in SPI mode on GPIO39 to GPIO44,
-  which need LDO channel 4.
+  which need LDO channel 4. XCSoar saves files (the profile, for one) by writing a temporary file and renaming it
+  over the old one; FAT refuses to rename onto an existing file, so `rename()` removes the old file first.
 - **Memory and flash.** Resources and data files are compiled into `.rodata` (`RESOURCE_SECTION`), so they
   stay in flash. The built-in translations (about 10 MB) are left out; XCSoar can load a `.mo` file from the
   data directory instead. `FileMapping` reads files into memory, since there is no `mmap()`.
@@ -241,8 +242,19 @@ Done:
   ESP-IDF allows; on ESP-IDF each font file is read once and its faces are made from memory.
 - **Display density.** XCSoar sizes fonts and symbols by DPI and assumes 96 without it, which is far too small
   on the Tab5. The `dpi` option passes `-dpi=`.
-- **Flash.** The sounds (1.8 MB) are left out until there is sound output. The firmware uses 6.2 MB of the
+- **Flash.** The sounds (1.8 MB) are left out until there is sound output. XCSoar is compiled with `-O2`
+  instead of ESPHome's `-Os` (map drawing about 30% faster, 0.9 MB more flash). The firmware uses 7.1 MB of the
   8.1 MB app partition, so the default partition table with two OTA slots stays.
+- **Map buffers.** Pan mode and hiding the InfoBoxes make the map full screen. XCSoar then allocated its five map
+  sized buffers again at 1.8 MB each, which fragmented PSRAM until a full-screen buffer no longer fitted and
+  XCSoar aborted (the reboot on Pan). A memory canvas now reuses its buffer when a resize fits in it, and on
+  ESP-IDF a buffer of at least half the screen is allocated at full-screen size from the start
+  (`VirtualCanvas::reserve_size`). PSRAM free with the map full screen: 5.6 MB, largest block 4.6 MB (before:
+  5.9 MB, largest block 1.5 MB).
+- **White map.** While the draw thread renders a new map, `MapWindow::OnPaint()` showed the old map moved to the
+  new position for two paints only, then a white map; after a resize it went white at once. A render takes
+  about 20 ms on a desktop, so this was never visible there, but up to seconds here: a white flash after a
+  drag, and seconds of white after Pan. The old map is now shown until the new one is ready.
 - **Result.** With the Queensland map, the Warwick waypoints and the Australian airspace on the card, XCSoar starts
   on the Tab5 and, with simulated taps on SIM and on the welcome dialog's Close, shows the map in simulator mode:
   terrain, topography, waypoints, airspace, InfoBoxes and an airspace warning. No resets in 200 s.
@@ -257,9 +269,16 @@ To do:
   `uart::UARTDevice` through a ring buffer, drained in the component's `loop()`. `TCP_LISTENER`/`UDP_LISTENER`
   over lwIP work without code changes once Wi-Fi is up.
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
-- **Loading time.** The Australian airspace file (480 KB) takes 17 s to load; measure where the time goes (SD card
-  reads in SPI mode, or parsing).
+- **Loading time.** Start-up takes about 40 s with this card: terrain 19 s, airspace 18 s; measure where the
+  time goes (SD card reads in SPI mode, or parsing). The screen is not redrawn while loading, so taps made then
+  are handled only when loading ends.
+- **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
 - **Real touch.** Only simulated touches so far.
+- **SD card damage.** After many resets while XCSoar was writing (reflashing, and the reboots on Pan), the
+  test card's `XCSoar` directory held entries with garbage names and had lost `maps`, `airspace` and `profiles`.
+  XCSoar keeps writing its log in that directory. Find out whether this is only FAT's lack of protection
+  against resets during a write, or a fault in the `sd_spi` or `fatfs` write path, and consider keeping the
+  log elsewhere.
 - **Networking** (`HAVE_HTTP`: curl, OpenSSL or mbedTLS) is left out for now.
 - **Settings.** XCSoar's profile stays XCSoar's own. A few values (e.g. altitude, vario) could be ESPHome
   sensors later.
@@ -275,6 +294,46 @@ To do:
 - Sound through an ESPHome speaker (XCSoar's vario tone generator, `PCMMixer`).
 - Live tracking and downloads once networking is in.
 
+## Performance
+
+Measured on the Tab5 (360 MHz) with the Queensland map and the national airspace file, in simulator mode with
+the map full screen. The ESP32-P4's floating point unit does single precision (`float`) only, so every
+`double` operation is done in software, and XCSoar uses `double` for almost all of its arithmetic.
+
+| Work | Time | Notes |
+|---|---|---|
+| Terrain shading (`GenerateSlopeImage`) | 4 to 7 s, now 0.26 s | per-pixel `double` math and `sqrt`, now `float` |
+| Terrain height scan (`ScanMap`) | 0.45 s | projection per sample, `double` |
+| Whole terrain layer | 0.7 s | 3.6 s before |
+| Airspace layer | 0.5 s, up to 3.4 s | |
+| Map render while dragging | about 4 s | |
+| Calculation, per GPS fix | 175 ms | mostly `ProcessBasicTask` (110 ms) |
+| Calculation, idle pass (about 1 s) | 500 ms | almost all airspace warnings (`AirspaceWarningManager`) |
+
+So the glide computer keeps about 70% of one core busy, nearly all of it checking about 2,000 airspaces for
+warnings. Ways to bring it down: load only nearby airspace, check warnings less often, or use `float` in the
+hot geometry code (this needs care: `float` is not precise enough for absolute coordinates).
+
+XCSoar's draw stopwatch (`STOP_WATCH` in `Screen/StopWatch.hpp`) logs the time of each map layer; it is off in
+the build.
+
+## Drawing with LVGL (considered)
+
+The idea: keep XCSoar's calculations, and draw the screen with LVGL, using pre-rendered fonts and images and
+LVGL's partial updates.
+
+- **The map** is most of the drawing time, and LVGL does not help there: terrain shading, topography and
+  airspace polygons are XCSoar's own renderers and would still draw into one large image. The map moves with
+  the glider, so most of it changes on every frame and partial updates save little.
+- **InfoBoxes, menus and dialogs** are cheap to draw in comparison (FreeType glyphs are already cached).
+  Replacing them means writing a new user interface: XCSoar has several hundred dialogs and widgets, all
+  written against its own window classes.
+- **Partial updates** are possible without LVGL: XCSoar already knows which windows are invalid, so only those
+  areas could be converted and sent to the panel.
+
+So LVGL would be a new application around XCSoar's engine rather than a port, for a small gain. Making the map
+renderers cheaper (`float`, less work per frame) helps more.
+
 ## Work on the ESPHome main loop instead of threads
 
 Considered and not done. ESPHome expects each `loop()` to return within a few milliseconds, and XCSoar's
@@ -282,10 +341,9 @@ threads exist because their work does not:
 
 - The UI thread runs nested modal loops (every dialog has its own event loop in `ShowModal()`), which cannot be
   split into polled steps without rewriting XCSoar's dialogs.
-- `DrawThread` takes about 100 ms per map frame, and the terrain and topography loaders block on SD card reads and
-  JPEG 2000 decoding for seconds.
-- `CalculationThread` normally takes a few ms per GPS fix, but contest optimisation and terrain reach can take
-  hundreds.
+- `DrawThread` takes 0.7 to 4 s per map frame (see "Performance"), and the terrain and topography loaders block
+  on SD card reads and JPEG 2000 decoding for seconds.
+- `CalculationThread` takes about 175 ms per GPS fix and 500 ms per idle pass.
 - `MergeThread` is light and could run in `loop()` next to a UART port, but it takes the same locks as the UI
   thread, so it would make the main loop wait on XCSoar.
 
@@ -314,3 +372,6 @@ A thread costs a 128 KB PSRAM stack and nothing else, so moving work into the ma
 - With RGB565 and real data (map, waypoints, airspace) on the Tab5: the map shows terrain, topography,
   waypoints, airspace and an airspace warning; no resets in 200 s at `dpi: 200` and 150 s at `dpi: 294`. The host
   test renders the test scene correctly in RGB565.
+- Pan mode with real data: no allocations when the map goes full screen, 5.6 MB of PSRAM free, no resets over
+  two minutes of dragging. The timings in "Performance" were measured in the same runs. The change that keeps
+  the old map on screen is not yet tested on the device: the card was damaged before that run (see above).
