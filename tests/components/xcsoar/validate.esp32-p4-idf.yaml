@@ -1,0 +1,21 @@
+esp_ldo:
+  - id: ldo_id
+    channel: 3
+    voltage: 2.5V
+
+display:
+  - platform: mipi_dsi
+    id: xcsoar_display
+    model: JC1060P470
+    enable_pin: GPIO22
+
+psram:
+
+xcsoar:
+  display_id: xcsoar_display
+  xcsoar_path: xcsoar_stub
+  frame_interval: 50ms
+  fonts:
+    - xcsoar_stub/test-font.ttf
+    - file: xcsoar_stub/test-font.ttf
+      name: DejaVuSansCondensed-Bold.ttf
