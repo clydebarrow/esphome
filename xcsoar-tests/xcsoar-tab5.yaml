@@ -1,0 +1,66 @@
+# XCSoar on an M5Stack Tab5 (ST7123 panel), drawing in landscape through two frame buffers.
+# xcsoar_path is relative to this file: a checkout of the XCSoar branch with esp32/xcsoar next to this
+# worktree. Flash over USB: python -m esphome run xcsoar-tests/xcsoar-tab5.yaml
+
+substitutions:
+  xcsoar_path: ../../xcsoar-src
+
+esphome:
+  name: xcsoar-tab5
+
+esp32:
+  variant: esp32p4
+  engineering_sample: true
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+psram:
+  speed: 200MHz
+
+esp_ldo:
+  - id: ldo_dsi
+    channel: 3
+    voltage: 2.5V
+
+i2c:
+  - id: sys_i2c
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+pi4ioe5v6408:
+  - id: pi4ioe1
+    address: 0x43
+
+output:
+  - platform: ledc
+    pin: GPIO22
+    id: backlight_pwm
+    frequency: 1000Hz
+
+light:
+  - platform: monochromatic
+    output: backlight_pwm
+    name: Backlight
+    restore_mode: ALWAYS_ON
+
+display:
+  - platform: mipi_dsi
+    id: lcd
+    model: M5STACK-TAB5-ST7123
+    frame_buffers: 2
+    rotation: 90
+    reset_pin: {pi4ioe5v6408: pi4ioe1, number: 4}
+
+xcsoar:
+  display_id: lcd
+  frame_interval: 10ms
+  xcsoar_path: ${xcsoar_path}
+  fonts:
+    - file: ../tests/components/lvgl/roboto.ttf
+      name: Roboto-Regular.ttf

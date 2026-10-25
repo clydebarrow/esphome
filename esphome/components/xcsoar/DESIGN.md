@@ -19,6 +19,7 @@ in ordinary ESPHome YAML.
 | XCSoar `src/ui/canvas/fb/TopCanvas.cpp` | New `USE_EXTERNAL_FB` mode: a memory canvas whose `Flip()` calls a function instead of writing to `/dev/fb0`. |
 | XCSoar `src/ui/canvas/esp32/Files.cpp` | Font search paths: `/sdcard/XCSoar/fonts`, then `/rom/fonts`. |
 | ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display. |
+| ESPHome `xcsoar-tests/` | Device configs for testing on hardware, e.g. `xcsoar-tab5.yaml` for the M5Stack Tab5. |
 
 The ESPHome component points `add_idf_component(path=...)` at a local XCSoar checkout (`xcsoar_path`).
 XCSoar is GPL-2.0-or-later, so firmware built with it is GPL as well.
@@ -133,7 +134,10 @@ xcsoar:
 
 ## Phase 4: optional
 
-- A native RGB565 `PixelTraits` for the memory canvas: half the memory, and no per-frame conversion.
+- **TODO: draw in RGB565.** Add an RGB565 `PixelTraits` to XCSoar's memory canvas (it has BGRA and greyscale
+  today), so XCSoar draws straight into the display's frame buffer. That halves the memory XCSoar draws into
+  and removes the PPA conversion (56 ms per frame on the Tab5). It needs 16-bit versions of the blending and
+  anti-aliased text code, and a rotation would then need the PPA again or XCSoar's own handling.
 - Overlap the PPA with drawing: start the conversion without waiting and draw the next frame into a second
   canvas, so a frame takes the longer of the two steps instead of their sum (3.7 MB more PSRAM).
 - Sound through an ESPHome speaker (XCSoar's vario tone generator, `PCMMixer`).
