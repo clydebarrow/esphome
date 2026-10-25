@@ -18,6 +18,7 @@
 
 #include "esp_lcd_mipi_dsi.h"
 
+#include <array>
 #include <utility>
 
 namespace esphome::mipi_dsi {
@@ -65,6 +66,21 @@ class MipiDsi final : public display::Display {
   void set_model(const char *model) { this->model_ = model; }
   void set_lane_bit_rate(float lane_bit_rate) { this->lane_bit_rate_ = lane_bit_rate; }
   void set_lanes(uint8_t lanes) { this->lanes_ = lanes; }
+  void set_frame_buffer_count(uint8_t count) { this->frame_buffer_count_ = count; }
+
+  /// Frame buffer access for a renderer that draws whole frames itself, while nothing else draws on this display.
+  /// The buffers hold pixels in the panel's own format and orientation (get_native_width() by get_native_height()).
+  uint8_t get_frame_buffer_count() const { return this->frame_buffer_count_; }
+  display::ColorBitness get_color_depth() const { return this->color_depth_; }
+  uint8_t *get_frame_buffer(uint8_t index) const { return this->frame_buffers_[index]; }
+  size_t get_frame_buffer_size() const { return this->width_ * this->height_ * (3 - this->color_depth_); }
+  /// Make the panel show one of the frame buffers from its next refresh on, without copying. Main loop only.
+  void show_frame_buffer(const uint8_t *buffer);
+  /// Wait until the panel has moved to the buffer last passed to show_frame_buffer(), so the buffer shown before
+  /// it can be written again. May be called from any task.
+  bool wait_frame_buffer_free(uint32_t timeout_ms) {
+    return xSemaphoreTake(this->frame_complete_, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
+  }
 
   void smark_failed(const LogString *message, esp_err_t err);
 
@@ -78,6 +94,10 @@ class MipiDsi final : public display::Display {
   int get_height() override;
 
   void dump_config() override;
+
+  // Called from the panel's interrupt handlers
+  bool on_color_trans_done_isr();
+  bool on_frame_complete_isr();
 
  protected:
   void draw_pixels_internal(int x_start, int y_start, int w, int h, const uint8_t *ptr, display::ColorBitness bitness,
@@ -141,6 +161,10 @@ class MipiDsi final : public display::Display {
   esp_lcd_dsi_bus_handle_t bus_handle_{};
   esp_lcd_panel_io_handle_t io_handle_{};
   SemaphoreHandle_t io_lock_{};
+  // Given each time the panel starts reading a frame buffer again
+  SemaphoreHandle_t frame_complete_{};
+  std::array<uint8_t *, 3> frame_buffers_{};
+  uint8_t frame_buffer_count_{1};
   uint8_t *buffer_{nullptr};
   uint16_t x_low_{1};
   uint16_t y_low_{1};

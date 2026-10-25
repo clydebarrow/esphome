@@ -68,6 +68,7 @@ ColorOrder = display.display_ns.enum("ColorMode")
 ColorBitness = display.display_ns.enum("ColorBitness")
 
 CONF_LANE_BIT_RATE = "lane_bit_rate"
+CONF_FRAME_BUFFERS = "frame_buffers"
 CONF_LANES = "lanes"
 
 DsiDriverChip("CUSTOM")
@@ -138,6 +139,8 @@ def model_schema(config: ConfigType) -> cv.All:
             model.option(CONF_VSYNC_PULSE_WIDTH): cv.int_,
             model.option(CONF_VSYNC_BACK_PORCH): cv.int_,
             model.option(CONF_VSYNC_FRONT_PORCH): cv.int_,
+            # More than one lets a renderer draw the next frame while the panel shows the last
+            cv.Optional(CONF_FRAME_BUFFERS, default=1): cv.int_range(1, 3),
         }
     )
     return cv.All(
@@ -213,6 +216,8 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_pclk_frequency(config[CONF_PCLK_FREQUENCY] / 1.0e6))
     cg.add(var.set_lanes(int(config[CONF_LANES])))
     cg.add(var.set_lane_bit_rate(config[CONF_LANE_BIT_RATE] / 1.0e6))
+    if (frame_buffers := config[CONF_FRAME_BUFFERS]) != 1:
+        cg.add(var.set_frame_buffer_count(frame_buffers))
     await cg.add_pin(var.set_reset_pin, config.get(CONF_RESET_PIN))
     if enable_pin := config.get(CONF_ENABLE_PIN):
         enable = [await cg.gpio_pin_expression(pin) for pin in enable_pin]

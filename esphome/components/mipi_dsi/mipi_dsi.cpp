@@ -11,11 +11,16 @@ namespace esphome::mipi_dsi {
 // Maximum bytes to log for init commands (truncated if larger)
 static constexpr size_t MIPI_DSI_MAX_CMD_LOG_BYTES = 64;
 
-static bool notify_refresh_ready(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata, void *user_ctx) {
-  SemaphoreHandle_t sem = static_cast<SemaphoreHandle_t>(user_ctx);
-  BaseType_t need_yield = pdFALSE;
-  xSemaphoreGiveFromISR(sem, &need_yield);
-  return (need_yield == pdTRUE);
+static bool IRAM_ATTR notify_color_trans_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata,
+                                              void *user_ctx) {
+  auto *self = static_cast<MipiDsi *>(user_ctx);
+  return self->on_color_trans_done_isr();
+}
+
+static bool IRAM_ATTR notify_frame_complete(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata,
+                                            void *user_ctx) {
+  auto *self = static_cast<MipiDsi *>(user_ctx);
+  return self->on_frame_complete_isr();
 }
 
 void MipiDsi::smark_failed(const LogString *message, esp_err_t err) {
@@ -76,7 +81,7 @@ void MipiDsi::setup() {
                                            .dpi_clock_freq_mhz = this->pclk_frequency_,
                                            .pixel_format = pixel_format,
 #endif
-                                           .num_fbs = 1,  // number of frame buffers to allocate
+                                           .num_fbs = this->frame_buffer_count_,
                                            .video_timing =
                                                {
                                                    .h_size = this->width_,
@@ -166,14 +171,26 @@ void MipiDsi::setup() {
     }
   }
   this->io_lock_ = xSemaphoreCreateBinary();
+  this->frame_complete_ = xSemaphoreCreateBinary();
   esp_lcd_dpi_panel_event_callbacks_t cbs = {
-      .on_color_trans_done = notify_refresh_ready,
+      .on_color_trans_done = notify_color_trans_done,
+      .on_frame_buf_complete = notify_frame_complete,
   };
 
-  err = (esp_lcd_dpi_panel_register_event_callbacks(this->handle_, &cbs, this->io_lock_));
+  err = (esp_lcd_dpi_panel_register_event_callbacks(this->handle_, &cbs, this));
   if (err != ESP_OK) {
     this->smark_failed(LOG_STR("Failed to register callbacks"), err);
     return;
+  }
+
+  if (this->frame_buffer_count_ > 1) {
+    err = esp_lcd_dpi_panel_get_frame_buffer(
+        this->handle_, this->frame_buffer_count_, reinterpret_cast<void **>(&this->frame_buffers_[0]),
+        reinterpret_cast<void **>(&this->frame_buffers_[1]), reinterpret_cast<void **>(&this->frame_buffers_[2]));
+    if (err != ESP_OK) {
+      this->smark_failed(LOG_STR("esp_lcd_dpi_panel_get_frame_buffer failed"), err);
+      return;
+    }
   }
 
   ESP_LOGCONFIG(TAG, "MIPI DSI setup complete");
@@ -273,6 +290,30 @@ void MipiDsi::write_to_display_(int x_start, int y_start, int w, int h, const ui
   if (err != ESP_OK) {
     ESP_LOGE(TAG, "lcd_lcd_panel_draw_bitmap failed: %s", esp_err_to_name(err));
   }
+}
+
+bool IRAM_ATTR MipiDsi::on_color_trans_done_isr() {
+  BaseType_t need_yield = pdFALSE;
+  xSemaphoreGiveFromISR(this->io_lock_, &need_yield);
+  return need_yield == pdTRUE;
+}
+
+bool IRAM_ATTR MipiDsi::on_frame_complete_isr() {
+  BaseType_t need_yield = pdFALSE;
+  xSemaphoreGiveFromISR(this->frame_complete_, &need_yield);
+  return need_yield == pdTRUE;
+}
+
+void MipiDsi::show_frame_buffer(const uint8_t *buffer) {
+  // A buffer inside the panel's own frame buffers is not copied: the panel switches to it at its next refresh
+  esp_err_t err = esp_lcd_panel_draw_bitmap(this->handle_, 0, 0, this->width_, this->height_, buffer);
+  if (err != ESP_OK) {
+    ESP_LOGE(TAG, "lcd_lcd_panel_draw_bitmap failed: %s", esp_err_to_name(err));
+    return;
+  }
+  xSemaphoreTake(this->io_lock_, portMAX_DELAY);
+  // A refresh that started before the switch does not free the old buffer
+  xSemaphoreTake(this->frame_complete_, 0);
 }
 
 bool MipiDsi::check_buffer_() {
@@ -431,11 +472,12 @@ void MipiDsi::dump_config() {
                 "\n  Buffer Color Depth: %d bit"
                 "\n  Display Pixel Mode: %d bit"
                 "\n  Invert Colors: %s"
-                "\n  Pixel Clock: %.1fMHz",
+                "\n  Pixel Clock: %.1fMHz"
+                "\n  Frame Buffers: %u",
                 this->model_, this->width_, this->height_, this->rotation_, this->lanes_, this->lane_bit_rate_,
                 this->hsync_pulse_width_, this->hsync_back_porch_, this->hsync_front_porch_, this->vsync_pulse_width_,
                 this->vsync_back_porch_, this->vsync_front_porch_, (3 - this->color_depth_) * 8, this->pixel_mode_,
-                YESNO(this->invert_colors_), this->pclk_frequency_);
+                YESNO(this->invert_colors_), this->pclk_frequency_, this->frame_buffer_count_);
   LOG_PIN("  Reset Pin ", this->reset_pin_);
 }
 }  // namespace esphome::mipi_dsi
