@@ -51,8 +51,10 @@ StorageError BlockDevice::read(uint32_t block, uint32_t offset, void *buf, uint3
   StorageError err = this->check_access_(block, offset, len, this->geometry_.read_size);
   if (err != StorageError::STORAGE_ERROR_NONE)
     return err;
-  // A single filesystem call, such as a format, can make thousands of transfers
-  App.feed_wdt();
+  // A single filesystem call, such as a format, can make thousands of transfers. Another task (a filesystem used
+  // through the C library) must not feed it: that would hold back the main loop's own feed.
+  if (is_main_loop_thread())
+    App.feed_wdt();
   return this->device_read(block, offset, buf, len);
 }
 
@@ -64,7 +66,8 @@ StorageError BlockDevice::program(uint32_t block, uint32_t offset, const void *b
   StorageError err = this->check_access_(block, offset, len, this->geometry_.program_size);
   if (err != StorageError::STORAGE_ERROR_NONE)
     return err;
-  App.feed_wdt();
+  if (is_main_loop_thread())
+    App.feed_wdt();
   return this->device_program(block, offset, buf, len);
 }
 
@@ -74,7 +77,8 @@ StorageError BlockDevice::erase(uint32_t block, uint32_t count) {
   StorageError err = this->check_range_(block, count);
   if (err != StorageError::STORAGE_ERROR_NONE)
     return err;
-  App.feed_wdt();
+  if (is_main_loop_thread())
+    App.feed_wdt();
   return this->device_erase(block, count);
 }
 
