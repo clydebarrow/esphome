@@ -57,8 +57,21 @@ display:
     rotation: 90
     reset_pin: {pi4ioe5v6408: pi4ioe1, number: 4}
 
+touchscreen:
+  - platform: st7123
+    id: touch
+    display: lcd
+    interrupt_pin: GPIO23
+    reset_pin: {pi4ioe5v6408: pi4ioe1, number: 5}
+    # match the display's rotation: 90
+    transform:
+      swap_xy: true
+      mirror_y: true
+
 xcsoar:
+  id: xcsoar_app
   display_id: lcd
+  touchscreen_id: touch
   frame_interval: 10ms
   xcsoar_path: ${xcsoar_path}
   fonts:

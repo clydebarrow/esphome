@@ -96,18 +96,29 @@ xcsoar:
 - **Test scene.** Phase 1 draws a map-like scene with a rotating aircraft symbol, using XCSoar's canvas,
   pens, brushes and FreeType fonts. It proves the build, the canvas, fonts and the frame handoff.
 
-## Phase 2: event loop, windows and touch
+## Phase 2: event loop, windows and touch (done)
 
-- **Event loop.** Port `src/event` (the `EventLoop` behind `ui/event/poll`): use `PollBackend` with ESP-IDF's
-  `poll()`/`select()` (both exist through the VFS), and `esp_vfs_eventfd` for `WakeFD`/`EventFD`.
-  `EpollBackend` and `SignalFD` stay Linux only.
-- **Windows.** Build `ui/window/custom`, `ui/window/fb` and `ui/event/poll` without `NON_INTERACTIVE`.
-  `TopWindow::RunEventLoop()` then runs on the XCSoar task, and `Flip()` keeps using the handoff above.
-- **Touch.** An ESPHome `touchscreen::TouchListener` turns touch points into `MOUSE_DOWN`, `MOUSE_MOTION` and
-  `MOUSE_UP` events and passes them to `EventQueue::Inject()`, which is already thread safe.
-- **Partial updates.** Give the flip handler the dirty rectangle, so a small change does not copy the whole
-  frame twice.
-- **Milestone.** A port of `test/src/RunMapWindow.cpp`.
+- **Event loop.** XCSoar's `EventLoop` (`src/event`) runs with `PollBackend`, using ESP-IDF's `poll()` and an
+  `esp_vfs_eventfd` to wake up (`src/event/Features.h`, `src/system/EventFD.cxx`). The component registers the
+  eventfd driver and asks for VFS select support. `ui/event/poll` has no signals and no child processes on
+  ESP-IDF (`ESP_PLATFORM`).
+- **Threads.** `ThreadId` uses the FreeRTOS task handle on ESP-IDF: `pthread_self()` aborts in a task that was
+  not created through pthreads, and neither the XCSoar task nor ESPHome's main task is.
+- **Windows.** The ESP32 build is the virtual frame buffer build (`USE_VFB`) plus `USE_EXTERNAL_FB`:
+  `UI::Display` holds the host's flip handler, so the normal `TopWindow`, `SingleWindow` and `RunEventLoop()`
+  code works unchanged. The test scene is now a `SingleWindow` that repaints on a `PeriodicTimer`.
+- **Touch.** `USE_INJECTED_INPUT` gives the input queue no devices of its own;
+  `XCSoarEsp32::InjectPointer()` passes `MOUSE_DOWN`, `MOUSE_MOTION` and `MOUSE_UP` events to the thread safe
+  `EventQueue::Inject()`. The component is a `touchscreen::TouchListener` (`touchscreen_id`) and follows the
+  first finger. The touchscreen maps touches to the display's rotated size; its `transform` must match the
+  display's `rotation` (`swap_xy` and `mirror_y` for `rotation: 90` on the Tab5).
+- **Test.** The test window counts taps, draws the path of the current touch and has a pause button.
+  `xcsoar-tests/xcsoar-tab5-touch-sim.yaml` drives it with scripted touches through the listener calls, and the
+  host test injects touches the same way.
+- **Libraries.** Boost 1.92 (the release XCSoar uses, header-only parts so far) and fmt are downloaded once into
+  `output/esp32` of the XCSoar checkout.
+- **Not done yet.** Partial updates (handing the dirty rectangle to the flip handler), and the
+  `RunMapWindow` milestone, which needs much of phase 3 (terrain, topography, waypoints, looks).
 
 ## Phase 3: the full application
 
@@ -159,3 +170,5 @@ xcsoar:
 - Built with ESP-IDF 5.5.6 and run on an M5Stack Tab5 (ST7123 panel, ESP32-P4 v1.3): with two frame buffers
   in portrait and with `rotation: 90`, and with one frame buffer (the copy path). A 60 s run showed no resets
   and no main loop blocking warnings.
+- Phase 2 on the Tab5 with simulated touches: taps on the pause button toggle the animation and a drag draws
+  its path. The real touch chip starts and reports its size, but no finger has touched it yet.

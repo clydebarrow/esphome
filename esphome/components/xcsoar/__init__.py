@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import esphome.codegen as cg
-from esphome.components import display, psram
+from esphome.components import display, psram, touchscreen
 from esphome.components.const import BYTE_ORDER_LITTLE, CONF_BYTE_ORDER
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
@@ -16,6 +16,7 @@ from esphome.components.esp32 import (
     add_idf_sdkconfig_option,
     only_on_variant,
     require_vfs_dir,
+    require_vfs_select,
 )
 from esphome.components.mipi import get_color_depth
 import esphome.config_validation as cv
@@ -39,6 +40,7 @@ DOMAIN = "xcsoar"
 CONF_FONTS = "fonts"
 CONF_FRAME_INTERVAL = "frame_interval"
 CONF_TASK_STACK_SIZE = "task_stack_size"
+CONF_TOUCHSCREEN_ID = "touchscreen_id"
 CONF_XCSOAR_PATH = "xcsoar_path"
 
 # The IDF component inside the XCSoar checkout
@@ -82,6 +84,7 @@ CONFIG_SCHEMA = cv.All(
             cv.GenerateID(): cv.declare_id(XCSoarComponent),
             cv.Required(CONF_DISPLAY_ID): cv.use_id(display.Display),
             cv.Required(CONF_XCSOAR_PATH): _validate_xcsoar_path,
+            cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(touchscreen.Touchscreen),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
             cv.Optional(
                 CONF_FRAME_INTERVAL, default="100ms"
@@ -138,7 +141,10 @@ async def to_code(config: ConfigType) -> None:
     # XCSoar reports errors with exceptions, and the font search uses stat()
     add_idf_sdkconfig_option("CONFIG_COMPILER_CXX_EXCEPTIONS", True)
     require_vfs_dir()
+    # XCSoar's event loop polls an eventfd
+    require_vfs_select()
     psram.request_external_task_stack()
+    await cg.add_variable(var.set_touchscreen, config.get(CONF_TOUCHSCREEN_ID))
     if _get_data().use_frame_buffers:
         cg.add_define("USE_XCSOAR_FRAME_BUFFERS")
 

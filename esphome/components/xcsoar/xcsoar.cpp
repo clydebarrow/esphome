@@ -5,6 +5,7 @@
 #include "esphome/core/log.h"
 
 #include <esp_heap_caps.h>
+#include <esp_vfs_eventfd.h>
 
 namespace esphome::xcsoar {
 
@@ -18,6 +19,8 @@ static constexpr size_t MALLOC_INTERNAL_LIMIT = 16384;
 static constexpr size_t XCSOAR_BYTES_PER_PIXEL = 4;
 // A panel refresh takes about 16 ms; this only guards against a stopped panel
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
+// XCSoar's event loop wakes up through an eventfd
+static constexpr size_t EVENTFD_COUNT = 4;
 
 void XCSoarComponent::setup() {
   // XCSoar owns the whole screen, so the display must not draw on its own (test card, auto clear)
@@ -25,6 +28,13 @@ void XCSoarComponent::setup() {
 
   // Note: this changes where malloc() places large blocks for the whole application
   heap_caps_malloc_extmem_enable(MALLOC_INTERNAL_LIMIT);
+
+  esp_vfs_eventfd_config_t eventfd_config = ESP_VFS_EVENTD_CONFIG_DEFAULT();
+  eventfd_config.max_fds = EVENTFD_COUNT;
+  if (esp_vfs_eventfd_register(&eventfd_config) != ESP_OK) {
+    this->mark_failed(LOG_STR("eventfd registration failed"));
+    return;
+  }
 
   ppa_client_config_t ppa_config{};
   ppa_config.oper_type = PPA_OPERATION_SRM;
@@ -163,6 +173,36 @@ void XCSoarComponent::loop() {
 
   this->disable_loop();
 }
+
+#ifdef USE_TOUCHSCREEN
+void XCSoarComponent::touch(touchscreen::TouchPoint tp) {
+  this->touch_id_ = tp.id;
+  this->touching_ = true;
+  this->touch_x_ = tp.x;
+  this->touch_y_ = tp.y;
+  XCSoarEsp32::InjectPointer(XCSoarEsp32::PointerAction::DOWN, tp.x, tp.y);
+}
+
+void XCSoarComponent::update(const touchscreen::TouchPoints_t &tpoints) {
+  // The touchscreen reports the first position before calling touch()
+  if (!this->touching_)
+    return;
+  for (const auto &tp : tpoints) {
+    if (tp.id != this->touch_id_ || (tp.x == this->touch_x_ && tp.y == this->touch_y_))
+      continue;
+    this->touch_x_ = tp.x;
+    this->touch_y_ = tp.y;
+    XCSoarEsp32::InjectPointer(XCSoarEsp32::PointerAction::MOVE, tp.x, tp.y);
+  }
+}
+
+void XCSoarComponent::release() {
+  if (!this->touching_)
+    return;
+  this->touching_ = false;
+  XCSoarEsp32::InjectPointer(XCSoarEsp32::PointerAction::UP, this->touch_x_, this->touch_y_);
+}
+#endif
 
 void XCSoarComponent::dump_config() {
   ESP_LOGCONFIG(TAG,

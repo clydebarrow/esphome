@@ -12,6 +12,10 @@
 #include "esphome/components/mipi_dsi/mipi_dsi.h"
 #endif
 
+#ifdef USE_TOUCHSCREEN
+#include "esphome/components/touchscreen/touchscreen.h"
+#endif
+
 #include <XCSoarEsp32.hpp>
 
 #include <driver/ppa.h>
@@ -29,7 +33,12 @@ namespace esphome::xcsoar {
 /// into a frame buffer that the panel is not showing, also rotating the frame to the display's rotation, and the
 /// main loop just switches the panel to it. Otherwise the PPA writes into a buffer of this component that the main
 /// loop copies to the display.
-class XCSoarComponent : public Component {
+class XCSoarComponent : public Component
+#ifdef USE_TOUCHSCREEN
+    ,
+                        public touchscreen::TouchListener
+#endif
+{
  public:
   explicit XCSoarComponent(display::Display *display) : display_(display) {}
 
@@ -41,6 +50,13 @@ class XCSoarComponent : public Component {
 
   void set_frame_interval(uint32_t frame_interval) { this->frame_interval_ = frame_interval; }
   void set_task_stack_size(uint32_t task_stack_size) { this->task_stack_size_ = task_stack_size; }
+#ifdef USE_TOUCHSCREEN
+  /// Pass the first finger of each touch to XCSoar, as a mouse.
+  void set_touchscreen(touchscreen::Touchscreen *touchscreen) { touchscreen->register_listener(this); }
+  void touch(touchscreen::TouchPoint tp) override;
+  void update(const touchscreen::TouchPoints_t &tpoints) override;
+  void release() override;
+#endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   /// Embed a file, e.g. a font, so XCSoar can open it below XCSoarEsp32::ROM_MOUNT_POINT.
   void add_rom_file(const char *name, const uint8_t *data, size_t size) {
@@ -76,6 +92,13 @@ class XCSoarComponent : public Component {
   SemaphoreHandle_t frame_consumed_{nullptr};
   std::atomic<bool> frame_pending_{false};
   std::atomic<bool> task_stopped_{false};
+#ifdef USE_TOUCHSCREEN
+  // The finger XCSoar follows, and where it was last
+  uint8_t touch_id_{0};
+  bool touching_{false};
+  int16_t touch_x_{0};
+  int16_t touch_y_{0};
+#endif
   uint32_t frame_interval_{100};
   uint32_t task_stack_size_{65536};
 #ifdef XCSOAR_ROM_FILE_COUNT

@@ -1,0 +1,39 @@
+# xcsoar-tab5.yaml with simulated touches, for testing without anyone at the screen: every 8 s it taps the
+# pause button twice, then drags a finger across the screen. The touches go through the same listener calls as
+# the touchscreen's, so only the touch chip itself is left out.
+
+packages:
+  tab5: !include xcsoar-tab5.yaml
+
+esphome:
+  name: xcsoar-tab5-sim
+
+interval:
+  - interval: 100ms
+    then:
+      - lambda: |-
+          static uint32_t step = 0;
+          const uint32_t n = step++ % 80;
+          auto *xcsoar = id(xcsoar_app);
+          touchscreen::TouchPoint tp{};
+          tp.id = 0;
+          // the pause button, top right in landscape
+          if (n == 10 || n == 20) {
+            tp.x = 1150;
+            tp.y = 70;
+            xcsoar->touch(tp);
+          } else if (n == 11 || n == 21) {
+            xcsoar->release();
+          } else if (n >= 30 && n <= 60) {
+            tp.x = 150 + (n - 30) * 30;
+            tp.y = 600 - (n - 30) * 15;
+            if (n == 30) {
+              xcsoar->touch(tp);
+            } else {
+              xcsoar->update({tp});
+            }
+          } else if (n == 70) {
+            xcsoar->release();
+          }
+          if (n == 10 || n == 30 || n == 70)
+            ESP_LOGI("touch_sim", "step %u", (unsigned) n);
