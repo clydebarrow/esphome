@@ -60,8 +60,11 @@ profile, then terrain, topography, waypoints and airspace.
 | Terrain and topography threads | XCSoar | Load map tiles and shape files from the `.xcm` file in the background. |
 | `AsioThread`, `JobThread`, workers | XCSoar | Asynchronous I/O and one-off jobs (file loading at start-up). |
 
-All XCSoar threads are pthreads with 128 KB PSRAM stacks (640 KB elsewhere); the largest use seen is about 25 KB. They talk to each other only through XCSoar's own locks and
-the event queue; the component touches none of XCSoar's state.
+All XCSoar threads are pthreads with 128 KB PSRAM stacks (640 KB elsewhere); the largest use seen is about 25 KB.
+They run on either core. The main thread has priority 2, and every other XCSoar thread lowers itself to 1 when it
+starts, the same as the ESPHome main loop (XCSoar's own priority calls do nothing on ESP-IDF), so the UI stays
+responsive while the map is drawn. They talk to each other only through XCSoar's own locks and the event queue;
+the component touches none of XCSoar's state.
 
 ### Data paths between ESPHome and XCSoar
 
@@ -275,7 +278,11 @@ To do:
   time goes (SD card reads in SPI mode, or parsing). The screen is not redrawn while loading, so taps made then
   are handled only when loading ends.
 - **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
-- **Real touch.** Only simulated touches so far.
+- **Real touch.** Works in use. In a menu, the button that leads to the next page is labelled with that page
+  ("Config Page 2/3" on page 1), which reads as if the menu opened on page 2.
+- **Brief flicker.** Still seen by eye. Not found in software: no frame XCSoar sends differs from both its
+  neighbours (a probe over 800 frames of dragging and zooming), the panel reports no underrun, and a 45 s
+  video (only 7 frames per second) showed nothing. It may be shorter than one XCSoar frame (about 0.2 s).
 - **SD card damage.** After many resets while XCSoar was writing (reflashing, and the reboots on Pan), the
   first sector of the card's `XCSoar` directory was overwritten: its `.` and `..` entries were gone, and from byte
   96 on it held a repeating pattern that looks like SD bus traffic during a write (a data response token, busy
@@ -307,16 +314,21 @@ the map full screen. The ESP32-P4's floating point unit does single precision (`
 | Work | Time | Notes |
 |---|---|---|
 | Terrain shading (`GenerateSlopeImage`) | 4 to 7 s, now 0.26 s | per-pixel `double` math and `sqrt`, now `float` |
-| Terrain height scan (`ScanMap`) | 0.45 s | projection per sample, `double` |
-| Whole terrain layer | 0.7 s | 3.6 s before |
-| Airspace layer | 0.5 s, up to 3.4 s | |
-| Map render while dragging | about 4 s | |
-| Calculation, per GPS fix | 175 ms | mostly `ProcessBasicTask` (110 ms) |
-| Calculation, idle pass (about 1 s) | 500 ms | almost all airspace warnings (`AirspaceWarningManager`) |
+| Terrain height scan (`ScanMap`) | 0.21 s | projection per sample, `double` |
+| Whole terrain layer | 0.5 s | 3.6 s at first |
+| Airspace layer | 0.43 s, up to 2.8 s | the padding fill draws every airspace twice (stencil and fill) |
+| Whole map render | 1.2 s, up to 3.8 s | |
+| Calculation, per GPS fix | 166 ms | `ProcessBasicTask` 57 ms |
+| Calculation, idle pass (about 1 s) | 470 ms | airspace warnings 340 ms |
 
-So the glide computer keeps about 70% of one core busy, nearly all of it checking about 2,000 airspaces for
-warnings. Ways to bring it down: load only nearby airspace, check warnings less often, or use `float` in the
-hot geometry code (this needs care: `float` is not precise enough for absolute coordinates).
+Times are medians, measured after the threads were allowed on both cores (all XCSoar threads used to share
+core 0, which made most of them about twice as long). The airspace warnings test every nearby airspace;
+around Warwick that includes large ones such as the Brisbane FIR CTAs, whose boundaries have many points, and
+the point-in-polygon test compares `GeoPoint`s (`double`) for each of them. Ways to bring it down: test inside
+with the flat integer points the crossing test already uses, load only nearby airspace, or check less often.
+
+`IsSlowCPU()` is true on ESP32 (it reports the configured CPU frequency), which turns off InfoBox fades,
+kinetic scrolling and other animations: each of their steps costs a whole frame here.
 
 XCSoar's draw stopwatch (`STOP_WATCH` in `Screen/StopWatch.hpp`) logs the time of each map layer; it is off in
 the build.

@@ -13,9 +13,10 @@ namespace esphome::xcsoar {
 
 ESPHOME_LOG_TAG(TAG, "xcsoar");
 
-// The ESPHome main loop runs on core 1 at priority 1; on the other core XCSoar never holds it up
-static constexpr size_t TASK_PRIORITY = 1;
-static constexpr int TASK_CORE = 0;
+// XCSoar's main (UI) thread runs above its background threads (drawing, calculation), which take one level less,
+// the same as the ESPHome main loop on core 1. On no fixed core, they can use both.
+static constexpr size_t TASK_PRIORITY = 2;
+static constexpr int TASK_CORE = tskNO_AFFINITY;
 // XCSoar allocates with plain new, a great deal in small blocks (an airspace file alone fills internal RAM), so all
 // of malloc() goes to PSRAM first. FreeRTOS objects and DMA buffers ask for internal RAM explicitly.
 static constexpr size_t MALLOC_INTERNAL_LIMIT = 0;

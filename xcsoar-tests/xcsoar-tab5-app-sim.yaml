@@ -1,7 +1,7 @@
 # xcsoar-tab5.yaml with scripted touches for testing XCSoar itself without anyone at the screen: 20 s after
 # boot it taps SIM on the start screen, at 100 s Close on the welcome dialog, which leaves the map in simulator
 # mode. XCSoar finishes loading about 20 s after Close; at 135 s a double tap opens the menu and Pan Mode is
-# selected, and from 150 s the map is dragged for two minutes. It also logs the free internal RAM. Coordinates
+# selected, from 150 s the map is dragged for two minutes, then zoomed in and out. It also logs the free internal RAM. Coordinates
 # are in XCSoar's landscape screen (1280x720).
 
 packages:
@@ -46,6 +46,10 @@ interval:
               {1352, 640, 300, "map"},
               {1380, 128, 216, "Display"},    // menu button 2, left column
               {1410, 1152, 648, "Pan Mode"},  // menu button 9, right column
+              {2750, 128, 216, "zoom in"},    // pan mode: + is button 2, - is button 3
+              {2800, 128, 216, "zoom in"},
+              {2850, 128, 360, "zoom out"},
+              {2900, 128, 360, "zoom out"},
           };
           static uint32_t step = 0;
           const uint32_t n = step++;
