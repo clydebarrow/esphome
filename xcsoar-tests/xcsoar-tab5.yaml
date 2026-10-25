@@ -1,4 +1,5 @@
-# XCSoar on an M5Stack Tab5 (ST7123 panel), drawing in landscape through two frame buffers.
+# XCSoar on an M5Stack Tab5 (ST7123 panel), drawing in landscape through two frame buffers, with its data on the
+# SD card (in /XCSoar on the card).
 # xcsoar_path is relative to this file: a checkout of the XCSoar branch with esp32/xcsoar next to this
 # worktree. Flash over USB: python -m esphome run xcsoar-tests/xcsoar-tab5.yaml
 
@@ -26,6 +27,27 @@ esp_ldo:
   - id: ldo_dsi
     channel: 3
     voltage: 2.5V
+  # GPIO39 to GPIO44 (the SD card slot) are powered by LDO channel 4, passed through at 3.3V
+  - id: ldo_sd
+    channel: 4
+    voltage: passthrough
+
+spi:
+  - id: sd_spi_bus
+    clk_pin: GPIO43
+    mosi_pin: GPIO44
+    miso_pin: GPIO39
+
+storage:
+  - platform: sd_spi
+    id: sd_card
+    spi_id: sd_spi_bus
+    cs_pin: GPIO42
+
+filesystem:
+  - platform: fatfs
+    id: sd_fs
+    storage_id: sd_card
 
 i2c:
   - id: sys_i2c
@@ -72,7 +94,8 @@ xcsoar:
   id: xcsoar_app
   display_id: lcd
   touchscreen_id: touch
-  frame_interval: 10ms
+  filesystem_id: sd_fs
+  task_stack_size: 262144
   xcsoar_path: ${xcsoar_path}
   fonts:
     - file: ../tests/components/lvgl/roboto.ttf

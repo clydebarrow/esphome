@@ -5,22 +5,29 @@
 #include "esphome/core/log.h"
 
 #include <esp_heap_caps.h>
+#include <esp_pthread.h>
 #include <esp_vfs_eventfd.h>
+#include <pthread.h>
 
 namespace esphome::xcsoar {
 
 ESPHOME_LOG_TAG(TAG, "xcsoar");
 
 // The ESPHome main loop runs on core 1 at priority 1; on the other core XCSoar never holds it up
-static constexpr UBaseType_t TASK_PRIORITY = 1;
-static constexpr BaseType_t TASK_CORE = 0;
-// XCSoar allocates with plain new; anything this size or larger goes to PSRAM
-static constexpr size_t MALLOC_INTERNAL_LIMIT = 16384;
+static constexpr size_t TASK_PRIORITY = 1;
+static constexpr int TASK_CORE = 0;
+// XCSoar allocates with plain new, a great deal in small blocks; anything this size or larger goes to PSRAM, so
+// internal RAM stays free for FreeRTOS objects and DMA buffers, which cannot use PSRAM
+static constexpr size_t MALLOC_INTERNAL_LIMIT = 64;
 static constexpr size_t XCSOAR_BYTES_PER_PIXEL = 4;
 // A panel refresh takes about 16 ms; this only guards against a stopped panel
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
 // XCSoar's event loop wakes up through an eventfd
 static constexpr size_t EVENTFD_COUNT = 4;
+static constexpr const char *DATA_MOUNT_POINT = "/sdcard";
+static constexpr const char *DATA_PATH = "/sdcard/XCSoar";
+// How long XCSoar waits for its data filesystem, e.g. an SD card that is still starting
+static constexpr uint32_t DATA_READY_TIMEOUT_MS = 5000;
 
 void XCSoarComponent::setup() {
   // XCSoar owns the whole screen, so the display must not draw on its own (test card, auto clear)
@@ -73,6 +80,13 @@ void XCSoarComponent::setup() {
   }
 #endif
 
+#ifdef XCSOAR_VFS_MAX_FILES
+  if (!this->data_vfs_->mount(DATA_MOUNT_POINT)) {
+    this->mark_failed(LOG_STR("Mounting the data filesystem failed"));
+    return;
+  }
+#endif
+
 #ifdef XCSOAR_ROM_FILE_COUNT
   if (!XCSoarEsp32::MountRomFs(this->rom_files_)) {
     this->mark_failed(LOG_STR("Mounting embedded files failed"));
@@ -86,26 +100,54 @@ void XCSoarComponent::setup() {
       .height = static_cast<unsigned>(height),
       .frame_ready = frame_ready_,
       .ctx = this,
+#ifdef XCSOAR_VFS_MAX_FILES
+      .data_path = DATA_PATH,
+#else
+      .data_path = nullptr,
+#endif
       .frame_interval_ms = this->frame_interval_,
       .max_frames = 0,
   };
 
-  if (!this->task_.create(task_main_, "xcsoar", this->task_stack_size_, this, TASK_PRIORITY, true, TASK_CORE)) {
+  // XCSoar's main thread is a pthread, because XCSoar identifies its threads with pthread_self(). The threads it
+  // starts itself inherit this configuration, so their stacks are in PSRAM too.
+  esp_pthread_cfg_t pthread_config = esp_pthread_get_default_config();
+  pthread_config.stack_size = this->task_stack_size_;
+  pthread_config.prio = TASK_PRIORITY;
+  pthread_config.inherit_cfg = true;
+  pthread_config.thread_name = "xcsoar";
+  pthread_config.pin_to_core = TASK_CORE;
+  pthread_config.stack_alloc_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
+  pthread_t thread;
+  if (esp_pthread_set_cfg(&pthread_config) != ESP_OK || pthread_create(&thread, nullptr, task_main_, this) != 0) {
     this->mark_failed(LOG_STR("Task creation failed"));
     return;
   }
+  pthread_detach(thread);
+  // Threads the main loop creates later keep the default configuration
+  const esp_pthread_cfg_t default_config = esp_pthread_get_default_config();
+  esp_pthread_set_cfg(&default_config);
 
   // loop() only runs when the task has a frame ready
   this->disable_loop();
 }
 
-void XCSoarComponent::task_main_(void *param) {
+void *XCSoarComponent::task_main_(void *param) {
   auto *self = static_cast<XCSoarComponent *>(param);
-  XCSoarEsp32::Run(self->config_);
-  // Run() only returns on error; loop() frees the task
+#ifdef XCSOAR_VFS_MAX_FILES
+  if (!self->data_vfs_->wait_ready(DATA_READY_TIMEOUT_MS)) {
+    ESP_LOGW(TAG, "Data filesystem not ready; XCSoar starts without it");
+  }
+#endif
+  if (self->demo_) {
+    XCSoarEsp32::RunDemo(self->config_);
+  } else {
+    XCSoarEsp32::Run(self->config_);
+  }
+  // XCSoar only returns when it quits or fails
   self->task_stopped_ = true;
   self->enable_loop_soon_any_context();
-  vTaskSuspend(nullptr);
+  return nullptr;
 }
 
 bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, uint8_t *dest, size_t dest_size) {
@@ -166,10 +208,8 @@ void XCSoarComponent::loop() {
     xSemaphoreGive(this->frame_consumed_);
   }
 
-  if (this->task_stopped_.exchange(false)) {
-    this->task_.deallocate();
+  if (this->task_stopped_.exchange(false))
     this->status_set_error(LOG_STR("XCSoar stopped"));
-  }
 
   this->disable_loop();
 }
@@ -210,8 +250,10 @@ void XCSoarComponent::dump_config() {
                 "  Size: %ux%u\n"
                 "  Frame interval: %" PRIu32 " ms\n"
                 "  Task stack size: %" PRIu32 "\n"
+                "  Demo: %s\n"
                 "  Output: %s, rotated %d degrees",
                 this->config_.width, this->config_.height, this->frame_interval_, this->task_stack_size_,
+                YESNO(this->demo_),
 #ifdef USE_XCSOAR_FRAME_BUFFERS
                 LOG_STR_LITERAL("display frame buffers"),
 #else

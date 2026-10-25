@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import esphome.codegen as cg
-from esphome.components import display, psram, touchscreen
+from esphome.components import display, filesystem, psram, touchscreen
 from esphome.components.const import BYTE_ORDER_LITTLE, CONF_BYTE_ORDER
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
@@ -37,7 +37,11 @@ CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["display", "esp32", "psram"]
 DOMAIN = "xcsoar"
 
+CONF_DEMO = "demo"
 CONF_FONTS = "fonts"
+# The C library file and directory handles XCSoar can have open on its data filesystem
+VFS_MAX_FILES = 8
+VFS_MAX_DIRS = 4
 CONF_FRAME_INTERVAL = "frame_interval"
 CONF_TASK_STACK_SIZE = "task_stack_size"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
@@ -78,6 +82,16 @@ FONT_SCHEMA = cv.All(
     _font_name,
 )
 
+
+def _require_data_filesystem(config: ConfigType) -> ConfigType:
+    if not config[CONF_DEMO] and filesystem.CONF_FILESYSTEM_ID not in config:
+        raise cv.Invalid(
+            f"XCSoar keeps its data on a filesystem: set '{filesystem.CONF_FILESYSTEM_ID}', "
+            f"or '{CONF_DEMO}: true' for the test scene"
+        )
+    return config
+
+
 CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
@@ -85,7 +99,11 @@ CONFIG_SCHEMA = cv.All(
             cv.Required(CONF_DISPLAY_ID): cv.use_id(display.Display),
             cv.Required(CONF_XCSOAR_PATH): _validate_xcsoar_path,
             cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(touchscreen.Touchscreen),
+            cv.Optional(filesystem.CONF_FILESYSTEM_ID): cv.use_id(
+                filesystem.Filesystem
+            ),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
+            cv.Optional(CONF_DEMO, default=False): cv.boolean,
             cv.Optional(
                 CONF_FRAME_INTERVAL, default="100ms"
             ): cv.positive_time_period_milliseconds,
@@ -94,6 +112,7 @@ CONFIG_SCHEMA = cv.All(
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_with_framework(Framework.ESP_IDF),
     only_on_variant(supported=[VARIANT_ESP32P4]),
+    _require_data_filesystem,
 )
 
 
@@ -134,17 +153,26 @@ async def to_code(config: ConfigType) -> None:
     await cg.register_component(var, config)
     cg.add(var.set_frame_interval(config[CONF_FRAME_INTERVAL].total_milliseconds))
     cg.add(var.set_task_stack_size(config[CONF_TASK_STACK_SIZE]))
+    if config[CONF_DEMO]:
+        cg.add(var.set_demo(True))
 
     add_idf_component(
         name=DOMAIN, path=str(config[CONF_XCSOAR_PATH] / IDF_COMPONENT_DIR)
     )
     # XCSoar reports errors with exceptions, and the font search uses stat()
     add_idf_sdkconfig_option("CONFIG_COMPILER_CXX_EXCEPTIONS", True)
+    # Boost's R-tree (airspace and waypoint lookups) uses dynamic_cast, and fmt the type of std::locale::facet
+    add_idf_sdkconfig_option("CONFIG_COMPILER_CXX_RTTI", True)
     require_vfs_dir()
     # XCSoar's event loop polls an eventfd
     require_vfs_select()
     psram.request_external_task_stack()
     await cg.add_variable(var.set_touchscreen, config.get(CONF_TOUCHSCREEN_ID))
+    if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
+        filesystem.request_open_handles(fs_id, VFS_MAX_FILES, VFS_MAX_DIRS)
+        cg.add_define("XCSOAR_VFS_MAX_FILES", VFS_MAX_FILES)
+        cg.add_define("XCSOAR_VFS_MAX_DIRS", VFS_MAX_DIRS)
+        await cg.add_variable(var.set_filesystem, fs_id)
     if _get_data().use_frame_buffers:
         cg.add_define("USE_XCSOAR_FRAME_BUFFERS")
 

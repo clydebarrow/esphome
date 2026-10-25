@@ -6,7 +6,6 @@
 #include "esphome/core/component.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/helpers.h"
-#include "esphome/core/static_task.h"
 
 #ifdef USE_XCSOAR_FRAME_BUFFERS
 #include "esphome/components/mipi_dsi/mipi_dsi.h"
@@ -15,6 +14,8 @@
 #ifdef USE_TOUCHSCREEN
 #include "esphome/components/touchscreen/touchscreen.h"
 #endif
+
+#include "filesystem_vfs.h"
 
 #include <XCSoarEsp32.hpp>
 
@@ -50,12 +51,18 @@ class XCSoarComponent : public Component
 
   void set_frame_interval(uint32_t frame_interval) { this->frame_interval_ = frame_interval; }
   void set_task_stack_size(uint32_t task_stack_size) { this->task_stack_size_ = task_stack_size; }
+  /// Run XCSoar's test scene instead of XCSoar.
+  void set_demo(bool demo) { this->demo_ = demo; }
 #ifdef USE_TOUCHSCREEN
   /// Pass the first finger of each touch to XCSoar, as a mouse.
   void set_touchscreen(touchscreen::Touchscreen *touchscreen) { touchscreen->register_listener(this); }
   void touch(touchscreen::TouchPoint tp) override;
   void update(const touchscreen::TouchPoints_t &tpoints) override;
   void release() override;
+#endif
+#ifdef XCSOAR_VFS_MAX_FILES
+  /// The filesystem XCSoar keeps its data on, made available below DATA_MOUNT_POINT.
+  void set_filesystem(filesystem::Filesystem *fs) { this->data_vfs_ = new FilesystemVfs(fs); }  // NOLINT
 #endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   /// Embed a file, e.g. a font, so XCSoar can open it below XCSoarEsp32::ROM_MOUNT_POINT.
@@ -65,7 +72,7 @@ class XCSoarComponent : public Component
 #endif
 
  protected:
-  static void task_main_(void *param);
+  static void *task_main_(void *param);
   static void frame_ready_(const void *pixels, unsigned pitch, void *ctx) noexcept;
   /// Convert an XCSoar frame into dest with the PPA; runs on the XCSoar task.
   bool convert_(const void *pixels, unsigned pitch, uint8_t *dest, size_t dest_size);
@@ -87,7 +94,6 @@ class XCSoarComponent : public Component
   size_t frame_size_{0};
 #endif
   XCSoarEsp32::Config config_{};
-  StaticTask task_;
   StaticSemaphore_t frame_consumed_buffer_{};
   SemaphoreHandle_t frame_consumed_{nullptr};
   std::atomic<bool> frame_pending_{false};
@@ -100,7 +106,11 @@ class XCSoarComponent : public Component
   int16_t touch_y_{0};
 #endif
   uint32_t frame_interval_{100};
+  bool demo_{false};
   uint32_t task_stack_size_{65536};
+#ifdef XCSOAR_VFS_MAX_FILES
+  FilesystemVfs *data_vfs_{nullptr};
+#endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   StaticVector<XCSoarEsp32::RomFile, XCSOAR_ROM_FILE_COUNT> rom_files_;
 #endif

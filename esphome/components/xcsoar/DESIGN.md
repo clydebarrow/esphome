@@ -14,11 +14,14 @@ in ordinary ESPHome YAML.
 | Where | What |
 |---|---|
 | XCSoar `esp32/xcsoar/` | ESP-IDF component. `include/XCSoarEsp32.hpp` is the whole interface between the two projects. |
-| XCSoar `esp32/Sources.cmake` | The XCSoar source list and defines, shared with the host test. |
-| XCSoar `esp32/host-test/` | Builds the same sources for Linux and writes a frame to a PPM file. No ESP toolchain needed. |
-| XCSoar `src/ui/canvas/fb/TopCanvas.cpp` | New `USE_EXTERNAL_FB` mode: a memory canvas whose `Flip()` calls a function instead of writing to `/dev/fb0`. |
+| XCSoar `build/targets.mk` | `TARGET=ESP32`: the make build's view of the ESP32, from which the sources and flags are taken. |
+| XCSoar `esp32/generate-sources.py` | Runs make's generate step for `TARGET=ESP32` and writes `output/ESP32/Sources.cmake`. |
+| XCSoar `esp32/ThirdParty.cmake` | Builds zlib, libpng, Lua, IJG libjpeg and c-ares from source (`esp32/cares` is c-ares's configuration). |
+| XCSoar `esp32/Sources.cmake` | The test scene's short source list for the host test, and the library downloads. |
+| XCSoar `esp32/host-test/` | Builds the test scene for Linux or macOS and writes a frame to a PPM file. No ESP toolchain needed. |
+| XCSoar `src/ui/display/Display.hpp` | `USE_EXTERNAL_FB` (with `USE_VFB`): the display hands each frame to the host application. |
 | XCSoar `src/ui/canvas/esp32/Files.cpp` | Font search paths: `/sdcard/XCSoar/fonts`, then `/rom/fonts`. |
-| ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display. |
+| ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display. `filesystem_vfs` makes a `filesystem` usable through the C library. |
 | ESPHome `xcsoar-tests/` | Device configs for testing on hardware, e.g. `xcsoar-tab5.yaml` for the M5Stack Tab5. |
 
 The ESPHome component points `add_idf_component(path=...)` at a local XCSoar checkout (`xcsoar_path`).
@@ -120,28 +123,59 @@ xcsoar:
 - **Not done yet.** Partial updates (handing the dirty rectangle to the flip handler), and the
   `RunMapWindow` milestone, which needs much of phase 3 (terrain, topography, waypoints, looks).
 
-## Phase 3: the full application
+## Phase 3: the full application (in progress)
 
-- **Entry point.** Split `XCSoar.cpp`'s `Main()` into a function without `argv`, signals (`UI::BlockSignals`)
-  or `ScopeGlobalAsioThread` networking. Choose the profile without the start-up dialog.
-- **Storage.** The `storage` branch of the ESPHome fork provides SD card and FAT support (`sd_spi`, `fatfs`,
-  `filesystem`). Its API is ESPHome's own `filesystem::Filesystem`, not the C library, while XCSoar uses POSIX
-  `open()`/`stat()`/`opendir()`. Bridge the two with an ESP-IDF VFS driver on top of `filesystem::Filesystem`,
-  mounted at `/sdcard`, built the same way as the `/rom` driver. `LocalPath` then points at `/sdcard/XCSoar`.
-- **`mmap`.** `FileMapping` (used for PNG images and some data files) needs a fallback that reads the file
-  into PSRAM.
-- **Threads.** XCSoar asks for 640 KB stacks (`src/thread/Thread.cpp`). Give ESP-IDF a smaller size per thread
-  and put the stacks in PSRAM (`pthread` attributes, or `esp_pthread_set_cfg` with
-  `CONFIG_SPIRAM_ALLOW_STACK_EXTERNAL_MEMORY`). There are about six threads: calculation, merge, draw,
-  terrain loader, port receive and Asio.
-- **GPS and vario input.** Add a new port type, `PortType::EXTERNAL`: a `BufferedPort` whose `DataReceived()`
-  is fed by an ESPHome `uart::UARTDevice` through a ring buffer. The UART is drained in the component's
-  `loop()`. `TCP_LISTENER`/`UDP_LISTENER` over lwIP also work with no code change.
-- **Libraries.** Lua, zzip, jasper (JPEG2000 terrain), libpng and libjpeg need IDF builds or stubs. Boost is
-  header only. Networking (`HAVE_HTTP`: curl, c-ares, OpenSSL) can stay out at first
-  (`NetComponentsStub.cpp`).
-- **Settings.** XCSoar's profile stays XCSoar's own. Expose a few values (e.g. altitude, vario) as ESPHome
-  sensors later if useful.
+Done:
+
+- **Build.** The whole program (about 1450 XCSoar sources) builds for the ESP32. `TARGET=ESP32` in
+  `build/targets.mk` selects what applies (the virtual frame buffer, no TTY serial ports, no processes, no
+  GeoTIFF, no HTTP), and `esp32/generate-sources.py` takes the lists and flags from make, so they cannot drift.
+  The generator also runs make's generate step, which needs the normal build's host tools (perl, ImageMagick,
+  rsvg-convert, sox, gettext). The IDF component runs it when its output is missing; run it again after make
+  file changes.
+- **Entry point.** On ESP-IDF, XCSoar's `main()` is `XCSoarMain()`. `XCSoarEsp32::Run()` passes the screen
+  size and `-datapath=` as command line arguments, so the normal start-up runs.
+- **Threads.** XCSoar's main thread is a pthread (`pthread_self()` aborts in other FreeRTOS tasks), started
+  with `esp_pthread_set_cfg()` so that it and the threads it creates have their stacks in PSRAM.
+  `InitThreadDebug()` records it as the main thread, as on Android.
+- **Storage.** The `storage` branch is merged: `sd_spi` and `fatfs` give the SD card, and `filesystem_vfs` in
+  the component makes any `filesystem::Filesystem` usable through the C library at `/sdcard`, behind one lock.
+  XCSoar's data directory is `/sdcard/XCSoar`. On the Tab5 the card works in SPI mode on GPIO39 to GPIO44,
+  which need LDO channel 4.
+- **Memory and flash.** Resources and data files are compiled into `.rodata` (`RESOURCE_SECTION`), so they
+  stay in flash. The built-in translations (about 10 MB) are left out; XCSoar can load a `.mo` file from the
+  data directory instead. `FileMapping` reads files into memory, since there is no `mmap()`.
+- **Libraries.** zlib, libpng, Lua and c-ares are the releases `build/python/build/libs.py` uses. libjpeg is
+  IJG libjpeg 9f instead of libjpeg-turbo, which refuses to be built inside another CMake project; XCSoar only
+  uses the API both share. c-ares's configure checks cannot run with the ESP-IDF toolchain, so it has a
+  hand-written configuration for lwIP. Boost and fmt are header only. RTTI is on
+  (`CONFIG_COMPILER_CXX_RTTI`), for Boost's R-tree and fmt.
+- **Internal RAM.** FreeRTOS objects (including the lock of every `FILE`) and DMA buffers must be in internal
+  RAM. XCSoar allocates a great deal in small blocks, so the component sends every allocation above 64 bytes to
+  PSRAM (`heap_caps_malloc_extmem_enable()`); about 320 KB of internal RAM stays free with XCSoar running.
+- **Fonts.** XCSoar loads a FreeType face per font size and every face keeps its file open, more files than
+  ESP-IDF allows; on ESP-IDF each font file is read once and its faces are made from memory.
+- **Result.** XCSoar starts on the Tab5; with simulated taps on SIM and on the welcome dialog's Close it shows
+  the map in simulator mode with its InfoBoxes. The firmware uses 7.99 MB of the 8.1 MB app partition.
+  `xcsoar-tests/xcsoar-tab5-app-sim.yaml` is that test.
+
+To do:
+
+- **Flash space.** The app partition is nearly full. Options: a partition table with one app partition (no
+  OTA), dropping debug assertions (`NDEBUG`), or keeping the resources on the SD card.
+- **Thread stacks.** XCSoar asks for 640 KB per thread (`src/thread/Thread.cpp`); in PSRAM that works, but a
+  smaller ESP32 size would save several MB.
+- **GPS and vario input.** A new port type, `PortType::EXTERNAL`: a `BufferedPort` fed by an ESPHome
+  `uart::UARTDevice` through a ring buffer, drained in the component's `loop()`. `TCP_LISTENER`/`UDP_LISTENER`
+  over lwIP work without code changes once Wi-Fi is up.
+- **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
+- **Watchdog.** Just after start-up something on an XCSoar thread calls `esp_task_wdt_reset()`, which logs
+  "task not found" once; find out what.
+- **Data.** The SD card has no waypoints, airspace, terrain or maps yet, so the map is empty; test with real
+  data files.
+- **Networking** (`HAVE_HTTP`: curl, OpenSSL or mbedTLS) is left out for now.
+- **Settings.** XCSoar's profile stays XCSoar's own. A few values (e.g. altitude, vario) could be ESPHome
+  sensors later.
 
 ## Phase 4: optional
 
@@ -172,3 +206,5 @@ xcsoar:
   and no main loop blocking warnings.
 - Phase 2 on the Tab5 with simulated touches: taps on the pause button toggle the animation and a drag draws
   its path. The real touch chip starts and reports its size, but no finger has touched it yet.
+- Phase 3 on the Tab5: the full XCSoar starts from the SD card and, with simulated taps, reaches the map in
+  simulator mode; no resets in 100 s.

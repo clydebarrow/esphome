@@ -1,0 +1,63 @@
+# SD card check on the M5Stack Tab5: mount the card through the storage components and list its root
+# directory at boot.
+
+esphome:
+  name: tab5-sd
+  on_boot:
+    priority: -100
+    then:
+      # the card is ready a moment after boot
+      - delay: 3s
+      - lambda: |-
+          auto *fs = id(sd_fs);
+          auto dir = fs->open_dir("/");
+          if (!dir) {
+            ESP_LOGE("sd_test", "open_dir failed: %s", LOG_STR_ARG(filesystem::fs_error_to_string(fs->last_error())));
+            return;
+          }
+          filesystem::FileInfo info;
+          char name[64];
+          while (dir.read_next(info, name, sizeof(name)) == filesystem::FsError::FS_ERROR_NONE)
+            ESP_LOGI("sd_test", "%s %s %u", info.is_dir ? "dir " : "file", name, (unsigned) info.size);
+          uint64_t total, free;
+          if (fs->space(total, free) == filesystem::FsError::FS_ERROR_NONE)
+            ESP_LOGI("sd_test", "total %llu MB, free %llu MB", total >> 20, free >> 20);
+
+esp32:
+  variant: esp32p4
+  engineering_sample: true
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+psram:
+  speed: 200MHz
+
+# GPIO39 to GPIO44 (the SD card slot) are powered by LDO channel 4, passed through at 3.3V
+esp_ldo:
+  - id: ldo_sd
+    channel: 4
+    voltage: passthrough
+
+spi:
+  - id: sd_spi_bus
+    clk_pin: GPIO43
+    mosi_pin: GPIO44
+    miso_pin: GPIO39
+
+storage:
+  - platform: sd_spi
+    id: sd_card
+    spi_id: sd_spi_bus
+    cs_pin: GPIO42
+
+filesystem:
+  - platform: fatfs
+    id: sd_fs
+    storage_id: sd_card
+    max_open_files: 4
+    max_open_dirs: 2

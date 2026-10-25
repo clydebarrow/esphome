@@ -1,5 +1,5 @@
-# xcsoar-tab5.yaml with simulated touches, for testing without anyone at the screen: every 8 s it taps the
-# pause button twice, then drags a finger across the screen. The touches go through the same listener calls as
+# xcsoar-tab5.yaml running the test scene, with simulated touches for testing without anyone at the screen: every
+# 8 s it taps the pause button twice, then drags a finger across the screen. The touches go through the same listener calls as
 # the touchscreen's, so only the touch chip itself is left out.
 
 packages:
@@ -7,6 +7,10 @@ packages:
 
 esphome:
   name: xcsoar-tab5-sim
+
+xcsoar:
+  demo: true
+  frame_interval: 10ms
 
 interval:
   - interval: 100ms
