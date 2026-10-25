@@ -7,6 +7,26 @@ packages:
 
 esphome:
   name: xcsoar-tab5-app-sim
+  includes:
+    - debug_helpers.h
+  on_boot:
+    priority: 1000
+    then:
+      - lambda: |-
+          heap_caps_register_failed_alloc_callback([](size_t size, uint32_t caps, const char *function) {
+            esp_rom_printf("alloc failed: %u bytes, caps 0x%x, PSRAM free %u, largest %u\n", (unsigned) size,
+                           (unsigned) caps, (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                           (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+            print_stack_code_addresses();
+          });
+
+esp32:
+  framework:
+    sdkconfig_options:
+      # for the stack report below
+      CONFIG_FREERTOS_USE_TRACE_FACILITY: y
+      # for the large allocation report in debug_helpers.h
+      CONFIG_HEAP_USE_HOOKS: y
 
 interval:
   - interval: 100ms
@@ -32,7 +52,7 @@ interval:
           } else if (n == 201 || n == 401) {
             xcsoar->release();
           }
-  # internal RAM, which FreeRTOS objects need
+  # internal RAM, which FreeRTOS objects need, and PSRAM
   - interval: 5s
     then:
       - lambda: |-
@@ -40,3 +60,22 @@ interval:
                    (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                    (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                    (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
+          ESP_LOGI("heap", "PSRAM free %u, largest %u", (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
+                   (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+  - interval: 250ms
+    then:
+      - lambda: |-
+          static size_t last = 0;
+          const size_t now = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+          if (last - now > 262144 && now < last)
+            esp_rom_printf("PSRAM %u -> %u\n", (unsigned) last, (unsigned) now);
+          last = now;
+  # the unused stack of every task, once XCSoar is running
+  - interval: 60s
+    then:
+      - lambda: |-
+          static TaskStatus_t tasks[40];
+          const UBaseType_t count = uxTaskGetSystemState(tasks, 40, nullptr);
+          for (UBaseType_t i = 0; i < count; i++)
+            ESP_LOGI("stack", "%-16s free %u bytes", tasks[i].pcTaskName,
+                     (unsigned) tasks[i].usStackHighWaterMark * sizeof(StackType_t));

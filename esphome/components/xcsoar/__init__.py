@@ -38,6 +38,7 @@ DEPENDENCIES = ["display", "esp32", "psram"]
 DOMAIN = "xcsoar"
 
 CONF_DEMO = "demo"
+CONF_DPI = "dpi"
 CONF_FONTS = "fonts"
 # The C library file and directory handles XCSoar can have open on its data filesystem
 VFS_MAX_FILES = 8
@@ -104,6 +105,8 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
             cv.Optional(CONF_DEMO, default=False): cv.boolean,
+            # XCSoar's -dpi range
+            cv.Optional(CONF_DPI): cv.int_range(min=32, max=512),
             cv.Optional(
                 CONF_FRAME_INTERVAL, default="100ms"
             ): cv.positive_time_period_milliseconds,
@@ -155,6 +158,7 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_task_stack_size(config[CONF_TASK_STACK_SIZE]))
     if config[CONF_DEMO]:
         cg.add(var.set_demo(True))
+    cg.add_optional(var.set_dpi, config.get(CONF_DPI))
 
     add_idf_component(
         name=DOMAIN, path=str(config[CONF_XCSOAR_PATH] / IDF_COMPONENT_DIR)

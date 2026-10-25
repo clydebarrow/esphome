@@ -53,6 +53,7 @@ class XCSoarComponent : public Component
   void set_task_stack_size(uint32_t task_stack_size) { this->task_stack_size_ = task_stack_size; }
   /// Run XCSoar's test scene instead of XCSoar.
   void set_demo(bool demo) { this->demo_ = demo; }
+  void set_dpi(unsigned dpi) { this->dpi_ = dpi; }
 #ifdef USE_TOUCHSCREEN
   /// Pass the first finger of each touch to XCSoar, as a mouse.
   void set_touchscreen(touchscreen::Touchscreen *touchscreen) { touchscreen->register_listener(this); }
@@ -107,6 +108,7 @@ class XCSoarComponent : public Component
 #endif
   uint32_t frame_interval_{100};
   bool demo_{false};
+  unsigned dpi_{0};
   uint32_t task_stack_size_{65536};
 #ifdef XCSOAR_VFS_MAX_FILES
   FilesystemVfs *data_vfs_{nullptr};

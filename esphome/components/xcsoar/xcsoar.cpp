@@ -16,9 +16,9 @@ ESPHOME_LOG_TAG(TAG, "xcsoar");
 // The ESPHome main loop runs on core 1 at priority 1; on the other core XCSoar never holds it up
 static constexpr size_t TASK_PRIORITY = 1;
 static constexpr int TASK_CORE = 0;
-// XCSoar allocates with plain new, a great deal in small blocks; anything this size or larger goes to PSRAM, so
-// internal RAM stays free for FreeRTOS objects and DMA buffers, which cannot use PSRAM
-static constexpr size_t MALLOC_INTERNAL_LIMIT = 64;
+// XCSoar allocates with plain new, a great deal in small blocks (an airspace file alone fills internal RAM), so all
+// of malloc() goes to PSRAM first. FreeRTOS objects and DMA buffers ask for internal RAM explicitly.
+static constexpr size_t MALLOC_INTERNAL_LIMIT = 0;
 static constexpr size_t XCSOAR_BYTES_PER_PIXEL = 4;
 // A panel refresh takes about 16 ms; this only guards against a stopped panel
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
@@ -105,6 +105,7 @@ void XCSoarComponent::setup() {
 #else
       .data_path = nullptr,
 #endif
+      .dpi = this->dpi_,
       .frame_interval_ms = this->frame_interval_,
       .max_frames = 0,
   };
@@ -250,9 +251,10 @@ void XCSoarComponent::dump_config() {
                 "  Size: %ux%u\n"
                 "  Frame interval: %" PRIu32 " ms\n"
                 "  Task stack size: %" PRIu32 "\n"
+                "  DPI: %u\n"
                 "  Demo: %s\n"
                 "  Output: %s, rotated %d degrees",
-                this->config_.width, this->config_.height, this->frame_interval_, this->task_stack_size_,
+                this->config_.width, this->config_.height, this->frame_interval_, this->task_stack_size_, this->dpi_,
                 YESNO(this->demo_),
 #ifdef USE_XCSOAR_FRAME_BUFFERS
                 LOG_STR_LITERAL("display frame buffers"),
