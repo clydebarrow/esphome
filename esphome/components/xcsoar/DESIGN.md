@@ -29,7 +29,9 @@ XCSoar is GPL-2.0-or-later, so firmware built with it is GPL as well.
 display:
   - platform: mipi_dsi
     id: lcd
-    model: JC1060P470
+    model: M5STACK-TAB5-ST7123
+    frame_buffers: 2
+    rotation: 90
 
 xcsoar:
   display_id: lcd
@@ -40,32 +42,52 @@ xcsoar:
 ```
 
 ```
- XCSoar task (PSRAM stack)                 ESPHome main loop
- ─────────────────────────                 ─────────────────
- draw into memory canvas (BGRA)
- TopCanvas::Flip()
-   └ CopyFromBGRA → RGB565 frame_
-   └ frame_pending_ = true
-   └ enable_loop_soon_any_context() ───────► loop()
-   └ wait on semaphore                         draw_pixels_at(frame_, 565)
-                                   ◄───────    give semaphore
- next frame                                    disable_loop()
+ XCSoar task (core 0, PSRAM stack)            ESPHome main loop (core 1)
+ ---------------------------------            --------------------------
+ draw into the memory canvas (BGRA)
+ TopCanvas::Flip() -> frame_ready_()
+   wait until the back buffer is off screen
+   PPA: BGRA -> RGB565, rotated, into
+        the back frame buffer
+   frame_pending_ = true
+   enable_loop_soon_any_context() --------->  loop()
+   wait on semaphore                            show_frame_buffer(back buffer)
+                                   <--------    give semaphore
+ next frame
 ```
 
-- **Threads.** Display drivers are not thread safe, so only the main loop calls the display. The XCSoar task
-  blocks until the frame has been copied, so the frame buffer is never written while it is being read.
-- **Fast path.** `draw_pixels_at` with RGB565 and the panel's byte order goes straight to
-  `esp_lcd_panel_draw_bitmap` (DMA2D). A software rotation on the display falls back to one pixel at a time,
-  so XCSoar should render at the panel's native orientation (XCSoar has its own display rotation).
+- **Threads.** Display drivers are not thread safe, so only the main loop calls the display. Writing pixels into
+  a frame buffer the panel is not showing is not a display call, so the PPA does that from the XCSoar task.
+- **Double buffering.** With `frame_buffers: 2`, `mipi_dsi` allocates two panel frame buffers and gives a
+  renderer `get_frame_buffer()`, `show_frame_buffer()` and `wait_frame_buffer_free()`. Showing a buffer is no
+  copy: ESP-IDF switches the panel to it at its next refresh. The XCSoar task waits for that refresh before it
+  writes into the buffer that was on screen, so there is no tearing.
+- **PPA.** The P4's pixel processing unit converts XCSoar's BGRA canvas (ARGB8888 in little endian order) to the
+  panel's RGB565 or RGB888 and rotates it to the display's `rotation` in the same pass. XCSoar draws at the
+  rotated size (1280x720 on the Tab5 with `rotation: 90`).
+- **Without double buffering** (any other display, or `frame_buffers: 1`), the PPA converts into a buffer of
+  this component and the main loop copies it with `draw_pixels_at`, which takes about 16 ms per frame there.
+  A rotation then goes through the display's slow per-pixel path.
 - **The display's own drawing.** `mipi_dsi` turns on its test card when it has no writer. The component calls
   `stop_poller()` on the display, so `update()` never runs and the display never allocates its own buffer.
+- **Measured on the Tab5** (720x1280 panel, test scene, per frame):
+
+  | Step | Before | Now |
+  |---|---|---|
+  | XCSoar draws the scene (CPU) | 108 ms | about 92 ms |
+  | Convert to RGB565 | 101 ms (CPU) | 56 ms (PPA, with or without rotation) |
+  | Main loop | 15.6 ms (copy) | 0.1 ms (buffer switch) |
+  | Frame rate | 4 to 5 fps | 6 to 7 fps |
+
+  The PPA conversion is limited by the PPA itself (about 17 million pixels per second); the cache flush of the
+  canvas takes only 0.5 ms of it.
 - **Fonts.** XCSoar ships no fonts. The `fonts` option embeds TTF files in the firmware, and
   `XCSoarEsp32::MountRomFs()` registers a small read-only ESP-IDF VFS driver at `/rom`, so FreeType opens them
   with ordinary `fopen()`. That driver will also serve other embedded data later.
 - **Memory.** `malloc()` normally stays in internal RAM under `CONFIG_SPIRAM_USE_CAPS_ALLOC`. XCSoar allocates
   with plain `new`, so `setup()` calls `heap_caps_malloc_extmem_enable(16384)`: blocks of 16 KB or more go to
-  PSRAM. At 1024×600, the BGRA canvas (2.4 MB), the RGB565 frame (1.2 MB) and the panel's DMA frame buffer
-  (1.2 MB) use about 5 MB of the 32 MB PSRAM.
+  PSRAM. At 720x1280, the BGRA canvas (3.7 MB) and two RGB565 frame buffers (1.8 MB each) use about 7.4 MB
+  of the 32 MB PSRAM.
 - **Exceptions.** XCSoar reports errors with exceptions. The component sets `CONFIG_COMPILER_CXX_EXCEPTIONS`,
   and the IDF component compiles with `-fexceptions`, which overrides ESPHome's global `-fno-exceptions` for
   XCSoar's files only. ESPHome's `--wrap` stubs for `std::__throw_*` stay: a length or range error in the
@@ -112,7 +134,8 @@ xcsoar:
 ## Phase 4: optional
 
 - A native RGB565 `PixelTraits` for the memory canvas: half the memory, and no per-frame conversion.
-- Rotation through the P4's PPA (see the LVGL component's `ppa_rotate_`).
+- Overlap the PPA with drawing: start the conversion without waiting and draw the next frame into a second
+  canvas, so a frame takes the longer of the two steps instead of their sum (3.7 MB more PSRAM).
 - Sound through an ESPHome speaker (XCSoar's vario tone generator, `PCMMixer`).
 - Live tracking and downloads once networking is in.
 
@@ -120,15 +143,15 @@ xcsoar:
 
 - **Code size.** The full XCSoar program is about 1,800 C++ files; with exceptions and unwind tables expect
   several MB of flash. The P4 boards have 16 MB or more.
-- **CPU.** The memory canvas draws in software on a 360–400 MHz RISC-V core. The Kobo e-readers (1 GHz ARM)
+- **CPU.** The memory canvas draws in software on a 360 to 400 MHz RISC-V core. The Kobo e-readers (1 GHz ARM)
   are the closest comparison. Drawing the map is the main cost.
 - **ESP-IDF `poll()`** works only on VFS file descriptors. Every wake source must therefore be an eventfd or
   a socket.
 
 ## Verification so far
 
-- The host test (`esp32/host-test`) builds the phase 1 sources with the host compiler and renders the test
-  scene correctly.
-- `RomFs.cpp` compiles (syntax check) against the ESP-IDF 5.5.1 VFS headers.
-- `esphome config` and `esphome compile --only-generate` succeed for a P4 configuration.
-- No ESP32 compile or hardware test has been done yet.
+- The host test (`esp32/host-test`) builds the phase 1 sources with the host compiler (Linux and macOS) and
+  renders the test scene correctly.
+- Built with ESP-IDF 5.5.6 and run on an M5Stack Tab5 (ST7123 panel, ESP32-P4 v1.3): with two frame buffers
+  in portrait and with `rotation: 90`, and with one frame buffer (the copy path). A 60 s run showed no resets
+  and no main loop blocking warnings.

@@ -1,6 +1,6 @@
 #pragma once
 
-#ifdef USE_ESP32
+#ifdef USE_ESP32_VARIANT_ESP32P4
 
 #include "esphome/components/display/display.h"
 #include "esphome/core/component.h"
@@ -8,8 +8,13 @@
 #include "esphome/core/helpers.h"
 #include "esphome/core/static_task.h"
 
+#ifdef USE_XCSOAR_FRAME_BUFFERS
+#include "esphome/components/mipi_dsi/mipi_dsi.h"
+#endif
+
 #include <XCSoarEsp32.hpp>
 
+#include <driver/ppa.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -19,8 +24,11 @@ namespace esphome::xcsoar {
 
 /// Runs XCSoar in its own task and shows the frames it renders on an ESPHome display.
 ///
-/// The display is only ever touched from the main loop: the XCSoar task converts each frame into frame_,
-/// wakes the loop and waits until loop() has copied the frame to the display.
+/// The XCSoar task converts each frame to the display's format with the PPA, then hands it to the main loop, the
+/// only place the display is used. On a mipi_dsi display with two or more frame buffers the PPA writes straight
+/// into a frame buffer that the panel is not showing, also rotating the frame to the display's rotation, and the
+/// main loop just switches the panel to it. Otherwise the PPA writes into a buffer of this component that the main
+/// loop copies to the display.
 class XCSoarComponent : public Component {
  public:
   explicit XCSoarComponent(display::Display *display) : display_(display) {}
@@ -42,11 +50,26 @@ class XCSoarComponent : public Component {
 
  protected:
   static void task_main_(void *param);
-  static void frame_ready_(void *ctx) noexcept;
+  static void frame_ready_(const void *pixels, unsigned pitch, void *ctx) noexcept;
+  /// Convert an XCSoar frame into dest with the PPA; runs on the XCSoar task.
+  bool convert_(const void *pixels, unsigned pitch, uint8_t *dest, size_t dest_size);
 
   display::Display *display_;
-  RAMAllocator<uint16_t> allocator_{RAMAllocator<uint16_t>::ALLOC_EXTERNAL};
-  uint16_t *frame_{nullptr};
+  ppa_client_handle_t ppa_client_{nullptr};
+  ppa_srm_rotation_angle_t ppa_rotation_{PPA_SRM_ROTATION_ANGLE_0};
+  ppa_srm_color_mode_t ppa_out_color_mode_{PPA_SRM_COLOR_MODE_RGB565};
+  // Size of the converted frame
+  unsigned out_width_{0};
+  unsigned out_height_{0};
+#ifdef USE_XCSOAR_FRAME_BUFFERS
+  mipi_dsi::MipiDsi *dsi_{nullptr};
+  // The frame buffer the next frame is converted into; changed by loop() only while the task waits
+  uint8_t back_buffer_{0};
+  bool buffer_shown_{false};
+#else
+  uint8_t *frame_{nullptr};
+  size_t frame_size_{0};
+#endif
   XCSoarEsp32::Config config_{};
   StaticTask task_;
   StaticSemaphore_t frame_consumed_buffer_{};
@@ -62,4 +85,4 @@ class XCSoarComponent : public Component {
 
 }  // namespace esphome::xcsoar
 
-#endif  // USE_ESP32
+#endif  // USE_ESP32_VARIANT_ESP32P4

@@ -8,6 +8,8 @@ display:
     id: xcsoar_display
     model: JC1060P470
     enable_pin: GPIO22
+    frame_buffers: 2
+    rotation: 90
 
 psram:
 
