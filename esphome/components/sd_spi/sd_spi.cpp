@@ -300,7 +300,8 @@ uint8_t SdSpi::app_command_(uint8_t cmd, uint32_t arg) {
   return this->command_(cmd, arg);
 }
 
-// A card can stay busy for hundreds of milliseconds, so the waits below feed the watchdog
+// A card can stay busy for hundreds of milliseconds, so the waits below feed the watchdog when they run on the main
+// loop thread
 bool SdSpi::wait_ready_(uint32_t timeout_ms) {
   const uint32_t start = millis();
   uint32_t now = start;
@@ -308,7 +309,8 @@ bool SdSpi::wait_ready_(uint32_t timeout_ms) {
     if (this->xfer_() == 0xFF)
       return true;
     now = millis();
-    App.feed_wdt_with_time(now);
+    if (is_main_loop_thread())
+      App.feed_wdt_with_time(now);
   } while (now - start < timeout_ms);
   return false;
 }
@@ -320,7 +322,8 @@ bool SdSpi::read_data_(uint8_t *buf, uint32_t len) {
     const uint32_t now = millis();
     if (now - start >= READ_TIMEOUT_MS)
       return false;
-    App.feed_wdt_with_time(now);
+    if (is_main_loop_thread())
+      App.feed_wdt_with_time(now);
   }
   if (token != TOKEN_START_BLOCK)
     return false;
