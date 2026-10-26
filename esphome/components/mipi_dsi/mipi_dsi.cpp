@@ -3,6 +3,8 @@
 #include "mipi_dsi.h"
 #include "esphome/core/helpers.h"
 
+#include <hal/axi_icm_ll.h>
+
 #include <algorithm>
 #include <cstring>
 
@@ -10,6 +12,8 @@ namespace esphome::mipi_dsi {
 
 // Maximum bytes to log for init commands (truncated if larger)
 static constexpr size_t MIPI_DSI_MAX_CMD_LOG_BYTES = 64;
+// Highest AXI QoS priority (4 bits); all masters start at 0
+static constexpr uint32_t DSI_DMA_READ_PRIORITY = 15;
 
 static bool IRAM_ATTR notify_color_trans_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata,
                                               void *user_ctx) {
@@ -182,6 +186,11 @@ void MipiDsi::setup() {
     this->smark_failed(LOG_STR("Failed to register callbacks"), err);
     return;
   }
+
+  // The panel reads its frame buffer from PSRAM through DW-GDMA all the time. With equal priorities, heavy PSRAM use
+  // by the CPU or the PPA can delay those reads until the panel runs out of data and shows a corrupt frame.
+  axi_icm_ll_set_dw_gdma_qos_arbiter_prio(0, 0, DSI_DMA_READ_PRIORITY);
+  axi_icm_ll_set_dw_gdma_qos_arbiter_prio(1, 0, DSI_DMA_READ_PRIORITY);
 
   if (this->frame_buffer_count_ > 1) {
     err = esp_lcd_dpi_panel_get_frame_buffer(
