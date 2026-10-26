@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
+#include <mutex>
 
 #include "esphome/components/storage/block_device.h"
 #include "esphome/core/component.h"
@@ -54,6 +55,10 @@ struct FileInfo {
 class Filesystem;
 #ifdef USE_FILESYSTEM_VFS
 class Vfs;
+// Recursive, as the public calls use each other
+using FsMutex = std::recursive_mutex;
+#else
+using FsMutex = storage::NullMutex;
 #endif
 
 /// A handle to an open file. It closes the file when destroyed; it can be moved but not copied.
@@ -130,10 +135,11 @@ class Dir {
  * that fails is not tried again on the same media until mount() or format() is called. File and directory handles come
  * from fixed pools sized at build time; open() fails with FS_ERROR_TOO_MANY_OPEN when the pool is empty.
  *
- * Paths are absolute, with '/' between names. Calls are not thread safe, and block until done: on an SD card one
- * can take hundreds of milliseconds, and format() or space() several seconds on a large card.
- * With vfs_path the filesystem can also be used through the C library on any task (see Vfs); every other user of
- * it must then hold Vfs::mutex().
+ * Paths are absolute, with '/' between names. Calls block until done: on an SD card one can take hundreds of
+ * milliseconds, and format() or space() several seconds on a large card.
+ * Calls are only thread safe with vfs_path, which lets the filesystem be used through the C library on any task (see
+ * Vfs). Each call, including those on File and Dir, then holds mutex(), so a call on the main loop also waits for one
+ * running on another task. Hold mutex() to make several calls in a row without another task's calls in between.
  */
 class Filesystem : public Component {
  public:
@@ -170,6 +176,7 @@ class Filesystem : public Component {
   void unmount();
 
   bool is_mounted() const { return this->mounted_; }
+  FsMutex &mutex() { return this->mutex_; }
   FsError last_error() const { return this->last_error_; }
   storage::BlockDevice *get_device() const { return this->device_; }
 
@@ -218,6 +225,7 @@ class Filesystem : public Component {
 #ifdef USE_FILESYSTEM_VFS
   Vfs *vfs_{nullptr};
 #endif
+  FsMutex mutex_;
   uint32_t files_in_use_{0};  // One bit per slot
   uint8_t dirs_in_use_{0};
   uint8_t max_files_{2};

@@ -24,6 +24,7 @@ static constexpr uint32_t CHECK_INTERVAL_MS = 1000;
 static constexpr uint32_t INIT_TIMEOUT_MS = 2000;
 static constexpr uint32_t READ_TIMEOUT_MS = 200;
 static constexpr uint32_t BUSY_TIMEOUT_MS = 500;
+static constexpr uint32_t BUSY_SPIN_US = 1000;  // How long a wait polls the card before it starts to sleep
 static constexpr uint8_t CMD0_RETRIES = 5;
 static constexpr uint8_t RESPONSE_POLLS = 10;
 static constexpr uint32_t NO_SECTOR = UINT32_MAX;
@@ -101,6 +102,7 @@ void SdSpi::setup() {
 // Write out the cache and wait for the card to finish, so a restart does not cut it off part way through a write.
 // Writes after this, such as a filesystem shutting down later, go straight to the card.
 void SdSpi::on_shutdown() {
+  const std::lock_guard lock{this->mutex_};
   if (this->state_ == CardState::CARD_STATE_READY)
     this->device_sync();
   this->cache_capacity_ = 0;
@@ -121,6 +123,10 @@ void SdSpi::dump_config() {
 }
 
 void SdSpi::check_card_() {
+  // While another task is using the card it is plainly there; look again on the next check
+  const std::unique_lock lock{this->mutex_, std::try_to_lock};
+  if (!lock.owns_lock())
+    return;
   if (this->card_detect_pin_ != nullptr && !this->card_detect_pin_->digital_read()) {
     if (this->state_ != CardState::CARD_STATE_NONE) {
       ESP_LOGI(TAG, "Card removed");
@@ -172,6 +178,10 @@ void SdSpi::start_init_() {
 
 // Runs while the card is starting, and while the write cache holds sectors.
 void SdSpi::loop() {
+  // Another task is using the card; try again on the next pass
+  const std::unique_lock lock{this->mutex_, std::try_to_lock};
+  if (!lock.owns_lock())
+    return;
   if (this->state_ == CardState::CARD_STATE_INITIALIZING) {
     this->init_step_();
     return;
@@ -234,8 +244,8 @@ void SdSpi::finish_init_() {
            static_cast<uint32_t>(this->get_capacity() >> 20));
 }
 
+// May run on another task, so it leaves loop() to turn itself off.
 void SdSpi::drop_card_() {
-  this->disable_loop();
   if (this->cache_used_ != 0) {
     ESP_LOGW(TAG, "%u cached sectors were not written", this->cache_used_);
     for (uint16_t i = 0; i != this->cache_capacity_; i++)
@@ -300,30 +310,36 @@ uint8_t SdSpi::app_command_(uint8_t cmd, uint32_t arg) {
   return this->command_(cmd, arg);
 }
 
-// A card can stay busy for hundreds of milliseconds, so the waits below feed the watchdog when they run on the main
-// loop thread
+// A card can stay busy for hundreds of milliseconds. The waits below call this between polls: on the main loop it
+// feeds the watchdog. On another task it sleeps after a short spin, so that lower priority tasks still run; a task
+// above the main loop's priority that writes steadily would otherwise keep the main loop from running.
+void SdSpi::idle_(uint32_t start_us) {
+  if (is_main_loop_thread()) {
+    App.feed_wdt();
+  } else if (micros() - start_us >= BUSY_SPIN_US) {
+    delay(1);
+  }
+}
+
 bool SdSpi::wait_ready_(uint32_t timeout_ms) {
   const uint32_t start = millis();
-  uint32_t now = start;
+  const uint32_t start_us = micros();
   do {
     if (this->xfer_() == 0xFF)
       return true;
-    now = millis();
-    if (is_main_loop_thread())
-      App.feed_wdt_with_time(now);
-  } while (now - start < timeout_ms);
+    this->idle_(start_us);
+  } while (millis() - start < timeout_ms);
   return false;
 }
 
 bool SdSpi::read_data_(uint8_t *buf, uint32_t len) {
   const uint32_t start = millis();
+  const uint32_t start_us = micros();
   uint8_t token;
   while ((token = this->xfer_()) == 0xFF) {
-    const uint32_t now = millis();
-    if (now - start >= READ_TIMEOUT_MS)
+    if (millis() - start >= READ_TIMEOUT_MS)
       return false;
-    if (is_main_loop_thread())
-      App.feed_wdt_with_time(now);
+    this->idle_(start_us);
   }
   if (token != TOKEN_START_BLOCK)
     return false;
@@ -401,8 +417,19 @@ void SdSpi::send_(const uint8_t *buf, uint32_t len) {
   this->write_array(buf, len);
 }
 
+void SdSpi::set_warning_(bool warning) {
+  // The status flags share a field with the loop state, which only the main loop may change
+  if (!is_main_loop_thread())
+    return;
+  if (warning) {
+    this->status_set_warning();
+  } else {
+    this->status_clear_warning();
+  }
+}
+
 StorageError SdSpi::fail_(StorageError error) {
-  this->status_set_warning();
+  this->set_warning_(true);
   // A card that stops answering has most likely been removed; set it up again on the next check
   if (error == StorageError::STORAGE_ERROR_TIMEOUT) {
     ESP_LOGW(TAG, "Card not responding");
@@ -443,7 +470,7 @@ StorageError SdSpi::device_read(uint32_t block, uint32_t offset, void *buf, uint
     if (cached != NO_SECTOR && cached - sector < count)
       memcpy(dst + (cached - sector) * SECTOR_SIZE, this->cache_data_ + i * SECTOR_SIZE, SECTOR_SIZE);
   }
-  this->status_clear_warning();
+  this->set_warning_(false);
   return StorageError::STORAGE_ERROR_NONE;
 }
 
@@ -472,7 +499,7 @@ template<typename F> StorageError SdSpi::write_sectors_(uint32_t sector, uint32_
     return this->fail_(StorageError::STORAGE_ERROR_TIMEOUT);
   if (!ok)
     return this->fail_(StorageError::STORAGE_ERROR_IO);
-  this->status_clear_warning();
+  this->set_warning_(false);
   return StorageError::STORAGE_ERROR_NONE;
 }
 
@@ -500,7 +527,7 @@ StorageError SdSpi::device_program(uint32_t block, uint32_t offset, const void *
     memcpy(this->cache_data_ + slot * SECTOR_SIZE, src + i * SECTOR_SIZE, SECTOR_SIZE);
   }
   this->last_write_ = millis();
-  this->enable_loop();
+  this->enable_loop_soon_any_context();
   return StorageError::STORAGE_ERROR_NONE;
 }
 

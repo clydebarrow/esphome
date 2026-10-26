@@ -46,6 +46,7 @@ StorageError BlockDevice::check_range_(uint32_t block, uint32_t count) const {
 }
 
 StorageError BlockDevice::read(uint32_t block, uint32_t offset, void *buf, uint32_t len) {
+  const std::lock_guard lock{this->mutex_};
   if (len == 0)
     return StorageError::STORAGE_ERROR_NONE;
   StorageError err = this->check_access_(block, offset, len, this->geometry_.read_size);
@@ -59,6 +60,7 @@ StorageError BlockDevice::read(uint32_t block, uint32_t offset, void *buf, uint3
 }
 
 StorageError BlockDevice::program(uint32_t block, uint32_t offset, const void *buf, uint32_t len) {
+  const std::lock_guard lock{this->mutex_};
   if (this->geometry_.flags & BLOCK_FLAG_READ_ONLY)
     return StorageError::STORAGE_ERROR_READ_ONLY;
   if (len == 0)
@@ -72,6 +74,7 @@ StorageError BlockDevice::program(uint32_t block, uint32_t offset, const void *b
 }
 
 StorageError BlockDevice::erase(uint32_t block, uint32_t count) {
+  const std::lock_guard lock{this->mutex_};
   if (this->geometry_.flags & BLOCK_FLAG_READ_ONLY)
     return StorageError::STORAGE_ERROR_READ_ONLY;
   StorageError err = this->check_range_(block, count);
@@ -83,12 +86,14 @@ StorageError BlockDevice::erase(uint32_t block, uint32_t count) {
 }
 
 StorageError BlockDevice::sync() {
+  const std::lock_guard lock{this->mutex_};
   if (!this->has_media())
     return StorageError::STORAGE_ERROR_NO_MEDIA;
   return this->device_sync();
 }
 
 StorageError BlockDevice::trim(uint32_t block, uint32_t count) {
+  const std::lock_guard lock{this->mutex_};
   if (this->geometry_.flags & BLOCK_FLAG_READ_ONLY)
     return StorageError::STORAGE_ERROR_READ_ONLY;
   StorageError err = this->check_range_(block, count);

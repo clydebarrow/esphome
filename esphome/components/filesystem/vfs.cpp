@@ -116,12 +116,9 @@ bool Vfs::mount() {
 bool Vfs::wait_ready(uint32_t timeout_ms) {
   const uint32_t start = millis();
   while (true) {
-    {
-      const std::lock_guard lock{this->mutex_};
-      FileInfo info;
-      if (this->fs_->stat("/", info) == FsError::FS_ERROR_NONE)
-        return true;
-    }
+    FileInfo info;
+    if (this->fs_->stat("/", info) == FsError::FS_ERROR_NONE)
+      return true;
     if (millis() - start >= timeout_ms)
       return false;
     delay(READY_POLL_MS);
@@ -159,7 +156,7 @@ int Vfs::vfs_open(void *ctx, const char *path, int flags, int mode) {
   if (flags & O_EXCL)
     fs_flags |= OPEN_EXCLUSIVE;
 
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   for (size_t fd = 0; fd != self->files_.size(); fd++) {
     if (self->files_[fd].is_open())
       continue;
@@ -174,7 +171,7 @@ int Vfs::vfs_open(void *ctx, const char *path, int flags, int mode) {
 
 ssize_t Vfs::vfs_read(void *ctx, int fd, void *dst, size_t size) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
@@ -183,7 +180,7 @@ ssize_t Vfs::vfs_read(void *ctx, int fd, void *dst, size_t size) {
 
 ssize_t Vfs::vfs_write(void *ctx, int fd, const void *data, size_t size) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
@@ -207,7 +204,7 @@ off_t Vfs::vfs_lseek(void *ctx, int fd, off_t offset, int mode) {
       errno = EINVAL;
       return -1;
   }
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
@@ -216,7 +213,7 @@ off_t Vfs::vfs_lseek(void *ctx, int fd, off_t offset, int mode) {
 
 int Vfs::vfs_close(void *ctx, int fd) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
@@ -225,7 +222,7 @@ int Vfs::vfs_close(void *ctx, int fd) {
 
 int Vfs::vfs_fstat(void *ctx, int fd, struct stat *st) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
@@ -240,7 +237,7 @@ int Vfs::vfs_fstat(void *ctx, int fd, struct stat *st) {
 
 int Vfs::vfs_fsync(void *ctx, int fd) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
@@ -249,7 +246,7 @@ int Vfs::vfs_fsync(void *ctx, int fd) {
 
 int Vfs::vfs_ftruncate(void *ctx, int fd, off_t length) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
@@ -266,7 +263,7 @@ int Vfs::vfs_ftruncate(void *ctx, int fd, off_t length) {
 
 int Vfs::vfs_stat(void *ctx, const char *path, struct stat *st) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   FileInfo info;
   const FsError error = self->fs_->stat(path, info);
   if (error != FsError::FS_ERROR_NONE)
@@ -277,20 +274,20 @@ int Vfs::vfs_stat(void *ctx, const char *path, struct stat *st) {
 
 int Vfs::vfs_access(void *ctx, const char *path, int amode) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   FileInfo info;
   return fail_with(self->fs_->stat(path, info));
 }
 
 int Vfs::vfs_unlink(void *ctx, const char *path) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   return fail_with(self->fs_->remove(path));
 }
 
 int Vfs::vfs_rename(void *ctx, const char *from, const char *to) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   FsError err = self->fs_->rename(from, to);
   // POSIX rename() replaces an existing file, which FAT does not; XCSoar saves files by renaming over them
   FileInfo info;
@@ -302,13 +299,13 @@ int Vfs::vfs_rename(void *ctx, const char *from, const char *to) {
 
 int Vfs::vfs_mkdir(void *ctx, const char *path, mode_t mode) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   return fail_with(self->fs_->mkdir(path));
 }
 
 DIR *Vfs::vfs_opendir(void *ctx, const char *path) {
   auto *self = static_cast<Vfs *>(ctx);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   for (auto &open_dir : self->dirs_) {
     if (open_dir.handle.is_open())
       continue;
@@ -326,7 +323,7 @@ DIR *Vfs::vfs_opendir(void *ctx, const char *path) {
 struct dirent *Vfs::vfs_readdir(void *ctx, DIR *pdir) {
   auto *self = static_cast<Vfs *>(ctx);
   auto *open_dir = reinterpret_cast<OpenDir *>(pdir);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   FileInfo info;
   struct dirent &entry = open_dir->entry;
   const FsError error = open_dir->handle.read_next(info, entry.d_name, sizeof(entry.d_name));
@@ -344,7 +341,7 @@ struct dirent *Vfs::vfs_readdir(void *ctx, DIR *pdir) {
 int Vfs::vfs_closedir(void *ctx, DIR *pdir) {
   auto *self = static_cast<Vfs *>(ctx);
   auto *open_dir = reinterpret_cast<OpenDir *>(pdir);
-  const std::lock_guard lock{self->mutex_};
+  const std::lock_guard lock{self->fs_->mutex()};
   return fail_with(open_dir->handle.close());
 }
 
