@@ -176,6 +176,8 @@ async def to_code(config: ConfigType) -> None:
     add_idf_sdkconfig_option("CONFIG_COMPILER_CXX_EXCEPTIONS", True)
     # Boost's R-tree (airspace and waypoint lookups) uses dynamic_cast, and fmt the type of std::locale::facet
     add_idf_sdkconfig_option("CONFIG_COMPILER_CXX_RTTI", True)
+    # XCSoar is built with NDEBUG, and its asserts name members that only debug builds have
+    add_idf_sdkconfig_option("CONFIG_COMPILER_ASSERT_NDEBUG_EVALUATE", False)
     require_vfs_dir()
     # XCSoar's event loop polls an eventfd
     require_vfs_select()
