@@ -83,6 +83,29 @@ display:
     frame_buffers: 2
     rotation: 90
     reset_pin: {pi4ioe5v6408: pi4ioe1, number: 4}
+    # XCSoar draws the screen; this only runs once it has stopped
+    update_interval: never
+    lambda: |-
+      if (!id(xcsoar_stopped))
+        return;
+      it.fill(Color::BLACK);
+      it.print(it.get_width() / 2, it.get_height() / 2 - 40, id(message_font), Color::WHITE,
+               display::TextAlign::CENTER, "XCSoar has stopped");
+      it.print(it.get_width() / 2, it.get_height() / 2 + 40, id(hint_font), Color(0xA0A0A0),
+               display::TextAlign::CENTER, "Restart the device to start it again");
+
+globals:
+  - id: xcsoar_stopped
+    type: bool
+    initial_value: "false"
+
+font:
+  - file: ../tests/components/lvgl/roboto.ttf
+    id: message_font
+    size: 56
+  - file: ../tests/components/lvgl/roboto.ttf
+    id: hint_font
+    size: 32
 
 touchscreen:
   - platform: st7123
@@ -97,6 +120,11 @@ touchscreen:
 
 xcsoar:
   id: xcsoar_app
+  on_stopped:
+    - globals.set:
+        id: xcsoar_stopped
+        value: "true"
+    - component.update: lcd
   display_id: lcd
   touchscreen_id: touch
   filesystem_id: sd_fs

@@ -7,6 +7,7 @@ XCSoar itself is built as an ESP-IDF component from a local XCSoar checkout that
 from dataclasses import dataclass
 from pathlib import Path
 
+from esphome import automation
 import esphome.codegen as cg
 from esphome.components import display, filesystem, psram, touchscreen
 from esphome.components.const import BYTE_ORDER_LITTLE, CONF_BYTE_ORDER
@@ -40,6 +41,7 @@ DOMAIN = "xcsoar"
 CONF_DEMO = "demo"
 CONF_DPI = "dpi"
 CONF_FONTS = "fonts"
+CONF_ON_STOPPED = "on_stopped"
 # The C library file and directory handles XCSoar can have open on its data filesystem
 VFS_MAX_FILES = 8
 VFS_MAX_DIRS = 4
@@ -111,6 +113,7 @@ CONFIG_SCHEMA = cv.All(
                 CONF_FRAME_INTERVAL, default="100ms"
             ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_TASK_STACK_SIZE, default=65536): cv.int_range(min=16384),
+            cv.Optional(CONF_ON_STOPPED): automation.validate_automation({}),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_with_framework(Framework.ESP_IDF),
@@ -158,6 +161,10 @@ async def to_code(config: ConfigType) -> None:
     await cg.register_component(var, config)
     cg.add(var.set_frame_interval(config[CONF_FRAME_INTERVAL].total_milliseconds))
     cg.add(var.set_task_stack_size(config[CONF_TASK_STACK_SIZE]))
+    for conf in config.get(CONF_ON_STOPPED, []):
+        await automation.build_callback_automation(
+            var, "add_on_stopped_callback", [], conf
+        )
     if config[CONF_DEMO]:
         cg.add(var.set_demo(True))
     cg.add_optional(var.set_dpi, config.get(CONF_DPI))

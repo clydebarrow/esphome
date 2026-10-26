@@ -291,8 +291,10 @@ void XCSoarComponent::loop() {
     xSemaphoreGive(this->frame_consumed_);
   }
 
-  if (this->task_stopped_.exchange(false))
+  if (this->task_stopped_.exchange(false)) {
     this->status_set_error(LOG_STR("XCSoar stopped"));
+    this->stopped_callback_.call();
+  }
 
   this->disable_loop();
 }

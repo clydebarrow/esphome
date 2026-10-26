@@ -58,6 +58,10 @@ class XCSoarComponent : public Component
   /// Run XCSoar's test scene instead of XCSoar.
   void set_demo(bool demo) { this->demo_ = demo; }
   void set_dpi(unsigned dpi) { this->dpi_ = dpi; }
+  /// Called on the main loop once XCSoar has stopped (it quit, or failed to start); the display is free again.
+  template<typename F> void add_on_stopped_callback(F &&callback) {
+    this->stopped_callback_.add(std::forward<F>(callback));
+  }
 #ifdef USE_TOUCHSCREEN
   /// Pass the first finger of each touch to XCSoar, as a mouse.
   void set_touchscreen(touchscreen::Touchscreen *touchscreen) { touchscreen->register_listener(this); }
@@ -109,6 +113,7 @@ class XCSoarComponent : public Component
   SemaphoreHandle_t frame_consumed_{nullptr};
   std::atomic<bool> frame_pending_{false};
   std::atomic<bool> task_stopped_{false};
+  LazyCallbackManager<void()> stopped_callback_;
 #ifdef USE_TOUCHSCREEN
   // The finger XCSoar follows, and where it was last
   uint8_t touch_id_{0};
