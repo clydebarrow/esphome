@@ -26,7 +26,8 @@ class FakeCard : public spi::SPIDelegate {
   struct Options {
     bool high_capacity{true};
     bool version1{false};
-    uint8_t idle_polls{3};  // ACMD41 calls answered with "idle" before the card is ready
+    uint8_t idle_polls{3};   // ACMD41 calls answered with "idle" before the card is ready
+    uint16_t busy_bytes{2};  // Bytes read as busy after each block is written
   };
 
   explicit FakeCard(Options options);
@@ -50,6 +51,7 @@ class FakeCard : public spi::SPIDelegate {
   void receive_write_(uint8_t in);
   void queue_block_(uint32_t sector);
   void queue_bytes_(const uint8_t *bytes, size_t len);
+  void queue_busy_();
   uint32_t sector_(uint32_t arg) const { return this->options_.high_capacity ? arg : arg / 512; }
   uint8_t r1_() const { return this->idle_ ? 0x01 : 0x00; }
 

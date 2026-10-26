@@ -139,7 +139,7 @@ class Filesystem : public Component {
 
   void setup() override;
   void dump_config() override;
-  /// Close what is open and unmount before a restart, so buffered data reaches the media.
+  /// Close everything still open, so its data and directory entries reach the media before a restart.
   void on_shutdown() override;
 
   void set_pool_sizes(uint8_t max_files, uint8_t max_dirs) {
