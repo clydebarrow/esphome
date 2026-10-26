@@ -1,0 +1,14 @@
+# xcsoar-tab5.yaml with traffic from a SkyEcho, or the GDL90 simulator in gdlsim, over Wi-Fi. XCSoar reads the
+# SkyEcho's GDL90 data as a device with the GDL90 driver, which it sets up in a free device slot at its first start.
+
+packages:
+  tab5: !include xcsoar-tab5.yaml
+
+esphome:
+  name: xcsoar-tab5-skyecho
+
+skyecho:
+  id: skyecho_hub
+
+xcsoar:
+  skyecho_id: skyecho_hub

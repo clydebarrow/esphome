@@ -30,6 +30,11 @@ static constexpr size_t EVENTFD_COUNT = 4;
 static constexpr const char *DATA_DIR = "XCSoar";
 // How long XCSoar waits for its data filesystem, e.g. an SD card that is still starting
 static constexpr uint32_t DATA_READY_TIMEOUT_MS = 5000;
+#ifdef USE_XCSOAR_SKYECHO
+// The names XCSoar shows as the devices' ports
+static constexpr const char *SKYECHO_STREAM = "SkyEcho";
+static constexpr const char *FLARM_STREAM = "SkyEcho FLARM";
+#endif
 
 void XCSoarComponent::setup() {
   // XCSoar owns the whole screen, so the display must not draw on its own (test card, auto clear)
@@ -97,6 +102,18 @@ void XCSoarComponent::setup() {
   }
 #endif
 
+#ifdef USE_XCSOAR_SKYECHO
+  // XCSoar drops the data until its devices are open
+  this->streams_.push_back({SKYECHO_STREAM, "GDL90"});
+  this->skyecho_->add_on_gdl90_data_callback(
+      [](const uint8_t *data, size_t len) { XCSoarEsp32::Feed(SKYECHO_STREAM, std::as_bytes(std::span(data, len))); });
+  if (this->skyecho_->has_flarm_uart()) {
+    this->streams_.push_back({FLARM_STREAM, "FLARM"});
+    this->skyecho_->add_on_flarm_data_callback(
+        [](const uint8_t *data, size_t len) { XCSoarEsp32::Feed(FLARM_STREAM, std::as_bytes(std::span(data, len))); });
+  }
+#endif
+
   this->frame_consumed_ = xSemaphoreCreateBinaryStatic(&this->frame_consumed_buffer_);
   this->config_ = {
       .width = static_cast<unsigned>(width),
@@ -109,6 +126,11 @@ void XCSoarComponent::setup() {
       .data_path = nullptr,
 #endif
       .dpi = this->dpi_,
+#ifdef USE_XCSOAR_SKYECHO
+      .streams = this->streams_,
+#else
+      .streams = {},
+#endif
       .frame_interval_ms = this->frame_interval_,
       .max_frames = 0,
   };
