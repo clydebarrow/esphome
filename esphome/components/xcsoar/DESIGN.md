@@ -280,10 +280,17 @@ To do:
 - **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
 - **Real touch.** Works in use. In a menu, the button that leads to the next page is labelled with that page
   ("Config Page 2/3" on page 1), which reads as if the menu opened on page 2.
-- **Brief flicker.** Still seen by eye. Not found in software: no frame XCSoar sends differs from both its
-  neighbours (a probe over 800 frames of dragging and zooming), the panel reports no underrun, and a 45 s
-  video (only 7 frames per second) showed nothing. Not seen since the animations were turned off
-  (`IsSlowCPU()`), which may have been the cause.
+- **Brief flicker (found).** The panel showed an occasional whole-screen frame shifted towards green. Two causes,
+  both between the frame buffer and the panel, not in the frames XCSoar sends:
+  - The DSI driver restarts the panel's DMA from an interrupt at the end of every frame. Interrupts kept off for
+    longer than the vertical blanking (about 2.5 ms) delay that, and the next frame comes out wrong, usually
+    without an underrun being logged. In the test config, `heap_caps_get_largest_free_block()` every 5 s (it walks
+    the PSRAM heap inside the heap's critical section) and `uxTaskGetSystemState()` every minute (10 ms, scanning
+    the 128 KB stacks) did this; a 7 s heap report moved the green frames to a 7 s period. Neither runs on a timer
+    any more, and the panel's frame interrupt was then never late in five minutes.
+  - Underruns: the panel cannot read its frame buffer from PSRAM in time while XCSoar draws. Giving its DMA the
+    highest AXI priority (`mipi_dsi`) took 13 minutes of dragging from 5 underruns to 1; running the panel at
+    70 MHz instead of 80 MHz (58 Hz) gave none in a five-minute run.
 - **SD card damage.** After many resets while XCSoar was writing (reflashing, and the reboots on Pan), the
   first sector of the card's `XCSoar` directory was overwritten: its `.` and `..` entries were gone, and from byte
   96 on it held a repeating pattern that looks like SD bus traffic during a write (a data response token, busy
