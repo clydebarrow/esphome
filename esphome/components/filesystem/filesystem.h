@@ -132,6 +132,8 @@ class Dir {
  *
  * Paths are absolute, with '/' between names. Calls are not thread safe, and block until done: on an SD card one
  * can take hundreds of milliseconds, and format() or space() several seconds on a large card.
+ * With vfs_path the filesystem can also be used through the C library on any task (see Vfs); every other user of
+ * it must then hold Vfs::mutex().
  */
 class Filesystem : public Component {
  public:
