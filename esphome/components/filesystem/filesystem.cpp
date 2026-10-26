@@ -162,6 +162,15 @@ void Filesystem::setup() {
     this->ready_();
 }
 
+void Filesystem::on_shutdown() {
+#ifdef USE_FILESYSTEM_VFS
+  // Other tasks' file calls then wait until the restart instead of writing to the media while it is closed
+  if (this->vfs_ != nullptr)
+    this->vfs_->mutex().lock();  // never unlocked
+#endif
+  this->unmount();
+}
+
 void Filesystem::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "  Mounted: %s\n"
