@@ -6,6 +6,9 @@
 substitutions:
   xcsoar_path: ../../xcsoar-src
 
+packages:
+  network: !include network.yaml
+
 esphome:
   name: xcsoar-tab5
 

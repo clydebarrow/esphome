@@ -1,0 +1,48 @@
+# Wi-Fi through the Tab5's ESP32-C6, and a plaintext API with a button for test scripts: press "Safe shutdown"
+# (scripts/api_button.py HOST - press "Safe shutdown") before flashing over USB. It runs the shutdown hooks without
+# restarting, so the SD card is unmounted and nothing writes to it during the reset. The Wi-Fi settings and their
+# secrets come from the my-devices directory next to the worktrees.
+
+# The C6 is powered through pin 0 of the second I/O expander
+pi4ioe5v6408:
+  - id: pi4ioe2
+    address: 0x44
+
+switch:
+  - platform: gpio
+    id: wifi_power
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 0
+    restore_mode: ALWAYS_ON
+
+esp32_hosted:
+  variant: esp32c6
+  active_high: true
+  clk_pin: GPIO12
+  cmd_pin: GPIO13
+  d0_pin: GPIO11
+  d1_pin: GPIO10
+  d2_pin: GPIO9
+  d3_pin: GPIO8
+  reset_pin: GPIO15
+  slot: 1
+  # internal RAM is short with XCSoar running; the transport buffers fail to allocate there
+  use_psram: true
+
+wifi: !include ../../../my-devices/wifi.yaml
+
+# XCSoar's c-ares build expects lwIP with IPv6
+network:
+  enable_ipv6: true
+
+api:
+  reboot_timeout: 0s
+
+button:
+  - platform: template
+    name: Safe shutdown
+    on_press:
+      - lambda: |-
+          ESP_LOGW("test", "Running the shutdown hooks; the device can now be reset");
+          App.run_safe_shutdown_hooks();
