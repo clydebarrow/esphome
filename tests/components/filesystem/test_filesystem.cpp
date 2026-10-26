@@ -134,6 +134,16 @@ TEST_F(FilesystemTest, UnmountClosesOpenFiles) {
   EXPECT_EQ(a.sync(), FsError::FS_ERROR_CLOSED);
 }
 
+TEST_F(FilesystemTest, ShutdownClosesOpenFiles) {
+  this->fs_.setup();
+  File f = this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE);
+  ASSERT_TRUE(f);
+  this->fs_.on_shutdown();
+  EXPECT_EQ(this->fs_.closes, 1);
+  EXPECT_FALSE(this->fs_.is_mounted());
+  EXPECT_EQ(f.write("x", 1), static_cast<int32_t>(FsError::FS_ERROR_CLOSED));
+}
+
 TEST_F(FilesystemTest, FormatsOnlyWhenAsked) {
   this->fs_.has_filesystem = false;
   this->fs_.setup();

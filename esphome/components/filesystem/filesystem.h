@@ -135,6 +135,8 @@ class Filesystem : public Component {
 
   void setup() override;
   void dump_config() override;
+  /// Close everything still open, so its data and directory entries reach the media before a restart.
+  void on_shutdown() override { this->unmount(); }
 
   void set_pool_sizes(uint8_t max_files, uint8_t max_dirs) {
     this->max_files_ = max_files;

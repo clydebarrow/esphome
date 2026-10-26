@@ -328,6 +328,22 @@ TEST(SdSpi, LoopDoesNotWaitForBusyCard) {
   EXPECT_EQ(card_sector(card, 50), out);
 }
 
+TEST(SdSpi, ShutdownWritesCacheThenStopsCaching) {
+  FakeCard card({.busy_bytes = 20});
+  TestSdSpi sd(&card);
+  sd.set_write_cache(CACHE_SECTORS);
+  sd.start();
+  std::vector<uint8_t> before(SECTOR), after(SECTOR);
+  fill(before, 11);
+  fill(after, 12);
+  ASSERT_EQ(sd.program(30, 0, before.data(), SECTOR), StorageError::STORAGE_ERROR_NONE);
+  sd.on_shutdown();
+  EXPECT_EQ(card_sector(card, 30), before);
+  // A filesystem that shuts down later still reaches the card
+  ASSERT_EQ(sd.program(31, 0, after.data(), SECTOR), StorageError::STORAGE_ERROR_NONE);
+  EXPECT_EQ(card_sector(card, 31), after);
+}
+
 TEST(SdSpi, UncachedWritesStillReachCard) {
   FakeCard card({});
   TestSdSpi sd(&card);

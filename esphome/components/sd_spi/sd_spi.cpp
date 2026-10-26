@@ -98,6 +98,15 @@ void SdSpi::setup() {
   this->set_interval(CHECK_INTERVAL_MS, [this]() { this->check_card_(); });
 }
 
+// Write out the cache and wait for the card to finish, so a restart does not cut it off part way through a write.
+// Writes after this, such as a filesystem shutting down later, go straight to the card.
+void SdSpi::on_shutdown() {
+  if (this->state_ == CardState::CARD_STATE_READY)
+    this->device_sync();
+  this->cache_capacity_ = 0;
+  this->cache_used_ = 0;
+}
+
 void SdSpi::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "SD card (SPI):\n"

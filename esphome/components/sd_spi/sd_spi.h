@@ -34,6 +34,7 @@ class SdSpi : public storage::BlockDevice,
   void setup() override;
   void loop() override;
   void dump_config() override;
+  void on_shutdown() override;
   float get_setup_priority() const override { return setup_priority::HARDWARE; }
 
   void set_card_detect_pin(GPIOPin *pin) { this->card_detect_pin_ = pin; }
