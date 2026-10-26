@@ -289,8 +289,11 @@ To do:
   96 on it held a repeating pattern that looks like SD bus traffic during a write (a data response token, busy
   zeros, then 0xFF), found nowhere else on the card. `maps`, `airspace` and `profiles` were lost with it. Nothing
   outside `XCSoar` was hurt, and no SD or SPI error was logged. `sd_spi` is the only device on its bus, so the
-  card most likely stored bytes from a transfer that went out of step. To do: a debug option in `sd_spi` that
-  reads every written sector back and logs a mismatch, run under XCSoar with repeated resets.
+  card most likely stored bytes from a transfer that went out of step. The same damage happened a second time,
+  after another reset from the USB port while XCSoar was running. The filesystem now unmounts in
+  `on_shutdown()`, holding the VFS lock so XCSoar's threads cannot write after that; this covers software
+  restarts (OTA, a restart button), not a reset from the USB port. To do: a debug option in `sd_spi` that reads
+  every written sector back and logs a mismatch, run under XCSoar with repeated resets.
 - **Networking** (`HAVE_HTTP`: curl, OpenSSL or mbedTLS) is left out for now.
 - **Settings.** XCSoar's profile stays XCSoar's own. A few values (e.g. altitude, vario) could be ESPHome
   sensors later.
@@ -334,9 +337,20 @@ test.
 A sampling profiler (`prof::start()` in `xcsoar-tests/debug_helpers.h`) records where preempted XCSoar threads
 were. While dragging the map, a quarter of the time went to `memmove` and filling: XCSoar's window system
 repaints the whole screen for every frame, so full 1.8 MB buffers are copied and cleared in PSRAM each time.
-JPEG 2000 decoding of terrain tiles took about 12% (only 16 tiles stay loaded), polygon fills and wide lines
-about 8%. Repainting only the windows that changed would save the most, but needs dirty rectangles in XCSoar's
-custom window system.
+JPEG 2000 decoding of terrain tiles took about 12%, polygon fills and wide lines about 8%.
+
+- **Terrain tiles.** 32 tiles now stay loaded instead of 16 (2 MB more PSRAM; about 4.9 MB stayed free), and
+  JPEG 2000 decoding no longer shows in the profile while dragging. JPEGDEC or the P4's JPEG decoder cannot
+  help: the terrain is JPEG 2000, with 16-bit heights.
+- **Partial repaint.** Invalidating a window now passes the window up to `TopWindow`, which keeps a list of up to
+  16. With `USE_EXTERNAL_FB`, `Expose()` repaints each of them and every window above it that overlaps what was
+  repainted, and `TopCanvas::Flip()` passes the changed rectangles (up to 8) to the host, which converts only
+  those, together with the previous frame's (the panel alternates between two buffers). It repaints everything
+  for a transparent window that would be painted over itself, a window partly off the screen, a full list or a
+  removed window. Containers that draw over their children (dialog borders, the cursor bar, the InfoBox arrange
+  screen) are repainted whole, and moving or resizing a window repaints its parent. Frames now convert 73% of the
+  screen on average with the InfoBoxes shown, and 89% in pan mode, where the map covers the screen and changes
+  with every frame. The profile shows about 45% less filling; copying (mostly the map buffer) is unchanged.
 
 `IsSlowCPU()` is true on ESP32 (it reports the configured CPU frequency), which turns off InfoBox fades,
 kinetic scrolling and other animations: each of their steps costs a whole frame here.
