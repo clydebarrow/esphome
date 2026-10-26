@@ -53,6 +53,11 @@ void FakeCard::queue_bytes_(const uint8_t *bytes, size_t len) {
     this->out_.push_back(bytes[i]);
 }
 
+void FakeCard::queue_busy_() {
+  for (uint16_t i = 0; i != this->options_.busy_bytes; i++)
+    this->out_.push_back(0x00);
+}
+
 void FakeCard::queue_block_(uint32_t sector) {
   this->out_.push_back(0xFF);
   this->out_.push_back(0xFE);
@@ -163,7 +168,7 @@ void FakeCard::receive_write_(uint8_t in) {
     if (this->mode_ == Mode::WRITE_MULTI && in == 0xFD) {
       this->mode_ = Mode::COMMAND;
       this->out_.push_back(0xFF);
-      this->out_.push_back(0x00);  // busy for a moment
+      this->queue_busy_();
       return;
     }
     if (in == (this->mode_ == Mode::WRITE_SINGLE ? 0xFE : 0xFC)) {
@@ -180,8 +185,7 @@ void FakeCard::receive_write_(uint8_t in) {
   this->sector_pos_++;
   this->write_started_ = false;
   this->out_.push_back(0xE5);  // data accepted
-  this->out_.push_back(0x00);  // busy while programming
-  this->out_.push_back(0x00);
+  this->queue_busy_();         // busy while programming
   if (this->mode_ == Mode::WRITE_SINGLE)
     this->mode_ = Mode::COMMAND;
 }

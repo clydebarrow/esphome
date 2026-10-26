@@ -5,3 +5,4 @@ storage:
     card_detect_pin:
       number: ${card_detect_pin}
       inverted: true
+    write_cache: 4KB
