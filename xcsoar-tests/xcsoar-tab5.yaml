@@ -82,6 +82,9 @@ display:
     model: M5STACK-TAB5-ST7123
     frame_buffers: 2
     rotation: 90
+    # The model's 80 MHz leaves the panel's PSRAM reads too little time while XCSoar draws: dragging the map gave
+    # about 4 underruns (a corrupt frame each) in two minutes, none at 70 MHz (58 Hz)
+    pclk_frequency: 70MHz
     reset_pin: {pi4ioe5v6408: pi4ioe1, number: 4}
     # XCSoar draws the screen; this only runs once it has stopped
     update_interval: never

@@ -83,15 +83,14 @@ interval:
             }
           }
   # internal RAM, which FreeRTOS objects need, and PSRAM
+  # Only the counters: heap_caps_get_largest_free_block() walks the whole heap with interrupts off, long enough to
+  # make the panel show a corrupt frame
   - interval: 5s
     then:
       - lambda: |-
-          ESP_LOGI("heap", "internal free %u, largest %u, minimum %u",
-                   (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                   (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+          ESP_LOGI("heap", "internal free %u, minimum %u", (unsigned) heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
                    (unsigned) heap_caps_get_minimum_free_size(MALLOC_CAP_INTERNAL));
-          ESP_LOGI("heap", "PSRAM free %u, largest %u", (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM),
-                   (unsigned) heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM));
+          ESP_LOGI("heap", "PSRAM free %u", (unsigned) heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   - interval: 250ms
     then:
       - lambda: |-
@@ -100,9 +99,13 @@ interval:
           if (last - now > 262144 && now < last)
             esp_rom_printf("PSRAM %u -> %u\n", (unsigned) last, (unsigned) now);
           last = now;
-  # the unused stack of every task, once XCSoar is running
-  - interval: 60s
-    then:
+
+button:
+  # The unused stack of every task. Pressed over the API, not on a timer: it scans every stack with interrupts off
+  # (10 ms with XCSoar's 128 KB stacks), which makes the panel show a corrupt frame.
+  - platform: template
+    name: Log task stacks
+    on_press:
       - lambda: |-
           static TaskStatus_t tasks[40];
           const UBaseType_t count = uxTaskGetSystemState(tasks, 40, nullptr);
