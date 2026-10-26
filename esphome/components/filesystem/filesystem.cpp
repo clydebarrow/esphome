@@ -1,4 +1,5 @@
 #include "filesystem.h"
+#include "vfs.h"
 
 #include <utility>
 
@@ -151,8 +152,23 @@ void Filesystem::setup() {
     this->mark_failed(fs_error_to_string(err));
     return;
   }
+#ifdef USE_FILESYSTEM_VFS
+  if (this->vfs_ != nullptr && !this->vfs_->mount()) {
+    this->mark_failed(LOG_STR("VFS registration failed"));
+    return;
+  }
+#endif
   if (this->device_->has_media())
     this->ready_();
+}
+
+void Filesystem::on_shutdown() {
+#ifdef USE_FILESYSTEM_VFS
+  // Other tasks' file calls then wait until the restart instead of writing to the media while it is closed
+  if (this->vfs_ != nullptr)
+    this->vfs_->mutex().lock();  // never unlocked
+#endif
+  this->unmount();
 }
 
 void Filesystem::dump_config() {

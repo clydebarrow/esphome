@@ -10,3 +10,4 @@ filesystem:
     format_if_mount_failed: true
     max_open_files: 3
     max_open_dirs: 2
+    vfs_path: /ramdisk
