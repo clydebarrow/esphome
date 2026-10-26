@@ -1,6 +1,7 @@
 #pragma once
 
 #include "esphome/core/component.h"
+#include "esphome/core/helpers.h"
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/uart/uart.h"
 #include "flarm.h"
@@ -59,6 +60,22 @@ class SkyEcho : public PollingComponent {
    * Get the traffic manager for access to merged traffic list
    */
   const TrafficManager &get_traffic_manager() const { return this->traffic_manager_; }
+
+  /**
+   * Called with each GDL90 datagram as received, before it is parsed.
+   */
+  template<typename F> void add_on_gdl90_data_callback(F &&callback) {
+    this->gdl90_data_callback_.add(std::forward<F>(callback));
+  }
+
+  /**
+   * Called with the bytes read from the FLARM UART, before they are parsed.
+   */
+  template<typename F> void add_on_flarm_data_callback(F &&callback) {
+    this->flarm_data_callback_.add(std::forward<F>(callback));
+  }
+
+  bool has_flarm_uart() const { return this->flarm_uart_ != nullptr; }
 
   /**
    * Set callback for traffic updates
@@ -122,6 +139,9 @@ class SkyEcho : public PollingComponent {
   uart::UARTComponent *flarm_uart_{nullptr};
   FlarmParser flarm_parser_{};
   TrafficManager traffic_manager_{};
+
+  LazyCallbackManager<void(const uint8_t *, size_t)> gdl90_data_callback_;
+  LazyCallbackManager<void(const uint8_t *, size_t)> flarm_data_callback_;
 };
 
 }  // namespace esphome::skyecho

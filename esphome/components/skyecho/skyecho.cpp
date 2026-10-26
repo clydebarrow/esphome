@@ -62,6 +62,7 @@ void SkyEcho::loop() {
     auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
     if (len >= 0) {
       ESP_LOGV(TAG, "Received %d bytes", (int) len);
+      this->gdl90_data_callback_.call(buf, (size_t) len);
       gdl90GetBlocks(
           buf, len,
           [this](const gdlDataPacket_t *packet, in_addr *src_addr) -> void { this->block_callback(packet, src_addr); },
@@ -366,6 +367,7 @@ void SkyEcho::process_flarm_uart_() {
   }
   if (idx != 0) {
     ESP_LOGVV(TAG, "Processing %d bytes from FLARM UART", idx);
+    this->flarm_data_callback_.call(buf, (size_t) idx);
     this->flarm_parser_.process_bytes(buf, idx);
   }
 }
