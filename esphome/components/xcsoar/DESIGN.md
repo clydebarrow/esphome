@@ -282,7 +282,8 @@ To do:
   ("Config Page 2/3" on page 1), which reads as if the menu opened on page 2.
 - **Brief flicker.** Still seen by eye. Not found in software: no frame XCSoar sends differs from both its
   neighbours (a probe over 800 frames of dragging and zooming), the panel reports no underrun, and a 45 s
-  video (only 7 frames per second) showed nothing. It may be shorter than one XCSoar frame (about 0.2 s).
+  video (only 7 frames per second) showed nothing. Not seen since the animations were turned off
+  (`IsSlowCPU()`), which may have been the cause.
 - **SD card damage.** After many resets while XCSoar was writing (reflashing, and the reboots on Pan), the
   first sector of the card's `XCSoar` directory was overwritten: its `.` and `..` entries were gone, and from byte
   96 on it held a repeating pattern that looks like SD bus traffic during a write (a data response token, busy
@@ -315,17 +316,27 @@ the map full screen. The ESP32-P4's floating point unit does single precision (`
 |---|---|---|
 | Terrain shading (`GenerateSlopeImage`) | 4 to 7 s, now 0.26 s | per-pixel `double` math and `sqrt`, now `float` |
 | Terrain height scan (`ScanMap`) | 0.21 s | projection per sample, `double` |
-| Whole terrain layer | 0.5 s | 3.6 s at first |
+| Whole terrain layer | 0.5 s; 0.18 s while panning | 3.6 s at first; coarser (4 pixels) while panning or zooming |
 | Airspace layer | 0.43 s, up to 2.8 s | the padding fill draws every airspace twice (stencil and fill) |
 | Whole map render | 1.2 s, up to 3.8 s | |
 | Calculation, per GPS fix | 166 ms | `ProcessBasicTask` 57 ms |
-| Calculation, idle pass (about 1 s) | 470 ms | airspace warnings 340 ms |
+| Calculation, idle pass (about 1 s) | 470 ms | airspace warnings 340 ms, now about 200 ms |
 
 Times are medians, measured after the threads were allowed on both cores (all XCSoar threads used to share
 core 0, which made most of them about twice as long). The airspace warnings test every nearby airspace;
 around Warwick that includes large ones such as the Brisbane FIR CTAs, whose boundaries have many points, and
-the point-in-polygon test compares `GeoPoint`s (`double`) for each of them. Ways to bring it down: test inside
-with the flat integer points the crossing test already uses, load only nearby airspace, or check less often.
+the point-in-polygon test compared `GeoPoint`s (`double`) for every edge, and every boundary segment's
+`FlatRay` did two `double` divisions. The inside test now skips edges by their flat (integer) latitude, with the
+same result, and the rays no longer divide: each of the three predictions (glide, filter, task) takes about 60 ms
+instead of 100 ms. The flat coordinates themselves (about 111 m per unit) are too coarse to replace the exact
+test.
+
+A sampling profiler (`prof::start()` in `xcsoar-tests/debug_helpers.h`) records where preempted XCSoar threads
+were. While dragging the map, a quarter of the time went to `memmove` and filling: XCSoar's window system
+repaints the whole screen for every frame, so full 1.8 MB buffers are copied and cleared in PSRAM each time.
+JPEG 2000 decoding of terrain tiles took about 12% (only 16 tiles stay loaded), polygon fills and wide lines
+about 8%. Repainting only the windows that changed would save the most, but needs dirty rectangles in XCSoar's
+custom window system.
 
 `IsSlowCPU()` is true on ESP32 (it reports the configured CPU frequency), which turns off InfoBox fades,
 kinetic scrolling and other animations: each of their steps costs a whole frame here.
