@@ -1,0 +1,19 @@
+wifi:
+  ssid: MySSID
+  password: password1
+
+skyecho:
+  id: skyecho1
+  flarm_uart: uart_bus
+
+switch:
+  - platform: skyecho
+    name: Simulate
+
+text_sensor:
+  - platform: skyecho
+    type: nmea
+    name: NMEA
+  - platform: skyecho
+    type: traffic_list
+    name: Traffic List

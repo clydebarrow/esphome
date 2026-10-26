@@ -1,0 +1,37 @@
+---
+esphome:
+  name: test-skyecho
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+
+wifi:
+  ssid: MySSID
+  password: password1
+
+uart:
+  - id: flarm_bus
+    tx_pin: GPIO17
+    rx_pin: GPIO16
+    baud_rate: 19200
+
+skyecho:
+  id: skyecho1
+  flarm_uart: flarm_bus
+
+switch:
+  - platform: skyecho
+    id: simulate_switch
+    name: Simulate
+
+text_sensor:
+  - platform: skyecho
+    type: nmea
+    id: nmea_sensor
+    name: NMEA
+  - platform: skyecho
+    type: traffic_list
+    id: traffic_sensor
+    name: Traffic List
