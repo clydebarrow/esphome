@@ -2,6 +2,7 @@
 
 #include "fatfs.h"
 
+#include <cinttypes>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
@@ -134,6 +135,15 @@ DRESULT FatFs::driver_ioctl(BYTE pdrv, BYTE cmd, void *buf) {
 void FatFs::dump_config() {
   ESP_LOGCONFIG(TAG, "FAT filesystem:\n  Drive: %u", this->pdrv_);
   Filesystem::dump_config();
+  if (!this->mounted_)
+    return;
+  // Free space comes only from the cached count: counting it can mean reading the whole FAT
+  const uint32_t clusters = this->fs_.n_fatent - 2;
+  const uint64_t cluster_bytes = static_cast<uint64_t>(this->fs_.csize) * this->device_->get_geometry().block_size;
+  ESP_LOGCONFIG(TAG, "  Size: %" PRIu32 " KiB", static_cast<uint32_t>((clusters * cluster_bytes) >> 10));
+  if (this->fs_.free_clst <= clusters) {
+    ESP_LOGCONFIG(TAG, "  Free: %" PRIu32 " KiB", static_cast<uint32_t>((this->fs_.free_clst * cluster_bytes) >> 10));
+  }
 }
 
 bool FatFs::full_path_(char *out, size_t out_size, const char *path) const {

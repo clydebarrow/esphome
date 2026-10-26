@@ -239,6 +239,25 @@ int RuntimeImage::feed_data(uint8_t *data, size_t len) {
   return consumed;
 }
 
+int RuntimeImage::begin_source(DecodeSource *source) {
+  if (!this->decoder_supports_source()) {
+    ESP_LOGE(TAG, "Decoder cannot read a source");
+    return DECODE_ERROR_UNSUPPORTED_FORMAT;
+  }
+  return this->decoder_->begin_source(source);
+}
+
+int RuntimeImage::decode_step() {
+  if (!this->is_decoding()) {
+    ESP_LOGE(TAG, "No decoder initialized");
+    return DECODE_ERROR_INVALID_TYPE;
+  }
+  const int result = this->decoder_->decode_step();
+  if (result == DECODE_STEP_DONE)
+    this->decoded_bytes_ = this->decoder_->get_decoded_bytes();
+  return result;
+}
+
 bool RuntimeImage::end_decode() {
   if (!this->is_decoding()) {
     return false;
@@ -291,7 +310,16 @@ void RuntimeImage::release_buffer_() {
     this->buffer_width_ = 0;
     this->buffer_height_ = 0;
 #ifdef USE_LVGL
+    // A widget may still show this image, and LVGL warns on every draw of an image without data, so leave it a
+    // transparent pixel to draw until the next image is ready
+    static const uint8_t TRANSPARENT_PIXEL = 0;
     memset(&this->dsc_, 0, sizeof(this->dsc_));
+    this->dsc_.header.cf = LV_COLOR_FORMAT_A8;
+    this->dsc_.header.w = 1;
+    this->dsc_.header.h = 1;
+    this->dsc_.header.stride = 1;
+    this->dsc_.data_size = 1;
+    this->dsc_.data = &TRANSPARENT_PIXEL;
 #endif
   }
 }

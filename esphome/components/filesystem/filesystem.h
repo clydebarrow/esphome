@@ -122,10 +122,12 @@ class Dir {
 /** A filesystem on a block device.
  *
  * The filesystem mounts itself in setup() when the device has media, and again on the next call after the
- * media changes. Handles opened on earlier media fail with FS_ERROR_CLOSED. File and directory handles come
+ * media changes. Handles opened on earlier media fail with FS_ERROR_CLOSED as soon as the media changes. A mount
+ * that fails is not tried again on the same media until mount() or format() is called. File and directory handles come
  * from fixed pools sized at build time; open() fails with FS_ERROR_TOO_MANY_OPEN when the pool is empty.
  *
- * Paths are absolute, with '/' between names. Calls are not thread safe.
+ * Paths are absolute, with '/' between names. Calls are not thread safe, and block until done: on an SD card one
+ * can take hundreds of milliseconds, and format() or space() several seconds on a large card.
  */
 class Filesystem : public Component {
  public:
@@ -149,7 +151,9 @@ class Filesystem : public Component {
   FsError mkdir(const char *path);
   FsError space(uint64_t &total, uint64_t &free);
   FsError format();
+  /// Mount now, trying again even when mounting this media failed before.
   FsError mount();
+  /// Close what is open and unmount. Nothing is written when the media has changed since it was mounted.
   void unmount();
 
   bool is_mounted() const { return this->mounted_; }
@@ -160,7 +164,8 @@ class Filesystem : public Component {
   friend class File;
   friend class Dir;
 
-  // Driver hooks. A slot is an index below the matching pool size; the base class hands slots out.
+  // Driver hooks. A slot is an index below the matching pool size; the base class hands slots out. After a media
+  // change fs_unmount() is called with handles still open, and must drop them without writing to the media.
   virtual FsError fs_init(uint8_t max_files, uint8_t max_dirs) = 0;
   virtual FsError fs_mount() = 0;
   virtual void fs_unmount() = 0;
@@ -185,7 +190,10 @@ class Filesystem : public Component {
 
   /// Mount if needed, unmounting first when the media changed. Returns the error to report, or NONE.
   FsError ready_();
-  bool file_valid_(uint8_t mount) const { return this->mounted_ && mount == this->mount_count_; }
+  bool media_current_() const { return this->media_generation_ == this->device_->get_media_generation(); }
+  bool file_valid_(uint8_t mount) const {
+    return this->mounted_ && mount == this->mount_count_ && this->media_current_();
+  }
   FsError release_file_(uint8_t slot, uint8_t mount);
   FsError release_dir_(uint8_t slot, uint8_t mount);
   FsError fail_(FsError error) {
@@ -201,6 +209,7 @@ class Filesystem : public Component {
   uint8_t media_generation_{0};  // The device generation that was mounted
   uint8_t mount_count_{0};       // Bumped on each mount, so handles from an earlier mount are refused
   FsError last_error_{FsError::FS_ERROR_NONE};
+  FsError mount_error_{FsError::FS_ERROR_NONE};  // Why mounting the current media failed, so it is not retried
   bool mounted_{false};
   bool format_if_mount_failed_{false};
 };

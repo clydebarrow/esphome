@@ -162,33 +162,29 @@ void Filesystem::dump_config() {
                 "  Open directories: %u\n"
                 "  Format if mount fails: %s",
                 YESNO(this->mounted_), this->max_files_, this->max_dirs_, YESNO(this->format_if_mount_failed_));
-  if (this->mounted_) {
-    uint64_t total;
-    uint64_t free;
-    if (this->fs_space(total, free) == FsError::FS_ERROR_NONE) {
-      ESP_LOGCONFIG(TAG, "  Size: %u KiB, free %u KiB", static_cast<unsigned>(total >> 10),
-                    static_cast<unsigned>(free >> 10));
-    }
-  }
 }
 
 FsError Filesystem::mount() {
   if (this->is_failed())
     return FsError::FS_ERROR_INVALID;
+  this->mount_error_ = FsError::FS_ERROR_NONE;
   return this->ready_();
 }
 
 void Filesystem::unmount() {
   if (!this->mounted_)
     return;
-  // Close what is still open so buffered data reaches the media while it is there
-  for (uint8_t slot = 0; slot != this->max_files_; slot++) {
-    if (this->files_in_use_ & (1UL << slot))
-      this->fs_close(slot);
-  }
-  for (uint8_t slot = 0; slot != this->max_dirs_; slot++) {
-    if (this->dirs_in_use_ & (1U << slot))
-      this->fs_close_dir(slot);
+  // Close what is still open so buffered data reaches the media while it is there. After a media change the
+  // buffers belong to the old media; writing them would damage whatever is in the slot now.
+  if (this->media_current_()) {
+    for (uint8_t slot = 0; slot != this->max_files_; slot++) {
+      if (this->files_in_use_ & (1UL << slot))
+        this->fs_close(slot);
+    }
+    for (uint8_t slot = 0; slot != this->max_dirs_; slot++) {
+      if (this->dirs_in_use_ & (1U << slot))
+        this->fs_close_dir(slot);
+    }
   }
   this->files_in_use_ = 0;
   this->dirs_in_use_ = 0;
@@ -198,7 +194,7 @@ void Filesystem::unmount() {
 }
 
 FsError Filesystem::ready_() {
-  if (this->mounted_ && this->media_generation_ == this->device_->get_media_generation())
+  if (this->mounted_ && this->media_current_())
     return FsError::FS_ERROR_NONE;
   if (this->mounted_) {
     ESP_LOGI(TAG, "Media changed");
@@ -206,6 +202,8 @@ FsError Filesystem::ready_() {
   }
   if (!this->device_->has_media())
     return FsError::FS_ERROR_NO_MEDIA;
+  if (this->mount_error_ != FsError::FS_ERROR_NONE && this->media_current_())
+    return this->mount_error_;
   this->media_generation_ = this->device_->get_media_generation();
   FsError err = this->fs_mount();
   if (err == FsError::FS_ERROR_NO_FILESYSTEM && this->format_if_mount_failed_) {
@@ -216,8 +214,10 @@ FsError Filesystem::ready_() {
   }
   if (err != FsError::FS_ERROR_NONE) {
     ESP_LOGW(TAG, "Mount failed: %s", LOG_STR_ARG(fs_error_to_string(err)));
+    this->mount_error_ = err;
     return err;
   }
+  this->mount_error_ = FsError::FS_ERROR_NONE;
   this->mount_count_++;
   this->mounted_ = true;
   ESP_LOGD(TAG, "Mounted");
@@ -333,8 +333,10 @@ FsError Filesystem::format() {
   if (!this->device_->has_media())
     return this->fail_(FsError::FS_ERROR_NO_MEDIA);
   FsError err = this->fs_format();
-  if (err == FsError::FS_ERROR_NONE)
+  if (err == FsError::FS_ERROR_NONE) {
+    this->mount_error_ = FsError::FS_ERROR_NONE;
     err = this->ready_();
+  }
   return this->fail_(err);
 }
 

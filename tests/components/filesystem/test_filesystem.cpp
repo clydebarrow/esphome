@@ -8,130 +8,9 @@
 
 #include "esphome/components/filesystem/filesystem.h"
 #include "esphome/components/ram_disk/ram_disk.h"
+#include "fake_fs.h"
 
 namespace esphome::filesystem::testing {
-
-// A flat, in-memory driver: enough to exercise the handle pools, mounting and media changes in the base class.
-class FakeFs : public Filesystem {
- public:
-  using Filesystem::Filesystem;
-
-  bool has_filesystem{true};
-  int mounts{0};
-  int formats{0};
-  int closes{0};
-  std::map<std::string, std::vector<uint8_t>> files;
-
- protected:
-  struct Open {
-    std::string path;
-    uint32_t pos{0};
-  };
-
-  FsError fs_init(uint8_t max_files, uint8_t max_dirs) override {
-    this->open_.resize(max_files);
-    this->dir_pos_.resize(max_dirs);
-    return FsError::FS_ERROR_NONE;
-  }
-  FsError fs_mount() override {
-    this->mounts++;
-    return this->has_filesystem ? FsError::FS_ERROR_NONE : FsError::FS_ERROR_NO_FILESYSTEM;
-  }
-  void fs_unmount() override {}
-  FsError fs_format() override {
-    this->formats++;
-    this->files.clear();
-    this->has_filesystem = true;
-    return FsError::FS_ERROR_NONE;
-  }
-  FsError fs_open(uint8_t slot, const char *path, uint8_t flags) override {
-    auto it = this->files.find(path);
-    if (it == this->files.end()) {
-      if (!(flags & OPEN_CREATE))
-        return FsError::FS_ERROR_NOT_FOUND;
-      it = this->files.emplace(path, std::vector<uint8_t>{}).first;
-    } else if ((flags & OPEN_CREATE) && (flags & OPEN_EXCLUSIVE)) {
-      return FsError::FS_ERROR_EXISTS;
-    }
-    if (flags & OPEN_TRUNCATE)
-      it->second.clear();
-    this->open_[slot] = {path, (flags & OPEN_APPEND) ? static_cast<uint32_t>(it->second.size()) : 0};
-    return FsError::FS_ERROR_NONE;
-  }
-  int32_t fs_read(uint8_t slot, void *buf, uint32_t len) override {
-    auto &f = this->open_[slot];
-    auto &data = this->files[f.path];
-    const uint32_t n = std::min<uint32_t>(len, data.size() - std::min<size_t>(f.pos, data.size()));
-    memcpy(buf, data.data() + f.pos, n);
-    f.pos += n;
-    return static_cast<int32_t>(n);
-  }
-  int32_t fs_write(uint8_t slot, const void *buf, uint32_t len) override {
-    auto &f = this->open_[slot];
-    auto &data = this->files[f.path];
-    if (data.size() < f.pos + len)
-      data.resize(f.pos + len);
-    memcpy(data.data() + f.pos, buf, len);
-    f.pos += len;
-    return static_cast<int32_t>(len);
-  }
-  int32_t fs_seek(uint8_t slot, int32_t offset, Whence whence) override {
-    auto &f = this->open_[slot];
-    int32_t base = 0;
-    if (whence == Whence::WHENCE_CURRENT)
-      base = static_cast<int32_t>(f.pos);
-    if (whence == Whence::WHENCE_END)
-      base = static_cast<int32_t>(this->files[f.path].size());
-    f.pos = static_cast<uint32_t>(base + offset);
-    return static_cast<int32_t>(f.pos);
-  }
-  int32_t fs_tell(uint8_t slot) override { return static_cast<int32_t>(this->open_[slot].pos); }
-  int32_t fs_size(uint8_t slot) override { return static_cast<int32_t>(this->files[this->open_[slot].path].size()); }
-  FsError fs_sync(uint8_t slot) override { return FsError::FS_ERROR_NONE; }
-  FsError fs_truncate(uint8_t slot) override {
-    this->files[this->open_[slot].path].resize(this->open_[slot].pos);
-    return FsError::FS_ERROR_NONE;
-  }
-  FsError fs_close(uint8_t slot) override {
-    this->closes++;
-    return FsError::FS_ERROR_NONE;
-  }
-  FsError fs_open_dir(uint8_t slot, const char *path) override {
-    this->dir_pos_[slot] = 0;
-    return FsError::FS_ERROR_NONE;
-  }
-  FsError fs_read_dir(uint8_t slot, FileInfo &info, char *name, size_t name_size) override {
-    if (this->dir_pos_[slot] >= this->files.size())
-      return FsError::FS_ERROR_NOT_FOUND;
-    auto it = std::next(this->files.begin(), this->dir_pos_[slot]++);
-    info.size = it->second.size();
-    info.is_dir = false;
-    strncpy(name, it->first.c_str(), name_size - 1);
-    name[name_size - 1] = 0;
-    return FsError::FS_ERROR_NONE;
-  }
-  FsError fs_close_dir(uint8_t slot) override { return FsError::FS_ERROR_NONE; }
-  FsError fs_remove(const char *path) override {
-    return this->files.erase(path) ? FsError::FS_ERROR_NONE : FsError::FS_ERROR_NOT_FOUND;
-  }
-  FsError fs_rename(const char *from, const char *to) override { return FsError::FS_ERROR_INVALID; }
-  FsError fs_stat(const char *path, FileInfo &info) override {
-    auto it = this->files.find(path);
-    if (it == this->files.end())
-      return FsError::FS_ERROR_NOT_FOUND;
-    info.size = it->second.size();
-    info.is_dir = false;
-    return FsError::FS_ERROR_NONE;
-  }
-  FsError fs_mkdir(const char *path) override { return FsError::FS_ERROR_NONE; }
-  FsError fs_space(uint64_t &total, uint64_t &free) override {
-    total = free = 0;
-    return FsError::FS_ERROR_NONE;
-  }
-
-  std::vector<Open> open_;
-  std::vector<size_t> dir_pos_;
-};
 
 // A RAM disk whose media can be taken out and put back.
 class SwapDisk : public ram_disk::RamDisk {
@@ -267,6 +146,70 @@ TEST_F(FilesystemTest, FormatsOnlyWhenAsked) {
   formatting.setup();
   EXPECT_TRUE(formatting.is_mounted());
   EXPECT_EQ(formatting.formats, 1);
+}
+
+TEST_F(FilesystemTest, StaleHandleRefusedBeforeAnyOtherCall) {
+  this->fs_.setup();
+  File a = this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE);
+  ASSERT_TRUE(a);
+  this->disk_.eject();
+  this->disk_.insert();
+  // Nothing has told the filesystem yet; the handle must still not reach the new media
+  EXPECT_EQ(a.write("x", 1), static_cast<int32_t>(FsError::FS_ERROR_CLOSED));
+  EXPECT_EQ(a.sync(), FsError::FS_ERROR_CLOSED);
+  EXPECT_EQ(this->fs_.files["/a"].size(), 0u);
+}
+
+TEST_F(FilesystemTest, MediaChangeDropsHandlesWithoutWriting) {
+  this->fs_.setup();
+  File a = this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE);
+  Dir d = this->fs_.open_dir("/");
+  this->disk_.eject();
+  this->disk_.insert();
+  File b = this->fs_.open("/b", OPEN_WRITE | OPEN_CREATE);
+  ASSERT_TRUE(b);
+  EXPECT_EQ(this->fs_.closes, 0);
+  // unmount() on the same media still closes, so buffered data is written
+  this->fs_.unmount();
+  EXPECT_EQ(this->fs_.closes, 1);
+}
+
+TEST_F(FilesystemTest, UnmountAfterMediaChangeWritesNothing) {
+  this->fs_.setup();
+  File a = this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE);
+  this->disk_.eject();
+  this->fs_.unmount();
+  EXPECT_FALSE(this->fs_.is_mounted());
+  EXPECT_EQ(this->fs_.closes, 0);
+}
+
+TEST_F(FilesystemTest, FailedMountNotRetriedOnSameMedia) {
+  this->fs_.has_filesystem = false;
+  this->fs_.setup();
+  EXPECT_EQ(this->fs_.mounts, 1);
+  FileInfo info;
+  EXPECT_EQ(this->fs_.stat("/a", info), FsError::FS_ERROR_NO_FILESYSTEM);
+  EXPECT_FALSE(this->fs_.open("/a", OPEN_READ));
+  EXPECT_EQ(this->fs_.last_error(), FsError::FS_ERROR_NO_FILESYSTEM);
+  EXPECT_EQ(this->fs_.mounts, 1);
+  // mount() asks again
+  EXPECT_EQ(this->fs_.mount(), FsError::FS_ERROR_NO_FILESYSTEM);
+  EXPECT_EQ(this->fs_.mounts, 2);
+  // So does new media
+  this->fs_.has_filesystem = true;
+  this->disk_.eject();
+  this->disk_.insert();
+  EXPECT_TRUE(this->fs_.open("/a", OPEN_WRITE | OPEN_CREATE));
+  EXPECT_EQ(this->fs_.mounts, 3);
+}
+
+TEST_F(FilesystemTest, FormatClearsFailedMount) {
+  this->fs_.has_filesystem = false;
+  this->fs_.setup();
+  EXPECT_FALSE(this->fs_.is_mounted());
+  EXPECT_EQ(this->fs_.format(), FsError::FS_ERROR_NONE);
+  EXPECT_TRUE(this->fs_.is_mounted());
+  EXPECT_EQ(this->fs_.mounts, 2);
 }
 
 TEST_F(FilesystemTest, ListsDirectory) {

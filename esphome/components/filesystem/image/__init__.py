@@ -22,6 +22,7 @@ CODEOWNERS = ["@clydebarrow"]
 CONF_CHUNK_SIZE = "chunk_size"
 CONF_FILE_ID = "file_id"
 CONF_ON_LOAD_FINISHED = "on_load_finished"
+CONF_ON_LOAD_PROGRESS = "on_load_progress"
 
 FilesystemImage = filesystem_ns.class_(
     "FilesystemImage", cg.PollingComponent, runtime_image.RuntimeImage
@@ -55,6 +56,7 @@ CONFIG_SCHEMA = cv.All(
                 storage_size, cv.int_range(min=256, max=65536)
             ),
             cv.Optional(CONF_ON_LOAD_FINISHED): automation.validate_automation({}),
+            cv.Optional(CONF_ON_LOAD_PROGRESS): automation.validate_automation({}),
             cv.Optional(CONF_ON_ERROR): automation.validate_automation({}),
         }
     )
@@ -92,6 +94,11 @@ automation.register_apply_action(
 _CALLBACK_AUTOMATIONS = (
     automation.CallbackAutomation(
         CONF_ON_LOAD_FINISHED, "add_on_load_finished_callback"
+    ),
+    automation.CallbackAutomation(
+        CONF_ON_LOAD_PROGRESS,
+        "add_on_load_progress_callback",
+        [(float, "progress"), (cg.size_t, "bytes_read")],
     ),
     automation.CallbackAutomation(CONF_ON_ERROR, "add_on_error_callback"),
 )
