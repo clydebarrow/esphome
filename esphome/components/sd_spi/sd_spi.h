@@ -60,6 +60,7 @@ class SdSpi : public storage::BlockDevice,
   void deselect_();
   uint8_t command_(uint8_t cmd, uint32_t arg);
   uint8_t app_command_(uint8_t cmd, uint32_t arg);
+  void idle_(uint32_t start_us);
   bool wait_ready_(uint32_t timeout_ms);
   bool read_data_(uint8_t *buf, uint32_t len);
   bool write_data_(uint8_t token, const uint8_t *buf);
@@ -73,6 +74,7 @@ class SdSpi : public storage::BlockDevice,
   uint8_t xfer_() { return this->transfer_byte(0xFF); }
   void receive_(uint8_t *buf, uint32_t len);
   void send_(const uint8_t *buf, uint32_t len);
+  void set_warning_(bool warning);
   storage::StorageError fail_(storage::StorageError error);
 
   GPIOPin *card_detect_pin_{nullptr};

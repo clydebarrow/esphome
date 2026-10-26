@@ -58,6 +58,14 @@ def block_size(value: object) -> int:
     return value
 
 
+def request_lock() -> None:
+    """Make block device calls safe from several tasks, such as a filesystem used through the C library.
+
+    Call it from to_code.
+    """
+    cg.add_define("USE_STORAGE_LOCK")
+
+
 def block_device_schema(class_: MockObjClass) -> cv.Schema:
     """The base schema for a block device platform; `extend` it with the platform's own options."""
     return cv.Schema(

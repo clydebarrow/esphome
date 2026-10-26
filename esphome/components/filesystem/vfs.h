@@ -8,7 +8,6 @@
 #include "filesystem.h"
 
 #include <cstdint>
-#include <mutex>
 
 #include <dirent.h>
 
@@ -17,8 +16,7 @@ namespace esphome::filesystem {
 /// Makes a Filesystem usable through the C library (open(), stat(), opendir() and so on) below a mount point,
 /// for code that does its own file I/O, on any task.
 ///
-/// Every call holds mutex(). Filesystem calls are not thread safe, so any other user of the same filesystem
-/// must hold it too.
+/// Every call holds the filesystem's mutex(), as do the filesystem's own calls.
 class Vfs {
  public:
   Vfs(Filesystem *fs, const char *base_path) : fs_(fs), base_path_(base_path) {}
@@ -35,7 +33,6 @@ class Vfs {
   bool wait_ready(uint32_t timeout_ms);
 
   const char *get_base_path() const { return this->base_path_; }
-  std::mutex &mutex() { return this->mutex_; }
 
  protected:
   struct OpenDir {
@@ -66,7 +63,6 @@ class Vfs {
 
   Filesystem *fs_;
   const char *base_path_;
-  std::mutex mutex_;
   FixedVector<File> files_;
   FixedVector<OpenDir> dirs_;
   uint8_t max_files_{4};

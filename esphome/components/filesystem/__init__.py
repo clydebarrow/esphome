@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 import esphome.codegen as cg
-from esphome.components.storage import CONF_STORAGE_ID, BlockDevice
+from esphome.components.storage import CONF_STORAGE_ID, BlockDevice, request_lock
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.core import CORE, ID, CoroPriority, EsphomeError, coroutine_with_priority
@@ -167,6 +167,7 @@ async def new_filesystem(config: ConfigType, *args: SafeExpType) -> MockObj:
         from esphome.components import esp32
 
         cg.add_define("USE_FILESYSTEM_VFS")
+        request_lock()
         esp32.require_vfs_dir()
         pools.vfs = cg.new_Pvariable(config[CONF_VFS_ID], var, vfs_path)
         cg.add(var.set_vfs(pools.vfs))

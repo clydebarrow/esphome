@@ -1,7 +1,9 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 
+#include "esphome/core/defines.h"
 #include "esphome/core/log.h"
 
 namespace esphome::storage {
@@ -33,10 +35,26 @@ struct BlockGeometry {
 
 const LogString *storage_error_to_string(StorageError error);
 
+/// Stands in for a mutex where nothing runs on other tasks.
+struct NullMutex {
+  void lock() {}
+  bool try_lock() { return true; }
+  void unlock() {}
+};
+
+#ifdef USE_STORAGE_LOCK
+using DeviceMutex = std::mutex;
+#else
+using DeviceMutex = NullMutex;
+#endif
+
 /** A device addressed in fixed size blocks, such as a flash chip, an SD card or a RAM buffer.
  *
  * Callers use the public methods, which check the address range, alignment and read-only state once,
  * so a driver only implements the transfer. An access may span several blocks.
+ *
+ * With USE_STORAGE_LOCK (a filesystem used from other tasks) each public call holds mutex(). A driver that touches
+ * the device from its own loop() or timers must hold it too.
  */
 class BlockDevice {
  public:
@@ -55,6 +73,7 @@ class BlockDevice {
   }
   /// Changes each time media is inserted or removed, so a user can tell that its cached state is stale.
   uint8_t get_media_generation() const { return this->media_generation_; }
+  DeviceMutex &mutex() { return this->mutex_; }
 
  protected:
   virtual StorageError device_read(uint32_t block, uint32_t offset, void *buf, uint32_t len) = 0;
@@ -70,6 +89,7 @@ class BlockDevice {
   StorageError check_range_(uint32_t block, uint32_t count) const;
 
   BlockGeometry geometry_{};
+  DeviceMutex mutex_;
   uint8_t media_generation_{0};
 };
 
