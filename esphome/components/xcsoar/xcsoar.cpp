@@ -7,6 +7,8 @@
 #include <esp_heap_caps.h>
 #include <esp_pthread.h>
 #include <esp_vfs_eventfd.h>
+
+#include <algorithm>
 #include <pthread.h>
 
 namespace esphome::xcsoar {
@@ -65,6 +67,9 @@ void XCSoarComponent::setup() {
     this->ppa_out_color_mode_ = PPA_SRM_COLOR_MODE_RGB888;
   // Show from the second buffer first, so the first frame does not overwrite the buffer on screen
   this->back_buffer_ = 1;
+  // Neither buffer holds a frame yet
+  for (auto &list : this->previous_dirty_)
+    list.push_back({0, 0, static_cast<unsigned>(width), static_cast<unsigned>(height)});
 #else
   // draw_pixels_at() applies the display's rotation itself
   this->out_width_ = width;
@@ -149,14 +154,69 @@ void *XCSoarComponent::task_main_(void *param) {
   return nullptr;
 }
 
-bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, uint8_t *dest, size_t dest_size) {
+static bool rects_overlap(const XCSoarEsp32::Rect &a, const XCSoarEsp32::Rect &b) {
+  return a.x < b.x + b.width && b.x < a.x + a.width && a.y < b.y + b.height && b.y < a.y + a.height;
+}
+
+static XCSoarEsp32::Rect bounding_rect(const XCSoarEsp32::Rect &a, const XCSoarEsp32::Rect &b) {
+  const unsigned left = std::min(a.x, b.x), top = std::min(a.y, b.y);
+  const unsigned right = std::max(a.x + a.width, b.x + b.width), bottom = std::max(a.y + a.height, b.y + b.height);
+  return {left, top, right - left, bottom - top};
+}
+
+// Add rect to the list, merged with the rectangles it overlaps; when the list is full, merge it all into one
+static void add_rect(XCSoarComponent::DirtyRects &list, XCSoarEsp32::Rect rect) {
+  if (rect.width == 0 || rect.height == 0)
+    return;
+  for (size_t i = 0; i < list.size();) {
+    if (rects_overlap(list[i], rect)) {
+      rect = bounding_rect(rect, list[i]);
+      list[i] = list[list.size() - 1];
+      list.resize(list.size() - 1);
+      i = 0;  // the larger rectangle may overlap one already passed
+    } else {
+      i++;
+    }
+  }
+  if (list.size() == list.capacity()) {
+    for (const auto &r : list)
+      rect = bounding_rect(rect, r);
+    list.clear();
+  }
+  list.push_back(rect);
+}
+
+bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, XCSoarEsp32::Rect rect, uint8_t *dest,
+                               size_t dest_size) {
   ppa_srm_oper_config_t srm{};
   srm.in.buffer = pixels;
   const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
   srm.in.pic_w = pitch / bytes_per_pixel;
   srm.in.pic_h = this->config_.height;
-  srm.in.block_w = this->config_.width;
-  srm.in.block_h = this->config_.height;
+  srm.in.block_offset_x = rect.x;
+  srm.in.block_offset_y = rect.y;
+  srm.in.block_w = rect.width;
+  srm.in.block_h = rect.height;
+  // Where the block lands after the counter-clockwise rotation
+  const unsigned w = this->config_.width, h = this->config_.height;
+  switch (this->ppa_rotation_) {
+    case PPA_SRM_ROTATION_ANGLE_90:
+      srm.out.block_offset_x = rect.y;
+      srm.out.block_offset_y = w - rect.x - rect.width;
+      break;
+    case PPA_SRM_ROTATION_ANGLE_180:
+      srm.out.block_offset_x = w - rect.x - rect.width;
+      srm.out.block_offset_y = h - rect.y - rect.height;
+      break;
+    case PPA_SRM_ROTATION_ANGLE_270:
+      srm.out.block_offset_x = h - rect.y - rect.height;
+      srm.out.block_offset_y = rect.x;
+      break;
+    default:
+      srm.out.block_offset_x = rect.x;
+      srm.out.block_offset_y = rect.y;
+      break;
+  }
   // XCSoar draws RGB565, or blue, green, red, alpha bytes (ARGB8888 in little endian order)
   srm.in.srm_cm = bytes_per_pixel == 2 ? PPA_SRM_COLOR_MODE_RGB565 : PPA_SRM_COLOR_MODE_ARGB8888;
   srm.out.buffer = dest;
@@ -176,20 +236,43 @@ bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, uint8_t *dest
   return true;
 }
 
-void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, void *ctx) noexcept {
+void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, const XCSoarEsp32::Rect *dirty,
+                                   unsigned dirty_count, void *ctx) noexcept {
   auto *self = static_cast<XCSoarComponent *>(ctx);
+  DirtyRects areas;
+  for (unsigned i = 0; i != dirty_count; i++)
+    add_rect(areas, dirty[i]);
 #ifdef USE_XCSOAR_FRAME_BUFFERS
   // The back buffer was on screen until the panel's first refresh after the last switch
   if (self->buffer_shown_)
     self->dsi_->wait_frame_buffer_free(FRAME_BUFFER_FREE_TIMEOUT_MS);
   uint8_t *dest = self->dsi_->get_frame_buffer(self->back_buffer_);
   const size_t dest_size = self->dsi_->get_frame_buffer_size();
+  // The back buffer still holds an older frame: bring in what changed since then too
+  const DirtyRects current = areas;
+  const unsigned older = self->dsi_->get_frame_buffer_count() - 1;
+  for (unsigned i = 0; i != older && i != self->previous_dirty_.size(); i++) {
+    for (const auto &r : self->previous_dirty_[i])
+      add_rect(areas, r);
+  }
+  for (size_t i = self->previous_dirty_.size() - 1; i != 0; i--)
+    self->previous_dirty_[i] = self->previous_dirty_[i - 1];
+  self->previous_dirty_[0] = current;
 #else
+  // The frame is kept between calls
   uint8_t *dest = self->frame_;
   const size_t dest_size = self->frame_size_;
 #endif
-  if (!self->convert_(pixels, pitch, dest, dest_size))
-    return;  // the next frame tries again
+  for (const auto &r : areas) {
+    if (!self->convert_(pixels, pitch, r, dest, dest_size)) {
+#ifdef USE_XCSOAR_FRAME_BUFFERS
+      // This buffer may now be partly converted; the next frame converts all of it
+      self->previous_dirty_[0].clear();
+      self->previous_dirty_[0].push_back({0, 0, self->config_.width, self->config_.height});
+#endif
+      return;  // the next frame tries again
+    }
+  }
   self->frame_pending_ = true;
   self->enable_loop_soon_any_context();
   xSemaphoreTake(self->frame_consumed_, portMAX_DELAY);

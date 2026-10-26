@@ -22,6 +22,8 @@
 #include <XCSoarEsp32.hpp>
 
 #include <driver/ppa.h>
+
+#include <array>
 #include <freertos/FreeRTOS.h>
 #include <freertos/semphr.h>
 
@@ -74,11 +76,15 @@ class XCSoarComponent : public Component
   }
 #endif
 
+  // The changed areas of a frame, as XCSoar reports them (at most 8)
+  using DirtyRects = StaticVector<XCSoarEsp32::Rect, 8>;
+
  protected:
   static void *task_main_(void *param);
-  static void frame_ready_(const void *pixels, unsigned pitch, void *ctx) noexcept;
-  /// Convert an XCSoar frame into dest with the PPA; runs on the XCSoar task.
-  bool convert_(const void *pixels, unsigned pitch, uint8_t *dest, size_t dest_size);
+  static void frame_ready_(const void *pixels, unsigned pitch, const XCSoarEsp32::Rect *dirty, unsigned dirty_count,
+                           void *ctx) noexcept;
+  /// Convert the area rect of an XCSoar frame into dest with the PPA; runs on the XCSoar task.
+  bool convert_(const void *pixels, unsigned pitch, XCSoarEsp32::Rect rect, uint8_t *dest, size_t dest_size);
 
   display::Display *display_;
   ppa_client_handle_t ppa_client_{nullptr};
@@ -92,6 +98,8 @@ class XCSoarComponent : public Component
   // The frame buffer the next frame is converted into; changed by loop() only while the task waits
   uint8_t back_buffer_{0};
   bool buffer_shown_{false};
+  // The areas changed by the last frames, newest first: a frame buffer last got the frame that many frames ago
+  std::array<DirtyRects, 2> previous_dirty_{};
 #else
   uint8_t *frame_{nullptr};
   size_t frame_size_{0};
