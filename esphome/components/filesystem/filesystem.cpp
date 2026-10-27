@@ -3,6 +3,8 @@
 
 #include <utility>
 
+#include "esphome/core/application.h"
+
 namespace esphome::filesystem {
 
 ESPHOME_LOG_TAG(TAG, "filesystem");
@@ -43,6 +45,19 @@ const LogString *fs_error_to_string(FsError error) {
   }
   return LOG_STR("unknown");
 }
+
+#ifdef USE_FILESYSTEM_VFS
+static constexpr TickType_t LOCK_WAIT_TICKS = pdMS_TO_TICKS(100);
+
+void FsMutex::lock() {
+  if (!is_main_loop_thread()) {
+    xSemaphoreTakeRecursive(this->handle_, portMAX_DELAY);
+    return;
+  }
+  while (xSemaphoreTakeRecursive(this->handle_, LOCK_WAIT_TICKS) != pdTRUE)
+    App.feed_wdt();
+}
+#endif
 
 // File
 

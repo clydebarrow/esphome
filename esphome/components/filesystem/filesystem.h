@@ -10,6 +10,11 @@
 #include "esphome/core/defines.h"
 #include "esphome/core/log.h"
 
+#ifdef USE_FILESYSTEM_VFS
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
+#endif
+
 namespace esphome::filesystem {
 
 enum class FsError : int8_t {
@@ -55,8 +60,23 @@ struct FileInfo {
 class Filesystem;
 #ifdef USE_FILESYSTEM_VFS
 class Vfs;
-// Recursive, as the public calls use each other
-using FsMutex = std::recursive_mutex;
+
+/// A recursive lock, as the public calls use each other. On the main loop it feeds the watchdog while it waits, as
+/// a call on another task, such as format(), can take several seconds.
+class FsMutex {
+ public:
+  FsMutex() : handle_(xSemaphoreCreateRecursiveMutexStatic(&this->buffer_)) {}
+  FsMutex(const FsMutex &) = delete;
+  FsMutex &operator=(const FsMutex &) = delete;
+
+  void lock();
+  bool try_lock() { return xSemaphoreTakeRecursive(this->handle_, 0) == pdTRUE; }
+  void unlock() { xSemaphoreGiveRecursive(this->handle_); }
+
+ protected:
+  StaticSemaphore_t buffer_;
+  SemaphoreHandle_t handle_;
+};
 #else
 using FsMutex = storage::NullMutex;
 #endif
