@@ -28,6 +28,27 @@ extern "C" void esp_heap_trace_alloc_hook(void *ptr, size_t size, uint32_t caps)
   print_stack_code_addresses();
 }
 
+// Logs every task with its state and the code addresses on its stack, from the context it saved when it last
+// stopped running (RISC-V: the PC is the first word), for addr2line on the host. Finds where a thread is stuck.
+inline void dump_tasks() {
+  static TaskStatus_t status[40];
+  static constexpr const char *STATES = "RrBSDI";  // running, ready, blocked, suspended, deleted, invalid
+  const UBaseType_t n = uxTaskGetSystemState(status, 40, nullptr);
+  for (UBaseType_t i = 0; i < n; i++) {
+    const TaskStatus_t &t = status[i];
+    const uint32_t *sp = *reinterpret_cast<uint32_t *const *>(t.xHandle);
+    esp_rom_printf("task %-16s %p %c prio %u:", t.pcTaskName, t.xHandle,
+                   STATES[t.eCurrentState < 6 ? t.eCurrentState : 5], (unsigned) t.uxCurrentPriority);
+    if (t.eCurrentState != eRunning) {
+      for (unsigned k = 0; k < 400; k++) {
+        if (sp[k] >= 0x40000000 && sp[k] < 0x44000000)
+          esp_rom_printf(" 0x%08x", (unsigned) sp[k]);
+      }
+    }
+    esp_rom_printf("\n");
+  }
+}
+
 // Sampling profiler: every millisecond, records where each XCSoar thread that is waiting for a core (preempted
 // while running) was interrupted, read from the context saved on its stack (RISC-V: the PC is the first word).
 // Every 2 minutes it logs the 60 most frequent addresses and return addresses, for addr2line on the host. Start it

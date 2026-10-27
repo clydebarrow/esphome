@@ -5,6 +5,14 @@ packages:
 
 esphome:
   name: xcsoar-tab5-tap
+  includes:
+    - debug_helpers.h
+
+esp32:
+  framework:
+    sdkconfig_options:
+      # for "Log tasks"
+      CONFIG_FREERTOS_USE_TRACE_FACILITY: y
 
 api:
   actions:
@@ -24,6 +32,11 @@ api:
         - lambda: id(xcsoar_app)->release();
 
 button:
+  # Where each task is waiting; scans the stacks with interrupts off, so the panel may show one corrupt frame
+  - platform: template
+    name: Log tasks
+    on_press:
+      - lambda: dump_tasks();
   # Makes the next start ask about an unfinished flight
   - platform: template
     name: Mark flying

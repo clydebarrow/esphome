@@ -67,7 +67,7 @@ relative to that file), on the same branch name.
 |---|---|
 | `xcsoar-tab5.yaml` | The base: Tab5 board, SD card, display, touch, Wi-Fi (`network.yaml`), XCSoar. |
 | `xcsoar-tab5-skyecho.yaml` | The base with the skyecho component feeding traffic. |
-| `xcsoar-tab5-tap.yaml`, `tap.py` | The skyecho config with a `tap(x, y)` API action, and a "Mark flying" button that writes `xcsoar-session.txt` so the next start asks about an unfinished flight. `python tap.py HOST 400,620` taps FLY on the start screen. |
+| `xcsoar-tab5-tap.yaml`, `tap.py` | The skyecho config with a `tap(x, y)` API action, and a "Mark flying" button that writes `xcsoar-session.txt` so the next start asks about an unfinished flight. `python tap.py HOST 400,620` taps FLY on the start screen; `+0.15` before two taps makes them a double tap (the menu). "Log tasks" logs where each task is waiting. |
 | `xcsoar-tab5-app-sim.yaml` | Scripted taps into simulator mode and pan mode, with heap and stack reports. |
 | `xcsoar-tab5-touch-sim.yaml` | Phase 2 touch test with the test scene. |
 | `tab5-sd.yaml` | Lists the SD card, without XCSoar. |
@@ -365,6 +365,14 @@ To do:
 - **skyecho issues seen here.** The broadcast discovery ping fails (`Sendto failed ... err -1`; traffic still
   arrives because gdlsim is given the device as a unicast target), and the skyecho `loop()` took 200 to 650 ms
   while XCSoar was starting (it blocks the main loop, so frames and touches wait).
+- **Stuck dialogs.** Twice a nested dialog stopped reacting: the Map Item List Settings dialog (from a tap on
+  the map), and Config > Devices > Edit after setting the port to Disabled. After a tap on OK or Cancel the
+  screen stayed as it was and further taps did nothing, while XCSoar's timers kept running (the 30 s device
+  reconnect still logged); for the device edit, "Saving profiles" was never logged, so the OK handler did not
+  run to its save. Not found yet. `xcsoar-tab5-tap.yaml` has a "Log tasks" button (`dump_tasks()` in
+  `debug_helpers.h`) that logs each task's state and the code addresses on its stack, for addr2line; press it
+  while a dialog is stuck. Repeat: FLY, double tap the map (`+0.15 640,300 640,300`), Config 128,360, Devices
+  1152,360, row B 800,200, Edit 160,40, Port 700,178, Disabled 500,50, OK 420,640.
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
 - **Loading time.** Start-up takes about 40 s with this card: terrain 19 s, airspace 18 s; measure where the
   time goes (SD card reads in SPI mode, or parsing). The screen is not redrawn while loading, so taps made then
@@ -406,9 +414,11 @@ value `host`), implemented by `HostPort`:
 - The host declares its streams before XCSoar starts, in `XCSoarEsp32::Config::streams`: a name, which is also
   the port name XCSoar shows ("SkyEcho"), and the driver that reads it by default ("GDL90").
 - After `LoadProfile()`, `HostPort::ApplyStreams()` puts each stream that no device reads yet into the first
-  disabled device slot, with its driver. So it works on a fresh profile, and the user can change the driver in
-  Config > Devices. A stream whose device the user disabled is set up again at the next start; if that matters,
-  `ApplyStreams()` needs a profile key that remembers the choice.
+  disabled device slot, with its driver, and adds its name to the profile key `HostStreams` (names separated
+  by `|`). A stream named there is never set up again, so a device the user set to another port or to Disabled
+  in Config > Devices stays that way. A stream that found no free slot is not recorded and is tried again at the
+  next start. The key reaches the file with the next profile save (closing Config > Devices saves); deleting it
+  offers every stream again.
 - `XCSoarEsp32::Feed(name, data)` may be called from any task. It copies the data into the FIFO of each open
   port with that name and wakes the event loop; data for a stream that no open port reads, or that does not fit
   in the FIFO (4 KB), is dropped. GDL90 and NMEA recover from a lost chunk. Writes from XCSoar to the port are
