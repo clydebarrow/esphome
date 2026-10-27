@@ -21,11 +21,73 @@ in ordinary ESPHome YAML.
 | XCSoar `esp32/host-test/` | Builds the test scene for Linux or macOS and writes a frame to a PPM file. No ESP toolchain needed. |
 | XCSoar `src/ui/display/Display.hpp` | `USE_EXTERNAL_FB` (with `USE_VFB`): the display hands each frame to the host application. |
 | XCSoar `src/ui/canvas/esp32/Files.cpp` | Font search paths: `/sdcard/XCSoar/fonts`, then `/rom/fonts`. |
-| ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display. |
+| XCSoar `src/Device/Port/HostPort.{hpp,cpp}` | `PortType::HOST`: a device port that reads data the host passes to `XCSoarEsp32::Feed()`. |
+| ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display, feeds traffic. |
+| ESPHome `components/skyecho/` | GDL90 over Wi-Fi from a SkyEcho (or the gdlsim simulator) and FLARM over a UART; merged from the `skyecho` branch. |
 | ESPHome `xcsoar-tests/` | Device configs for testing on hardware, e.g. `xcsoar-tab5.yaml` for the M5Stack Tab5. |
 
 The ESPHome component points `add_idf_component(path=...)` at a local XCSoar checkout (`xcsoar_path`).
 XCSoar is GPL-2.0-or-later, so firmware built with it is GPL as well.
+
+## Working on it
+
+### Branches
+
+| Repository | Branch | Holds |
+|---|---|---|
+| `clydebarrow/esphome` | `claude/brave-sagan-50uf3g` | This component, the test configs, and merges of `storage` (SD card, filesystem, `vfs_path`) and `skyecho`. |
+| `clydebarrow/XCSoar` | `claude/brave-sagan-50uf3g` | The ESP32 port: `esp32/`, `TARGET=ESP32`, and the XCSoar changes listed in this document. |
+| `clydebarrow/esphome` | `storage` | The storage components, worked on separately; merge it in when it changes. |
+| `clydebarrow/esphome` | `skyecho` | The skyecho component, local only so far; its commits reach this branch by merging. |
+| `clydebarrow/esphome` | `mipi-dsi-fill-dirty-qos-clock`, open as https://github.com/esphome/esphome/pull/21638 | `fill()` marks the screen dirty, the panel DMA gets the highest AXI read priority, Tab5 ST7123 at 70 MHz. |
+
+This branch is not meant to be merged upstream as it is. Put the XCSoar checkout next to the ESPHome worktree
+as `xcsoar-src` (the `xcsoar_path` substitution in `xcsoar-tests/xcsoar-tab5.yaml` is `../../xcsoar-src`,
+relative to that file), on the same branch name.
+
+### Building and flashing
+
+- ESP-IDF 5.5.6; the first build also needs the host tools listed under "Build" in phase 3 (perl, ImageMagick,
+  rsvg-convert, sox, gettext) to generate XCSoar's sources.
+- Run from the ESPHome worktree, so that its `esphome` package is used:
+  `PYTHONPATH=$PWD python -m esphome compile xcsoar-tests/xcsoar-tab5-skyecho.yaml`. A full build takes
+  several minutes.
+- `xcsoar-tests/network.yaml` includes `../../../my-devices/wifi.yaml` for the Wi-Fi settings (with
+  `!secret`); provide your own there. Never commit credentials.
+- **Before a USB flash or reset, press the "Safe shutdown" button** over the API
+  (`.agents/skills/hardware-test/scripts/api_button.py HOST - press "Safe shutdown"`). It unmounts the SD card.
+  Resets while XCSoar was writing have twice destroyed the card's `XCSoar` directory (see "SD card damage"),
+  and the data (maps, airspace, profile) had to be copied back.
+- The test configs have no `ota:` for now, so every flash is over USB. OTA is wanted later; it would run the
+  shutdown hooks itself.
+
+### Test configs (`xcsoar-tests/`)
+
+| File | Use |
+|---|---|
+| `xcsoar-tab5.yaml` | The base: Tab5 board, SD card, display, touch, Wi-Fi (`network.yaml`), XCSoar. |
+| `xcsoar-tab5-skyecho.yaml` | The base with the skyecho component feeding traffic. |
+| `xcsoar-tab5-tap.yaml`, `tap.py` | The skyecho config with a `tap(x, y)` API action, and a "Mark flying" button that writes `xcsoar-session.txt` so the next start asks about an unfinished flight. `python tap.py HOST 400,620` taps FLY on the start screen. |
+| `xcsoar-tab5-app-sim.yaml` | Scripted taps into simulator mode and pan mode, with heap and stack reports. |
+| `xcsoar-tab5-touch-sim.yaml` | Phase 2 touch test with the test scene. |
+| `tab5-sd.yaml` | Lists the SD card, without XCSoar. |
+| `debug_helpers.h` | Allocation reports and the sampling profiler. |
+
+Screen coordinates are XCSoar's landscape 1280x720. Some that the tests use: FLY 400,620, SIM 870,620; the
+Quick Guide's Next 110,605, its "don't show again" check box 165,678 and Close 70,675; a double tap on the map
+at 640,300 opens the menu, whose buttons are in columns at x 128 and 1152, rows at y 216, 360, 504 and 648.
+
+### Traffic without a SkyEcho
+
+The gdlsim simulator (`gdl90_simulator.py`, a separate project) sends GDL90 like a SkyEcho, with moving
+traffic and callsigns: `python3 gdl90_simulator.py --target <device address>`. It sends to UDP port 4000 and
+answers discovery; the skyecho component on the device needs no settings for it.
+
+### Checking the screen
+
+There is no screenshot command. Testing so far used a camera pointed at the panel, and the frame and touch
+logs. The touch test configs drive XCSoar with the same listener calls as the touchscreen, so most UI work can
+be tested without anyone at the device.
 
 ## How the application is structured
 
@@ -75,6 +137,9 @@ the component touches none of XCSoar's state.
 - **Files:** XCSoar uses `open()`, `fopen()`, `opendir()` and `stat()`. Paths under `/sdcard` go through
   the `filesystem` component's VFS (`vfs_path: /sdcard`, FAT on the SD card), behind one mutex. XCSoar reserves
   8 files and 4 directories on top of the filesystem's own. `/rom` is the read-only font store in flash.
+- **Traffic:** `skyecho` callbacks (ESPHome main task) -> `XCSoarEsp32::Feed(name, bytes)` -> `HostPort::Push()`
+  (a 4 KB FIFO per port, under a mutex) -> `InjectEvent` -> `HostPort::OnInject()` on the XCSoar event loop ->
+  `DataReceived()`, which hands the bytes to the device's driver (GDL90 or FLARM). See "Data from the host".
 - **Logging:** XCSoar writes its log to `/sdcard/XCSoar/xcsoar.log`; the component logs through ESPHome.
 
 ### SD card layout
@@ -265,14 +330,41 @@ Done:
   terrain, topography, waypoints, airspace, InfoBoxes and an airspace warning. No resets in 200 s.
   `xcsoar-tests/xcsoar-tab5-app-sim.yaml` is that test; it also reports large and failed allocations
   (`debug_helpers.h`), free memory and the unused stack of every task.
+- **Debug checks.** XCSoar is built with `NDEBUG` (`esp32/xcsoar/CMakeLists.txt`), and the component sets
+  `CONFIG_COMPILER_ASSERT_NDEBUG_EVALUATE: false` so that ESP-IDF's `assert()` does not evaluate its argument
+  either. Flash use is now 6.82 MB of the 8.13 MB app slot (83.9%; 84.3% with `skyecho`), internal RAM 53.7%.
+- **UI fixes found in use** (XCSoar commits on the branch):
+  - The Quick Guide threw `std::bad_alloc` in `VirtualCanvas::Create`: every `RichTextWidget` kept a full-size
+    text cache while hidden. It now frees it on `Hide()`.
+  - The progress window (splash and loading bar) did not show during start-up. `ProgressGlue::Disable()` is now
+    called only in `Shutdown()`.
+  - Images lost their transparent parts in the memory canvas (black boxes behind icons). Bitmaps keep an
+    alpha plane (`ImportAlpha`), drawn with `Canvas::StretchWithAlpha` and `BlendOverWhite`.
+  - `RichTextWindow` paints straight to the screen on ESP32 instead of through a second full-size buffer.
+  - The traffic page had no Close and Details buttons: `MainWindow::InitialiseConfigured()` did not set
+    `area_stack_rect`, so the widget area overlapped the InfoBoxes.
+  - The small FLARM radar on the map was a square: without OpenGL it needs `SetTransparent()` and a filled
+    circle in `FlarmTrafficWindow::OnPaint`. Cost: a transparent window makes `TopWindow` repaint the whole
+    screen each time the radar changes (see "Partial repaint").
+- **Traffic.** A SkyEcho's GDL90 traffic (and FLARM, if the skyecho component has a FLARM UART) reaches XCSoar's
+  radar and traffic list, with callsigns. Tested with the gdlsim simulator; see "Data from the host".
 
 To do:
 
-- **Flash space.** 1.9 MB are left in each OTA slot. More room: dropping debug assertions (`NDEBUG`), or keeping
-  resources (sounds, large bitmaps) on the SD card.
-- **GPS and vario input.** A new port type, `PortType::EXTERNAL`: a `BufferedPort` fed by an ESPHome
-  `uart::UARTDevice` through a ring buffer, drained in the component's `loop()`. `TCP_LISTENER`/`UDP_LISTENER`
-  over lwIP work without code changes once Wi-Fi is up.
+- **Flash space.** 1.3 MB are left in each OTA slot. More room: keeping resources (sounds, large bitmaps) on
+  the SD card. OTA itself is wanted, so the two-slot partition table must stay.
+- **GPS and vario input.** Use the host stream mechanism below: a component (UART GPS, a pressure sensor turned
+  into `$POV` or `$PLXVF` sentences, or the SkyEcho's own ownship report) calls `XCSoarEsp32::Feed()` with a
+  stream whose driver is the matching XCSoar driver (`"Generic"` NMEA for a GPS). `TCP_LISTENER`/`UDP_LISTENER`
+  over lwIP should work without code changes now that Wi-Fi is up, but have not been tried.
+- **Dates.** GDL90 has no date, so with only SkyEcho data XCSoar starts IGC logs dated 1970. Either feed a
+  date (ESPHome `time` via SNTP, as an NMEA `$GPRMC` or by setting XCSoar's clock), or a GPS stream with RMC.
+- **SD card.** After the storage merge (`origin/storage`, card and filesystem locks), `sd_spi` once logged
+  "Card not responding", restarted the card and remounted the filesystem while XCSoar had files open. That may
+  be how the directory damage below happens; the storage work is done on the `storage` branch.
+- **skyecho issues seen here.** The broadcast discovery ping fails (`Sendto failed ... err -1`; traffic still
+  arrives because gdlsim is given the device as a unicast target), and the skyecho `loop()` took 200 to 650 ms
+  while XCSoar was starting (it blocks the main loop, so frames and touches wait).
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
 - **Loading time.** Start-up takes about 40 s with this card: terrain 19 s, airspace 18 s; measure where the
   time goes (SD card reads in SPI mode, or parsing). The screen is not redrawn while loading, so taps made then
@@ -304,6 +396,44 @@ To do:
 - **Networking** (`HAVE_HTTP`: curl, OpenSSL or mbedTLS) is left out for now.
 - **Settings.** XCSoar's profile stays XCSoar's own. A few values (e.g. altitude, vario) could be ESPHome
   sensors later.
+
+## Data from the host
+
+XCSoar reads instruments through device drivers on ports (serial, TCP, Bluetooth). On the ESP32 the data
+comes from ESPHome components instead, so there is one more port type, `DeviceConfig::PortType::HOST` (profile
+value `host`), implemented by `HostPort`:
+
+- The host declares its streams before XCSoar starts, in `XCSoarEsp32::Config::streams`: a name, which is also
+  the port name XCSoar shows ("SkyEcho"), and the driver that reads it by default ("GDL90").
+- After `LoadProfile()`, `HostPort::ApplyStreams()` puts each stream that no device reads yet into the first
+  disabled device slot, with its driver. So it works on a fresh profile, and the user can change the driver in
+  Config > Devices. A stream whose device the user disabled is set up again at the next start; if that matters,
+  `ApplyStreams()` needs a profile key that remembers the choice.
+- `XCSoarEsp32::Feed(name, data)` may be called from any task. It copies the data into the FIFO of each open
+  port with that name and wakes the event loop; data for a stream that no open port reads, or that does not fit
+  in the FIFO (4 KB), is dropped. GDL90 and NMEA recover from a lost chunk. Writes from XCSoar to the port are
+  discarded.
+- At most 4 streams and 8 open ports (`MAX_STREAMS`, `open_ports` in `HostPort.cpp`).
+
+The xcsoar component uses it for the skyecho component (`skyecho_id`, which defines `USE_XCSOAR_SKYECHO`):
+
+```yaml
+skyecho:
+  id: skyecho_hub
+
+xcsoar:
+  skyecho_id: skyecho_hub
+```
+
+`setup()` adds the stream "SkyEcho" with the GDL90 driver, and "SkyEcho FLARM" with the FLARM driver when the
+skyecho component has a FLARM UART, and registers `add_on_gdl90_data_callback()` and
+`add_on_flarm_data_callback()` (added to skyecho for this; `LazyCallbackManager`, so they cost nothing
+without a listener). The callbacks pass the raw bytes the skyecho component received, so XCSoar's own
+drivers decode them. `xcsoar-tests/xcsoar-tab5-skyecho.yaml` is the test config.
+
+A new input (GPS, vario) needs: a stream name and driver in `setup()`, and a call to `Feed()` wherever the
+component has the bytes. If the data is not yet in a format an XCSoar driver reads (a pressure reading, say),
+format it as the sentences of a simple driver (e.g. OpenVario `$POV`) rather than writing a new driver.
 
 ## Phase 4: optional
 
@@ -425,3 +555,7 @@ A thread costs a 128 KB PSRAM stack and nothing else, so moving work into the ma
   screen until the new one is drawn, a probe that sampled the map area of every frame found white maps only in
   the first 5 s after start-up (no map drawn yet), none after Pan and none in two minutes of dragging; before,
   the map was white for 9 s after Pan and flashed white after drags.
+- Traffic with `xcsoar-tab5-skyecho.yaml` and gdlsim: XCSoar sets up the "SkyEcho" device with the GDL90 driver
+  on a fresh profile, and the simulated aircraft show on the round radar and in the traffic list with their
+  callsigns. The traffic page's Close and Details buttons, the Quick Guide and the start-up progress window were
+  checked on the panel with the camera.

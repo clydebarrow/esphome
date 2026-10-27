@@ -1,0 +1,39 @@
+# xcsoar-tab5-skyecho.yaml with a "tap" API action, to step through XCSoar's screens from the host with tap.py:
+# python tap.py HOST 400,620 ... (landscape coordinates, 1280x720; 0.5 s between taps)
+packages:
+  tab5: !include xcsoar-tab5-skyecho.yaml
+
+esphome:
+  name: xcsoar-tab5-tap
+
+api:
+  actions:
+    - action: tap
+      variables:
+        x: int
+        y: int
+      then:
+        - lambda: |-
+            touchscreen::TouchPoint tp{};
+            tp.id = 0;
+            tp.x = x;
+            tp.y = y;
+            id(xcsoar_app)->touch(tp);
+            ESP_LOGI("tap", "tap %d,%d", x, y);
+        - delay: 100ms
+        - lambda: id(xcsoar_app)->release();
+
+button:
+  # Makes the next start ask about an unfinished flight
+  - platform: template
+    name: Mark flying
+    on_press:
+      - lambda: |-
+          FILE *f = fopen("/sdcard/XCSoar/xcsoar-session.txt", "w");
+          if (f == nullptr) {
+            ESP_LOGE("tap", "session file: %s", strerror(errno));
+            return;
+          }
+          fputs("Flying=\"1\"\n", f);
+          fclose(f);
+          ESP_LOGI("tap", "session file written");
