@@ -17,6 +17,13 @@ namespace esphome::filesystem {
 /// for code that does its own file I/O, on any task.
 ///
 /// Every call holds the filesystem's mutex(), as do the filesystem's own calls.
+///
+/// A component on the main loop that uses the filesystem waits while another task's call runs, and a long call
+/// (a large write, or the first space() on a big card) stalls the main loop for that time. Copying data and FatFs
+/// keep the CPU busy during a transfer; only waits for the card let other tasks run. So a task that does much file
+/// I/O should run at priority 1, the main loop's own, so the two share the CPU, or on core 0, since the main loop
+/// runs on core 1 on chips with two cores. At a higher priority on the main loop's core it can hold off the loop
+/// for the whole transfer.
 class Vfs {
  public:
   Vfs(Filesystem *fs, const char *base_path) : fs_(fs), base_path_(base_path) {}
