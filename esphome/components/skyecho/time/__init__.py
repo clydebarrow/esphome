@@ -15,7 +15,7 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(SkyEchoTime),
             cv.GenerateID(CONF_SKYECHO_ID): cv.use_id(SkyEchoComponent),
-            cv.Optional(CONF_PORT, default=80): cv.port,
+            cv.Optional(CONF_PORT, default=7070): cv.port,
         }
     ),
     socket.consume_sockets(1, "skyecho_time"),
