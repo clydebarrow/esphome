@@ -367,12 +367,14 @@ To do:
   GPS epoch). It connects to the address the GDL90 data comes from, reads one message and closes, every 15
   minutes and every 30 s until the first sync. A real SkyEcho (firmware 0.2.38) has the websocket on port 80,
   the default `port`, and sends `UTCTime` as gdlsim does; it also has a `/` stream with its position, callsign,
-  fix and satellite count. Tested against gdlsim; the real SkyEcho's stream was read from the host.
+  fix and satellite count. Its `/stats` messages are about 1400 bytes (the receive buffer is 2048). Tested
+  against gdlsim, and against the real SkyEcho with a host build on the Mac joined to its network: it found the
+  SkyEcho, received its traffic and set the clock to the right UTC time.
 - **SD card.** After the storage merge (`origin/storage`, card and filesystem locks), `sd_spi` once logged
   "Card not responding", restarted the card and remounted the filesystem while XCSoar had files open. That may
   be how the directory damage below happens; the storage work is done on the `storage` branch.
 - **skyecho issues seen here.** The broadcast discovery ping failed (`Sendto failed ... err -1`) on the IPv6
-  socket that `socket_ip()` makes with IPv6 enabled; it now has an IPv4 socket (not yet checked on the device). The
+  socket that `socket_ip()` makes with IPv6 enabled; it now has an IPv4 socket, and the failures are gone. The
   skyecho `loop()` took 200 to 650 ms
   while XCSoar was starting (it blocks the main loop, so frames and touches wait).
 - **Stuck dialogs.** Twice a nested dialog stopped reacting: the Map Item List Settings dialog (from a tap on
@@ -489,7 +491,9 @@ or the SD card, and passwords stay off the card.
 Tested on the Tab5 (`xcsoar-tab5-tap.yaml`): the panel and list show the network in use with its IP address, the
 list fills from a scan without the connection dropping, Forget restarts Wi-Fi and the network is flagged again as
 GDL90 arrives, and the list survives a restart. Joining the real SkyEcho from the list (open network) worked: it was
-flagged as its GDL90 arrived, and its traffic reached XCSoar. Not tested yet: the save by name, joining a network
+flagged as its GDL90 arrived, and its traffic reached XCSoar. With both saved, forgetting the home network restarted
+Wi-Fi and the scan chose the SkyEcho (priority 100, -81 dBm) over the home network (priority 0, -37 dBm). Not tested
+yet: the save by name of a SkyEcho never joined before, the 60 s switch while on another network, joining a network
 with a password, Wi-Fi off and on, and the switch to a SkyEcho coming into range. The test taps go through the API,
 which the Tab5 loses on the SkyEcho network: the SkyEcho does not pass traffic between its Wi-Fi clients. The
 restart of `wifi` holds the main loop for about 330 ms.
