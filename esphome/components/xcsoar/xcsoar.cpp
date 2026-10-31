@@ -9,6 +9,9 @@
 #include <esp_vfs_eventfd.h>
 
 #include <algorithm>
+#include <cinttypes>
+#include <cmath>
+#include <cstdio>
 #include <pthread.h>
 
 namespace esphome::xcsoar {
@@ -34,6 +37,44 @@ static constexpr uint32_t DATA_READY_TIMEOUT_MS = 5000;
 // The names XCSoar shows as the devices' ports
 static constexpr const char *SKYECHO_STREAM = "SkyEcho";
 static constexpr const char *FLARM_STREAM = "SkyEcho FLARM";
+
+// FLARM's alarm levels by the time to close proximity, in seconds: 3 (urgent), then 2 (important); 1 (low) before
+static constexpr float URGENT_ALARM_TIME = 8.0f;
+static constexpr float IMPORTANT_ALARM_TIME = 12.0f;
+// PFLAU AlarmType of a collision alarm with an aircraft
+static constexpr int ALARM_TYPE_AIRCRAFT = 2;
+
+// XCSoar raises traffic alarms only from FLARM's $PFLAU status. Without a FLARM UART, make one from the skyecho
+// component's collision prediction: the count of targets, and the alarm for the most significant one.
+static void feed_pflau(skyecho::SkyEcho *skyecho, const skyecho::Threat &threat) {
+  skyecho::OwnshipT ownship;
+  const bool gps = skyecho->get_ownship_position(&ownship);
+  char sentence[96];
+  int len;
+  const auto &assessment = threat.assessment;
+  if (threat.valid && assessment.alarm) {
+    const int level = assessment.proximity_time <= URGENT_ALARM_TIME      ? 3
+                      : assessment.proximity_time <= IMPORTANT_ALARM_TIME ? 2
+                                                                          : 1;
+    const float track = ownship.report.isTrackValid ? ownship.report.track : 0.0f;
+    float bearing =
+        fmodf(atan2f(threat.east, threat.north) * 180.0f / static_cast<float>(M_PI) - track + 540.0f, 360.0f) - 180.0f;
+    len = snprintf(sentence, sizeof(sentence), "$PFLAU,%u,1,%d,1,%d,%d,%d,%d,%u,%06" PRIX32,
+                   static_cast<unsigned>(threat.targets), gps ? 2 : 0, level, static_cast<int>(lroundf(bearing)),
+                   ALARM_TYPE_AIRCRAFT, static_cast<int>(lroundf(threat.altitude)),
+                   static_cast<unsigned>(lroundf(hypotf(threat.north, threat.east))), threat.report.address & 0xFFFFFF);
+  } else {
+    len = snprintf(sentence, sizeof(sentence), "$PFLAU,%u,1,%d,1,0,,0,,,", static_cast<unsigned>(threat.targets),
+                   gps ? 2 : 0);
+  }
+  if (len <= 0 || static_cast<size_t>(len) + 5 >= sizeof(sentence))
+    return;
+  uint8_t checksum = 0;
+  for (int i = 1; i != len; i++)
+    checksum ^= static_cast<uint8_t>(sentence[i]);
+  len += snprintf(sentence + len, sizeof(sentence) - len, "*%02X\r\n", checksum);
+  XCSoarEsp32::Feed(FLARM_STREAM, std::as_bytes(std::span(sentence, len)));
+}
 #endif
 
 void XCSoarComponent::setup() {
@@ -107,10 +148,13 @@ void XCSoarComponent::setup() {
   this->streams_.push_back({SKYECHO_STREAM, "GDL90"});
   this->skyecho_->add_on_gdl90_data_callback(
       [](const uint8_t *data, size_t len) { XCSoarEsp32::Feed(SKYECHO_STREAM, std::as_bytes(std::span(data, len))); });
+  this->streams_.push_back({FLARM_STREAM, "FLARM"});
   if (this->skyecho_->has_flarm_uart()) {
-    this->streams_.push_back({FLARM_STREAM, "FLARM"});
     this->skyecho_->add_on_flarm_data_callback(
         [](const uint8_t *data, size_t len) { XCSoarEsp32::Feed(FLARM_STREAM, std::as_bytes(std::span(data, len))); });
+  } else {
+    this->skyecho_->add_on_threat_callback(
+        [this](const skyecho::Threat &threat) { feed_pflau(this->skyecho_, threat); });
   }
 #endif
 

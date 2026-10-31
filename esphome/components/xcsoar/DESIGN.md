@@ -453,6 +453,15 @@ skyecho component has a FLARM UART, and registers `add_on_gdl90_data_callback()`
 without a listener). The callbacks pass the raw bytes the skyecho component received, so XCSoar's own
 drivers decode them. `xcsoar-tests/xcsoar-tab5-skyecho.yaml` is the test config.
 
+**Traffic alarms.** XCSoar raises traffic alarms (spoken, and the traffic gauge forced up) only from the alarm
+level in FLARM's `$PFLAU` status; it predicts nothing itself, and its GDL90 driver sets every target's alarm to none.
+The skyecho component predicts collisions (`threat.cpp`, run by the hub at each update, with its `alarm_*`,
+`max_*`, `warning_times` and `on_threat_warning` options). Without a FLARM UART, the xcsoar component turns each
+assessment into a `$PFLAU` on the "SkyEcho FLARM" stream: the number of targets, and for a target that raises the
+alarm its level (3 within 8 s of close proximity, 2 within 12 s, else 1), bearing relative to the ownship track,
+height, distance and address. The address is the one the GDL90 driver gives the target, so XCSoar links the alarm
+to it. With a FLARM UART the SkyEcho's own FLARM data goes there instead.
+
 A new input (GPS, vario) needs: a stream name and driver in `setup()`, and a call to `Feed()` wherever the
 component has the bytes. If the data is not yet in a format an XCSoar driver reads (a pressure reading, say),
 format it as the sentences of a simple driver (e.g. OpenVario `$POV`) rather than writing a new driver.
