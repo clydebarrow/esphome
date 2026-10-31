@@ -23,6 +23,9 @@
 #include "esphome/components/skyecho/skyecho.h"
 #endif
 
+#ifdef USE_XCSOAR_BLE_SERIAL
+#include "esphome/components/ble_serial/ble_serial.h"
+#endif
 #ifdef USE_XCSOAR_WIFI_NETWORKS
 #include "esphome/components/wifi_networks/wifi_networks.h"
 #endif
@@ -88,6 +91,10 @@ class XCSoarComponent : public Component
 #ifdef USE_XCSOAR_WIFI_NETWORKS
   /// Let XCSoar's network settings list, join and forget Wi-Fi networks.
   void set_wifi_networks(wifi_networks::WifiNetworks *wifi_networks);
+#endif
+#ifdef USE_XCSOAR_BLE_SERIAL
+  /// Let XCSoar find, open and use Bluetooth LE serial devices, as "BLE port" devices.
+  void set_ble_serial(ble_serial::BleSerial *ble_serial);
 #endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   /// Embed a file, e.g. a font, so XCSoar can open it below XCSoarEsp32::ROM_MOUNT_POINT.
@@ -155,6 +162,9 @@ class XCSoarComponent : public Component
 #endif
 #ifdef USE_XCSOAR_WIFI_NETWORKS
   XCSoarEsp32::WifiHost wifi_host_{};
+#endif
+#ifdef USE_XCSOAR_BLE_SERIAL
+  XCSoarEsp32::BleHost ble_host_{};
 #endif
 };
 

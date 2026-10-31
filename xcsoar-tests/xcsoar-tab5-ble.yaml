@@ -1,0 +1,35 @@
+# xcsoar-tab5-skyecho.yaml with Bluetooth LE serial devices through the Tab5's ESP32-C6. In XCSoar, Config >
+# Devices > Edit > Port lists the devices with a serial service (HM-10, Nordic UART, ISSC) while it is open, such
+# as tbeam-hm10-gps.yaml; the one picked is kept in XCSoar's profile and connected to at each start.
+
+packages:
+  skyecho: !include xcsoar-tab5-skyecho.yaml
+
+esphome:
+  name: xcsoar-tab5-ble
+
+esp32_ble:
+  max_connections: 2
+
+# ble_serial starts and stops the scan; active, so the scan responses give the names
+esp32_ble_tracker:
+  scan_parameters:
+    active: true
+    continuous: false
+  on_ble_advertise:
+    - then:
+        - lambda: |-
+            // The first adverts of any device, to show the radio works without a serial device nearby
+            static uint32_t seen = 0;
+            if (seen++ < 10) {
+              char address[esp32_ble_tracker::ESPBTDevice::MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+              ESP_LOGI("ble_scan", "Advert from %s '%s' RSSI %d", x.address_str_to(address), x.get_name().c_str(),
+                       x.get_rssi());
+            }
+
+ble_serial:
+  id: ble_serial_hub
+  max_devices: 2
+
+xcsoar:
+  ble_serial_id: ble_serial_hub

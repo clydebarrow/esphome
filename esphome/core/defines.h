@@ -438,6 +438,7 @@
 // checks the same instantiations a real build produces.
 #ifdef USE_ESP32
 #define USE_BLE_SCANNER_STATE_CALLBACK
+#define BLE_SERIAL_MAX_DEVICES 2
 #define BLUETOOTH_PROXY_MAX_CONNECTIONS 3
 #define USE_BLUETOOTH_PROXY_CONNECTIONS
 #elif defined(USE_RP2)

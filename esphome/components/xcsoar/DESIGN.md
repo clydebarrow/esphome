@@ -492,13 +492,67 @@ Tested on the Tab5 (`xcsoar-tab5-tap.yaml`): the panel and list show the network
 list fills from a scan without the connection dropping, Forget restarts Wi-Fi and the network is flagged again as
 GDL90 arrives, and the list survives a restart. Joining the real SkyEcho from the list (open network) worked: it was
 flagged as its GDL90 arrived, and its traffic reached XCSoar. With both saved, forgetting the home network restarted
-Wi-Fi and the scan chose the SkyEcho (priority 100, -81 dBm) over the home network (priority 0, -37 dBm). Not tested
-With the SkyEcho turned on while the Tab5 was on the home network, the next 60 s scan saw it and the Tab5 switched
-(7 s from the scan to connected), and on the Tab5 the clock was set from the SkyEcho's `/stats`. Not tested
-yet: the save by name of a SkyEcho never joined before, joining a network
-with a password, Wi-Fi off and on, and the switch to a SkyEcho coming into range. The test taps go through the API,
+Wi-Fi and the scan chose the SkyEcho (priority 100, -81 dBm) over the home network (priority 0, -37 dBm). With the SkyEcho turned on while the Tab5 was on the home network, the next 60 s scan saw it
+and the Tab5 switched (7 s from the scan to connected), and on the Tab5 the clock was set from the SkyEcho's
+`/stats`. Not tested yet: the save by name of a SkyEcho never joined before, joining a network with a password, and
+Wi-Fi off and on. The test taps go through the API,
 which the Tab5 loses on the SkyEcho network: the SkyEcho does not pass traffic between its Wi-Fi clients. The
 restart of `wifi` holds the main loop for about 330 ms.
+
+## Bluetooth LE devices (built, not yet tried on the Tab5)
+
+Varios, FLARM adapters and GPS units with a Bluetooth LE serial link are added in XCSoar, as on Android: the device
+list is kept in XCSoar's profile, and ESPHome only provides the radio. The configuration says how many devices may be
+connected at once, never which ones.
+
+**How Android XCSoar does it.** In Config > Devices > Edit > Port, `PortPicker.cpp` starts a scan while the list is
+open (through `DetectDeviceListener`, a plain C++ interface). Each device found is added with
+`UpdatePortEntry(df, type, address, name)` as a "BLE port" when it advertises a serial service (HM-10 `FFE0`, Nordic
+UART, or ISSC as used by BlueFly), or as a "BLE sensor" (heart rate and others). The choice is stored as the port type
+and `bluetooth_mac` in the device slot (`Profile/DeviceConfig.cpp`, not Android specific). `ConfiguredPort.cpp`
+opens the stored address; on Android, `BleSerialPort.java` finds the serial service and asks for a 512 byte MTU.
+
+**On the ESP32:**
+
+- **`XCSoarEsp32::BleHost`** (`Config::ble`, next to `WifiHost`): `start_scan`, `stop_scan`, `open(address)`,
+  `close(address)` and `write(address, data, size)`. The host answers with `XCSoarEsp32::BleDetected(address, name,
+  features)` for each device found, `BleConnected(address, connected)`, and `Feed(address, data)` for received data.
+  Addresses are written `AA:BB:CC:DD:EE:FF`.
+- **XCSoar side:** `src/Device/Port/HostBluetooth.hpp` declares what XCSoar calls; `esp32/xcsoar/src/Bluetooth.cpp`
+  implements it on the `BleHost`. The port picker's detection path (`HAVE_DETECT_DEVICE` in `PortPicker.cpp`) is
+  enabled on `ESP_PLATFORM` too: while the picker is shown it registers as a listener, which starts the host's scan,
+  so the user picks from the same list as on Android. `DeviceConfig::IsAvailable()` allows `BLE_SERIAL` there, and
+  `ConfiguredPort.cpp` opens it as a `HostPort` named after the address with `bluetooth` set. Such a port asks the
+  host to connect when it is created and to let go when it is deleted, sends writes to the host (settings and task
+  declarations need them), and is `PortState::LIMBO` until `BleConnected()` says the device is ready; the state
+  change reaches XCSoar on its event loop.
+- **ESPHome component `ble_serial`** (`max_devices`, default 2, taken from `esp32_ble`'s connection slots). It has one
+  `BleSerialClient` (a `BLEClientBase`) per device, given its address at run time. While a scan is requested it
+  reports each device with a serial service, or named "BlueFly...", once per scan (again when its name becomes
+  known). After a connection it finds the serial service (HM-10, Nordic UART or ISSC, as `BleSerialPort.java`), asks
+  for the notifications of its data characteristic and passes them on. Writes are kept in a 512 byte buffer per
+  device and sent from the main loop as write-without-response, in pieces of MTU - 3 bytes (20 with the default
+  MTU), at most 4 per loop and not while the link is congested. A lost device is connected again when it next
+  advertises. The public methods may be called from any task: requests are queued for the main loop.
+- **Scanning shares the C6's radio with Wi-Fi,** so it runs only while the picker is open or an opened device is not
+  connected (`esp32_ble_tracker` with `continuous: false`; `ble_serial` turns the tracker's continuous scan on and
+  off). The scan is active, so that names in scan responses are seen.
+- **The xcsoar component** takes `ble_serial_id` (`USE_XCSOAR_BLE_SERIAL`) and connects the two.
+- **BLE serial only.** BLE sensors are decoded in Java on Android; on the ESP32 they would be decoded in
+  `ble_serial` and passed on as sentences of an existing driver, later.
+
+`xcsoar-tests/xcsoar-tab5-ble.yaml` is the test config. It builds: Bluedroid on the P4 (`esp32_ble` with
+`esp32_hosted`, `CONFIG_ESP_HOSTED_HOST_FEAT_BT`) and `ble_serial` add 388 KB of flash (89.3% of the app partition
+used, 870 KB free) and 19 KB of internal RAM to `xcsoar-tab5-skyecho.yaml`.
+
+**Not known yet:** whether the C6 firmware on the Tab5 has Bluetooth (the first run of the test config logs the
+first ten adverts it sees, from any device). The C6 has no classic Bluetooth, so RFCOMM devices cannot be used.
+Devices that need pairing would need bond keys kept somewhere. An address saved in lower case (by hand) would not
+match the data, which comes with upper case addresses.
+
+`xcsoar-tests/tbeam-hm10-gps.yaml` makes a LilyGo T-Beam into an HM-10 style GPS for testing: service `FFE0`,
+characteristic `FFE1` (read, write without response, notify), NMEA from its GPS in 20 byte notifications. Read from
+a Mac with bleak, the NMEA arrives with a 515 byte MTU.
 
 ## Phase 4: optional
 

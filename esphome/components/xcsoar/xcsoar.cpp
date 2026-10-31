@@ -136,6 +136,11 @@ void XCSoarComponent::setup() {
 #else
       .wifi = nullptr,
 #endif
+#ifdef USE_XCSOAR_BLE_SERIAL
+      .ble = &this->ble_host_,
+#else
+      .ble = nullptr,
+#endif
       .frame_interval_ms = this->frame_interval_,
       .max_frames = 0,
   };
@@ -397,6 +402,30 @@ void XCSoarComponent::set_wifi_networks(wifi_networks::WifiNetworks *wifi_networ
       .automatic = [](void *ctx) noexcept { static_cast<WifiNetworks *>(ctx)->set_automatic(); },
       .ctx = wifi_networks,
   };
+}
+#endif
+
+#ifdef USE_XCSOAR_BLE_SERIAL
+void XCSoarComponent::set_ble_serial(ble_serial::BleSerial *ble_serial) {
+  using ble_serial::BleSerial;
+  this->ble_host_ = {
+      .start_scan = [](void *ctx) noexcept { static_cast<BleSerial *>(ctx)->start_scan(); },
+      .stop_scan = [](void *ctx) noexcept { static_cast<BleSerial *>(ctx)->stop_scan(); },
+      .open = [](const char *address, void *ctx) noexcept { static_cast<BleSerial *>(ctx)->open(address); },
+      .close = [](const char *address, void *ctx) noexcept { static_cast<BleSerial *>(ctx)->close(address); },
+      .write = [](const char *address, const std::byte *data, size_t size, void *ctx) noexcept -> size_t {
+        return static_cast<BleSerial *>(ctx)->write(address, reinterpret_cast<const uint8_t *>(data), size);
+      },
+      .ctx = ble_serial,
+  };
+  ble_serial->add_on_device_callback([](const char *address, const char *name) {
+    XCSoarEsp32::BleDetected(address, *name != '\0' ? name : nullptr, XCSoarEsp32::BLE_FEATURE_SERIAL);
+  });
+  ble_serial->add_on_connection_callback(
+      [](const char *address, bool connected) { XCSoarEsp32::BleConnected(address, connected); });
+  ble_serial->add_on_data_callback([](const char *address, const uint8_t *data, size_t size) {
+    XCSoarEsp32::Feed(address, std::as_bytes(std::span(data, size)));
+  });
 }
 #endif
 
