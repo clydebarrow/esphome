@@ -385,10 +385,38 @@ To do:
   `debug_helpers.h`) that logs each task's state and the code addresses on its stack, for addr2line; press it
   while a dialog is stuck. Repeat: FLY, double tap the map (`+0.15 640,300 640,300`), Config 128,360, Devices
   1152,360, row B 800,200, Edit 160,40, Port 700,178, Disabled 500,50, OK 420,640.
+- **Opening the menu, and gestures (to check).** The menu opens with a double tap on the map, and the timing is
+  critical: a slow second tap is taken as a single tap. Found so far:
+  - A single tap on the map acts after 200 ms (`map_item_timer` in `GlueMapWindowEvents.cpp`), but a double tap
+    may take up to 500 ms (`DoubleClick::INTERVAL`). A second tap 200 to 500 ms after the first comes too late:
+    the first has already opened the map item list. The second tap must also land within 50 pixels (Manhattan
+    distance) of the first, about 4 mm on the Tab5. Kobo builds already allow 750 ms and 70 pixels.
+  - There is no long press on the map. A hold does nothing, so it could open the menu (a hold of about 0.5 s
+    that has not moved), which needs no timing between taps.
+  - Two-finger gestures (pinch to zoom) do not work: `HAVE_MULTI_TOUCH` is only defined for Wayland, Android
+    and SDL builds, and the xcsoar component passes only the first finger to XCSoar. If the Tab5's ST7123
+    controller reports a second finger, this could be added.
+  - One-finger gestures (strokes drawn on the map, such as up for zoom in, or up, left, down, right for the
+    quick menu, in `Data/Input/default.xci`) should work, since they need only one finger. Not tried yet.
+  - Possible fixes: wait as long for a single tap as a double tap may take, allow more distance between the
+    taps on a high density screen, and add a long press for the menu.
+- **Configuration opens slowly (to check).** In the menu the first buttons respond at once, but Configuration
+  takes a noticeable time before its screen appears. `dlgConfigurationShowModal()` creates every settings page
+  (`TabMenuDisplay::InitMenu()` calls each page's `Load`, about 40 of them) before the dialog shows; the pager
+  prepares a page only when it is shown, so the cost is in the constructors, the full-screen dialog and its first
+  paint. Measure which of these takes the time (the sampling profiler, or timestamps around `InitMenu()` and the
+  first `Expose()`), then consider creating the pages only when they are first opened.
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
-- **Loading time.** Start-up takes about 40 s with this card: terrain 19 s, airspace 18 s; measure where the
-  time goes (SD card reads in SPI mode, or parsing). The screen is not redrawn while loading, so taps made then
-  are handled only when loading ends.
+- **Loading time (to check).** Start-up takes about 40 s with this card: terrain 19 s, airspace 18 s, and the
+  airspace file is now the longest step. The screen is not redrawn while loading, so taps made then are handled
+  only when loading ends. To find out why the airspace is slow and whether it can be sped up:
+  - Time the read alone against the parse: SD card reads in SPI mode, and whether the file is read in small
+    blocks.
+  - Profile the parse (`prof::start()`): the OpenAir parser converts coordinates and arcs with `double`, which
+    runs in software here, and allocates every point in PSRAM.
+  - Check building the airspace index (the R-tree) and the flat projection of every boundary point.
+  - Possible fixes: read in large blocks, use `float` where the precision allows, load in the background after
+    the map shows, or keep a parsed copy on the card and load that when the file has not changed.
 - **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
 - **Real touch.** Works in use. In a menu, the button that leads to the next page is labelled with that page
   ("Config Page 2/3" on page 1), which reads as if the menu opened on page 2.
