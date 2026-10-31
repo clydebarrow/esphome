@@ -1,0 +1,82 @@
+# A LilyGo T-Beam v1.x as an HM-10 style Bluetooth LE serial adapter that sends the NMEA sentences of its GPS, for
+# XCSoar's BLE serial port (Android, or later a host stream on the ESP32). Service FFE0 and characteristic FFE1 are
+# the HM-10's; data goes out as 20 byte notifications, which fit the smallest ATT MTU.
+#
+# The GPS is powered by the board's power chip, an AXP192 (v1.0, v1.1) or an AXP2101 (v1.2): on_boot turns its
+# 3.3 V output for the GPS on. No Wi-Fi: the board is meant to run on its battery outside.
+
+esphome:
+  name: tbeam-gps
+  on_boot:
+    then:
+      - lambda: |-
+          uint8_t chip = 0;
+          if (!id(pmu).read_byte(0x03, &chip)) {
+            ESP_LOGE("tbeam", "No power chip at 0x34; the GPS stays off");
+            return;
+          }
+          uint8_t value = 0;
+          if (chip == 0x4A) {
+            // AXP2101: GPS on ALDO3, 500 mV + 100 mV steps
+            id(pmu).write_byte(0x94, (3300 - 500) / 100);
+            id(pmu).read_byte(0x90, &value);
+            id(pmu).write_byte(0x90, value | 0x04);
+            ESP_LOGI("tbeam", "AXP2101: GPS power on (ALDO3)");
+          } else {
+            // AXP192: GPS on LDO3, low nibble of 0x28, 1800 mV + 100 mV steps
+            id(pmu).read_byte(0x28, &value);
+            id(pmu).write_byte(0x28, (value & 0xF0) | ((3300 - 1800) / 100));
+            id(pmu).read_byte(0x12, &value);
+            id(pmu).write_byte(0x12, value | 0x08);
+            ESP_LOGI("tbeam", "AXP192 (id 0x%02X): GPS power on (LDO3)", chip);
+          }
+
+esp32:
+  board: ttgo-t-beam
+  framework:
+    type: esp-idf
+
+logger:
+
+i2c:
+  sda: GPIO21
+  scl: GPIO22
+
+i2c_device:
+  id: pmu
+  address: 0x34
+
+uart:
+  id: gps_uart
+  rx_pin: GPIO34
+  tx_pin: GPIO12
+  baud_rate: 9600
+  rx_buffer_size: 1024
+
+esp32_ble_server:
+  manufacturer: LilyGo
+  model: T-Beam GPS
+  services:
+    - uuid: FFE0
+      advertise: true
+      characteristics:
+        - id: hm10_data
+          uuid: FFE1
+          read: true
+          write_no_response: true
+          notify: true
+          value: [0]
+
+interval:
+  # 9600 baud brings up to 48 bytes in 50 ms
+  - interval: 50ms
+    then:
+      - lambda: |-
+          uint8_t chunk[20];
+          for (int i = 0; i != 8 && id(gps_uart).available() > 0; i++) {
+            const size_t n = std::min<size_t>(id(gps_uart).available(), sizeof(chunk));
+            if (!id(gps_uart).read_array(chunk, n))
+              break;
+            id(hm10_data).set_value(chunk, n);
+            id(hm10_data).notify();
+          }
