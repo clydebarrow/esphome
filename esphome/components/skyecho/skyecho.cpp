@@ -8,7 +8,8 @@ ESPHOME_LOG_TAG(TAG, "skyecho");
 
 void SkyEcho::setup() {
   this->socket_ = socket::socket_ip(SOCK_DGRAM, IPPROTO_IP);
-  this->ping_socket_ = socket::socket_ip(SOCK_DGRAM, IPPROTO_IP);
+  // Broadcasts need IPv4; with IPv6 enabled socket_ip() makes an IPv6 socket
+  this->ping_socket_ = socket::socket(AF_INET, SOCK_DGRAM, IPPROTO_IP);
   int enable = 1;
   int err = this->socket_->setsockopt(SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int));
   if (err != 0) {
@@ -169,9 +170,12 @@ void SkyEcho::ping_() const {
   if (!network::is_connected())
     return;
   for (int i : PINGPORTS) {
-    struct sockaddr addr;
-    socket::set_sockaddr(&addr, sizeof(addr), "255.255.255.255", i);
-    auto err = this->ping_socket_->sendto(PINGPAYLOAD, strlen(PINGPAYLOAD), 0, &addr, sizeof(addr));
+    struct sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(i);
+    addr.sin_addr.s_addr = htonl(INADDR_BROADCAST);
+    auto err = this->ping_socket_->sendto(PINGPAYLOAD, strlen(PINGPAYLOAD), 0, reinterpret_cast<sockaddr *>(&addr),
+                                          sizeof(addr));
     if (err < 0) {
       ESP_LOGD(TAG, "Sendto failed on port %d with err %d", i, (int) err);
     }
