@@ -357,8 +357,12 @@ To do:
   into `$POV` or `$PLXVF` sentences, or the SkyEcho's own ownship report) calls `XCSoarEsp32::Feed()` with a
   stream whose driver is the matching XCSoar driver (`"Generic"` NMEA for a GPS). `TCP_LISTENER`/`UDP_LISTENER`
   over lwIP should work without code changes now that Wi-Fi is up, but have not been tried.
-- **Dates.** GDL90 has no date, so with only SkyEcho data XCSoar starts IGC logs dated 1970. Either feed a
-  date (ESPHome `time` via SNTP, as an NMEA `$GPRMC` or by setting XCSoar's clock), or a GPS stream with RMC.
+- **Dates.** GDL90 has no date. The GDL90 driver takes the date from the system clock (its "use system UTC
+  date" setting, on by default), so the clock must be set or IGC logs are dated 1970. `time: - platform: skyecho`
+  sets it from the GPS time in the SkyEcho's websocket `/stats` stream (`host.GPS.UTCTime`, seconds since the
+  GPS epoch). It connects to the address the GDL90 data comes from, reads one message and closes, every 15
+  minutes and every 30 s until the first sync. Tested against gdlsim (port 7070, set in
+  `xcsoar-tab5-skyecho.yaml`); the real SkyEcho's port (80 is assumed) and field are not checked yet.
 - **SD card.** After the storage merge (`origin/storage`, card and filesystem locks), `sd_spi` once logged
   "Card not responding", restarted the card and remounted the filesystem while XCSoar had files open. That may
   be how the directory damage below happens; the storage work is done on the `storage` branch.
