@@ -548,7 +548,10 @@ used, 870 KB free) and 19 KB of internal RAM to `xcsoar-tab5-skyecho.yaml`.
 **The Tab5's C6 firmware (1.4.1) has no Bluetooth.** On the first run `esp32_ble` failed with "BT controller init
 failed; co-processor firmware 1.4.1 may lack BT support" and marked itself failed; the rest (Wi-Fi, XCSoar, the
 picker's scan request) ran on, and the tracker refused the scan. The C6 needs firmware built with Bluetooth, which the
-`esp32_hosted` `update` platform can install (from an embedded image or over HTTP). The C6 has no classic Bluetooth,
+`esp32_hosted` `update` platform can install (from an embedded image or over HTTP). `xcsoar-tests/tab5-c6-update.yaml`
+installed ESPHome's ESP-Hosted 3.0.10 image (Wi-Fi and Bluetooth over VHCI, the version of the host library) in
+about 10 s. Started from `on_update_available` it ran again after every restart, because the image reports its
+version as "1" and the C6 as "3.0.10"; the config now installs only from a button. The C6 has no classic Bluetooth,
 so RFCOMM devices cannot be used either way.
 Devices that need pairing would need bond keys kept somewhere. An address saved in lower case (by hand) would not
 match the data, which comes with upper case addresses.

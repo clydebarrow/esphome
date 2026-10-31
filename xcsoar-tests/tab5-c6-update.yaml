@@ -1,7 +1,9 @@
 # One-off: installs ESP-Hosted 3.0.10 on the Tab5's ESP32-C6, which adds Bluetooth (the firmware it ships with,
 # 1.4.1, has none) and matches the esp_hosted version ESPHome's host side uses. The image is built into this firmware;
-# the update starts by itself once Wi-Fi is up and logs its progress. Then flash XCSoar back
-# (xcsoar-tab5-ble.yaml). No SD card or XCSoar here, so no Safe shutdown is needed before the next flash.
+# press "Install co-processor firmware" (scripts/api_button.py) once, then flash XCSoar back (xcsoar-tab5-ble.yaml).
+# Do not install from on_update_available: the image reports its version as "1", which never equals the "3.0.10" the
+# C6 reports, so the update is always "available" and would run again after every restart. No SD card or XCSoar
+# here, so no Safe shutdown is needed before the next flash.
 
 packages:
   network: !include network.yaml
@@ -35,7 +37,11 @@ update:
     type: embedded
     url: https://esphome.github.io/esp-hosted-firmware/v3.0.10/network_adapter_esp32c6.bin
     sha256: c552957fad9f35cf31b0273099dd3b23dc5c388bb43884c6567756ab97fd8cce
-    on_update_available:
-      then:
-        - logger.log: "Installing the co-processor firmware"
-        - update.perform: c6_update
+
+button:
+  - platform: template
+    name: Install co-processor firmware
+    on_press:
+      - update.perform:
+          id: c6_update
+          force_update: true
