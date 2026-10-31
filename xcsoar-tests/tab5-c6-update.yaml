@@ -1,0 +1,41 @@
+# One-off: installs ESP-Hosted 3.0.10 on the Tab5's ESP32-C6, which adds Bluetooth (the firmware it ships with,
+# 1.4.1, has none) and matches the esp_hosted version ESPHome's host side uses. The image is built into this firmware;
+# the update starts by itself once Wi-Fi is up and logs its progress. Then flash XCSoar back
+# (xcsoar-tab5-ble.yaml). No SD card or XCSoar here, so no Safe shutdown is needed before the next flash.
+
+packages:
+  network: !include network.yaml
+
+esphome:
+  name: tab5-c6-update
+
+esp32:
+  variant: esp32p4
+  engineering_sample: true
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+psram:
+  speed: 200MHz
+
+i2c:
+  - id: sys_i2c
+    sda: GPIO31
+    scl: GPIO32
+    frequency: 400kHz
+
+update:
+  - platform: esp32_hosted
+    id: c6_update
+    name: Coprocessor firmware
+    type: embedded
+    url: https://esphome.github.io/esp-hosted-firmware/v3.0.10/network_adapter_esp32c6.bin
+    sha256: c552957fad9f35cf31b0273099dd3b23dc5c388bb43884c6567756ab97fd8cce
+    on_update_available:
+      then:
+        - logger.log: "Installing the co-processor firmware"
+        - update.perform: c6_update
