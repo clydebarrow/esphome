@@ -499,7 +499,7 @@ Wi-Fi off and on. The test taps go through the API,
 which the Tab5 loses on the SkyEcho network: the SkyEcho does not pass traffic between its Wi-Fi clients. The
 restart of `wifi` holds the main loop for about 330 ms.
 
-## Bluetooth LE devices (built, not yet tried on the Tab5)
+## Bluetooth LE devices (built; needs C6 firmware with Bluetooth)
 
 Varios, FLARM adapters and GPS units with a Bluetooth LE serial link are added in XCSoar, as on Android: the device
 list is kept in XCSoar's profile, and ESPHome only provides the radio. The configuration says how many devices may be
@@ -545,8 +545,11 @@ opens the stored address; on Android, `BleSerialPort.java` finds the serial serv
 `esp32_hosted`, `CONFIG_ESP_HOSTED_HOST_FEAT_BT`) and `ble_serial` add 388 KB of flash (89.3% of the app partition
 used, 870 KB free) and 19 KB of internal RAM to `xcsoar-tab5-skyecho.yaml`.
 
-**Not known yet:** whether the C6 firmware on the Tab5 has Bluetooth (the first run of the test config logs the
-first ten adverts it sees, from any device). The C6 has no classic Bluetooth, so RFCOMM devices cannot be used.
+**The Tab5's C6 firmware (1.4.1) has no Bluetooth.** On the first run `esp32_ble` failed with "BT controller init
+failed; co-processor firmware 1.4.1 may lack BT support" and marked itself failed; the rest (Wi-Fi, XCSoar, the
+picker's scan request) ran on, and the tracker refused the scan. The C6 needs firmware built with Bluetooth, which the
+`esp32_hosted` `update` platform can install (from an embedded image or over HTTP). The C6 has no classic Bluetooth,
+so RFCOMM devices cannot be used either way.
 Devices that need pairing would need bond keys kept somewhere. An address saved in lower case (by hand) would not
 match the data, which comes with upper case addresses.
 
