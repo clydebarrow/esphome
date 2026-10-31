@@ -85,8 +85,7 @@ class XCSoarComponent : public Component
   void set_filesystem(filesystem::Filesystem *fs) { this->data_fs_ = fs; }
 #endif
 #ifdef USE_XCSOAR_SKYECHO
-  /// Pass the SkyEcho's GDL90 data to XCSoar, and FLARM data: that of its FLARM UART if it has one, else a $PFLAU
-  /// status made from the skyecho component's collision prediction. Each is read as a device.
+  /// Pass the SkyEcho's GDL90 data to XCSoar, and the data of its FLARM UART if it has one, each read as a device.
   void set_skyecho(skyecho::SkyEcho *skyecho) { this->skyecho_ = skyecho; }
 #endif
 #ifdef USE_XCSOAR_WIFI_NETWORKS
@@ -158,7 +157,7 @@ class XCSoarComponent : public Component
 #endif
 #ifdef USE_XCSOAR_SKYECHO
   skyecho::SkyEcho *skyecho_{nullptr};
-  // GDL90, and FLARM
+  // GDL90, and FLARM if the SkyEcho has a FLARM UART
   StaticVector<XCSoarEsp32::Stream, 2> streams_;
 #endif
 #ifdef USE_XCSOAR_WIFI_NETWORKS
