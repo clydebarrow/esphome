@@ -2787,6 +2787,19 @@ void WiFiComponent::force_roam_check() {
   this->check_roaming_(millis());
 }
 
+void WiFiComponent::scan_while_connected() {
+  if (!this->is_connected() || this->roaming_state_ != RoamingState::IDLE) {
+    ESP_LOGD(TAG, "Scan requested, but not able to scan now");
+    return;
+  }
+  ESP_LOGD(TAG, "Scan while connected");
+  this->roaming_state_ = RoamingState::SCANNING;
+  if (!this->wifi_scan_start_(this->passive_scan_)) {
+    ESP_LOGD(TAG, "Scan failed to start");
+    this->roaming_state_ = RoamingState::IDLE;
+  }
+}
+
 void WiFiComponent::check_roaming_(uint32_t now) {
   // Guard: not for hidden networks (may not appear in scan)
   const WiFiAP *selected = this->get_selected_sta_();

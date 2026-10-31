@@ -10,8 +10,18 @@ esphome:
 skyecho:
   id: skyecho_hub
 
+# Networks saved from XCSoar's Config > System > Network; a network that GDL90 data arrives over is joined first.
+# fast_connect would go back to the last network at each start instead.
+wifi:
+  fast_connect: false
+
+wifi_networks:
+  id: wifi_networks_hub
+  skyecho_id: skyecho_hub
+
 xcsoar:
   skyecho_id: skyecho_hub
+  wifi_networks_id: wifi_networks_hub
 
 # Sets the clock, from which XCSoar's GDL90 driver takes the date.
 time:

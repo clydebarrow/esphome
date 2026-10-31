@@ -43,6 +43,7 @@ CONF_DPI = "dpi"
 CONF_FONTS = "fonts"
 CONF_ON_STOPPED = "on_stopped"
 CONF_SKYECHO_ID = "skyecho_id"
+CONF_WIFI_NETWORKS_ID = "wifi_networks_id"
 # The C library file and directory handles XCSoar can have open on its data filesystem
 VFS_MAX_FILES = 8
 VFS_MAX_DIRS = 4
@@ -62,6 +63,9 @@ xcsoar_ns = cg.esphome_ns.namespace(DOMAIN)
 XCSoarComponent = xcsoar_ns.class_("XCSoarComponent", cg.Component)
 # Named here rather than imported, so the skyecho component is only loaded by configs that use it
 SkyEcho = cg.esphome_ns.namespace("skyecho").class_("SkyEcho", cg.PollingComponent)
+WifiNetworks = cg.esphome_ns.namespace("wifi_networks").class_(
+    "WifiNetworks", cg.Component
+)
 
 
 def _validate_xcsoar_path(value: object) -> Path:
@@ -106,6 +110,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Required(CONF_XCSOAR_PATH): _validate_xcsoar_path,
             cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(touchscreen.Touchscreen),
             cv.Optional(CONF_SKYECHO_ID): cv.use_id(SkyEcho),
+            cv.Optional(CONF_WIFI_NETWORKS_ID): cv.use_id(WifiNetworks),
             cv.Optional(filesystem.CONF_FILESYSTEM_ID): cv.use_id(
                 filesystem.Filesystem
             ),
@@ -189,6 +194,11 @@ async def to_code(config: ConfigType) -> None:
     await cg.add_variable(var.set_touchscreen, config.get(CONF_TOUCHSCREEN_ID))
     if await cg.add_variable(var.set_skyecho, config.get(CONF_SKYECHO_ID)) is not None:
         cg.add_define("USE_XCSOAR_SKYECHO")
+    if (
+        await cg.add_variable(var.set_wifi_networks, config.get(CONF_WIFI_NETWORKS_ID))
+        is not None
+    ):
+        cg.add_define("USE_XCSOAR_WIFI_NETWORKS")
     if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
         filesystem.request_vfs_handles(fs_id, VFS_MAX_FILES, VFS_MAX_DIRS)
         await cg.add_variable(var.set_filesystem, fs_id)

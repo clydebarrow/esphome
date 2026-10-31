@@ -131,6 +131,11 @@ void XCSoarComponent::setup() {
 #else
       .streams = {},
 #endif
+#ifdef USE_XCSOAR_WIFI_NETWORKS
+      .wifi = &this->wifi_host_,
+#else
+      .wifi = nullptr,
+#endif
       .frame_interval_ms = this->frame_interval_,
       .max_frames = 0,
   };
@@ -348,6 +353,50 @@ void XCSoarComponent::release() {
     return;
   this->touching_ = false;
   XCSoarEsp32::InjectPointer(XCSoarEsp32::PointerAction::UP, this->touch_x_, this->touch_y_);
+}
+#endif
+
+#ifdef USE_XCSOAR_WIFI_NETWORKS
+// Called on XCSoar's threads; WifiNetworks queues the requests for the main loop.
+void XCSoarComponent::set_wifi_networks(wifi_networks::WifiNetworks *wifi_networks) {
+  using wifi_networks::WifiNetworks;
+  this->wifi_host_ = {
+      .list = [](XCSoarEsp32::WifiNetwork *dest, unsigned max, void *ctx) noexcept -> unsigned {
+        std::array<wifi_networks::NetworkInfo, wifi_networks::MAX_LISTED> networks;
+        const size_t n =
+            static_cast<WifiNetworks *>(ctx)->get_networks(networks.data(), std::min<size_t>(max, networks.size()));
+        for (size_t i = 0; i != n; i++) {
+          const auto &src = networks[i];
+          auto &out = dest[i];
+          memcpy(out.ssid, src.ssid, sizeof(out.ssid));
+          out.rssi = src.rssi;
+          out.visible = src.visible;
+          out.known = src.known;
+          out.saved = src.saved;
+          out.secured = src.secured;
+          out.skyecho = src.skyecho;
+          out.connected = src.connected;
+        }
+        return n;
+      },
+      .get_status =
+          [](XCSoarEsp32::WifiStatus &status, void *ctx) noexcept {
+            const auto src = static_cast<WifiNetworks *>(ctx)->get_status();
+            static constexpr XCSoarEsp32::WifiState STATES[] = {
+                XCSoarEsp32::WifiState::OFF, XCSoarEsp32::WifiState::CONNECTING, XCSoarEsp32::WifiState::CONNECTED};
+            status.state = STATES[static_cast<uint8_t>(src.state)];
+            status.automatic = src.automatic;
+            memcpy(status.ssid, src.ssid, sizeof(status.ssid));
+            snprintf(status.ip, sizeof(status.ip), "%s", src.ip);
+          },
+      .scan = [](void *ctx) noexcept { static_cast<WifiNetworks *>(ctx)->request_scan(); },
+      .connect = [](const char *ssid, const char *password,
+                    void *ctx) noexcept { static_cast<WifiNetworks *>(ctx)->connect(ssid, password); },
+      .forget = [](const char *ssid, void *ctx) noexcept { static_cast<WifiNetworks *>(ctx)->forget(ssid); },
+      .disconnect = [](void *ctx) noexcept { static_cast<WifiNetworks *>(ctx)->disconnect(); },
+      .automatic = [](void *ctx) noexcept { static_cast<WifiNetworks *>(ctx)->set_automatic(); },
+      .ctx = wifi_networks,
+  };
 }
 #endif
 

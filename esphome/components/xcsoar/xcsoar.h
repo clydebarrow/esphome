@@ -23,6 +23,10 @@
 #include "esphome/components/skyecho/skyecho.h"
 #endif
 
+#ifdef USE_XCSOAR_WIFI_NETWORKS
+#include "esphome/components/wifi_networks/wifi_networks.h"
+#endif
+
 #include <XCSoarEsp32.hpp>
 
 #include <driver/ppa.h>
@@ -80,6 +84,10 @@ class XCSoarComponent : public Component
 #ifdef USE_XCSOAR_SKYECHO
   /// Pass the SkyEcho's GDL90 data to XCSoar, and the data of its FLARM UART if it has one, each read as a device.
   void set_skyecho(skyecho::SkyEcho *skyecho) { this->skyecho_ = skyecho; }
+#endif
+#ifdef USE_XCSOAR_WIFI_NETWORKS
+  /// Let XCSoar's network settings list, join and forget Wi-Fi networks.
+  void set_wifi_networks(wifi_networks::WifiNetworks *wifi_networks);
 #endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   /// Embed a file, e.g. a font, so XCSoar can open it below XCSoarEsp32::ROM_MOUNT_POINT.
@@ -144,6 +152,9 @@ class XCSoarComponent : public Component
   skyecho::SkyEcho *skyecho_{nullptr};
   // GDL90, and FLARM if the SkyEcho has a FLARM UART
   StaticVector<XCSoarEsp32::Stream, 2> streams_;
+#endif
+#ifdef USE_XCSOAR_WIFI_NETWORKS
+  XCSoarEsp32::WifiHost wifi_host_{};
 #endif
 };
 

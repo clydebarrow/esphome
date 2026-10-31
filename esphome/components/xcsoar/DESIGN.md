@@ -23,6 +23,8 @@ in ordinary ESPHome YAML.
 | XCSoar `src/ui/canvas/esp32/Files.cpp` | Font search paths: `/sdcard/XCSoar/fonts`, then `/rom/fonts`. |
 | XCSoar `src/Device/Port/HostPort.{hpp,cpp}` | `PortType::HOST`: a device port that reads data the host passes to `XCSoarEsp32::Feed()`. |
 | ESPHome `components/xcsoar/` | Adds the IDF component, starts the task, hands frames to the display, feeds traffic. |
+| XCSoar `src/net/wifi/HostWifiBackend.hpp`, `esp32/xcsoar/src/Wifi.cpp` | The Wi-Fi list and Network settings on the host's Wi-Fi control (`XCSoarEsp32::WifiHost`). |
+| ESPHome `components/wifi_networks/` | Networks saved at run time, SkyEcho networks first; see "Wi-Fi networks". |
 | ESPHome `components/skyecho/` | GDL90 over Wi-Fi from a SkyEcho (or the gdlsim simulator) and FLARM over a UART; merged from the `skyecho` branch. |
 | ESPHome `xcsoar-tests/` | Device configs for testing on hardware, e.g. `xcsoar-tab5.yaml` for the M5Stack Tab5. |
 
@@ -448,6 +450,40 @@ drivers decode them. `xcsoar-tests/xcsoar-tab5-skyecho.yaml` is the test config.
 A new input (GPS, vario) needs: a stream name and driver in `setup()`, and a call to `Feed()` wherever the
 component has the bytes. If the data is not yet in a format an XCSoar driver reads (a pressure reading, say),
 format it as the sentences of a simple driver (e.g. OpenVario `$POV`) rather than writing a new driver.
+
+## Wi-Fi networks
+
+The user picks and saves networks in XCSoar (Config > Setup > Network, then "WiFi List"); ESPHome keeps them and
+chooses which to join. They are kept in ESPHome, not in XCSoar's profile, so Wi-Fi (and OTA) works without XCSoar
+or the SD card, and passwords stay off the card.
+
+- **`wifi_networks` component** (`max_networks`, default 8; `skyecho_id`). It keeps the saved networks in one
+  preference, and before `wifi` sets up (priority `WIFI + 1`) it takes a copy of the configured networks and gives
+  `wifi` the list: saved SkyEcho networks (priority 100), other saved networks (50), then the configured ones
+  (their own priority). A saved network stands in for a configured one of the same name. `wifi` scans and joins the
+  visible network with the highest priority, so it needs `fast_connect: false` (checked at validation): fast_connect
+  goes back to the last network first.
+- **SkyEcho networks are found by their data:** when the skyecho component receives GDL90, the network in use is
+  saved (with its password, if it is a configured one) and flagged as a SkyEcho. With gdlsim on the home network,
+  that network is flagged.
+- **Switching to a SkyEcho:** while another network is in use, every 60 s `wifi_networks` scans without leaving it
+  (`WiFiComponent::scan_while_connected()`, added on this branch with `get_sta_list()`). If a saved SkyEcho is in
+  range, `wifi` is restarted (`disable()`, `enable()`), and its scan picks the SkyEcho.
+- **User override:** joining a network in the list keeps that network alone in `wifi`'s list until "Automatic
+  network" is turned on again, Wi-Fi is turned off and on, or a restart. "WiFi Enabled: Off" and Disconnect turn
+  Wi-Fi off until it is turned on or the device restarts.
+- **Threads:** XCSoar calls `XCSoarEsp32::WifiHost` (set in `Config::wifi` by the xcsoar component's
+  `wifi_networks_id`) from its own threads. `wifi_networks` queues those requests for the main loop, and answers the
+  list and status from a copy it refreshes every second, under a mutex. Results show in the dialog, which refreshes
+  every second, shortly after a request.
+- **Not handled:** a network saved by the captive portal or Improv replaces `wifi`'s list at every `wifi` start,
+  so do not use them with `wifi_networks`. Hidden networks cannot be added from the list.
+
+Tested on the Tab5 (`xcsoar-tab5-tap.yaml`): the panel and list show the network in use with its IP address, the
+list fills from a scan without the connection dropping, Forget restarts Wi-Fi and the network is flagged again as
+GDL90 arrives, and the list survives a restart. Not tested yet: joining a new network with a password, the
+override, Wi-Fi off and on (the test taps go through the API, which goes down with Wi-Fi), and the switch to a
+SkyEcho coming into range. The restart of `wifi` holds the main loop for about 330 ms.
 
 ## Phase 4: optional
 
