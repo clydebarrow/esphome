@@ -493,7 +493,9 @@ list fills from a scan without the connection dropping, Forget restarts Wi-Fi an
 GDL90 arrives, and the list survives a restart. Joining the real SkyEcho from the list (open network) worked: it was
 flagged as its GDL90 arrived, and its traffic reached XCSoar. With both saved, forgetting the home network restarted
 Wi-Fi and the scan chose the SkyEcho (priority 100, -81 dBm) over the home network (priority 0, -37 dBm). Not tested
-yet: the save by name of a SkyEcho never joined before, the 60 s switch while on another network, joining a network
+With the SkyEcho turned on while the Tab5 was on the home network, the next 60 s scan saw it and the Tab5 switched
+(7 s from the scan to connected), and on the Tab5 the clock was set from the SkyEcho's `/stats`. Not tested
+yet: the save by name of a SkyEcho never joined before, joining a network
 with a password, Wi-Fi off and on, and the switch to a SkyEcho coming into range. The test taps go through the API,
 which the Tab5 loses on the SkyEcho network: the SkyEcho does not pass traffic between its Wi-Fi clients. The
 restart of `wifi` holds the main loop for about 330 ms.
