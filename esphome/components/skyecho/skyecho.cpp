@@ -57,17 +57,28 @@ void SkyEcho::loop() {
   // Process GDL90 UDP data
   uint8_t buf[1024];
   if (network::is_connected()) {
-    sockaddr_in from_addr;
+    sockaddr_storage from_addr{};
     socklen_t addr_len = sizeof from_addr;
     auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
     if (len >= 0) {
       ESP_LOGV(TAG, "Received %d bytes", (int) len);
-      this->source_address_ = from_addr.sin_addr.s_addr;
+      in_addr src_addr{};
+      if (from_addr.ss_family == AF_INET) {
+        src_addr = reinterpret_cast<const sockaddr_in *>(&from_addr)->sin_addr;
+#if USE_NETWORK_IPV6
+      } else if (from_addr.ss_family == AF_INET6) {
+        // An IPv4 sender reaches an IPv6 socket as ::ffff:a.b.c.d
+        const auto *addr6 =
+            reinterpret_cast<const uint8_t *>(&reinterpret_cast<const sockaddr_in6 *>(&from_addr)->sin6_addr);
+        memcpy(&src_addr, addr6 + 12, sizeof(src_addr));
+#endif
+      }
+      this->source_address_ = src_addr.s_addr;
       this->gdl90_data_callback_.call(buf, (size_t) len);
       gdl90GetBlocks(
           buf, len,
           [this](const gdlDataPacket_t *packet, in_addr *src_addr) -> void { this->block_callback(packet, src_addr); },
-          &from_addr.sin_addr);
+          &src_addr);
     }
   }
 
