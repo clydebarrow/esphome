@@ -13,7 +13,6 @@ skyecho:
 xcsoar:
   skyecho_id: skyecho_hub
 
-# Sets the clock, from which XCSoar's GDL90 driver takes the date. 7070 is gdlsim's websocket port.
+# Sets the clock, from which XCSoar's GDL90 driver takes the date.
 time:
   - platform: skyecho
-    port: 7070
