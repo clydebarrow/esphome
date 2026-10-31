@@ -82,9 +82,10 @@ at 640,300 opens the menu, whose buttons are in columns at x 128 and 1152, rows 
 ### Traffic without a SkyEcho
 
 The gdlsim simulator (`gdl90_simulator.py`, a separate project) sends GDL90 like a SkyEcho, with moving
-traffic and callsigns: `python3 gdl90_simulator.py --target <device address> --ws-port 80`. It sends to UDP port
-4000 and answers discovery; the skyecho component on the device needs no settings for it. `--ws-port 80` puts its
-websocket where a real SkyEcho has it (its own default is 7070); macOS lets any user open port 80.
+traffic and callsigns: `python3 gdl90_simulator.py --target <device address>`. It sends to UDP port 4000 and
+answers discovery; the skyecho component on the device needs no settings for it. Its websocket is on port 7070,
+where a real SkyEcho has it on 80 (port 80 is taken on the bench Mac); give the skyecho time platform `port: 7070`
+to set the date from gdlsim.
 
 ### Checking the screen
 
