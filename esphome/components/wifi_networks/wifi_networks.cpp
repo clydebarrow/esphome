@@ -12,6 +12,8 @@ static constexpr uint32_t SKYECHO_SCAN_ID = 0;
 // While another network is in use, how often to look for a saved SkyEcho
 static constexpr uint32_t SKYECHO_SCAN_INTERVAL_MS = 60000;
 static constexpr uint32_t SNAPSHOT_INTERVAL_MS = 1000;
+// After switching to a SkyEcho, how long before another switch: one that cannot be joined is not tried every scan
+static constexpr uint32_t SWITCH_BACKOFF_MS = 300000;
 static constexpr int8_t SKYECHO_PRIORITY = 100;
 static constexpr int8_t SAVED_PRIORITY = 50;
 
@@ -19,6 +21,9 @@ static void copy_string(char *dest, size_t size, const char *src) {
   strncpy(dest, src, size - 1);
   dest[size - 1] = 0;
 }
+
+// SkyEcho access points are named "SkyEcho_" and part of the serial number
+static bool is_skyecho_ssid(const char *ssid) { return strncmp(ssid, "SkyEcho", 7) == 0; }
 
 void WifiNetworks::setup() {
   auto *wifi = wifi::global_wifi_component;
@@ -37,7 +42,7 @@ void WifiNetworks::setup() {
 
   this->set_interval(SKYECHO_SCAN_ID, SKYECHO_SCAN_INTERVAL_MS, [this]() {
     auto *wifi = wifi::global_wifi_component;
-    if (this->pinned_[0] == 0 && wifi->is_connected() && this->has_saved_skyecho_() && !this->current_is_skyecho_())
+    if (this->pinned_[0] == 0 && wifi->is_connected() && !this->current_is_skyecho_())
       wifi->scan_while_connected();
   });
 }
@@ -113,15 +118,10 @@ void WifiNetworks::run_(const Command &command) {
     case CommandType::COMMAND_TYPE_CONNECT: {
       SavedNetwork *saved = this->find_saved_(command.ssid);
       if (command.has_password) {
-        if (saved == nullptr) {
-          if (this->saved_.count == WIFI_NETWORKS_MAX) {
-            ESP_LOGW(TAG, "No room to save " LOG_SECRET("'%s'"), command.ssid);
-            return;
-          }
-          saved = &this->saved_.networks[this->saved_.count++];
-          *saved = {};
-          copy_string(saved->ssid, sizeof(saved->ssid), command.ssid);
-        }
+        if (saved == nullptr)
+          saved = this->add_saved_(command.ssid);
+        if (saved == nullptr)
+          return;
         copy_string(saved->password, sizeof(saved->password), command.password);
         this->save_();
       } else if (saved == nullptr && this->find_configured_(command.ssid) == nullptr) {
@@ -226,15 +226,10 @@ void WifiNetworks::mark_skyecho_() {
   SavedNetwork *saved = this->find_saved_(this->current_);
   if (saved == nullptr) {
     // A configured network becomes a saved one, which holds the flag
-    if (this->saved_.count == WIFI_NETWORKS_MAX) {
-      ESP_LOGW(TAG, "No room to save SkyEcho " LOG_SECRET("'%s'"), this->current_);
+    saved = this->add_saved_(this->current_);
+    if (saved == nullptr)
       return;
-    }
-    const wifi::WiFiAP *configured = this->find_configured_(this->current_);
-    saved = &this->saved_.networks[this->saved_.count++];
-    *saved = {};
-    copy_string(saved->ssid, sizeof(saved->ssid), this->current_);
-    if (configured != nullptr)
+    if (const wifi::WiFiAP *configured = this->find_configured_(this->current_); configured != nullptr)
       copy_string(saved->password, sizeof(saved->password), configured->get_password().c_str());
   }
   saved->flags |= FLAG_SKYECHO;
@@ -270,12 +265,34 @@ void WifiNetworks::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiF
   }
   this->snapshot_dirty_ = true;
 
-  if (this->pinned_[0] != 0 || !wifi::global_wifi_component->is_connected() || this->current_is_skyecho_())
+  if (this->pinned_[0] != 0 || this->current_is_skyecho_())
     return;
+  const uint32_t now = App.get_loop_component_start_time();
+  if (this->last_switch_ != 0 && now - this->last_switch_ < SWITCH_BACKOFF_MS)
+    return;
+  bool added = false;
+  bool in_range = false;
   for (uint8_t i = 0; i != this->visible_count_; i++) {
-    const SavedNetwork *saved = this->find_saved_(this->visible_[i].ssid);
+    const Visible &visible = this->visible_[i];
+    SavedNetwork *saved = this->find_saved_(visible.ssid);
+    // An open network named as a SkyEcho is joined before any of its data has arrived
+    if (saved == nullptr && !visible.secured && is_skyecho_ssid(visible.ssid)) {
+      saved = this->add_saved_(visible.ssid);
+      if (saved != nullptr) {
+        saved->flags = FLAG_SKYECHO;
+        ESP_LOGI(TAG, "Saved SkyEcho " LOG_SECRET("'%s'") " by its name", visible.ssid);
+        added = true;
+      }
+    }
     if (saved != nullptr && (saved->flags & FLAG_SKYECHO) != 0)
-      this->switch_to_skyecho_ = true;
+      in_range = true;
+  }
+  if (added)
+    this->save_();
+  // While connecting, a SkyEcho saved before is on the list already and is chosen by its priority
+  if (added || (in_range && wifi::global_wifi_component->is_connected())) {
+    this->switch_to_skyecho_ = true;
+    this->last_switch_ = now == 0 ? 1 : now;
   }
 }
 
@@ -341,11 +358,12 @@ void WifiNetworks::update_snapshot_() {
     NetworkInfo &info = add(ap.get_ssid().c_str());
     info.known = true;
     info.secured = !ap.get_password().empty();
+    info.skyecho = is_skyecho_ssid(info.ssid);
   }
   for (uint8_t i = 0; i != this->visible_count_; i++) {
     const char *ssid = this->visible_[i].ssid;
     if (this->find_saved_(ssid) == nullptr && this->find_configured_(ssid) == nullptr)
-      add(ssid);
+      add(ssid).skyecho = is_skyecho_ssid(ssid);
   }
   this->listed_count_ = n;
 }
@@ -378,12 +396,17 @@ const wifi::WiFiAP *WifiNetworks::find_configured_(const char *ssid) const {
   return nullptr;
 }
 
-bool WifiNetworks::has_saved_skyecho_() const {
-  for (uint8_t i = 0; i != this->saved_.count; i++) {
-    if ((this->saved_.networks[i].flags & FLAG_SKYECHO) != 0)
-      return true;
+WifiNetworks::SavedNetwork *WifiNetworks::add_saved_(const char *ssid) {
+  if (this->saved_.count == WIFI_NETWORKS_MAX) {
+    ESP_LOGW(TAG, "No room to save " LOG_SECRET("'%s'"), ssid);
+    return nullptr;
   }
-  return false;
+  SavedNetwork *saved = &this->saved_.networks[this->saved_.count++];
+  *saved = {};
+  copy_string(saved->ssid, sizeof(saved->ssid), ssid);
+  if (is_skyecho_ssid(ssid))
+    saved->flags = FLAG_SKYECHO;
+  return saved;
 }
 
 bool WifiNetworks::current_is_skyecho_() {

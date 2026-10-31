@@ -82,8 +82,9 @@ at 640,300 opens the menu, whose buttons are in columns at x 128 and 1152, rows 
 ### Traffic without a SkyEcho
 
 The gdlsim simulator (`gdl90_simulator.py`, a separate project) sends GDL90 like a SkyEcho, with moving
-traffic and callsigns: `python3 gdl90_simulator.py --target <device address>`. It sends to UDP port 4000 and
-answers discovery; the skyecho component on the device needs no settings for it.
+traffic and callsigns: `python3 gdl90_simulator.py --target <device address> --ws-port 80`. It sends to UDP port
+4000 and answers discovery; the skyecho component on the device needs no settings for it. `--ws-port 80` puts its
+websocket where a real SkyEcho has it (its own default is 7070); macOS lets any user open port 80.
 
 ### Checking the screen
 
@@ -363,13 +364,15 @@ To do:
   date" setting, on by default), so the clock must be set or IGC logs are dated 1970. `time: - platform: skyecho`
   sets it from the GPS time in the SkyEcho's websocket `/stats` stream (`host.GPS.UTCTime`, seconds since the
   GPS epoch). It connects to the address the GDL90 data comes from, reads one message and closes, every 15
-  minutes and every 30 s until the first sync. The websocket is on port 7070 on both the SkyEcho and gdlsim.
-  Tested against gdlsim.
+  minutes and every 30 s until the first sync. A real SkyEcho (firmware 0.2.38) has the websocket on port 80,
+  the default `port`, and sends `UTCTime` as gdlsim does; it also has a `/` stream with its position, callsign,
+  fix and satellite count. Tested against gdlsim; the real SkyEcho's stream was read from the host.
 - **SD card.** After the storage merge (`origin/storage`, card and filesystem locks), `sd_spi` once logged
   "Card not responding", restarted the card and remounted the filesystem while XCSoar had files open. That may
   be how the directory damage below happens; the storage work is done on the `storage` branch.
-- **skyecho issues seen here.** The broadcast discovery ping fails (`Sendto failed ... err -1`; traffic still
-  arrives because gdlsim is given the device as a unicast target), and the skyecho `loop()` took 200 to 650 ms
+- **skyecho issues seen here.** The broadcast discovery ping failed (`Sendto failed ... err -1`) on the IPv6
+  socket that `socket_ip()` makes with IPv6 enabled; it now has an IPv4 socket (not yet checked on the device). The
+  skyecho `loop()` took 200 to 650 ms
   while XCSoar was starting (it blocks the main loop, so frames and touches wait).
 - **Stuck dialogs.** Twice a nested dialog stopped reacting: the Map Item List Settings dialog (from a tap on
   the map), and Config > Devices > Edit after setting the port to Disabled. After a tap on OK or Cancel the
@@ -463,12 +466,15 @@ or the SD card, and passwords stay off the card.
   (their own priority). A saved network stands in for a configured one of the same name. `wifi` scans and joins the
   visible network with the highest priority, so it needs `fast_connect: false` (checked at validation): fast_connect
   goes back to the last network first.
-- **SkyEcho networks are found by their data:** when the skyecho component receives GDL90, the network in use is
-  saved (with its password, if it is a configured one) and flagged as a SkyEcho. With gdlsim on the home network,
-  that network is flagged.
+- **SkyEcho networks are found by their data and by name:** when the skyecho component receives GDL90, the network
+  in use is saved (with its password, if it is a configured one) and flagged as a SkyEcho. With gdlsim on the home
+  network, that network is flagged. A network whose name starts with "SkyEcho" (a real one is `SkyEcho_MKJ`, open)
+  is a SkyEcho too: an open one is saved and flagged when a scan sees it, and one with a password is flagged when
+  it is joined.
 - **Switching to a SkyEcho:** while another network is in use, every 60 s `wifi_networks` scans without leaving it
   (`WiFiComponent::scan_while_connected()`, added on this branch with `get_sta_list()`). If a saved SkyEcho is in
-  range, `wifi` is restarted (`disable()`, `enable()`), and its scan picks the SkyEcho.
+  range, `wifi` is restarted (`disable()`, `enable()`), and its scan picks the SkyEcho. After a switch the next one
+  waits 5 minutes, so a SkyEcho that is seen but cannot be joined does not drop the other network every minute.
 - **User override:** joining a network in the list keeps that network alone in `wifi`'s list until "Automatic
   network" is turned on again, Wi-Fi is turned off and on, or a restart. "WiFi Enabled: Off" and Disconnect turn
   Wi-Fi off until it is turned on or the device restarts.
@@ -481,9 +487,11 @@ or the SD card, and passwords stay off the card.
 
 Tested on the Tab5 (`xcsoar-tab5-tap.yaml`): the panel and list show the network in use with its IP address, the
 list fills from a scan without the connection dropping, Forget restarts Wi-Fi and the network is flagged again as
-GDL90 arrives, and the list survives a restart. Not tested yet: joining a new network with a password, the
-override, Wi-Fi off and on (the test taps go through the API, which goes down with Wi-Fi), and the switch to a
-SkyEcho coming into range. The restart of `wifi` holds the main loop for about 330 ms.
+GDL90 arrives, and the list survives a restart. Joining the real SkyEcho from the list (open network) worked: it was
+flagged as its GDL90 arrived, and its traffic reached XCSoar. Not tested yet: the save by name, joining a network
+with a password, Wi-Fi off and on, and the switch to a SkyEcho coming into range. The test taps go through the API,
+which the Tab5 loses on the SkyEcho network: the SkyEcho does not pass traffic between its Wi-Fi clients. The
+restart of `wifi` holds the main loop for about 330 ms.
 
 ## Phase 4: optional
 
