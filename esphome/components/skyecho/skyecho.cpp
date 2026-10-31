@@ -106,6 +106,7 @@ void SkyEcho::assess_threats_() {
     for (size_t i = 0; i != MAX_TRAFFIC_TRACKED && traffic[i].active; i++) {
       extrapolate_report(traffic[i].report, std::min((now - traffic[i].timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S));
       selector.consider(i, traffic[i].report);
+      threat.targets++;
     }
     if (selector.get_best() >= 0) {
       const gdl90PositionReport_t &best = traffic[selector.get_best()].report;
