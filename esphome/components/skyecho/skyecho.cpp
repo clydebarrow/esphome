@@ -91,6 +91,38 @@ void SkyEcho::update() {
   // Generate simulated data if no real data is being received
   this->generate_simulated_ownship_();
   this->generate_simulated_traffic_();
+  this->assess_threats_();
+}
+
+void SkyEcho::assess_threats_() {
+  Threat threat{};
+  OwnshipT ownship;
+  if (this->get_ownship_position(&ownship)) {
+    const uint32_t now = millis();
+    extrapolate_report(ownship.report, std::min((now - ownship.timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S));
+    TrafficT traffic[MAX_TRAFFIC_TRACKED];
+    this->get_traffic(traffic, MAX_TRAFFIC_TRACKED);
+    SignificantTargetSelector selector(ownship.report, this->threat_settings_);
+    for (size_t i = 0; i != MAX_TRAFFIC_TRACKED && traffic[i].active; i++) {
+      extrapolate_report(traffic[i].report, std::min((now - traffic[i].timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S));
+      selector.consider(i, traffic[i].report);
+    }
+    if (selector.get_best() >= 0) {
+      const gdl90PositionReport_t &best = traffic[selector.get_best()].report;
+      threat.valid = true;
+      threat.report = best;
+      threat.assessment = selector.get_best_assessment();
+      threat.north = trafficNorthing(&ownship.report, &best);
+      threat.east = trafficEasting(&ownship.report, &best);
+      threat.altitude = best.altitude - ownship.report.altitude;
+    }
+  }
+  this->threat_ = threat;
+  if (const uint16_t seconds = this->warnings_.check(this->threat_); seconds != 0) {
+    ESP_LOGI(TAG, "Threat %s: close proximity in %u s", this->threat_.report.callsign, seconds);
+    this->warning_callback_.call(seconds);
+  }
+  this->threat_callback_.call(this->threat_);
 }
 
 bool SkyEcho::get_ownship_position(OwnshipT *position) {

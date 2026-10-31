@@ -2,7 +2,10 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <initializer_list>
 
+#include "esphome/core/helpers.h"
 #include "gdl90.h"
 
 namespace esphome::skyecho {
@@ -49,6 +52,23 @@ struct ThreatAssessment {
   float approach_altitude;  // target height above the ownship at the closest approach, allowing for climb
   float proximity_time;     // seconds until close proximity, negative if not predicted
 };
+
+/// The most significant target at an assessment.
+struct Threat {
+  bool valid;                    // false without an ownship position, or when every target is ignored
+  gdl90PositionReport_t report;  // the target, dead-reckoned to the time of the assessment
+  ThreatAssessment assessment;
+  float north;  // target offset from the ownship, in meters
+  float east;
+  float altitude;  // target height above the ownship, in meters
+};
+
+// Cap on how far a position is dead-reckoned, so stale targets do not run away.
+static constexpr float MAX_EXTRAPOLATE_S = 2.0f;
+
+/// Move a position report forward along its track, and round its turn, by dt seconds. Only the horizontal
+/// position changes; the altitude is left at its last reported value.
+void extrapolate_report(gdl90PositionReport_t &report, float dt);
 
 /**
  * Estimate the turn rate of an aircraft, in degrees per second, from the change in
@@ -102,6 +122,22 @@ class SignificantTargetSelector {
   const ThreatSettings &settings_;
   int best_{-1};
   ThreatAssessment best_assessment_{};
+};
+
+/// Says when a threat reaches each of a set of warning times before close proximity: once per time, and for a
+/// threat first seen after some of the times have passed, once for the shortest of those.
+class ThreatWarnings {
+ public:
+  /// Seconds before close proximity, longest first.
+  void set_times(std::initializer_list<uint16_t> seconds) { this->times_ = seconds; }
+  /// Check the latest assessment of the most significant target. Returns the warning time it has reached, or 0
+  /// when no warning is due.
+  uint16_t check(const Threat &threat);
+
+ protected:
+  FixedVector<uint16_t> times_{};
+  uint32_t address_{0};  // the threat being warned about, or zero for none
+  size_t next_{0};       // index of the next warning time for that threat
 };
 
 }  // namespace esphome::skyecho

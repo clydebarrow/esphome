@@ -26,6 +26,37 @@ static constexpr float MIN_TURN_SPEED = 5.0f;    // m/s; slower than this, the t
 static constexpr float MAX_TURN_RATE = 30.0f;
 static constexpr float MIN_TURN_RATE = 1.5f;  // anything slower is taken as flying straight
 
+// Meters per degree of latitude (approx), used for dead reckoning.
+static constexpr float METERS_PER_DEGREE = 111111.0f;
+
+void extrapolate_report(gdl90PositionReport_t &report, float dt) {
+  if (dt <= 0.0f || report.groundSpeed <= 0.0f || !report.isTrackValid)
+    return;
+  float distance = report.groundSpeed * dt;  // meters travelled since the report
+  // Follow a turn by moving along the track half way through it, then turning.
+  float track = toRadians(report.track + report.turnRate * dt / 2.0f);
+  report.track = fmodf(report.track + report.turnRate * dt + 360.0f, 360.0f);
+  float delta_north = distance * cosf(track);
+  float delta_east = distance * sinf(track);
+  report.latitude += delta_north / METERS_PER_DEGREE;
+  report.longitude += delta_east / (METERS_PER_DEGREE * cosf(toRadians(report.latitude)));
+}
+
+uint16_t ThreatWarnings::check(const Threat &threat) {
+  if (!threat.valid || !threat.assessment.alarm) {
+    this->address_ = 0;
+    return 0;
+  }
+  if (threat.report.address != this->address_) {
+    this->address_ = threat.report.address;
+    this->next_ = 0;
+  }
+  uint16_t due = 0;
+  while (this->next_ != this->times_.size() && threat.assessment.proximity_time <= this->times_[this->next_])
+    due = this->times_[this->next_++];
+  return due;
+}
+
 static bool is_glider(emitterCategory_t category) { return category == Glider || category == HangGlider; }
 
 float estimate_turn_rate(const gdl90PositionReport_t &previous, const gdl90PositionReport_t &current, float dt) {
