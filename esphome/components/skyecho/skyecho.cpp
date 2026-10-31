@@ -62,6 +62,7 @@ void SkyEcho::loop() {
     auto len = this->socket_->recvfrom(buf, sizeof buf, (sockaddr *) &from_addr, &addr_len);
     if (len >= 0) {
       ESP_LOGV(TAG, "Received %d bytes", (int) len);
+      this->source_address_ = from_addr.sin_addr.s_addr;
       this->gdl90_data_callback_.call(buf, (size_t) len);
       gdl90GetBlocks(
           buf, len,

@@ -9,7 +9,7 @@
 namespace esphome {
 namespace skyecho {
 
-static const char *const TAG = "skyecho.text_sensor";
+ESPHOME_LOG_TAG(TAG, "skyecho.text_sensor");
 
 // Accuracy map based on NACp values (in meters)
 static const int ACCURACY_MAP[] = {
@@ -100,7 +100,7 @@ void SkyEchoTextSensor::generate_gprmc(std::string &output) {
   float speed_knots = ownship.report.groundSpeed * 1.94384f;
 
   // Use current time for date (simplified - C version uses GPS time)
-  time_t now_time = time(nullptr);
+  time_t now_time = ::time(nullptr);
   struct tm *now = gmtime(&now_time);
 
   snprintf(this->nmea_buf_, sizeof(this->nmea_buf_),

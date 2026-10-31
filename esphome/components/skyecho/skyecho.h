@@ -77,6 +77,9 @@ class SkyEcho : public PollingComponent {
 
   bool has_flarm_uart() const { return this->flarm_uart_ != nullptr; }
 
+  /// The IPv4 address the GDL90 data last came from, in network byte order; 0 before any has arrived.
+  uint32_t get_source_address() const { return this->source_address_; }
+
   /**
    * Set callback for traffic updates
    */
@@ -120,6 +123,7 @@ class SkyEcho : public PollingComponent {
 
   std::unique_ptr<socket::Socket> socket_{};
   std::unique_ptr<socket::Socket> ping_socket_{};
+  uint32_t source_address_{0};
 
   // Ownship data
   gdl90Heartbeat_t heartbeat_{};
