@@ -78,6 +78,11 @@ class XCSoarComponent : public Component
   template<typename F> void add_on_traffic_alarm_callback(F &&callback) {
     this->traffic_alarm_callback_.add(std::forward<F>(callback));
   }
+  /// Called on the main loop with the master volume (0 to 1) from XCSoar's Audio settings, at startup and when it is
+  /// saved, and with preview set on each change while the user adjusts it, to play a short tone at that volume.
+  template<typename F> void add_on_volume_callback(F &&callback) {
+    this->volume_callback_.add(std::forward<F>(callback));
+  }
 #ifdef USE_TOUCHSCREEN
   /// Pass the first finger of each touch to XCSoar, as a mouse.
   void set_touchscreen(touchscreen::Touchscreen *touchscreen) { touchscreen->register_listener(this); }
@@ -118,6 +123,7 @@ class XCSoarComponent : public Component
   /// Convert the area rect of an XCSoar frame into dest with the PPA; runs on the XCSoar task.
   bool convert_(const void *pixels, unsigned pitch, XCSoarEsp32::Rect rect, uint8_t *dest, size_t dest_size);
   static void traffic_alarm_(unsigned level, void *ctx) noexcept;
+  static void volume_(unsigned percent, bool preview, void *ctx) noexcept;
 
   display::Display *display_;
   ppa_client_handle_t ppa_client_{nullptr};
@@ -146,6 +152,12 @@ class XCSoarComponent : public Component
   // The latest alarm level from XCSoar's thread, for loop(); 0 for none
   std::atomic<uint8_t> pending_alarm_{0};
   LazyCallbackManager<void(uint8_t)> traffic_alarm_callback_;
+  // The latest master volume in percent from XCSoar's thread, with VOLUME_PREVIEW for a preview, for loop();
+  // NO_VOLUME for none
+  static constexpr uint8_t VOLUME_PREVIEW = 0x80;
+  static constexpr uint8_t NO_VOLUME = 0xFF;
+  std::atomic<uint8_t> pending_volume_{NO_VOLUME};
+  LazyCallbackManager<void(float, bool)> volume_callback_;
 #ifdef USE_TOUCHSCREEN
   // The finger XCSoar follows, and where it was last
   uint8_t touch_id_{0};

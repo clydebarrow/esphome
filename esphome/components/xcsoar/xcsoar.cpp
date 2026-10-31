@@ -137,6 +137,7 @@ void XCSoarComponent::setup() {
       .wifi = nullptr,
 #endif
       .traffic_alarm = traffic_alarm_,
+      .volume = volume_,
 #ifdef USE_XCSOAR_BLE_SERIAL
       .ble = &this->ble_host_,
 #else
@@ -317,6 +318,12 @@ void XCSoarComponent::traffic_alarm_(unsigned level, void *ctx) noexcept {
   self->enable_loop_soon_any_context();
 }
 
+void XCSoarComponent::volume_(unsigned percent, bool preview, void *ctx) noexcept {
+  auto *self = static_cast<XCSoarComponent *>(ctx);
+  self->pending_volume_ = static_cast<uint8_t>(std::min(percent, 100u)) | (preview ? VOLUME_PREVIEW : 0);
+  self->enable_loop_soon_any_context();
+}
+
 void XCSoarComponent::loop() {
   if (this->frame_pending_.exchange(false)) {
 #ifdef USE_XCSOAR_FRAME_BUFFERS
@@ -333,6 +340,13 @@ void XCSoarComponent::loop() {
   if (const uint8_t level = this->pending_alarm_.exchange(0); level != 0) {
     ESP_LOGI(TAG, "Traffic alarm, level %u", level);
     this->traffic_alarm_callback_.call(level);
+  }
+
+  if (const uint8_t pending = this->pending_volume_.exchange(NO_VOLUME); pending != NO_VOLUME) {
+    const uint8_t percent = pending & ~VOLUME_PREVIEW;
+    const bool preview = (pending & VOLUME_PREVIEW) != 0;
+    ESP_LOGD(TAG, "Volume %u%%%s", percent, preview ? LOG_STR_LITERAL(", preview") : LOG_STR_LITERAL(""));
+    this->volume_callback_.call(percent / 100.0f, preview);
   }
 
   if (this->task_stopped_.exchange(false)) {
