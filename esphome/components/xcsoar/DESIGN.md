@@ -499,7 +499,7 @@ Wi-Fi off and on. The test taps go through the API,
 which the Tab5 loses on the SkyEcho network: the SkyEcho does not pass traffic between its Wi-Fi clients. The
 restart of `wifi` holds the main loop for about 330 ms.
 
-## Bluetooth LE devices (built; needs C6 firmware with Bluetooth)
+## Bluetooth LE devices (done for serial devices)
 
 Varios, FLARM adapters and GPS units with a Bluetooth LE serial link are added in XCSoar, as on Android: the device
 list is kept in XCSoar's profile, and ESPHome only provides the radio. The configuration says how many devices may be
@@ -540,6 +540,14 @@ opens the stored address; on Android, `BleSerialPort.java` finds the serial serv
 - **The xcsoar component** takes `ble_serial_id` (`USE_XCSOAR_BLE_SERIAL`) and connects the two.
 - **BLE serial only.** BLE sensors are decoded in Java on Android; on the ESP32 they would be decoded in
   `ble_serial` and passed on as sentences of an existing driver, later.
+
+Tested on the Tab5 with the T-Beam (`tbeam-hm10-gps.yaml`), after the C6 update below: with Config > Devices > Edit >
+Port open, `ble_serial` scanned and the list showed the T-Beam, first without a name and then as "tbeam-gps" once the
+scan response came. A RuuviTag was listed too: it advertises the Nordic UART service (for its settings), so Android
+would list it as well. Picking the T-Beam opened the port: the client found the advert at once, connected,
+discovered the services and agreed a 517 byte MTU, and the device was ready 3 s after it was opened; the scan then
+stopped. Its GPS fix reached XCSoar (GPS altitude 23 m, ground speed 2.5 km/h, and an airspace warning for the
+position). Wi-Fi kept working alongside (scans while connected, and a switch of network).
 
 `xcsoar-tests/xcsoar-tab5-ble.yaml` is the test config. It builds: Bluedroid on the P4 (`esp32_ble` with
 `esp32_hosted`, `CONFIG_ESP_HOSTED_HOST_FEAT_BT`) and `ble_serial` add 388 KB of flash (89.3% of the app partition
