@@ -15,4 +15,3 @@ text_sensor:
 
 time:
   - platform: skyecho
-    port: 7070
