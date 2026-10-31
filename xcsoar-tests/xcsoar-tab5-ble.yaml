@@ -45,6 +45,13 @@ audio_dac:
   - platform: es8388
     id: es8388_dac
 
+# Powers the codec's outputs, which the es8388 setup otherwise leaves off
+select:
+  - platform: es8388
+    dac_output:
+      name: DAC Output
+      initial_option: BOTH
+
 i2s_audio:
   - id: audio_bus
     i2s_lrclk_pin: GPIO29
@@ -58,13 +65,16 @@ speaker:
     audio_dac: es8388_dac
     dac_type: external
     channel: mono
-    buffer_duration: 100ms
+    # rtttl fills this from the main loop, which the SkyEcho and BLE work can hold up for a few hundred ms
+    buffer_duration: 500ms
     bits_per_sample: 16bit
     sample_rate: 16000
 
 rtttl:
   id: alarm_tone
   speaker: tab5_speaker
+  # The es8388 maps volume to attenuation in a straight line, so the default 60% is -38 dB
+  gain: 100%
 
 button:
   - platform: template
