@@ -17,3 +17,7 @@ text_sensor:
   - platform: skyecho
     type: traffic_list
     name: Traffic List
+
+time:
+  - platform: skyecho
+    port: 7070
