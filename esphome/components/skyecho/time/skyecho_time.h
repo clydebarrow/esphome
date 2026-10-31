@@ -32,7 +32,8 @@ class SkyEchoTime : public time::RealTimeClock, public Parented<SkyEcho> {
   bool parse_frames_();
   bool parse_stats_(char *text);
 
-  static constexpr size_t RX_BUFFER_SIZE = 1024;
+  // A real SkyEcho's "/stats" messages are about 1400 bytes
+  static constexpr size_t RX_BUFFER_SIZE = 2048;
 
   socket::TcpClientLink link_;
   uint32_t started_ms_{0};
