@@ -499,6 +499,37 @@ so the spoken alert is silent; instead `TrafficMonitor` passes the level to the 
 by level. Tested with gdlsim: levels 1, 2 and 3 came 16, 11 and 6 s before close proximity, each with its tune.
 `rtttl` holds the main loop for up to 200 ms while it starts a note. `test/src/TestFlarmThreat.cpp` covers the prediction and the computer.
 
+**Volume.** Config > Setup > Audio shows a Master Volume on the ESP32 (in 10% steps), saved in XCSoar's profile. XCSoar
+passes it to the host (`XCSoarEsp32::Config::volume`) at start-up and when the settings are saved, and with `preview`
+set for each level the user highlights in the list (a preview callback on the data field, which the list picker
+calls as the cursor moves). The xcsoar component's `on_volume` trigger runs with `volume` (0 to 1) and `preview`;
+the Tab5 config sets the alarm tone's gain and beeps on a preview. The ES8388 maps volume onto `volume_min_db` to
+`volume_max_db` (set to -50 dB to 0 dB there): across its whole 96 dB range, most of the scale was too quiet to hear.
+
+**Alert screen.** At an important or urgent alarm (Config > Gauges > Traffic, "Alert screen": off, important and
+urgent, or urgent only; while circling, only urgent) `TrafficMonitor` covers the main window with
+`TrafficAlertWidget`: amber for important, red for urgent; an arrow towards the traffic relative to the track, with
+its clock position; the height difference (level within 30 m, otherwise above or below, and climbing or descending);
+the distance and the time to close proximity (`FlarmStatus::proximity_time`, set by `ThreatComputer`; a FLARM does
+not give it); and the callsign. Dismiss closes it until that target's level rises or another target alarms; Mute 1 min
+also silences the tone and speech for that target, but an urgent alarm still comes through. It shows "Alarm cleared"
+when the alarm ends and closes 3 s later, reloading the page (InfoBoxes and full screen as they were). It is a main
+window widget, not a modal dialog, so the monitors keep running; it has its own 1 s timer, because without GPS fixes
+the monitors stop, and its delays use a steady clock, because the GPS clock stops too. While it is shown the
+traffic gauge is hidden (input flavour "TrafficAlert").
+
+**No traffic data.** Once a traffic receiver has worked (a FLARM's `$PFLAU`, or a GDL90 heartbeat, kept in
+`FlarmData::receiver`), the map shows an amber "No traffic data" box at the top when none has been heard for 10 s:
+the collision alarms depend on it. Trial.
+
+Tested on the Tab5 with gdlsim's `--threat` target at 20% volume: the alert opened at level 2 and turned red at
+level 3; Dismiss at level 2 closed it and it came back at level 3; Mute at level 2 closed it and the urgent alarm still
+came through with its tone; after the target passed it closed and the page came back. With gdlsim stopped during an
+urgent alarm, the alert showed "Alarm cleared" and closed, and the map showed "No traffic data". The first build left
+the alert up forever in that case: the cached `ThreatComputer` alarm was applied again on every merge, and the
+monitors and the close delay waited for a GPS clock that had stopped. The camera shows the alert colors shifted (the
+red as purple, the amber as pink, dark gray as green), so they still need checking by eye.
+
 A new input (GPS, vario) needs: a stream name and driver in `setup()`, and a call to `Feed()` wherever the
 component has the bytes. If the data is not yet in a format an XCSoar driver reads (a pressure reading, say),
 format it as the sentences of a simple driver (e.g. OpenVario `$POV`) rather than writing a new driver.
