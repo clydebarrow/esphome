@@ -178,7 +178,7 @@ display:
     id: lcd
     model: M5STACK-TAB5-ST7123
     frame_buffers: 2
-    rotation: 90
+    rotation: 270
 
 xcsoar:
   display_id: lcd
@@ -211,7 +211,7 @@ xcsoar:
   writes into the buffer that was on screen, so there is no tearing.
 - **PPA.** The P4's pixel processing unit copies XCSoar's canvas (RGB565 since phase 4, `BytesPerPixel()`) to the
   panel's RGB565 or RGB888 and rotates it to the display's `rotation` in the same pass. XCSoar draws at the
-  rotated size (1280x720 on the Tab5 with `rotation: 90`).
+  rotated size (1280x720 on the Tab5 with `rotation: 270`).
 - **Without double buffering** (any other display, or `frame_buffers: 1`), the PPA converts into a buffer of
   this component and the main loop copies it with `draw_pixels_at`, which takes about 16 ms per frame there.
   A rotation then goes through the display's slow per-pixel path.
@@ -257,7 +257,7 @@ xcsoar:
   `XCSoarEsp32::InjectPointer()` passes `MOUSE_DOWN`, `MOUSE_MOTION` and `MOUSE_UP` events to the thread safe
   `EventQueue::Inject()`. The component is a `touchscreen::TouchListener` (`touchscreen_id`) and follows the
   first finger. The touchscreen maps touches to the display's rotated size; its `transform` must match the
-  display's `rotation` (`swap_xy` and `mirror_y` for `rotation: 90` on the Tab5).
+  display's `rotation` (`swap_xy` and `mirror_x` for `rotation: 270` on the Tab5, `mirror_y` for 90).
 - **Test.** The test window counts taps, draws the path of the current touch and has a pause button.
   `xcsoar-tests/xcsoar-tab5-touch-sim.yaml` drives it with scripted touches through the listener calls, and the
   host test injects touches the same way.
