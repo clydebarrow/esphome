@@ -547,7 +547,10 @@ scan response came. A RuuviTag was listed too: it advertises the Nordic UART ser
 would list it as well. Picking the T-Beam opened the port: the client found the advert at once, connected,
 discovered the services and agreed a 517 byte MTU, and the device was ready 3 s after it was opened; the scan then
 stopped. Its GPS fix reached XCSoar (GPS altitude 23 m, ground speed 2.5 km/h, and an airspace warning for the
-position). Wi-Fi kept working alongside (scans while connected, and a switch of network).
+position). Wi-Fi kept working alongside (scans while connected, and a switch of network). After a restart of the Tab5 XCSoar
+opened the saved device by itself and it was connected 2 s later; Wi-Fi then switched to the real SkyEcho, the clock
+was set and its traffic arrived, with the T-Beam still connected. Power-cycling the T-Beam: the link was lost
+(supervision timeout, reason 0x08), the scan came on, and it was connected again 3 s later; the scan then stopped.
 
 `xcsoar-tests/xcsoar-tab5-ble.yaml` is the test config. It builds: Bluedroid on the P4 (`esp32_ble` with
 `esp32_hosted`, `CONFIG_ESP_HOSTED_HOST_FEAT_BT`) and `ble_serial` add 388 KB of flash (89.3% of the app partition
