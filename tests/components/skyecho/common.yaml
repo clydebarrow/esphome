@@ -5,6 +5,17 @@ wifi:
 skyecho:
   id: skyecho1
   flarm_uart: uart_bus
+  alarm_distance: 0.3nm
+  alarm_altitude: 300ft
+  glider_alarm_altitude: 150ft
+  alarm_time: 25s
+  max_distance: 20km
+  max_altitude_difference: 5000ft
+  warning_times: [25s, 15s, 5s]
+  on_threat_warning:
+    - logger.log:
+        format: "Close proximity in %u s"
+        args: [seconds]
 
 switch:
   - platform: skyecho

@@ -19,10 +19,6 @@ namespace esphome::skyecho {
 // high frame rate just rounds many frames to the same pixel and then jumps;
 // a few larger steps per second give more even motion.
 static constexpr uint32_t REFRESH_INTERVAL_MS = 250;
-// Cap on how far a position is extrapolated, so stale targets do not run away.
-static constexpr float MAX_EXTRAPOLATE_S = 2.0f;
-// Meters per degree of latitude (approx), used for the extrapolation.
-static constexpr float METERS_PER_DEGREE = 111111.0f;
 // Gap between the info box and the edges of the widget, clear of rounded screen corners.
 static constexpr lv_coord_t INFO_MARGIN = 12;
 // The ownship sits this share of the widget height below the centre, leaving more
@@ -185,25 +181,6 @@ void TrafficWidget::build() {
   this->update();
 }
 
-void TrafficWidget::check_warnings_(const gdl90PositionReport_t *report, const ThreatAssessment &assessment) {
-  if (report == nullptr || !assessment.alarm) {
-    this->warning_address_ = 0;
-    return;
-  }
-  if (report->address != this->warning_address_) {
-    this->warning_address_ = report->address;
-    this->warning_next_ = 0;
-  }
-  bool due = false;
-  while (this->warning_next_ != this->warning_times_.size() &&
-         assessment.proximity_time <= this->warning_times_[this->warning_next_]) {
-    this->warning_next_++;
-    due = true;
-  }
-  if (due)
-    this->warning_callback_.call(this->warning_times_[this->warning_next_ - 1]);
-}
-
 void TrafficWidget::fix_label_sizes_() {
   // Size the labels for the widest text they can show, so the boxes keep their size
   // as the numbers change. Sample values give each line its most digits.
@@ -267,23 +244,6 @@ void TrafficWidget::update_ownship_(const gdl90PositionReport_t *report) {
   snprintf(buf, sizeof(buf), "%s\n%s", altitude, speed);
   set_text_if_changed(this->ownship_label_, buf);
   set_hidden(this->ownship_box_, false);
-}
-
-void TrafficWidget::extrapolate_(gdl90PositionReport_t &report, float dt) {
-  // Only the horizontal position is dead-reckoned so the image and label move
-  // smoothly; the altitude (and hence the relative-altitude label) is left at
-  // its last reported value.
-  if (dt <= 0.0f || report.groundSpeed <= 0.0f || !report.isTrackValid) {
-    return;
-  }
-  float distance = report.groundSpeed * dt;  // meters travelled since the report
-  // Follow a turn by moving along the track half way through it, then turning.
-  float track = toRadians(report.track + report.turnRate * dt / 2.0f);
-  report.track = fmodf(report.track + report.turnRate * dt + 360.0f, 360.0f);
-  float delta_north = distance * cosf(track);
-  float delta_east = distance * sinf(track);
-  report.latitude += delta_north / METERS_PER_DEGREE;
-  report.longitude += delta_east / (METERS_PER_DEGREE * cosf(toRadians(report.latitude)));
 }
 
 float TrafficWidget::nice_number_(float value) {
@@ -454,7 +414,7 @@ void TrafficWidget::update() {
 
   // Dead-reckon the ownship forward so the relative motion of traffic is smooth.
   float own_dt = std::min((now - ownship.timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S);
-  this->extrapolate_(ownship.report, own_dt);
+  extrapolate_report(ownship.report, own_dt);
 
   this->update_ownship_(&ownship.report);
 
@@ -484,22 +444,20 @@ void TrafficWidget::update() {
   TrafficT traffic[MAX_TRAFFIC_TRACKED];
   bool ignored[MAX_TRAFFIC_TRACKED];
   this->parent_->get_traffic(traffic, MAX_TRAFFIC_TRACKED);
-  SignificantTargetSelector selector(ownship.report, this->threat_settings_);
+  SignificantTargetSelector selector(ownship.report, this->parent_->get_threat_settings());
   size_t cnt = 0;
   for (; cnt != MAX_TRAFFIC_TRACKED && traffic[cnt].active; cnt++) {
     float target_dt = std::min((now - traffic[cnt].timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S);
-    this->extrapolate_(traffic[cnt].report, target_dt);
+    extrapolate_report(traffic[cnt].report, target_dt);
     ignored[cnt] = selector.consider(cnt, traffic[cnt].report).ignored;
   }
   if (selector.get_best() < 0) {
     this->update_info_(nullptr, {}, 0.0f, 0.0f, 0.0f, 0);
-    this->check_warnings_(nullptr, {});
   } else {
     // update_info_() sets highlight_on_, so the target's ring flashes with the box.
     const gdl90PositionReport_t &best = traffic[selector.get_best()].report;
     this->update_info_(&best, selector.get_best_assessment(), best.altitude - ownship.report.altitude,
                        trafficNorthing(&ownship.report, &best), trafficEasting(&ownship.report, &best), now);
-    this->check_warnings_(&best, selector.get_best_assessment());
   }
 
   // Draw the nearest targets that are not filtered out.

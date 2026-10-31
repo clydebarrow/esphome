@@ -27,21 +27,6 @@ class TrafficWidget : public lvgl::LvCompound {
   void set_range(float range_m) { this->range_ = range_m; }
   void set_max_targets(size_t max_targets) { this->max_targets_ = max_targets; }
   void set_range_rings(size_t rings) { this->num_rings_ = rings; }
-  void set_alarm_distance(float meters) { this->threat_settings_.alarm_distance = meters; }
-  void set_alarm_altitude(float meters) { this->threat_settings_.alarm_altitude = meters; }
-  void set_glider_alarm_altitude(float meters) { this->threat_settings_.glider_alarm_altitude = meters; }
-  void set_alarm_time(float seconds) { this->threat_settings_.alarm_time = seconds; }
-  void set_max_distance(float meters) { this->threat_settings_.max_distance = meters; }
-  void set_max_altitude_difference(float meters) { this->threat_settings_.max_altitude_difference = meters; }
-  /// Seconds before close proximity at which to warn about a threat, longest first.
-  void set_warning_times(std::initializer_list<uint16_t> seconds) { this->warning_times_ = seconds; }
-
-  /// Called once at each warning time with that time in seconds, while a threat
-  /// raises the alarm. A threat first seen after some warning times have passed
-  /// gives one call, for the shortest of those.
-  template<typename F> void add_on_threat_warning_callback(F &&callback) {
-    this->warning_callback_.add(std::forward<F>(callback));
-  }
 
   /**
    * Build the child objects and start the refresh timer. Called once from
@@ -64,9 +49,6 @@ class TrafficWidget : public lvgl::LvCompound {
   // north from the ownship, keeping its centre margin pixels inside the edge.
   void place_north_(float margin);
 
-  // Move a position report forward along its track by dt seconds.
-  static void extrapolate_(gdl90PositionReport_t &report, float dt);
-
   // Size and position the concentric range rings for the given radius (pixels).
   void layout_rings_(float radius);
 
@@ -82,9 +64,6 @@ class TrafficWidget : public lvgl::LvCompound {
 
   // Point the info box arrow at an angle in radians, clockwise from straight up.
   void point_arrow_(float angle);
-
-  // Call the warning callbacks for any warning time the threat has reached.
-  void check_warnings_(const gdl90PositionReport_t *report, const ThreatAssessment &assessment);
 
   // Fix the sizes of the info box labels so they do not change as the numbers do.
   void fix_label_sizes_();
@@ -126,11 +105,6 @@ class TrafficWidget : public lvgl::LvCompound {
   bool highlight_on_{true};               // ring the info box target: off in the flash's inverted phase
   lv_point_precise_t arrow_points_[5]{};  // LVGL keeps a pointer to these
   Units units_{};
-  ThreatSettings threat_settings_{};
-  FixedVector<uint16_t> warning_times_{};
-  LazyCallbackManager<void(uint32_t)> warning_callback_{};
-  uint32_t warning_address_{0};  // the threat being warned about, or zero for none
-  size_t warning_next_{0};       // index of the next warning time for that threat
   lv_color_t bg_color_{};
   lv_color_t text_color_{};
   FixedVector<Target> targets_{};

@@ -6,6 +6,7 @@
 #include "esphome/components/uart/uart.h"
 #include "flarm.h"
 #include "gdl90.h"
+#include "threat.h"
 #include "traffic_manager.h"
 #include <algorithm>
 
@@ -77,6 +78,32 @@ class SkyEcho : public PollingComponent {
 
   bool has_flarm_uart() const { return this->flarm_uart_ != nullptr; }
 
+  // Collision prediction: close proximity, how long before reaching it the alarm is raised, and which targets are
+  // ignored. Distances in meters, times in seconds.
+  void set_alarm_distance(float meters) { this->threat_settings_.alarm_distance = meters; }
+  void set_alarm_altitude(float meters) { this->threat_settings_.alarm_altitude = meters; }
+  void set_glider_alarm_altitude(float meters) { this->threat_settings_.glider_alarm_altitude = meters; }
+  void set_alarm_time(float seconds) { this->threat_settings_.alarm_time = seconds; }
+  void set_max_distance(float meters) { this->threat_settings_.max_distance = meters; }
+  void set_max_altitude_difference(float meters) { this->threat_settings_.max_altitude_difference = meters; }
+  const ThreatSettings &get_threat_settings() const { return this->threat_settings_; }
+  /// Seconds before close proximity at which to warn about a threat, longest first.
+  void set_warning_times(std::initializer_list<uint16_t> seconds) { this->warnings_.set_times(seconds); }
+
+  /// The most significant target at the latest assessment, made at each update.
+  const Threat &get_threat() const { return this->threat_; }
+
+  /// Called after each assessment with the most significant target.
+  template<typename F> void add_on_threat_callback(F &&callback) {
+    this->threat_callback_.add(std::forward<F>(callback));
+  }
+
+  /// Called once at each warning time with that time in seconds, while a threat raises the alarm. A threat first
+  /// seen after some warning times have passed gives one call, for the shortest of those.
+  template<typename F> void add_on_threat_warning_callback(F &&callback) {
+    this->warning_callback_.add(std::forward<F>(callback));
+  }
+
   /// The IPv4 address the GDL90 data last came from, in network byte order; 0 before any has arrived.
   uint32_t get_source_address() const { return this->source_address_; }
 
@@ -120,6 +147,8 @@ class SkyEcho : public PollingComponent {
   void process_flarm_pflaa_(const FlarmPflaa &data);
   void process_flarm_ownship_(const OwnshipPosition &data);
   void update_ownship_from_gdl90_(const gdl90PositionReport_t &report);
+  // Dead-reckon the traffic to now, pick the most significant target and give the warnings that are due.
+  void assess_threats_();
 
   std::unique_ptr<socket::Socket> socket_{};
   std::unique_ptr<socket::Socket> ping_socket_{};
@@ -143,6 +172,13 @@ class SkyEcho : public PollingComponent {
   uart::UARTComponent *flarm_uart_{nullptr};
   FlarmParser flarm_parser_{};
   TrafficManager traffic_manager_{};
+
+  // Collision prediction
+  ThreatSettings threat_settings_{};
+  ThreatWarnings warnings_{};
+  Threat threat_{};
+  LazyCallbackManager<void(const Threat &)> threat_callback_;
+  LazyCallbackManager<void(uint32_t)> warning_callback_;
 
   LazyCallbackManager<void(const uint8_t *, size_t)> gdl90_data_callback_;
   LazyCallbackManager<void(const uint8_t *, size_t)> flarm_data_callback_;

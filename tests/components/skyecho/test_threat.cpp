@@ -320,4 +320,56 @@ TEST(SkyEchoThreat, SelectorPutsAnAlarmFirstAndSkipsIgnoredTargets) {
   EXPECT_TRUE(selector.get_best_assessment().alarm);
 }
 
+TEST(SkyEchoThreat, ExtrapolateMovesAlongTheTrack) {
+  gdl90PositionReport_t moving = report(-28.0f, 1000.0f, 100.0f, 90.0f);
+  extrapolate_report(moving, 2.0f);
+  // 200 m east, none north, and the altitude unchanged.
+  EXPECT_NEAR(moving.latitude, -28.0f, 1e-5f);
+  EXPECT_NEAR((moving.longitude - 151.0f) * 111111.0f * cosf(-28.0f * static_cast<float>(M_PI) / 180.0f), 200.0f, 2.0f);
+  EXPECT_FLOAT_EQ(moving.altitude, 1000.0f);
+}
+
+TEST(SkyEchoThreat, ExtrapolateLeavesATargetWithoutATrack) {
+  gdl90PositionReport_t still = report(-28.0f, 1000.0f, 100.0f, 90.0f);
+  still.isTrackValid = false;
+  extrapolate_report(still, 2.0f);
+  EXPECT_FLOAT_EQ(still.latitude, -28.0f);
+  EXPECT_FLOAT_EQ(still.longitude, 151.0f);
+}
+
+static Threat alarm_threat(uint32_t address, float proximity_time) {
+  Threat threat{};
+  threat.valid = true;
+  threat.report.address = address;
+  threat.assessment.alarm = true;
+  threat.assessment.proximity_time = proximity_time;
+  return threat;
+}
+
+TEST(SkyEchoThreat, WarningsComeOncePerTime) {
+  ThreatWarnings warnings;
+  warnings.set_times({30, 20, 10});
+  EXPECT_EQ(warnings.check(alarm_threat(1, 29.0f)), 30);
+  EXPECT_EQ(warnings.check(alarm_threat(1, 25.0f)), 0);
+  EXPECT_EQ(warnings.check(alarm_threat(1, 19.0f)), 20);
+  EXPECT_EQ(warnings.check(alarm_threat(1, 15.0f)), 0);
+}
+
+TEST(SkyEchoThreat, ALateThreatGetsTheShortestPassedTime) {
+  ThreatWarnings warnings;
+  warnings.set_times({30, 20, 10});
+  EXPECT_EQ(warnings.check(alarm_threat(1, 12.0f)), 20);
+  EXPECT_EQ(warnings.check(alarm_threat(1, 9.0f)), 10);
+}
+
+TEST(SkyEchoThreat, WarningsStartAgainForANewThreatOrAfterTheAlarm) {
+  ThreatWarnings warnings;
+  warnings.set_times({30, 20});
+  EXPECT_EQ(warnings.check(alarm_threat(1, 25.0f)), 30);
+  EXPECT_EQ(warnings.check(alarm_threat(2, 25.0f)), 30);
+  Threat clear{};
+  EXPECT_EQ(warnings.check(clear), 0);
+  EXPECT_EQ(warnings.check(alarm_threat(2, 25.0f)), 30);
+}
+
 }  // namespace esphome::skyecho::testing
