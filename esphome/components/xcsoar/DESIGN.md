@@ -462,6 +462,10 @@ important within 12 s, urgent within 8 s), and makes the most urgent one the `Fl
 reports a higher one. FLARM's own targets and online traffic are left alone. The skyecho component still predicts for
 its LVGL widget and `on_threat_warning`.
 
+Tested on the Tab5 with gdlsim's `--threat` target (one aircraft starting 6 km ahead at the ownship's height and
+flying head-on at it): the target was ringed as an alarm on the traffic gauge as it closed. The spoken alert needs
+sound, which the ESP32 port does not have yet. `test/src/TestFlarmThreat.cpp` covers the prediction and the computer.
+
 A new input (GPS, vario) needs: a stream name and driver in `setup()`, and a call to `Feed()` wherever the
 component has the bytes. If the data is not yet in a format an XCSoar driver reads (a pressure reading, say),
 format it as the sentences of a simple driver (e.g. OpenVario `$POV`) rather than writing a new driver.
