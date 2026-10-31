@@ -42,6 +42,7 @@ CONF_DEMO = "demo"
 CONF_DPI = "dpi"
 CONF_FONTS = "fonts"
 CONF_ON_STOPPED = "on_stopped"
+CONF_ON_TRAFFIC_ALARM = "on_traffic_alarm"
 CONF_BLE_SERIAL_ID = "ble_serial_id"
 CONF_SKYECHO_ID = "skyecho_id"
 CONF_WIFI_NETWORKS_ID = "wifi_networks_id"
@@ -126,6 +127,7 @@ CONFIG_SCHEMA = cv.All(
             ): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_TASK_STACK_SIZE, default=65536): cv.int_range(min=16384),
             cv.Optional(CONF_ON_STOPPED): automation.validate_automation({}),
+            cv.Optional(CONF_ON_TRAFFIC_ALARM): automation.validate_automation({}),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     cv.only_with_framework(Framework.ESP_IDF),
@@ -176,6 +178,10 @@ async def to_code(config: ConfigType) -> None:
     for conf in config.get(CONF_ON_STOPPED, []):
         await automation.build_callback_automation(
             var, "add_on_stopped_callback", [], conf
+        )
+    for conf in config.get(CONF_ON_TRAFFIC_ALARM, []):
+        await automation.build_callback_automation(
+            var, "add_on_traffic_alarm_callback", [(cg.uint8, "level")], conf
         )
     if config[CONF_DEMO]:
         cg.add(var.set_demo(True))

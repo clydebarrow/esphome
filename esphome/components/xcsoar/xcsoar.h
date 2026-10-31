@@ -73,6 +73,11 @@ class XCSoarComponent : public Component
   template<typename F> void add_on_stopped_callback(F &&callback) {
     this->stopped_callback_.add(std::forward<F>(callback));
   }
+  /// Called on the main loop with the FLARM alarm level (1 low, 2 important, 3 urgent) when XCSoar raises a traffic
+  /// alarm or it escalates.
+  template<typename F> void add_on_traffic_alarm_callback(F &&callback) {
+    this->traffic_alarm_callback_.add(std::forward<F>(callback));
+  }
 #ifdef USE_TOUCHSCREEN
   /// Pass the first finger of each touch to XCSoar, as a mouse.
   void set_touchscreen(touchscreen::Touchscreen *touchscreen) { touchscreen->register_listener(this); }
@@ -112,6 +117,7 @@ class XCSoarComponent : public Component
                            void *ctx) noexcept;
   /// Convert the area rect of an XCSoar frame into dest with the PPA; runs on the XCSoar task.
   bool convert_(const void *pixels, unsigned pitch, XCSoarEsp32::Rect rect, uint8_t *dest, size_t dest_size);
+  static void traffic_alarm_(unsigned level, void *ctx) noexcept;
 
   display::Display *display_;
   ppa_client_handle_t ppa_client_{nullptr};
@@ -137,6 +143,9 @@ class XCSoarComponent : public Component
   std::atomic<bool> frame_pending_{false};
   std::atomic<bool> task_stopped_{false};
   LazyCallbackManager<void()> stopped_callback_;
+  // The latest alarm level from XCSoar's thread, for loop(); 0 for none
+  std::atomic<uint8_t> pending_alarm_{0};
+  LazyCallbackManager<void(uint8_t)> traffic_alarm_callback_;
 #ifdef USE_TOUCHSCREEN
   // The finger XCSoar follows, and where it was last
   uint8_t touch_id_{0};

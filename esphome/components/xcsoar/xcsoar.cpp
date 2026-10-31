@@ -136,6 +136,7 @@ void XCSoarComponent::setup() {
 #else
       .wifi = nullptr,
 #endif
+      .traffic_alarm = traffic_alarm_,
 #ifdef USE_XCSOAR_BLE_SERIAL
       .ble = &this->ble_host_,
 #else
@@ -310,6 +311,12 @@ void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, const XCS
   xSemaphoreTake(self->frame_consumed_, portMAX_DELAY);
 }
 
+void XCSoarComponent::traffic_alarm_(unsigned level, void *ctx) noexcept {
+  auto *self = static_cast<XCSoarComponent *>(ctx);
+  self->pending_alarm_ = static_cast<uint8_t>(level);
+  self->enable_loop_soon_any_context();
+}
+
 void XCSoarComponent::loop() {
   if (this->frame_pending_.exchange(false)) {
 #ifdef USE_XCSOAR_FRAME_BUFFERS
@@ -321,6 +328,11 @@ void XCSoarComponent::loop() {
                                    false);
 #endif
     xSemaphoreGive(this->frame_consumed_);
+  }
+
+  if (const uint8_t level = this->pending_alarm_.exchange(0); level != 0) {
+    ESP_LOGI(TAG, "Traffic alarm, level %u", level);
+    this->traffic_alarm_callback_.call(level);
   }
 
   if (this->task_stopped_.exchange(false)) {

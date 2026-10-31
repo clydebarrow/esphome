@@ -31,5 +31,72 @@ ble_serial:
   id: ble_serial_hub
   max_devices: 2
 
+# The speaker, for XCSoar's traffic alarms: a high-low tone once for a low alarm, twice for an important one and three
+# times for an urgent one.
+switch:
+  - platform: gpio
+    id: speaker_enable
+    pin:
+      pi4ioe5v6408: pi4ioe1
+      number: 1
+    restore_mode: ALWAYS_ON
+
+audio_dac:
+  - platform: es8388
+    id: es8388_dac
+
+i2s_audio:
+  - id: audio_bus
+    i2s_lrclk_pin: GPIO29
+    i2s_bclk_pin: GPIO27
+    i2s_mclk_pin: GPIO30
+
+speaker:
+  - platform: i2s_audio
+    id: tab5_speaker
+    i2s_dout_pin: GPIO26
+    audio_dac: es8388_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 100ms
+    bits_per_sample: 16bit
+    sample_rate: 16000
+
+rtttl:
+  id: alarm_tone
+  speaker: tab5_speaker
+
+button:
+  - platform: template
+    name: Test traffic alarm tone
+    on_press:
+      - rtttl.play: "alarm:d=4,o=6,b=150:a,e,a,e,a,e"
+
+# For tap.py (see xcsoar-tab5-tap.yaml)
+api:
+  actions:
+    - action: tap
+      variables:
+        x: int
+        y: int
+      then:
+        - lambda: |-
+            touchscreen::TouchPoint tp{};
+            tp.id = 0;
+            tp.x = x;
+            tp.y = y;
+            id(xcsoar_app)->touch(tp);
+        - delay: 100ms
+        - lambda: id(xcsoar_app)->release();
+
 xcsoar:
   ble_serial_id: ble_serial_hub
+  on_traffic_alarm:
+    - rtttl.play:
+        rtttl: !lambda |-
+          static const char *const TUNES[] = {
+              "alarm:d=4,o=6,b=150:a,e",
+              "alarm:d=4,o=6,b=150:a,e,a,e",
+              "alarm:d=4,o=6,b=150:a,e,a,e,a,e",
+          };
+          return std::string(TUNES[std::clamp<int>(level, 1, 3) - 1]);

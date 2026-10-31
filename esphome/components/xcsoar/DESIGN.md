@@ -463,8 +463,13 @@ reports a higher one. FLARM's own targets and online traffic are left alone. The
 its LVGL widget and `on_threat_warning`.
 
 Tested on the Tab5 with gdlsim's `--threat` target (one aircraft starting 6 km ahead at the ownship's height and
-flying head-on at it): the target was ringed as an alarm on the traffic gauge as it closed. The spoken alert needs
-sound, which the ESP32 port does not have yet. `test/src/TestFlarmThreat.cpp` covers the prediction and the computer.
+flying head-on at it): the target was ringed as an alarm on the traffic gauge as it closed. The ESP32 port has no sound,
+so the spoken alert is silent; instead `TrafficMonitor` passes the level to the host
+(`XCSoarEsp32::Config::traffic_alarm`) on a new alarm and each escalation, and the xcsoar component's
+`on_traffic_alarm` trigger runs with `level` (1 low, 2 important, 3 urgent) on the main loop.
+`xcsoar-tab5-ble.yaml` plays a high-low RTTTL tone through the Tab5's speaker (ES8388, I2S) once, twice or three times
+by level. Tested with gdlsim: levels 1, 2 and 3 came 16, 11 and 6 s before close proximity, each with its tune.
+`rtttl` holds the main loop for up to 200 ms while it starts a note. `test/src/TestFlarmThreat.cpp` covers the prediction and the computer.
 
 A new input (GPS, vario) needs: a stream name and driver in `setup()`, and a call to `Feed()` wherever the
 component has the bytes. If the data is not yet in a format an XCSoar driver reads (a pressure reading, say),
