@@ -5,7 +5,8 @@ Usage:
     script/generate_clion_compile_dbs.py                 Every environment in platformio.ini
     script/generate_clion_compile_dbs.py esp32p4-idf ... Only the named environments
 
-Each database is written to <output>/<env>/compile_commands.json, by default under ~/clion-dbs.
+Each database is written to <output>/<env>/compile_commands.json, by default under clion-dbs in
+the repository root.
 Open one in CLion as a project, then use Tools > Compilation Database > Change Project Root to
 select the repository. An environment that fails
 is reported and skipped, and its existing database is kept. Rerun after adding a source file or
@@ -26,7 +27,7 @@ import tempfile
 import time
 
 REPO = Path(__file__).resolve().parent.parent
-DEFAULT_OUTPUT = Path.home() / "clion-dbs"
+DEFAULT_OUTPUT = REPO / "clion-dbs"
 ENV_PREFIX = "env:"
 MANAGED_COMPONENTS = REPO / "managed_components"
 CXX_SUFFIXES = {".cc", ".cpp"}
