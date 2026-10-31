@@ -61,6 +61,7 @@ struct Threat {
   float north;  // target offset from the ownship, in meters
   float east;
   float altitude;  // target height above the ownship, in meters
+  size_t targets;  // the number of targets assessed, ignored ones included
 };
 
 // Cap on how far a position is dead-reckoned, so stale targets do not run away.
