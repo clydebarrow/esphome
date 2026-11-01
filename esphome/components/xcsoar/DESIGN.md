@@ -487,7 +487,9 @@ to none. On this branch XCSoar predicts collisions itself for targets received a
 with the skyecho component's algorithm ported to `src/FLARM/Threat.cpp`: `ThreatComputer` runs after `FlarmComputer`
 in the merge thread, gives each such target the FLARM alarm level for its time to close proximity (low within 18 s,
 important within 12 s, urgent within 8 s), and makes the most urgent one the `FlarmStatus` alarm unless a FLARM
-reports a higher one. FLARM's own targets and online traffic are left alone. The skyecho component still predicts for
+reports a higher one. Close proximity is within 150 m horizontally (and 152 m vertically, 61 m when both are
+gliders): the SkyEcho prediction's 0.5 NM was made for powered aircraft, and gliders often fly within a kilometer
+of each other, so with it the time to close proximity reached zero about a kilometer out. FLARM's own targets and online traffic are left alone. The skyecho component still predicts for
 its LVGL widget and `on_threat_warning`.
 
 Tested on the Tab5 with gdlsim's `--threat` target (one aircraft starting 6 km ahead at the ownship's height and
@@ -508,10 +510,12 @@ the Tab5 config sets the alarm tone's gain and beeps on a preview. The ES8388 ma
 
 **Alert screen.** At an important or urgent alarm (Config > Gauges > Traffic, "Alert screen": off, important and
 urgent, or urgent only; while circling, only urgent) `TrafficMonitor` covers the main window with
-`TrafficAlertWidget`: amber for important, red for urgent; an arrow towards the traffic relative to the track, with
-its clock position; the height difference (level within 30 m, otherwise above or below, and climbing or descending);
-the distance and the time to close proximity (`FlarmStatus::proximity_time`, set by `ThreatComputer`; a FLARM does
-not give it); and the callsign. Dismiss closes it until that target's level rises or another target alarms; Mute 1 min
+`TrafficAlertWidget`: amber for important, red for urgent. On the left, the height: a triangle pointing up for
+traffic above, down for below, or a bar for level (within 30 m), with the difference and "climbing" or "descending"
+under it; next to it a circle with an arrow towards the traffic relative to the track, and its clock position. On
+the right, the distance and the time to close proximity (`FlarmStatus::proximity_time`, set by `ThreatComputer`; a
+FLARM does not give it), the callsign, and the kind of aircraft (the FLARMnet model, or else the category it reports).
+In portrait the graphics go above the text. Dismiss closes it until that target's level rises or another target alarms; Mute 1 min
 also silences the tone and speech for that target, but an urgent alarm still comes through. It shows "Alarm cleared"
 when the alarm ends and closes 3 s later, reloading the page (InfoBoxes and full screen as they were). It is a main
 window widget, not a modal dialog, so the monitors keep running; it has its own 1 s timer, because without GPS fixes
@@ -525,7 +529,15 @@ the collision alarms depend on it. Trial.
 Tested on the Tab5 with gdlsim's `--threat` target at 20% volume: the alert opened at level 2 and turned red at
 level 3; Dismiss at level 2 closed it and it came back at level 3; Mute at level 2 closed it and the urgent alarm still
 came through with its tone; after the target passed it closed and the page came back. With gdlsim stopped during an
-urgent alarm, the alert showed "Alarm cleared" and closed, and the map showed "No traffic data". The first build left
+urgent alarm, the alert showed "Alarm cleared" and closed, and the map showed "No traffic data".
+gdlsim's scenarios with glider speeds (`--threat --ownship-speed 100`: a 30 m/s glider head-on, turning onto a
+head-on course, climbing from below, sinking while crossing from the right, and one circling 400 m beside the path):
+each collision course raised the low, important and urgent alarms about 17, 11 and 8 s before close proximity, with the
+height, direction and type shown, and the circling glider raised none. Portrait has not been tried on the Tab5.
+
+**Traffic radar.** Targets beyond the radar's range used to sit on its edge, which filled up with distant traffic.
+Now one is drawn there only if it has an alarm, or is closing fast enough to reach the ownship within 36 s (twice
+the earliest alarm); in warning mode only alarms, as before. The first build left
 the alert up forever in that case: the cached `ThreatComputer` alarm was applied again on every merge, and the
 monitors and the close delay waited for a GPS clock that had stopped. The colors are right by eye; the bench camera
 runs at minimum exposure so the screen does not wash out, which shifts them in photos (red looks purple, amber pink).
