@@ -1,0 +1,16 @@
+# xcsoar-tab5-ble.yaml for the first Tab5: an ILI9881C panel and a GT911 touch controller instead of the ST7123.
+
+packages:
+  ble: !include xcsoar-tab5-ble.yaml
+
+esphome:
+  name: xcsoar-tab5-v1
+
+display:
+  - id: !extend lcd
+    model: M5STACK-TAB5
+    pclk_frequency: 60MHz
+
+touchscreen:
+  - id: !extend touch
+    platform: gt911
