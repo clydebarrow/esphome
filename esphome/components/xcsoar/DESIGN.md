@@ -685,18 +685,26 @@ SD card, for example `XCSoar/club.json`:
 {
   "organisation": "Warwick Gliding Club",
   "logo": "club-logo.png",
+  "glider": { "type": "PW6", "registration": "WGQ" },
   "flight_upload_url": "https://example.org/flights"
 }
 ```
+
+`src/ClubConfig.cpp` reads it (`LoadClubConfig()`, `GetClubConfig()`); the logo path is relative to the data
+directory. The file belongs to the unit, not to a pilot, so it is read at start-up before a profile is chosen.
 
 The first config is for the Warwick Gliding Club. Its logo is on the club's website,
 `https://warwickgliding.com/wp-content/uploads/2026/03/WGC_Logo1.png` (300x156 PNG, with transparency; a
 512x512 crop for the site icon is next to it). It goes on the SD card, not in the repository.
 
-- **Splash screen.** Keep the XCSoar 7 logo, but smaller (`src/Gauge/LogoView.cpp`; the start screen is
-  `src/Dialogs/StartupDialog.cpp`). Add the club logo, the organisation name, and the glider type and
-  registration. XCSoar already stores the type and registration in the plane settings (`Plane::type`,
-  `Plane::registration`), so the splash should read them from there rather than from `club.json`.
+- **Splash screen (done).** With a `club.json`, `LogoView` draws the club logo, the organisation name and the
+  glider type and registration, with the XCSoar logo smaller in the bottom third; without one it is unchanged.
+  `Startup.cpp` passes the settings with `LogoView::SetBranding()` before the FLY/SIM screen, so `LogoView` itself
+  needs no JSON (it is also built into the Kobo tools and tests). In landscape the club logo sits left of the
+  text at the full height of its area; in portrait above it. The top row stays free for the version text and the
+  Quit button, and the progress window ends the logo area above its message. The glider comes from `club.json`,
+  not from the plane settings (`Plane::type`, `Plane::registration`): the FLY/SIM screen is shown before a
+  profile is loaded, and the glider is the same for every pilot. Tested on the V2 with the club's 300x156 logo.
 - **Pilot profile at start-up.** The start screen already shows a profile choice when there is more than one
   profile, and the profile list already has New, Copy, Delete and Password. To do: always show the choice, make
   it large enough for touch, and offer "New pilot" there. Settings that belong to the glider (plane and polar,
