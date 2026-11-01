@@ -533,7 +533,9 @@ urgent alarm, the alert showed "Alarm cleared" and closed, and the map showed "N
 gdlsim's scenarios with glider speeds (`--threat --ownship-speed 100`: a 30 m/s glider head-on, turning onto a
 head-on course, climbing from below, sinking while crossing from the right, and one circling 400 m beside the path):
 each collision course raised the low, important and urgent alarms about 17, 11 and 8 s before close proximity, with the
-height, direction and type shown, and the circling glider raised none. Portrait has not been tried on the Tab5.
+height, direction and type shown, and the circling glider raised none. In portrait (`xcsoar-tab5-portrait.yaml`,
+`rotation: 0`, so the PPA only copies) the map, InfoBoxes and alert lay out correctly, the alert with the height and
+direction above the text; touch in portrait has not been tried.
 
 **Traffic radar.** Targets beyond the radar's range used to sit on its edge, which filled up with distant traffic.
 Now one is drawn there only if it has an alarm, or is closing fast enough to reach the ownship within 36 s (twice

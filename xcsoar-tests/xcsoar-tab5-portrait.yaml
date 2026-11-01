@@ -1,0 +1,15 @@
+# xcsoar-tab5-ble.yaml in portrait: the panel's own orientation, so the PPA only copies, and the touch needs no
+# transform. Same name, so it builds and flashes over xcsoar-tab5-ble.yaml.
+
+packages:
+  ble: !include xcsoar-tab5-ble.yaml
+
+display:
+  - id: !extend lcd
+    rotation: 0
+
+touchscreen:
+  - id: !extend touch
+    transform:
+      swap_xy: false
+      mirror_x: false
