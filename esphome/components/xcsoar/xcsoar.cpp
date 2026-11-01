@@ -143,6 +143,7 @@ void XCSoarComponent::setup() {
 #else
       .ble = nullptr,
 #endif
+      .touch_screen = this->touch_screen_,
       .frame_interval_ms = this->frame_interval_,
       .max_frames = 0,
   };
@@ -359,31 +360,40 @@ void XCSoarComponent::loop() {
 
 #ifdef USE_TOUCHSCREEN
 void XCSoarComponent::touch(touchscreen::TouchPoint tp) {
-  this->touch_id_ = tp.id;
-  this->touching_ = true;
-  this->touch_x_ = tp.x;
-  this->touch_y_ = tp.y;
-  XCSoarEsp32::InjectPointer(XCSoarEsp32::PointerAction::DOWN, tp.x, tp.y);
+  // The first finger of a touch; update() follows with all of them
+  if (this->finger_count_ != 0)
+    return;
+  this->fingers_[0] = {tp.x, tp.y};
+  this->finger_count_ = 1;
+  XCSoarEsp32::InjectTouches({this->fingers_.data(), this->finger_count_});
 }
 
 void XCSoarComponent::update(const touchscreen::TouchPoints_t &tpoints) {
   // The touchscreen reports the first position before calling touch()
-  if (!this->touching_)
+  if (this->finger_count_ == 0)
     return;
+  std::array<XCSoarEsp32::TouchPosition, MAX_FINGERS> fingers{};
+  size_t count = 0;
   for (const auto &tp : tpoints) {
-    if (tp.id != this->touch_id_ || (tp.x == this->touch_x_ && tp.y == this->touch_y_))
-      continue;
-    this->touch_x_ = tp.x;
-    this->touch_y_ = tp.y;
-    XCSoarEsp32::InjectPointer(XCSoarEsp32::PointerAction::MOVE, tp.x, tp.y);
+    if (count == fingers.size())
+      break;
+    fingers[count++] = {tp.x, tp.y};
   }
+  if (count == 0)
+    return;
+  if (count == this->finger_count_ && std::equal(fingers.begin(), fingers.begin() + count, this->fingers_.begin(),
+                                                 [](const auto &a, const auto &b) { return a.x == b.x && a.y == b.y; }))
+    return;
+  this->fingers_ = fingers;
+  this->finger_count_ = count;
+  XCSoarEsp32::InjectTouches({this->fingers_.data(), this->finger_count_});
 }
 
 void XCSoarComponent::release() {
-  if (!this->touching_)
+  if (this->finger_count_ == 0)
     return;
-  this->touching_ = false;
-  XCSoarEsp32::InjectPointer(XCSoarEsp32::PointerAction::UP, this->touch_x_, this->touch_y_);
+  this->finger_count_ = 0;
+  XCSoarEsp32::InjectTouches({});
 }
 #endif
 

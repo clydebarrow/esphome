@@ -84,8 +84,11 @@ class XCSoarComponent : public Component
     this->volume_callback_.add(std::forward<F>(callback));
   }
 #ifdef USE_TOUCHSCREEN
-  /// Pass the first finger of each touch to XCSoar, as a mouse.
-  void set_touchscreen(touchscreen::Touchscreen *touchscreen) { touchscreen->register_listener(this); }
+  /// Pass the first two fingers of each touch to XCSoar: the first works the mouse, two give two-finger gestures.
+  void set_touchscreen(touchscreen::Touchscreen *touchscreen) {
+    touchscreen->register_listener(this);
+    this->touch_screen_ = true;
+  }
   void touch(touchscreen::TouchPoint tp) override;
   void update(const touchscreen::TouchPoints_t &tpoints) override;
   void release() override;
@@ -159,12 +162,13 @@ class XCSoarComponent : public Component
   std::atomic<uint8_t> pending_volume_{NO_VOLUME};
   LazyCallbackManager<void(float, bool)> volume_callback_;
 #ifdef USE_TOUCHSCREEN
-  // The finger XCSoar follows, and where it was last
-  uint8_t touch_id_{0};
-  bool touching_{false};
-  int16_t touch_x_{0};
-  int16_t touch_y_{0};
+  // The fingers XCSoar was last given, in the touchscreen's order
+  static constexpr size_t MAX_FINGERS = 2;
+  std::array<XCSoarEsp32::TouchPosition, MAX_FINGERS> fingers_{};
+  size_t finger_count_{0};
 #endif
+  // A touchscreen passes touches to XCSoar, which then behaves as on a touch device
+  bool touch_screen_{false};
   uint32_t frame_interval_{100};
   bool demo_{false};
   unsigned dpi_{0};

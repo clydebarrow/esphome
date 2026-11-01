@@ -100,6 +100,45 @@ api:
             id(xcsoar_app)->touch(tp);
         - delay: 100ms
         - lambda: id(xcsoar_app)->release();
+    # One finger held at x,y for ms milliseconds
+    - action: hold
+      variables:
+        x: int
+        y: int
+        ms: int
+      then:
+        - lambda: |-
+            touchscreen::TouchPoint tp{};
+            tp.x = x;
+            tp.y = y;
+            id(xcsoar_app)->touch(tp);
+        - delay: !lambda return ms;
+        - lambda: id(xcsoar_app)->release();
+    # Two fingers centered on x,y, moving from start to finish pixels apart in 10 steps: a pinch or a spread
+    - action: pinch
+      variables:
+        x: int
+        y: int
+        start: int
+        finish: int
+      then:
+        - lambda: |-
+            auto fingers = [&](int gap) {
+              touchscreen::TouchPoint a{}, b{};
+              a.id = 0;
+              b.id = 1;
+              a.x = x - gap / 2;
+              b.x = x + gap / 2;
+              a.y = b.y = y;
+              return touchscreen::TouchPoints_t{a, b};
+            };
+            auto points = fingers(start);
+            id(xcsoar_app)->touch(points[0]);
+            for (int i = 0; i <= 10; i++) {
+              id(xcsoar_app)->update(fingers(start + (finish - start) * i / 10));
+              delay(30);
+            }
+            id(xcsoar_app)->release();
 
 xcsoar:
   ble_serial_id: ble_serial_hub
