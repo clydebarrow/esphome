@@ -400,12 +400,11 @@ To do:
     quick menu, in `Data/Input/default.xci`) should work, since they need only one finger. Not tried yet.
   - Possible fixes: wait as long for a single tap as a double tap may take, allow more distance between the
     taps on a high density screen, and add a long press for the menu.
-- **Configuration opens slowly (to check).** In the menu the first buttons respond at once, but Configuration
-  takes a noticeable time before its screen appears. `dlgConfigurationShowModal()` creates every settings page
-  (`TabMenuDisplay::InitMenu()` calls each page's `Load`, about 40 of them) before the dialog shows; the pager
-  prepares a page only when it is shown, so the cost is in the constructors, the full-screen dialog and its first
-  paint. Measure which of these takes the time (the sampling profiler, or timestamps around `InitMenu()` and the
-  first `Expose()`), then consider creating the pages only when they are first opened.
+- **Configuration opens slowly (fixed).** Building the dialog took 35 ms (`InitMenu()` 20 ms); showing it took
+  1.8 s, because `PagerWidget::Prepare()` prepared all of its 40 or so pages. `PagerWidget::SetLazyPrepare()` (used
+  only by this dialog; the checklist and Vega dialogs use the windows of pages not shown) leaves each page to the
+  first `Show()` or `SetCurrent()`. The dialog now shows 0.4 s after the tap, about 2.3 s before. A page pays its
+  own cost on its first visit: Site Files took 2.1 s, listing the files of several directories on the card.
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
 - **Loading time.** The screen is not redrawn while loading, so taps made then are handled only when loading
   ends. Measured on the V2 with the Queensland map, the Warwick waypoints and the Australian airspace, from
@@ -415,12 +414,22 @@ To do:
     software `double`). `FindArcPoints()` now runs Vincenty in float (the P4 has hardware single precision)
     for every tenth point and fills the rest from a local approximation corrected towards them: about 1.1 s,
     about 2 m off for radii up to 100 km. The rest of the parse is about 3 s, the index 0.8 s.
+  - Smaller file: `xcsoar-tests/openair_clip.py` keeps the airspaces whose bounding box (circles and arcs at full
+    radius) overlaps an area plus a margin. For the Queensland map (latitude -29 to -25, longitude 148.5 to 153,
+    50 km margin) it keeps 225 of the 1912 airspaces of the national file, 68 KB of 478 KB, and the airspace load
+    takes 1.2 s instead of 5.5 s; from "Loading profiles" to "ProgramStarted" is now 3.9 s.
+    `python3 openair_clip.py AU-ASP-National-SoaringWeb.txt AU-ASP-QLD-SE.txt --lat -29 -25 --lon 148.5 153`
   - Still possible: keep a parsed copy on the card and load that when the file has not changed, or load in the
     background after the map shows.
   - Every C++ exception costs 0.6 to 0.8 s here. Start-up threw three, for optional files that were missing
     (`user.cup`, `airfields.txt` in the map, the RASP file); XCSoar now checks that they exist first. A hook
     on `__cxa_throw` (`-Wl,--wrap=__cxa_throw`) logged no other throws in four minutes of running.
 - **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
+- **Keyboard lag (fixed).** On the on-screen keyboard each key gave two full-screen frames (about 65 ms to paint
+  and 44 ms to convert each), and the letter appeared about 200 ms after the key was released. `WndForm` said it
+  paints over its children (its border and caption are drawn after them), so any change in a dialog repainted
+  the whole form; but they lie outside the client area. Now a key repaints 41 to 63% of the screen, its pressed
+  look shows at touch-down and the letter about 55 ms after the release.
 - **Real touch.** Works in use. In a menu, the button that leads to the next page is labelled with that page
   ("Config Page 2/3" on page 1), which reads as if the menu opened on page 2.
 - **Brief flicker (found).** The panel showed an occasional whole-screen frame shifted towards green. Two causes,
@@ -686,7 +695,8 @@ SD card, for example `XCSoar/club.json`:
   "organisation": "Warwick Gliding Club",
   "logo": "club-logo.png",
   "glider": { "type": "PW6", "registration": "WGQ" },
-  "flight_upload_url": "https://example.org/flights"
+  "flight_upload_url": "https://example.org/flights",
+  "flight_upload_key": "a secret shared with the server"
 }
 ```
 
@@ -722,7 +732,14 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   looks once a minute while the network is up, renames the file to `flights-sending.jsonl` (so XCSoar starts a
   new one), POSTs each line (`application/json`, the certificate bundle for https) and appends the ones not
   accepted to the pending file again; a sending file left by a restart goes first. A 2xx status counts as
-  accepted even when the server then closes the connection, so a flight is not sent twice.
+  accepted even when the server then closes the connection, so a flight is not sent twice. With a
+  `flight_upload_key`, each request carries `X-Signature: sha256=<hex>`, the HMAC-SHA256 of the body with that
+  key (the scheme of GitHub's webhooks), so the server can check where a flight came from. The key is on the SD
+  card in plain text, so anyone with the card can sign flights. Tested with the stand-in server checking the
+  signature: accepted with the right key; with a wrong one HTTP 403, and the flight stayed queued.
+  - Format: `flights-pending.jsonl` holds one JSON object per line, and each line is one POST body:
+    `{"organisation":"Warwick Gliding Club","glider_type":"PW6","registration":"WGQ","pilot":"TEST",`
+    `"takeoff":"2026-11-01T08:59:01Z","landing":"2026-11-01T09:01:01Z","duration":120}`.
   - Tested on the V2 with a stand-in server on the Mac and gdlsim at 1600 ft (`--ownship-altitude`, new; at its
     default 2500 ft the ownship is 300 m above Warwick, where XCSoar counts it as flying whatever the speed): 45 s
     at 0 km/h, 100 s at 100 km/h, 60 s at 0. XCSoar logged the start and the landing, queued the flight, and the

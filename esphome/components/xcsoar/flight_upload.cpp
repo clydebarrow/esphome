@@ -7,6 +7,7 @@
 #include "esphome/core/log.h"
 
 #include <esp_http_client.h>
+#include <mbedtls/md.h>
 #ifdef CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
 #include <esp_crt_bundle.h>
 #endif
@@ -31,6 +32,8 @@ static constexpr UBaseType_t TASK_PRIORITY = 1;
 // One queued flight; XCSoar writes about 250 bytes
 static constexpr size_t MAX_LINE = 1024;
 static constexpr size_t MAX_URL = 256;
+static constexpr size_t MAX_KEY = 128;
+static constexpr size_t SHA256_SIZE = 32;
 static constexpr size_t MAX_PATH = 96;
 static constexpr size_t MAX_CLUB_JSON = 4096;
 
@@ -44,8 +47,14 @@ static bool file_exists(const char *path) {
   return stat(path, &st) == 0;
 }
 
-// The flight_upload_url of club.json, or false if there is none
-static bool read_upload_url(const char *data_path, char *url, size_t size) {
+struct UploadSettings {
+  char url[MAX_URL];
+  // Signs each flight when not empty
+  char key[MAX_KEY];
+};
+
+// The flight_upload_url and flight_upload_key of club.json; false if there is no URL
+static bool read_upload_settings(const char *data_path, UploadSettings &settings) {
   char path[MAX_PATH];
   snprintf(path, sizeof(path), "%s/%s", data_path, CLUB_FILE);
   FILE *file = fopen(path, "rb");
@@ -55,20 +64,39 @@ static bool read_upload_url(const char *data_path, char *url, size_t size) {
   const size_t length = fread(buffer.get(), 1, MAX_CLUB_JSON, file);
   fclose(file);
 
-  url[0] = '\0';
-  json::parse_json(buffer.get(), length, [url, size](JsonObject root) -> bool {
-    const char *value = root["flight_upload_url"];
-    if (value != nullptr)
-      snprintf(url, size, "%s", value);
+  settings.url[0] = '\0';
+  settings.key[0] = '\0';
+  json::parse_json(buffer.get(), length, [&settings](JsonObject root) -> bool {
+    if (const char *url = root["flight_upload_url"]; url != nullptr)
+      snprintf(settings.url, sizeof(settings.url), "%s", url);
+    if (const char *key = root["flight_upload_key"]; key != nullptr)
+      snprintf(settings.key, sizeof(settings.key), "%s", key);
     return true;
   });
-  return url[0] != '\0';
+  return settings.url[0] != '\0';
+}
+
+// "sha256=" and the HMAC-SHA256 of the body in hex, as GitHub signs its webhooks
+static bool sign(const char *key, const char *body, size_t length, char *signature, size_t size) {
+  uint8_t mac[SHA256_SIZE];
+  if (mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), reinterpret_cast<const uint8_t *>(key), strlen(key),
+                      reinterpret_cast<const uint8_t *>(body), length, mac) != 0)
+    return false;
+  size_t pos = snprintf(signature, size, "sha256=");
+  for (uint8_t b : mac)
+    pos += snprintf(signature + pos, size - pos, "%02x", b);
+  return true;
 }
 
 // POST one flight; true if the server accepted it
-static bool post_flight(const char *url, const char *body, size_t length) {
+static bool post_flight(const UploadSettings &settings, const char *body, size_t length) {
+  char signature[8 + 2 * SHA256_SIZE];
+  if (settings.key[0] != '\0' && !sign(settings.key, body, length, signature, sizeof(signature))) {
+    ESP_LOGW(TAG, "Signing failed");
+    return false;
+  }
   esp_http_client_config_t config{};
-  config.url = url;
+  config.url = settings.url;
   config.method = HTTP_METHOD_POST;
   config.timeout_ms = HTTP_TIMEOUT_MS;
 #ifdef CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
@@ -78,6 +106,8 @@ static bool post_flight(const char *url, const char *body, size_t length) {
   if (client == nullptr)
     return false;
   esp_http_client_set_header(client, "Content-Type", "application/json");
+  if (settings.key[0] != '\0')
+    esp_http_client_set_header(client, "X-Signature", signature);
   esp_http_client_set_post_field(client, body, int(length));
   const esp_err_t err = esp_http_client_perform(client);
   const int status = esp_http_client_get_status_code(client);
@@ -105,8 +135,8 @@ static void send_flights(const char *data_path) {
       return;
   }
 
-  char url[MAX_URL];
-  if (!read_upload_url(data_path, url, sizeof(url))) {
+  UploadSettings settings;
+  if (!read_upload_settings(data_path, settings)) {
     ESP_LOGW(TAG, "Flights are queued, but %s has no flight_upload_url", CLUB_FILE);
     return;
   }
@@ -122,7 +152,7 @@ static void send_flights(const char *data_path) {
       line[--length] = '\0';
     if (length == 0)
       continue;
-    if (network::is_connected() && post_flight(url, line.get(), length)) {
+    if (network::is_connected() && post_flight(settings, line.get(), length)) {
       sent++;
       continue;
     }
