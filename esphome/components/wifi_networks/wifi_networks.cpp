@@ -310,9 +310,11 @@ void WifiNetworks::update_snapshot_() {
   auto *wifi = wifi::global_wifi_component;
   Status status{};
   status.automatic = this->pinned_[0] == 0;
+  // A network joined by hand shows as connecting until it is the one in use, also while the old one still is
+  const bool switching = this->pinned_[0] != 0 && strcmp(this->pinned_, this->current_) != 0;
   if (wifi->is_disabled()) {
     status.state = WifiState::WIFI_STATE_OFF;
-  } else if (wifi->is_connected()) {
+  } else if (wifi->is_connected() && !switching) {
     status.state = WifiState::WIFI_STATE_CONNECTED;
     copy_string(status.ssid, sizeof(status.ssid), this->current_);
     for (const auto &ip : wifi->wifi_sta_ip_addresses()) {
@@ -323,6 +325,7 @@ void WifiNetworks::update_snapshot_() {
     }
   } else {
     status.state = WifiState::WIFI_STATE_CONNECTING;
+    copy_string(status.ssid, sizeof(status.ssid), this->pinned_);
   }
   const bool connected = status.state == WifiState::WIFI_STATE_CONNECTED;
 
