@@ -1,6 +1,7 @@
 #ifdef USE_ESP32_VARIANT_ESP32P4
 
 #include "xcsoar.h"
+#include "flight_upload.h"
 
 #include "esphome/core/log.h"
 
@@ -93,6 +94,11 @@ void XCSoarComponent::setup() {
 #ifdef USE_FILESYSTEM_VFS
   if (this->data_fs_ != nullptr)
     snprintf(this->data_path_, sizeof(this->data_path_), "%s/%s", this->data_fs_->get_vfs()->get_base_path(), DATA_DIR);
+#endif
+#ifdef USE_XCSOAR_FLIGHT_UPLOAD
+  if (this->data_fs_ != nullptr && !start_flight_uploader(this->data_path_)) {
+    ESP_LOGW(TAG, "Flight upload task creation failed");
+  }
 #endif
 
 #ifdef XCSOAR_ROM_FILE_COUNT

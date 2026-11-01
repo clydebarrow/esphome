@@ -16,6 +16,8 @@ from esphome.components.esp32 import (
     add_idf_component,
     add_idf_sdkconfig_option,
     only_on_variant,
+    request_http_client,
+    require_certificate_bundle,
     require_vfs_dir,
     require_vfs_select,
 )
@@ -38,8 +40,17 @@ CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["display", "esp32", "psram"]
 DOMAIN = "xcsoar"
 
+
+def AUTO_LOAD(config: ConfigType | None = None) -> list[str]:
+    """The flight uploader reads club.json with the json component."""
+    if not config or config.get(CONF_FLIGHT_UPLOAD):
+        return ["json"]
+    return []
+
+
 CONF_DEMO = "demo"
 CONF_DPI = "dpi"
+CONF_FLIGHT_UPLOAD = "flight_upload"
 CONF_FONTS = "fonts"
 CONF_ON_STOPPED = "on_stopped"
 CONF_ON_TRAFFIC_ALARM = "on_traffic_alarm"
@@ -121,6 +132,8 @@ CONFIG_SCHEMA = cv.All(
             ),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
             cv.Optional(CONF_DEMO, default=False): cv.boolean,
+            # Send the flights XCSoar queues to the flight_upload_url of club.json
+            cv.Optional(CONF_FLIGHT_UPLOAD, default=False): cv.boolean,
             # XCSoar's -dpi range
             cv.Optional(CONF_DPI): cv.int_range(min=32, max=512),
             cv.Optional(
@@ -151,6 +164,8 @@ def _get_data() -> XCSoarData:
 
 
 def _final_validate(config: ConfigType) -> None:
+    if config[CONF_FLIGHT_UPLOAD] and "network" not in CORE.loaded_integrations:
+        raise cv.Invalid(f"'{CONF_FLIGHT_UPLOAD}' needs a network connection")
     if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
         filesystem.require_vfs_path(fs_id)
     disp = fv.get_declaring_config(config[CONF_DISPLAY_ID])
@@ -225,6 +240,10 @@ async def to_code(config: ConfigType) -> None:
     if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
         filesystem.request_vfs_handles(fs_id, VFS_MAX_FILES, VFS_MAX_DIRS)
         await cg.add_variable(var.set_filesystem, fs_id)
+    if config[CONF_FLIGHT_UPLOAD]:
+        request_http_client()
+        require_certificate_bundle()
+        cg.add_define("USE_XCSOAR_FLIGHT_UPLOAD")
     if _get_data().use_frame_buffers:
         cg.add_define("USE_XCSOAR_FRAME_BUFFERS")
 

@@ -26,3 +26,5 @@ xcsoar:
 # Sets the clock, from which XCSoar's GDL90 driver takes the date.
 time:
   - platform: skyecho
+    on_time_sync:
+      - rx8130.write_time: rtc

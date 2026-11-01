@@ -713,10 +713,24 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   the keyboard, then `profiles/TEST.prf` loaded with the map, airspace and all four devices.
   - Still open: a change to a glider setting made by one pilot reaches only that pilot's profile. A glider
     profile read before the pilot profile would keep them in one place.
-- **Flight upload.** After landing, once the unit is on the internet, send the takeoff and landing times, the
-  duration, the pilot name and the glider registration to `flight_upload_url` as a JSON POST.
-  `src/Logger/FlightLogger.cpp` already detects takeoff and landing. Keep unsent flights in a file on the SD card
-  and retry until the server accepts them, so a flight is not lost when there is no Wi-Fi at the airfield.
+- **Flight upload (done).** XCSoar's `FlightLogger` keeps the confirmed takeoff time; at the landing
+  `GlueFlightLogger::OnFlight()` calls `SaveClubFlight()`, which appends one JSON object per line to
+  `XCSoar/flights-pending.jsonl`: `organisation`, `glider_type`, `registration`, `pilot`, `takeoff` and `landing`
+  (UTC, ISO 8601) and `duration` (seconds). With a `flight_upload_url` the flight logger runs even when its own log
+  (`logs/flights.log`) is turned off; it does not run in simulator mode. XCSoar on the ESP32 has no HTTP client,
+  so the ESPHome component sends them (`flight_upload: true`, `flight_upload.cpp`): a task with its stack in PSRAM
+  looks once a minute while the network is up, renames the file to `flights-sending.jsonl` (so XCSoar starts a
+  new one), POSTs each line (`application/json`, the certificate bundle for https) and appends the ones not
+  accepted to the pending file again; a sending file left by a restart goes first. A 2xx status counts as
+  accepted even when the server then closes the connection, so a flight is not sent twice.
+  - Tested on the V2 with a stand-in server on the Mac and gdlsim at 1600 ft (`--ownship-altitude`, new; at its
+    default 2500 ft the ownship is 300 m above Warwick, where XCSoar counts it as flying whatever the speed): 45 s
+    at 0 km/h, 100 s at 100 km/h, 60 s at 0. XCSoar logged the start and the landing, queued the flight, and the
+    server received it 28 s later.
+- **Clock.** GDL90 carries only the time of day, so XCSoar takes the date from the system clock, which was 1970
+  after a power-off (and the profile list's "most recent pilot" uses file times). `xcsoar-tab5.yaml` now reads
+  the RX8130 (I2C 0x32) at boot and writes it at each SNTP or SkyEcho time sync. Its first value was garbage
+  (2086); SNTP corrected it about 30 s after boot.
 - **Side button: not possible.** The schematic (`Tab5_Schematics_PDF.pdf` on docs.m5stack.com, page 5) shows the
   button S1 (`SW_PWR`) wired only to U28, a PMS150G microcontroller with M5Stack's own firmware, which switches
   the main power (`MPWR_EN`). It also drives `BOOT_GPIO35`, but a probe of GPIO35 saw no change for any press.
