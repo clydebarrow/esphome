@@ -25,6 +25,8 @@ static constexpr int TASK_CORE = tskNO_AFFINITY;
 static constexpr size_t MALLOC_INTERNAL_LIMIT = 0;
 // A panel refresh takes about 16 ms; this only guards against a stopped panel
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
+// XCSoar's drawing threads (the UI and the map) can fill at the same time
+static constexpr uint32_t FILL_PENDING_MAX = 4;
 // XCSoar's event loop wakes up through an eventfd
 static constexpr size_t EVENTFD_COUNT = 4;
 // XCSoar's directory below the data filesystem's vfs_path
@@ -58,6 +60,11 @@ void XCSoarComponent::setup() {
     this->mark_failed(LOG_STR("PPA client registration failed"));
     return;
   }
+  // Without it XCSoar fills with the CPU
+  ppa_config.oper_type = PPA_OPERATION_FILL;
+  ppa_config.max_pending_trans_num = FILL_PENDING_MAX;
+  if (ppa_register_client(&ppa_config, &this->ppa_fill_client_) != ESP_OK)
+    this->ppa_fill_client_ = nullptr;
 
   // XCSoar draws at the display's rotated size
   const int width = this->display_->get_width();
@@ -144,6 +151,7 @@ void XCSoarComponent::setup() {
 #endif
       .traffic_alarm = traffic_alarm_,
       .volume = volume_,
+      .fill = this->ppa_fill_client_ != nullptr ? fill_ : nullptr,
 #ifdef USE_XCSOAR_BLE_SERIAL
       .ble = &this->ble_host_,
 #else
@@ -277,6 +285,8 @@ bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, XCSoarEsp32::
 void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, const XCSoarEsp32::Rect *dirty,
                                    unsigned dirty_count, void *ctx) noexcept {
   auto *self = static_cast<XCSoarComponent *>(ctx);
+  self->screen_pixels_ = static_cast<const uint8_t *>(pixels);
+  self->screen_pitch_ = pitch;
   DirtyRects areas;
   for (unsigned i = 0; i != dirty_count; i++)
     add_rect(areas, dirty[i]);
@@ -314,6 +324,38 @@ void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, const XCS
   self->frame_pending_ = true;
   self->enable_loop_soon_any_context();
   xSemaphoreTake(self->frame_consumed_, portMAX_DELAY);
+}
+
+bool XCSoarComponent::fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
+                            void *ctx) noexcept {
+  auto *self = static_cast<XCSoarComponent *>(ctx);
+  const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
+  auto *data = static_cast<uint8_t *>(buffer);
+  // A window's canvas is part of the screen buffer: fill a block of the whole (aligned) screen instead
+  const uint8_t *screen = self->screen_pixels_;
+  const unsigned screen_pitch = self->screen_pitch_;
+  const size_t screen_size = size_t(screen_pitch) * self->config_.height;
+  if (screen != nullptr && pitch == screen_pitch && data >= screen && data < screen + screen_size) {
+    const size_t offset = data - screen;
+    rect.x += (offset % pitch) / bytes_per_pixel;
+    rect.y += offset / pitch;
+    data = const_cast<uint8_t *>(screen);
+    height = self->config_.height;
+  }
+  ppa_fill_oper_config_t fill{};
+  fill.out.buffer = data;
+  fill.out.buffer_size = pitch * height;
+  fill.out.pic_w = pitch / bytes_per_pixel;
+  fill.out.pic_h = height;
+  fill.out.block_offset_x = rect.x;
+  fill.out.block_offset_y = rect.y;
+  fill.out.fill_cm = bytes_per_pixel == 2 ? PPA_FILL_COLOR_MODE_RGB565 : PPA_FILL_COLOR_MODE_ARGB8888;
+  fill.fill_block_w = rect.width;
+  fill.fill_block_h = rect.height;
+  fill.fill_argb_color.val = argb;
+  fill.mode = PPA_TRANS_MODE_BLOCKING;
+  // The PPA needs a buffer aligned to the cache line; XCSoar fills any other itself
+  return ppa_do_fill(self->ppa_fill_client_, &fill) == ESP_OK;
 }
 
 void XCSoarComponent::traffic_alarm_(unsigned level, void *ctx) noexcept {

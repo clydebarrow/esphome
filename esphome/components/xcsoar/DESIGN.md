@@ -771,7 +771,10 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
     unmount, but it may be enough to stop starting new SD card writes and to tell XCSoar to stop logging.
   - Whatever the answer, keep the card safe when power goes without warning: write the IGC log in small parts
     and flush it often, and save settings to a new file that is then renamed over the old one.
-- **Faster graphics on the P4.** Find out which drawing steps the P4 hardware can take over:
+- **User repositories (deferred).** Site Files > User repositories lists more repository URLs (`|` between
+  them), each an index in the format of download.xcsoar.org's; their maps, waypoints and airspace files are then
+  offered for download next to the official ones. A club repository could be set from `club.json`.
+- **Faster graphics on the P4.** See "Performance": PPA fill done; the list below is what is left.
   - PPA fill for large solid areas (clearing the canvas, background fills).
   - PPA blend for bitmaps with transparency and for the airspace fill, which now draws every airspace twice
     (stencil and fill).
@@ -822,6 +825,32 @@ JPEG 2000 decoding of terrain tiles took about 12%, polygon fills and wide lines
   screen) are repainted whole, and moving or resizing a window repaints its parent. Frames now convert 73% of the
   screen on average with the InfoBoxes shown, and 89% in pan mode, where the map covers the screen and changes
   with every frame. The profile shows about 45% less filling; copying (mostly the map buffer) is unchanged.
+
+- **PPA and DMA, measured** (full-screen 1280x720 RGB565 buffers in PSRAM; CPU figures with XCSoar idle, in
+  brackets with it running):
+
+  | Operation | Time |
+  |---|---|
+  | CPU `memset` | 31 ms (53) |
+  | CPU `memcpy` | 43 ms (91) |
+  | PPA fill | 5.2 ms |
+  | PPA copy, no rotation or rotated 90 | 41 ms |
+  | DMA `memcpy` (AXI GDMA, `esp_async_memcpy`) | 47 ms |
+  | PPA fill of 64x64, 128x128, 256x256, 512x512 | 1.0, 0.8, 0.7, 1.5 ms (CPU 0.05, 0.2, 3.8, 21) |
+
+  Copies are limited by PSRAM, which the panel also reads 58 times a second, so neither the PPA nor DMA copies
+  faster than the CPU; they would only free it. Filling is where the PPA wins: it only writes. A PPA fill costs
+  about 0.8 ms whatever its size, because the driver writes back and invalidates the cache of the whole buffer.
+- **PPA fill (done).** `Canvas::DrawFilledRectangle()` offers fills of 40000 pixels or more to `HostFill()`
+  (`Config::fill`), and the component fills them with a second PPA client (up to 4 pending, as the UI and the map
+  threads both draw). The PPA needs the buffer aligned to the cache line: XCSoar's pixel buffers are now
+  allocated in PSRAM with `heap_caps_aligned_alloc(64)`, and a window's canvas, which points into the screen
+  buffer, is filled as a block of the whole screen buffer (the component keeps its address from the last
+  frame). Anything else falls back to the CPU. Opening Configuration now takes 130 to 200 ms from the release to
+  its frame, 430 ms before.
+- **Still possible:** draw straight into the panel's buffer in the panel's orientation (no PPA conversion, 44 ms
+  per full frame now), or blend bitmaps and the airspace fill with the PPA. SIMD (PIE) for per-pixel loops is not
+  tried yet.
 
 `IsSlowCPU()` is true on ESP32 (it reports the configured CPU frequency), which turns off InfoBox fades,
 kinetic scrolling and other animations: each of their steps costs a whole frame here.

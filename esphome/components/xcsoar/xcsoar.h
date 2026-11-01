@@ -128,9 +128,16 @@ class XCSoarComponent : public Component
   bool convert_(const void *pixels, unsigned pitch, XCSoarEsp32::Rect rect, uint8_t *dest, size_t dest_size);
   static void traffic_alarm_(unsigned level, void *ctx) noexcept;
   static void volume_(unsigned percent, bool preview, void *ctx) noexcept;
+  static bool fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
+                    void *ctx) noexcept;
 
   display::Display *display_;
   ppa_client_handle_t ppa_client_{nullptr};
+  // Fills large rectangles of XCSoar's canvases for its drawing threads
+  ppa_client_handle_t ppa_fill_client_{nullptr};
+  // XCSoar's screen buffer, from the last frame: its windows' canvases point into it, unaligned
+  std::atomic<const uint8_t *> screen_pixels_{nullptr};
+  std::atomic<unsigned> screen_pitch_{0};
   ppa_srm_rotation_angle_t ppa_rotation_{PPA_SRM_ROTATION_ANGLE_0};
   ppa_srm_color_mode_t ppa_out_color_mode_{PPA_SRM_COLOR_MODE_RGB565};
   // Size of the converted frame
