@@ -707,13 +707,24 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   duration, the pilot name and the glider registration to `flight_upload_url` as a JSON POST.
   `src/Logger/FlightLogger.cpp` already detects takeoff and landing. Keep unsent flights in a file on the SD card
   and retry until the server accepts them, so a flight is not lost when there is no Wi-Fi at the airfield.
-- **Side button as Safe shutdown.** The side button already starts the unit after a shutdown. Hold it for 3 s
-  to shut down: show a countdown on the screen while it is held, cancel if it is released early, then do what
-  the "Safe shutdown" API button does. First find out how the button is wired and whether the firmware can read
-  it.
+- **Side button: not possible.** The schematic (`Tab5_Schematics_PDF.pdf` on docs.m5stack.com, page 5) shows the
+  button S1 (`SW_PWR`) wired only to U28, a PMS150G microcontroller with M5Stack's own firmware, which switches
+  the main power (`MPWR_EN`). It also drives `BOOT_GPIO35`, but a probe of GPIO35 saw no change for any press.
+  Tested on the V2: a short press resets the P4, and a double press or a long press switches it off, each at once
+  and without telling the P4. So the button cannot run a safe shutdown, and pressing it while the SD card is
+  mounted risks the card. The PMS150G is one-time programmable.
+- **Switching off from XCSoar (done).** Quit in XCSoar's menu now switches the unit off: `on_stopped` has a
+  `quit` argument (false when XCSoar failed), and `xcsoar-tab5.yaml` then shows "Switching off", runs the safe
+  shutdown hooks (the SD card is unmounted) and pulses `PWROFF_PLUSE` (I/O expander 0x44, P4; high for 100 ms,
+  three times, as M5Stack's demo does). Tested on the V2: off 2.2 s after XCSoar finished its shutdown; the side
+  button starts it again.
 - **Power loss.** Find out whether loss of power can be detected early enough to stop safely:
-  - With a battery fitted, losing USB power is not a power loss. The bus scan finds a device at I2C 0x41,
-    probably the INA226 battery monitor (to check). If so, a low battery can start a normal shutdown in time.
+  - There is no VBUS detector the P4 can read. U37 (SSP61CC3002MR) detects external 5V, but its output
+    (`VBK_LCK`) only switches the battery path.
+  - With a battery fitted, losing USB power is not a power loss. The INA226 at I2C 0x41 measures the battery
+    voltage and current (the current shows charging or not), and the charger's `CHG_STAT` is on I/O expander
+    0x44, P6. A low battery can start a normal shutdown in time. Without a battery the INA226 reads about 1.9 V
+    and 0 A.
   - Without a battery, the P4's brown-out detector can raise an interrupt instead of resetting. The time left
     is probably a few milliseconds, depending on the capacitance on the supply. That is too short for a clean
     unmount, but it may be enough to stop starting new SD card writes and to tell XCSoar to stop logging.

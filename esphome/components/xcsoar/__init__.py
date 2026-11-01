@@ -179,7 +179,7 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_task_stack_size(config[CONF_TASK_STACK_SIZE]))
     for conf in config.get(CONF_ON_STOPPED, []):
         await automation.build_callback_automation(
-            var, "add_on_stopped_callback", [], conf
+            var, "add_on_stopped_callback", [(bool, "quit")], conf
         )
     for conf in config.get(CONF_ON_TRAFFIC_ALARM, []):
         await automation.build_callback_automation(

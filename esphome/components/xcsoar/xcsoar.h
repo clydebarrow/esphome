@@ -69,7 +69,8 @@ class XCSoarComponent : public Component
   /// Run XCSoar's test scene instead of XCSoar.
   void set_demo(bool demo) { this->demo_ = demo; }
   void set_dpi(unsigned dpi) { this->dpi_ = dpi; }
-  /// Called on the main loop once XCSoar has stopped (it quit, or failed to start); the display is free again.
+  /// Called on the main loop once XCSoar has stopped, with quit true when the user quit and false when it failed;
+  /// the display is free again.
   template<typename F> void add_on_stopped_callback(F &&callback) {
     this->stopped_callback_.add(std::forward<F>(callback));
   }
@@ -151,7 +152,9 @@ class XCSoarComponent : public Component
   SemaphoreHandle_t frame_consumed_{nullptr};
   std::atomic<bool> frame_pending_{false};
   std::atomic<bool> task_stopped_{false};
-  LazyCallbackManager<void()> stopped_callback_;
+  // Written before task_stopped_ is set
+  bool task_quit_{false};
+  LazyCallbackManager<void(bool)> stopped_callback_;
   // The latest alarm level from XCSoar's thread, for loop(); 0 for none
   std::atomic<uint8_t> pending_alarm_{0};
   LazyCallbackManager<void(uint8_t)> traffic_alarm_callback_;

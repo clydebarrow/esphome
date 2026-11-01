@@ -178,12 +178,9 @@ void *XCSoarComponent::task_main_(void *param) {
     ESP_LOGW(TAG, "Data filesystem not ready; XCSoar starts without it");
   }
 #endif
-  if (self->demo_) {
-    XCSoarEsp32::RunDemo(self->config_);
-  } else {
-    XCSoarEsp32::Run(self->config_);
-  }
+  const bool quit = self->demo_ ? XCSoarEsp32::RunDemo(self->config_) : XCSoarEsp32::Run(self->config_);
   // XCSoar only returns when it quits or fails
+  self->task_quit_ = quit;
   self->task_stopped_ = true;
   self->enable_loop_soon_any_context();
   return nullptr;
@@ -351,8 +348,10 @@ void XCSoarComponent::loop() {
   }
 
   if (this->task_stopped_.exchange(false)) {
-    this->status_set_error(LOG_STR("XCSoar stopped"));
-    this->stopped_callback_.call();
+    const bool quit = this->task_quit_;
+    if (!quit)
+      this->status_set_error(LOG_STR("XCSoar stopped"));
+    this->stopped_callback_.call(quit);
   }
 
   this->disable_loop();
