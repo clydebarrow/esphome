@@ -407,16 +407,17 @@ To do:
   paint. Measure which of these takes the time (the sampling profiler, or timestamps around `InitMenu()` and the
   first `Expose()`), then consider creating the pages only when they are first opened.
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
-- **Loading time (to check).** Start-up takes about 40 s with this card: terrain 19 s, airspace 18 s, and the
-  airspace file is now the longest step. The screen is not redrawn while loading, so taps made then are handled
-  only when loading ends. To find out why the airspace is slow and whether it can be sped up:
-  - Time the read alone against the parse: SD card reads in SPI mode, and whether the file is read in small
-    blocks.
-  - Profile the parse (`prof::start()`): the OpenAir parser converts coordinates and arcs with `double`, which
-    runs in software here, and allocates every point in PSRAM.
-  - Check building the airspace index (the R-tree) and the flat projection of every boundary point.
-  - Possible fixes: read in large blocks, use `float` where the precision allows, load in the background after
-    the map shows, or keep a parsed copy on the card and load that when the file has not changed.
+- **Loading time.** The screen is not redrawn while loading, so taps made then are handled only when loading
+  ends. Measured on the V2 with the Queensland map, the Warwick waypoints and the Australian airspace: profile
+  1.6 s, terrain 5 s, topography 0.4 s, waypoints 3.3 s, airspace 7.4 s (was 18 s).
+  - Airspace: the parse is 6.3 s, of which 3.3 s go to the 88,802 arc points; then the index 0.8 s and the
+    flight levels 0.06 s. The arcs took 13.6 s, almost all in `FindLatitudeLongitude()` (Vincenty in software
+    `double`). `FindArcPoints()` now computes only every tenth point that way and the rest from a local
+    approximation corrected towards them, under 1 m off for radii up to 100 km.
+  - Still possible: keep a parsed copy on the card and load that when the file has not changed, or load in the
+    background after the map shows.
+  - Every C++ exception costs 0.5 to 1 s here (the unwinder searches the frame tables linearly). After start-up a
+    `std::system_error` and a `std::runtime_error` are thrown every few seconds; find and stop them.
 - **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
 - **Real touch.** Works in use. In a menu, the button that leads to the next page is labelled with that page
   ("Config Page 2/3" on page 1), which reads as if the menu opened on page 2.
