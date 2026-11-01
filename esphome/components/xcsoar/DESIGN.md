@@ -864,11 +864,15 @@ JPEG 2000 decoding of terrain tiles took about 12%, polygon fills and wide lines
   plain 32-bit stores; `RGB565PixelTraits::FillPixels()` now uses those. PIE would only pay in loops that compute
   per pixel (terrain shading, text alpha, JPEG 2000), which are each a few percent of the profile.
 - **Profile while flying** (gdlsim at 100 km/h, map and InfoBoxes, after the PPA fill and blend; 100457 samples
-  over 30 s across the threads): `vPortExitCriticalMultiCore` 10% (locks, not traced to a caller), `memmove` 6.4%
-  (buffer copies), unnamed mask ROM code near 0x4fc19000 4.8% (perhaps cache maintenance for the PPA), `std::fill`
-  3.7%, `esp_crosscore_int_send` 3.7%, JPEG 2000 2.7%, `PolygonInterior` 1%, text 1%.
+  over 30 s): `memmove` 6.4% (buffer copies), `std::fill` 3.7%, JPEG 2000 2.7%, `PolygonInterior` 1%, text 1%. The
+  profiler samples XCSoar threads in the Ready state, and a thread just woken from a semaphore still shows the
+  place it blocked: `vPortExitCriticalMultiCore` (10%), `esp_crosscore_int_send` (3.7%) and the unnamed mask ROM
+  code near 0x4fc19000 (4.8%) are threads waiting for a CPU, not work.
+- **PPA cache sync.** The PPA driver writes back and invalidates the cache of the whole picture for each operation,
+  with interrupts off. The component now describes each buffer to the PPA as only the rows the block covers
+  (from a row starting on a cache line), for fills, blends and the frame conversion.
 - **Still possible:** draw straight into the panel's buffer in the panel's orientation (no PPA conversion, 44 ms
-  per full frame now); find what takes the critical sections and the cross-core interrupts.
+  per full frame now).
 
 `IsSlowCPU()` is true on ESP32 (it reports the configured CPU frequency), which turns off InfoBox fades,
 kinetic scrolling and other animations: each of their steps costs a whole frame here.

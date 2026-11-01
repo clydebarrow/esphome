@@ -10,6 +10,7 @@
 #include <esp_vfs_eventfd.h>
 
 #include <algorithm>
+#include <numeric>
 #include <pthread.h>
 
 namespace esphome::xcsoar {
@@ -236,15 +237,31 @@ static void add_rect(XCSoarComponent::DirtyRects &list, XCSoarEsp32::Rect rect) 
   list.push_back(rect);
 }
 
+// The PPA driver writes back and invalidates the cache of a whole picture for each operation, with the CPU's
+// interrupts off. Describe the picture as only the rows the block covers, from a row whose start is a cache line
+// boundary (the buffers start on one), so it syncs those rows only.
+static void narrow_to_rows(const uint8_t *&buffer, unsigned pitch, unsigned &height, unsigned &y, unsigned rows) {
+  static constexpr unsigned CACHE_LINE = 64;
+  const unsigned step = CACHE_LINE / std::gcd(pitch, CACHE_LINE);
+  const unsigned first = y / step * step;
+  const unsigned last = std::min(height, (y + rows + step - 1) / step * step);
+  buffer += size_t(first) * pitch;
+  y -= first;
+  height = last - first;
+}
+
 bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, XCSoarEsp32::Rect rect, uint8_t *dest,
                                size_t dest_size) {
   ppa_srm_oper_config_t srm{};
-  srm.in.buffer = pixels;
   const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
+  const auto *in = static_cast<const uint8_t *>(pixels);
+  unsigned in_height = this->config_.height, in_y = rect.y;
+  narrow_to_rows(in, pitch, in_height, in_y, rect.height);
+  srm.in.buffer = in;
   srm.in.pic_w = pitch / bytes_per_pixel;
-  srm.in.pic_h = this->config_.height;
+  srm.in.pic_h = in_height;
   srm.in.block_offset_x = rect.x;
-  srm.in.block_offset_y = rect.y;
+  srm.in.block_offset_y = in_y;
   srm.in.block_w = rect.width;
   srm.in.block_h = rect.height;
   // Where the block lands after the counter-clockwise rotation
@@ -269,10 +286,17 @@ bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, XCSoarEsp32::
   }
   // XCSoar draws RGB565, or blue, green, red, alpha bytes (ARGB8888 in little endian order)
   srm.in.srm_cm = bytes_per_pixel == 2 ? PPA_SRM_COLOR_MODE_RGB565 : PPA_SRM_COLOR_MODE_ARGB8888;
-  srm.out.buffer = dest;
-  srm.out.buffer_size = dest_size;
+  const bool turned =
+      this->ppa_rotation_ == PPA_SRM_ROTATION_ANGLE_90 || this->ppa_rotation_ == PPA_SRM_ROTATION_ANGLE_270;
+  const unsigned out_pitch = dest_size / this->out_height_;
+  const uint8_t *out = dest;
+  unsigned out_height = this->out_height_, out_y = srm.out.block_offset_y;
+  narrow_to_rows(out, out_pitch, out_height, out_y, turned ? rect.width : rect.height);
+  srm.out.buffer = const_cast<uint8_t *>(out);
+  srm.out.buffer_size = out_pitch * out_height;
   srm.out.pic_w = this->out_width_;
-  srm.out.pic_h = this->out_height_;
+  srm.out.pic_h = out_height;
+  srm.out.block_offset_y = out_y;
   srm.out.srm_cm = this->ppa_out_color_mode_;
   srm.rotation_angle = this->ppa_rotation_;
   srm.scale_x = 1.0f;
@@ -336,6 +360,7 @@ bool XCSoarComponent::fill_(void *buffer, unsigned pitch, unsigned height, XCSoa
   const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
   const auto *data = static_cast<const uint8_t *>(buffer);
   self->locate_in_screen_(data, pitch, height, rect.x, rect.y);
+  narrow_to_rows(data, pitch, height, rect.y, rect.height);
   ppa_fill_oper_config_t fill{};
   fill.out.buffer = const_cast<uint8_t *>(data);
   fill.out.buffer_size = pitch * height;
@@ -376,6 +401,8 @@ bool XCSoarComponent::blend_(void *dest, unsigned dest_pitch, unsigned dest_heig
   self->locate_in_screen_(dest_data, dest_pitch, dest_height, rect.x, rect.y);
   const auto *src_data = static_cast<const uint8_t *>(src);
   self->locate_in_screen_(src_data, src_pitch, src_height, src_x, src_y);
+  narrow_to_rows(dest_data, dest_pitch, dest_height, rect.y, rect.height);
+  narrow_to_rows(src_data, src_pitch, src_height, src_y, rect.height);
 
   ppa_blend_oper_config_t blend{};
   blend.in_bg.buffer = dest_data;
