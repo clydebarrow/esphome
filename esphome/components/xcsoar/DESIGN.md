@@ -857,8 +857,18 @@ JPEG 2000 decoding of terrain tiles took about 12%, polygon fills and wide lines
   widened). The airspace fill is drawn into a cache and blended over the map in every frame: for the 832x720 map
   that blend took 100 to 180 ms on the CPU and takes 20 ms on the PPA (measured alternately in one run). The map
   looks the same in a photo.
+- **SIMD (PIE), measured.** The P4's 128-bit PIE instructions assemble with the build's esp-14.2 toolchain
+  (`-march=..._xesppie` on this pre-v3 chip; the newer esp-15.2 calls it `xespv`). Filling a 512x512 block of PSRAM
+  (with XCSoar at its start screen): `std::fill` on `RGB565Color` 10.6 ms, 32-bit stores 8.0 ms, PIE 128-bit stores
+  7.6 ms, PPA 1.5 ms. Pixel loops over PSRAM are limited by the memory, not the CPU, so PIE gains only 5% over
+  plain 32-bit stores; `RGB565PixelTraits::FillPixels()` now uses those. PIE would only pay in loops that compute
+  per pixel (terrain shading, text alpha, JPEG 2000), which are each a few percent of the profile.
+- **Profile while flying** (gdlsim at 100 km/h, map and InfoBoxes, after the PPA fill and blend; 100457 samples
+  over 30 s across the threads): `vPortExitCriticalMultiCore` 10% (locks, not traced to a caller), `memmove` 6.4%
+  (buffer copies), unnamed mask ROM code near 0x4fc19000 4.8% (perhaps cache maintenance for the PPA), `std::fill`
+  3.7%, `esp_crosscore_int_send` 3.7%, JPEG 2000 2.7%, `PolygonInterior` 1%, text 1%.
 - **Still possible:** draw straight into the panel's buffer in the panel's orientation (no PPA conversion, 44 ms
-  per full frame now). SIMD (PIE) for per-pixel loops is not tried yet.
+  per full frame now); find what takes the critical sections and the cross-core interrupts.
 
 `IsSlowCPU()` is true on ESP32 (it reports the configured CPU frequency), which turns off InfoBox fades,
 kinetic scrolling and other animations: each of their steps costs a whole frame here.
