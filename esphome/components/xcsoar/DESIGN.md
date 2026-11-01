@@ -676,6 +676,58 @@ a Mac with bleak, the NMEA arrives with a 515 byte MTU.
 - Sound through an ESPHome speaker (XCSoar's vario tone generator, `PCMMixer`).
 - Live tracking and downloads once networking is in.
 
+## Club gliders (planned)
+
+The unit is meant for club gliders flown by several pilots. The club's settings come from one JSON file on the
+SD card, for example `XCSoar/club.json`:
+
+```json
+{
+  "organisation": "Warwick Gliding Club",
+  "logo": "club-logo.png",
+  "flight_upload_url": "https://example.org/flights"
+}
+```
+
+The first config is for the Warwick Gliding Club. Its logo is on the club's website,
+`https://warwickgliding.com/wp-content/uploads/2026/03/WGC_Logo1.png` (300x156 PNG, with transparency; a
+512x512 crop for the site icon is next to it). It goes on the SD card, not in the repository.
+
+- **Splash screen.** Keep the XCSoar 7 logo, but smaller (`src/Gauge/LogoView.cpp`; the start screen is
+  `src/Dialogs/StartupDialog.cpp`). Add the club logo, the organisation name, and the glider type and
+  registration. XCSoar already stores the type and registration in the plane settings (`Plane::type`,
+  `Plane::registration`), so the splash should read them from there rather than from `club.json`.
+- **Pilot profile at start-up.** The start screen already shows a profile choice when there is more than one
+  profile, and the profile list already has New, Copy, Delete and Password. To do: always show the choice, make
+  it large enough for touch, and offer "New pilot" there. Settings that belong to the glider (plane and polar,
+  devices, map and airspace files) should stay the same whichever pilot is chosen; only personal settings
+  should differ. Find out how to share them: a glider profile read before the pilot profile, or copying the
+  glider keys into each pilot profile.
+- **Flight upload.** After landing, once the unit is on the internet, send the takeoff and landing times, the
+  duration, the pilot name and the glider registration to `flight_upload_url` as a JSON POST.
+  `src/Logger/FlightLogger.cpp` already detects takeoff and landing. Keep unsent flights in a file on the SD card
+  and retry until the server accepts them, so a flight is not lost when there is no Wi-Fi at the airfield.
+- **Side button as Safe shutdown.** The side button already starts the unit after a shutdown. Hold it for 3 s
+  to shut down: show a countdown on the screen while it is held, cancel if it is released early, then do what
+  the "Safe shutdown" API button does. First find out how the button is wired and whether the firmware can read
+  it.
+- **Power loss.** Find out whether loss of power can be detected early enough to stop safely:
+  - With a battery fitted, losing USB power is not a power loss. The INA226 at I2C 0x41 measures the battery,
+    so a low battery can start a normal shutdown in time.
+  - Without a battery, the P4's brown-out detector can raise an interrupt instead of resetting. The time left
+    is probably a few milliseconds, depending on the capacitance on the supply. That is too short for a clean
+    unmount, but it may be enough to stop starting new SD card writes and to tell XCSoar to stop logging.
+  - Whatever the answer, keep the card safe when power goes without warning: write the IGC log in small parts
+    and flush it often, and save settings to a new file that is then renamed over the old one.
+- **Faster graphics on the P4.** Find out which drawing steps the P4 hardware can take over:
+  - PPA fill for large solid areas (clearing the canvas, background fills).
+  - PPA blend for bitmaps with transparency and for the airspace fill, which now draws every airspace twice
+    (stencil and fill).
+  - The P4's SIMD instructions (PIE, 128-bit; used by `esp-dsp`) for per-pixel loops such as terrain shading,
+    row copies and anti-aliased text blending.
+  - The hardware JPEG decoder cannot help with terrain, which is JPEG 2000.
+  - Profile first (`prof::start()` in `debug_helpers.h`) to pick the steps that take the most time.
+
 ## Performance
 
 Measured on the Tab5 (360 MHz) with the Queensland map and the national airspace file, in simulator mode with
