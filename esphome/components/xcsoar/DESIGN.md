@@ -421,6 +421,9 @@ To do:
     `python3 openair_clip.py AU-ASP-National-SoaringWeb.txt AU-ASP-QLD-SE.txt --lat -29 -25 --lon 148.5 153`
   - Still possible: keep a parsed copy on the card and load that when the file has not changed, or load in the
     background after the map shows.
+- **Site Files page (fixed).** The waypoint and airspace rows each took 0.6 s: `MultiFileDataField` scanned the
+  data directory for its file list to show the selected names. It now shows the base name and checks the file
+  with `File::Exists()`; the list is scanned when it is opened. Preparing the page takes 0.2 s instead of 1.2 s.
   - Every C++ exception costs 0.6 to 0.8 s here. Start-up threw three, for optional files that were missing
     (`user.cup`, `airfields.txt` in the map, the RASP file); XCSoar now checks that they exist first. A hook
     on `__cxa_throw` (`-Wl,--wrap=__cxa_throw`) logged no other throws in four minutes of running.
@@ -848,9 +851,14 @@ JPEG 2000 decoding of terrain tiles took about 12%, polygon fills and wide lines
   buffer, is filled as a block of the whole screen buffer (the component keeps its address from the last
   frame). Anything else falls back to the CPU. Opening Configuration now takes 130 to 200 ms from the release to
   its frame, 430 ms before.
+- **PPA blend (done).** `Canvas::AlphaBlend()` and `AlphaBlendNotWhite()` offer 1:1 blends of 40000 pixels or more
+  to `HostBlend()` (`Config::blend`); the component blends them in place with a third PPA client, the source as
+  the foreground at the fixed alpha, and for "not white" a foreground color key of F8FCF8 to FFFFFF (RGB565 white
+  widened). The airspace fill is drawn into a cache and blended over the map in every frame: for the 832x720 map
+  that blend took 100 to 180 ms on the CPU and takes 20 ms on the PPA (measured alternately in one run). The map
+  looks the same in a photo.
 - **Still possible:** draw straight into the panel's buffer in the panel's orientation (no PPA conversion, 44 ms
-  per full frame now), or blend bitmaps and the airspace fill with the PPA. SIMD (PIE) for per-pixel loops is not
-  tried yet.
+  per full frame now). SIMD (PIE) for per-pixel loops is not tried yet.
 
 `IsSlowCPU()` is true on ESP32 (it reports the configured CPU frequency), which turns off InfoBox fades,
 kinetic scrolling and other animations: each of their steps costs a whole frame here.

@@ -65,6 +65,9 @@ void XCSoarComponent::setup() {
   ppa_config.max_pending_trans_num = FILL_PENDING_MAX;
   if (ppa_register_client(&ppa_config, &this->ppa_fill_client_) != ESP_OK)
     this->ppa_fill_client_ = nullptr;
+  ppa_config.oper_type = PPA_OPERATION_BLEND;
+  if (ppa_register_client(&ppa_config, &this->ppa_blend_client_) != ESP_OK)
+    this->ppa_blend_client_ = nullptr;
 
   // XCSoar draws at the display's rotated size
   const int width = this->display_->get_width();
@@ -152,6 +155,7 @@ void XCSoarComponent::setup() {
       .traffic_alarm = traffic_alarm_,
       .volume = volume_,
       .fill = this->ppa_fill_client_ != nullptr ? fill_ : nullptr,
+      .blend = this->ppa_blend_client_ != nullptr ? blend_ : nullptr,
 #ifdef USE_XCSOAR_BLE_SERIAL
       .ble = &this->ble_host_,
 #else
@@ -330,20 +334,10 @@ bool XCSoarComponent::fill_(void *buffer, unsigned pitch, unsigned height, XCSoa
                             void *ctx) noexcept {
   auto *self = static_cast<XCSoarComponent *>(ctx);
   const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
-  auto *data = static_cast<uint8_t *>(buffer);
-  // A window's canvas is part of the screen buffer: fill a block of the whole (aligned) screen instead
-  const uint8_t *screen = self->screen_pixels_;
-  const unsigned screen_pitch = self->screen_pitch_;
-  const size_t screen_size = size_t(screen_pitch) * self->config_.height;
-  if (screen != nullptr && pitch == screen_pitch && data >= screen && data < screen + screen_size) {
-    const size_t offset = data - screen;
-    rect.x += (offset % pitch) / bytes_per_pixel;
-    rect.y += offset / pitch;
-    data = const_cast<uint8_t *>(screen);
-    height = self->config_.height;
-  }
+  const auto *data = static_cast<const uint8_t *>(buffer);
+  self->locate_in_screen_(data, pitch, height, rect.x, rect.y);
   ppa_fill_oper_config_t fill{};
-  fill.out.buffer = data;
+  fill.out.buffer = const_cast<uint8_t *>(data);
   fill.out.buffer_size = pitch * height;
   fill.out.pic_w = pitch / bytes_per_pixel;
   fill.out.pic_h = height;
@@ -356,6 +350,70 @@ bool XCSoarComponent::fill_(void *buffer, unsigned pitch, unsigned height, XCSoa
   fill.mode = PPA_TRANS_MODE_BLOCKING;
   // The PPA needs a buffer aligned to the cache line; XCSoar fills any other itself
   return ppa_do_fill(self->ppa_fill_client_, &fill) == ESP_OK;
+}
+
+void XCSoarComponent::locate_in_screen_(const uint8_t *&buffer, unsigned pitch, unsigned &height, unsigned &x,
+                                        unsigned &y) const noexcept {
+  // A window's canvas is part of the screen buffer and not aligned as the PPA needs; the screen buffer is
+  const uint8_t *screen = this->screen_pixels_;
+  if (screen == nullptr || pitch != this->screen_pitch_ || buffer < screen ||
+      buffer >= screen + size_t(pitch) * this->config_.height)
+    return;
+  const size_t offset = buffer - screen;
+  x += (offset % pitch) / XCSoarEsp32::BytesPerPixel();
+  y += offset / pitch;
+  buffer = screen;
+  height = this->config_.height;
+}
+
+bool XCSoarComponent::blend_(void *dest, unsigned dest_pitch, unsigned dest_height, XCSoarEsp32::Rect rect,
+                             const void *src, unsigned src_pitch, unsigned src_height, unsigned src_x, unsigned src_y,
+                             unsigned alpha, bool white_transparent, void *ctx) noexcept {
+  auto *self = static_cast<XCSoarComponent *>(ctx);
+  const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
+  const auto color_mode = bytes_per_pixel == 2 ? PPA_BLEND_COLOR_MODE_RGB565 : PPA_BLEND_COLOR_MODE_ARGB8888;
+  const auto *dest_data = static_cast<const uint8_t *>(dest);
+  self->locate_in_screen_(dest_data, dest_pitch, dest_height, rect.x, rect.y);
+  const auto *src_data = static_cast<const uint8_t *>(src);
+  self->locate_in_screen_(src_data, src_pitch, src_height, src_x, src_y);
+
+  ppa_blend_oper_config_t blend{};
+  blend.in_bg.buffer = dest_data;
+  blend.in_bg.pic_w = dest_pitch / bytes_per_pixel;
+  blend.in_bg.pic_h = dest_height;
+  blend.in_bg.block_w = rect.width;
+  blend.in_bg.block_h = rect.height;
+  blend.in_bg.block_offset_x = rect.x;
+  blend.in_bg.block_offset_y = rect.y;
+  blend.in_bg.blend_cm = color_mode;
+  blend.in_fg.buffer = src_data;
+  blend.in_fg.pic_w = src_pitch / bytes_per_pixel;
+  blend.in_fg.pic_h = src_height;
+  blend.in_fg.block_w = rect.width;
+  blend.in_fg.block_h = rect.height;
+  blend.in_fg.block_offset_x = src_x;
+  blend.in_fg.block_offset_y = src_y;
+  blend.in_fg.blend_cm = color_mode;
+  // In place: the background block is the output block
+  blend.out.buffer = const_cast<uint8_t *>(dest_data);
+  blend.out.buffer_size = dest_pitch * dest_height;
+  blend.out.pic_w = dest_pitch / bytes_per_pixel;
+  blend.out.pic_h = dest_height;
+  blend.out.block_offset_x = rect.x;
+  blend.out.block_offset_y = rect.y;
+  blend.out.blend_cm = color_mode;
+  blend.bg_alpha_update_mode = PPA_ALPHA_FIX_VALUE;
+  blend.bg_alpha_fix_val = 255;
+  blend.fg_alpha_update_mode = PPA_ALPHA_FIX_VALUE;
+  blend.fg_alpha_fix_val = alpha;
+  if (white_transparent) {
+    // White foreground pixels (RGB565 white widens to F8FCF8 or FFFFFF) keep the background
+    blend.fg_ck_en = true;
+    blend.fg_ck_rgb_low_thres.val = 0xF8FCF8;
+    blend.fg_ck_rgb_high_thres.val = 0xFFFFFF;
+  }
+  blend.mode = PPA_TRANS_MODE_BLOCKING;
+  return ppa_do_blend(self->ppa_blend_client_, &blend) == ESP_OK;
 }
 
 void XCSoarComponent::traffic_alarm_(unsigned level, void *ctx) noexcept {

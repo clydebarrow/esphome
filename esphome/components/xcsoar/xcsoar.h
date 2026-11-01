@@ -130,11 +130,18 @@ class XCSoarComponent : public Component
   static void volume_(unsigned percent, bool preview, void *ctx) noexcept;
   static bool fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
                     void *ctx) noexcept;
+  static bool blend_(void *dest, unsigned dest_pitch, unsigned dest_height, XCSoarEsp32::Rect rect, const void *src,
+                     unsigned src_pitch, unsigned src_height, unsigned src_x, unsigned src_y, unsigned alpha,
+                     bool white_transparent, void *ctx) noexcept;
+  /// If buffer points into the screen buffer, make it the screen buffer and move the block by the offset.
+  void locate_in_screen_(const uint8_t *&buffer, unsigned pitch, unsigned &height, unsigned &x,
+                         unsigned &y) const noexcept;
 
   display::Display *display_;
   ppa_client_handle_t ppa_client_{nullptr};
   // Fills large rectangles of XCSoar's canvases for its drawing threads
   ppa_client_handle_t ppa_fill_client_{nullptr};
+  ppa_client_handle_t ppa_blend_client_{nullptr};
   // XCSoar's screen buffer, from the last frame: its windows' canvases point into it, unaligned
   std::atomic<const uint8_t *> screen_pixels_{nullptr};
   std::atomic<unsigned> screen_pitch_{0};
