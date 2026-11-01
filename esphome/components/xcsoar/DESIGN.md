@@ -705,12 +705,14 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   Quit button, and the progress window ends the logo area above its message. The glider comes from `club.json`,
   not from the plane settings (`Plane::type`, `Plane::registration`): the FLY/SIM screen is shown before a
   profile is loaded, and the glider is the same for every pilot. Tested on the V2 with the club's 300x156 logo.
-- **Pilot profile at start-up.** The start screen already shows a profile choice when there is more than one
-  profile, and the profile list already has New, Copy, Delete and Password. To do: always show the choice, make
-  it large enough for touch, and offer "New pilot" there. Settings that belong to the glider (plane and polar,
-  devices, map and airspace files) should stay the same whichever pilot is chosen; only personal settings
-  should differ. Find out how to share them: a glider profile read before the pilot profile, or copying the
-  glider keys into each pilot profile.
+- **Pilot profile at start-up (done).** With a `club.json`, the start-up dialog (after FLY/SIM) always asks
+  "Who is flying?": one row per profile, as high as a button, tapped to choose, the most recent one marked, and a
+  "New pilot" button. A new pilot is a copy of the most recently used profile with `PilotName` set, so the glider
+  and device settings carry over; the password, the co-pilot and the log-ins of online services (WeGlide,
+  SkyLines, LiveTrack24, pc_met, SkySight, XCTherm, the cloud key) are left out. Tested on the V2: "TEST" typed on
+  the keyboard, then `profiles/TEST.prf` loaded with the map, airspace and all four devices.
+  - Still open: a change to a glider setting made by one pilot reaches only that pilot's profile. A glider
+    profile read before the pilot profile would keep them in one place.
 - **Flight upload.** After landing, once the unit is on the internet, send the takeoff and landing times, the
   duration, the pilot name and the glider registration to `flight_upload_url` as a JSON POST.
   `src/Logger/FlightLogger.cpp` already detects takeoff and landing. Keep unsent flights in a file on the SD card
