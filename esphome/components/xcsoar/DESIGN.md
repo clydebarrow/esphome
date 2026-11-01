@@ -527,8 +527,8 @@ level 3; Dismiss at level 2 closed it and it came back at level 3; Mute at level
 came through with its tone; after the target passed it closed and the page came back. With gdlsim stopped during an
 urgent alarm, the alert showed "Alarm cleared" and closed, and the map showed "No traffic data". The first build left
 the alert up forever in that case: the cached `ThreatComputer` alarm was applied again on every merge, and the
-monitors and the close delay waited for a GPS clock that had stopped. The camera shows the alert colors shifted (the
-red as purple, the amber as pink, dark gray as green), so they still need checking by eye.
+monitors and the close delay waited for a GPS clock that had stopped. The colors are right by eye; the bench camera
+runs at minimum exposure so the screen does not wash out, which shifts them in photos (red looks purple, amber pink).
 
 A new input (GPS, vario) needs: a stream name and driver in `setup()`, and a call to `Feed()` wherever the
 component has the bytes. If the data is not yet in a format an XCSoar driver reads (a pressure reading, say),
