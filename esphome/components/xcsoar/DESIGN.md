@@ -712,8 +712,8 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   the "Safe shutdown" API button does. First find out how the button is wired and whether the firmware can read
   it.
 - **Power loss.** Find out whether loss of power can be detected early enough to stop safely:
-  - With a battery fitted, losing USB power is not a power loss. The INA226 at I2C 0x41 measures the battery,
-    so a low battery can start a normal shutdown in time.
+  - With a battery fitted, losing USB power is not a power loss. The bus scan finds a device at I2C 0x41,
+    probably the INA226 battery monitor (to check). If so, a low battery can start a normal shutdown in time.
   - Without a battery, the P4's brown-out detector can raise an interrupt instead of resetting. The time left
     is probably a few milliseconds, depending on the capacitance on the supply. That is too short for a clean
     unmount, but it may be enough to stop starting new SD card writes and to tell XCSoar to stop logging.
