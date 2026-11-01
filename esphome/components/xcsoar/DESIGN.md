@@ -408,16 +408,18 @@ To do:
   first `Expose()`), then consider creating the pages only when they are first opened.
 - **DNS.** c-ares finds no `/etc/resolv.conf`; give it lwIP's DNS servers when networking is added.
 - **Loading time.** The screen is not redrawn while loading, so taps made then are handled only when loading
-  ends. Measured on the V2 with the Queensland map, the Warwick waypoints and the Australian airspace: profile
-  1.6 s, terrain 5 s, topography 0.4 s, waypoints 3.3 s, airspace 7.4 s (was 18 s).
-  - Airspace: the parse is 6.3 s, of which 3.3 s go to the 88,802 arc points; then the index 0.8 s and the
-    flight levels 0.06 s. The arcs took 13.6 s, almost all in `FindLatitudeLongitude()` (Vincenty in software
-    `double`). `FindArcPoints()` now computes only every tenth point that way and the rest from a local
-    approximation corrected towards them, under 1 m off for radii up to 100 km.
+  ends. Measured on the V2 with the Queensland map, the Warwick waypoints and the Australian airspace, from
+  "Loading profiles" to "ProgramStarted": 8 s (was 40 s). Profile 1.6 s, terrain 0.2 s after a Safe shutdown
+  (5 s after a reset, not yet explained), topography 0.4 s, waypoints 0.6 s, airspace 5.3 s (was 18 s).
+  - Airspace arcs: the 88,802 arc points took 13.6 s, almost all in `FindLatitudeLongitude()` (Vincenty in
+    software `double`). `FindArcPoints()` now runs Vincenty in float (the P4 has hardware single precision)
+    for every tenth point and fills the rest from a local approximation corrected towards them: about 1.1 s,
+    about 2 m off for radii up to 100 km. The rest of the parse is about 3 s, the index 0.8 s.
   - Still possible: keep a parsed copy on the card and load that when the file has not changed, or load in the
     background after the map shows.
-  - Every C++ exception costs 0.5 to 1 s here (the unwinder searches the frame tables linearly). After start-up a
-    `std::system_error` and a `std::runtime_error` are thrown every few seconds; find and stop them.
+  - Every C++ exception costs 0.6 to 0.8 s here. Start-up threw three, for optional files that were missing
+    (`user.cup`, `airfields.txt` in the map, the RASP file); XCSoar now checks that they exist first. A hook
+    on `__cxa_throw` (`-Wl,--wrap=__cxa_throw`) logged no other throws in four minutes of running.
 - **Speed.** See "Performance" below: `double` arithmetic in airspace warnings and terrain scanning.
 - **Real touch.** Works in use. In a menu, the button that leads to the next page is labelled with that page
   ("Config Page 2/3" on page 1), which reads as if the menu opened on page 2.
