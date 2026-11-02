@@ -1,0 +1,23 @@
+# xcsoar-tab5-ble.yaml with the sampling profiler of debug_helpers.h: the "profile" API action runs it for ms
+# milliseconds and logs where XCSoar's threads spent their time, for addr2line on the build's ELF. It uses internal
+# RAM that the SD card's DMA also needs, so do not leave it running.
+packages:
+  ble: !include xcsoar-tab5-ble.yaml
+
+esphome:
+  name: xcsoar-tab5-prof
+  includes:
+    - debug_helpers.h
+
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_FREERTOS_USE_TRACE_FACILITY: y
+
+api:
+  actions:
+    - action: profile
+      variables:
+        ms: int
+      then:
+        - lambda: prof::start(ms);

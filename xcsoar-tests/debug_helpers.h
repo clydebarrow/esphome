@@ -62,6 +62,8 @@ struct Slot {
 static Slot *table;
 static Slot *ra_table;
 static uint32_t samples;
+// ms after start() to log the counts once; 0 logs them every 2 minutes
+static uint32_t dump_after_ms;
 
 static void add(Slot *table, uint32_t pc) {
   uint32_t h = ((pc >> 1) * 2654435761u) >> 19;
@@ -121,15 +123,18 @@ static void task(void *) {
       add(ra_table, sp[1]);
       samples++;
     }
-    if (now - last_dump > 120000) {
+    if (now - last_dump > (dump_after_ms != 0 ? dump_after_ms : 120000)) {
       dump(table, "pc");
       dump(ra_table, "ra");
       last_dump = now;
+      if (dump_after_ms != 0)
+        vTaskDelete(nullptr);
     }
   }
 }
 
-inline void start() {
+inline void start(uint32_t dump_after = 0) {
+  dump_after_ms = dump_after;
   table = static_cast<Slot *>(heap_caps_calloc(TABLE_SIZE, sizeof(Slot), MALLOC_CAP_SPIRAM));
   ra_table = static_cast<Slot *>(heap_caps_calloc(TABLE_SIZE, sizeof(Slot), MALLOC_CAP_SPIRAM));
   xTaskCreate(task, "prof", 4096, nullptr, 10, nullptr);
