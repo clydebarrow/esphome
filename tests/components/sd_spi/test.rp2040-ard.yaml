@@ -1,0 +1,7 @@
+substitutions:
+  cs_pin: GPIO5
+  card_detect_pin: GPIO6
+
+packages:
+  spi: !include ../../test_build_components/common/spi/rp2040-ard.yaml
+  sd_spi: !include common.yaml

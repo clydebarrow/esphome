@@ -1,0 +1,57 @@
+storage:
+  - platform: ram_disk
+    id: file_ram_disk
+    size: 64KB
+
+filesystem:
+  - platform: fatfs
+    id: file_fat
+    storage_id: file_ram_disk
+    format_if_mount_failed: true
+
+file:
+  - id: file_config
+    filesystem_id: file_fat
+    path: /config.txt
+  - id: file_unset
+    filesystem_id: file_fat
+    max_path_length: 32
+
+image:
+  - platform: filesystem
+    id: file_image
+    file_id: file_unset
+    format: BMP
+    type: RGB565
+
+interval:
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            and:
+              - storage.has_media: file_ram_disk
+              - file.exists: file_config
+              - file.is_file:
+                  id: file_config
+              - not:
+                  file.is_directory: file_config
+          then:
+            - lambda: |-
+                filesystem::FileInfo info;
+                if (id(file_config).stat(info) != filesystem::FsError::FS_ERROR_NONE)
+                  return;
+                char when[ESPTime::STRFTIME_BUFFER_SIZE];
+                ESPTime::from_epoch_local(info.mtime).strftime(when, sizeof(when), "%Y-%m-%d %H:%M");
+                ESP_LOGI("file", "%s: %u bytes, modified %s", id(file_config).get_path(), (unsigned) info.size, when);
+      - file.set_path:
+          id: file_unset
+          path: !lambda 'return "/logs/latest.txt";'
+      - file.set_path:
+          id: file_config
+          path: /other.txt
+      - component.update: file_image
+      - lambda: |-
+          auto f = id(file_unset).open(filesystem::OPEN_WRITE | filesystem::OPEN_CREATE);
+          if (f)
+            f.write("x", 1);
