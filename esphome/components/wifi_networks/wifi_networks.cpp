@@ -270,27 +270,15 @@ void WifiNetworks::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiF
   const uint32_t now = App.get_loop_component_start_time();
   if (this->last_switch_ != 0 && now - this->last_switch_ < SWITCH_BACKOFF_MS)
     return;
-  bool added = false;
+  // Only a SkyEcho saved before: several may be in range at a launch point, so the first join of one is by hand
   bool in_range = false;
   for (uint8_t i = 0; i != this->visible_count_; i++) {
-    const Visible &visible = this->visible_[i];
-    SavedNetwork *saved = this->find_saved_(visible.ssid);
-    // An open network named as a SkyEcho is joined before any of its data has arrived
-    if (saved == nullptr && !visible.secured && is_skyecho_ssid(visible.ssid)) {
-      saved = this->add_saved_(visible.ssid);
-      if (saved != nullptr) {
-        saved->flags = FLAG_SKYECHO;
-        ESP_LOGI(TAG, "Saved SkyEcho " LOG_SECRET("'%s'") " by its name", visible.ssid);
-        added = true;
-      }
-    }
+    const SavedNetwork *saved = this->find_saved_(this->visible_[i].ssid);
     if (saved != nullptr && (saved->flags & FLAG_SKYECHO) != 0)
       in_range = true;
   }
-  if (added)
-    this->save_();
-  // While connecting, a SkyEcho saved before is on the list already and is chosen by its priority
-  if (added || (in_range && wifi::global_wifi_component->is_connected())) {
+  // While connecting, a saved SkyEcho is on the list already and is chosen by its priority
+  if (in_range && wifi::global_wifi_component->is_connected()) {
     this->switch_to_skyecho_ = true;
     this->last_switch_ = now == 0 ? 1 : now;
   }
