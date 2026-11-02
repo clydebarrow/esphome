@@ -4,6 +4,8 @@
 
 substitutions:
   timezone: Australia/Brisbane
+  # Where the SkyEcho serves its time; the bench build sets this for gdl90_simulator.py
+  skyecho_time_port: "80"
 
 packages:
   board: !include tug-d1001-board.yaml
@@ -117,6 +119,7 @@ time:
   - id: !extend rtc
     timezone: ${timezone}
   - platform: skyecho
+    port: ${skyecho_time_port}
     timezone: ${timezone}
     on_time_sync:
       - pcf8563.write_time: rtc

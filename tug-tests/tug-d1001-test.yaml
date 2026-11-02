@@ -3,6 +3,7 @@
 substitutions:
   upload_url: http://192.168.1.131:8787/api/tows
   upload_key: local-tug-secret
+  skyecho_time_port: "7070"
 
 packages:
   tug: !include tug-d1001.yaml
