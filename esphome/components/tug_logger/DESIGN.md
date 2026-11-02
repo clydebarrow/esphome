@@ -12,6 +12,8 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 3. Flash from the worktree: `PYTHONPATH=$PWD python -m esphome run tug-tests/tug-d1001.yaml`. The Wi-Fi settings and
    secrets come from `../../../my-devices/wifi.yaml`, relative to `tug-tests`.
 4. Save the club's Wi-Fi network under Settings. A long press on a saved network forgets it.
+5. Update the ESP32-C6 once, on each new board: `tug-tests/tug-d1001-c6-update.yaml` installs ESP-Hosted 3.0.10. Boards
+   arrive with 2.3.2, which logs `eh_init_evt: major version mismatch` at every boot.
 
 `tug-tests/tug-d1001-bringup.yaml` checks the board alone: screen, touch, SD card, clock and SkyEcho.
 
@@ -40,6 +42,17 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   is otherwise closed at its last saved figures. Either way it is marked approximate.
 - **On battery** with no external power, not flying and no touch for `shutdown_window`, the device runs the shutdown
   hooks (which unmount the card) and releases power hold.
+
+- **The display** is portrait, with a light and a dark theme chosen in Settings. Re-initialising LVGL's default theme
+  changes it while running; button text is set by `TugUi::set_dark_mode()`.
+- **Power off:** holding the green button on battery counts down 3 s, then runs the shutdown hooks and drops power hold.
+  The button holds the power on through the hardware (D19, Q1) while pressed, so the power goes when it is let go, and
+  that release must not assert power hold again. With USB connected the board cannot turn itself off.
+- **Simulated GDL90 marks the network it arrives over as a SkyEcho.** The device then neither uploads nor looks for the
+  real one, until that network is forgotten. `fly.py` does this; a real club network never carries GDL90.
+- **Wi-Fi changes in the `wifi` component** (not upstream): a disconnect event for an earlier attempt no longer fails
+  the attempt in progress, a scan first cancels the C6's own reconnect after a restart, and an aborted or refused scan
+  is tried again after 1 s. Without them the device looped through adapter restarts after losing a SkyEcho.
 
 ## Hardware (reTerminal D1001, from Seeed's schematic)
 
