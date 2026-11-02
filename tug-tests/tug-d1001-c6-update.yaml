@@ -1,0 +1,27 @@
+# One-off: installs ESP-Hosted 3.0.10 on the D1001's ESP32-C6, to match the esp_hosted version ESPHome's host side uses.
+# The image is built into this firmware; flash it over USB, press "Install co-processor firmware" once
+# (.agents/skills/hardware-test/scripts/api_button.py HOST - press "Install co-processor firmware"), then flash the
+# logger back. Do not install from on_update_available: the image reports its version as "1", so the update is always
+# "available" and would run again after every restart. Nothing here uses the SD card.
+
+packages:
+  board: !include tug-d1001-board.yaml
+
+esphome:
+  name: tug-c6-update
+
+update:
+  - platform: esp32_hosted
+    id: c6_update
+    name: Coprocessor firmware
+    type: embedded
+    url: https://esphome.github.io/esp-hosted-firmware/v3.0.10/network_adapter_esp32c6.bin
+    sha256: c552957fad9f35cf31b0273099dd3b23dc5c388bb43884c6567756ab97fd8cce
+
+button:
+  - platform: template
+    name: Install co-processor firmware
+    on_press:
+      - update.perform:
+          id: c6_update
+          force_update: true
