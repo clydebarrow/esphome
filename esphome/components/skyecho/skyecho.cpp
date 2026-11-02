@@ -131,6 +131,13 @@ bool SkyEcho::get_ownship_position(OwnshipT *position) {
   return this->is_gps_connected_();
 }
 
+bool SkyEcho::get_ownship_geo_altitude(float *meters) const {
+  if (this->ownship_altitude_ms_ == 0 || millis() - this->ownship_altitude_ms_ >= MAX_POSITION_AGE_MS)
+    return false;
+  *meters = this->ownship_altitude_.geoAltitude;
+  return true;
+}
+
 bool SkyEcho::get_heartbeat(gdl90Heartbeat_t *heartbeat) {
   *heartbeat = this->heartbeat_;
   return this->is_gps_connected_();
@@ -165,6 +172,7 @@ void SkyEcho::process_packet(gdl90Data_t *packet, struct in_addr *src_addr) {
     case GDL90_OWNSHIP_GEO_ALT:
       ESP_LOGV(TAG, "Geo Alt: %.1f m", packet->ownshipAltitude.geoAltitude);
       this->ownship_altitude_ = packet->ownshipAltitude;
+      this->ownship_altitude_ms_ = millis();
       break;
 
     case GDL90_FOREFLIGHT_ID:
@@ -230,8 +238,10 @@ void SkyEcho::generate_simulated_ownship_() {
   sim_ownship.latitude = 46.5f + (time_offset * 0.001f);
   sim_ownship.longitude = 13.5f + (time_offset * 0.001f);
   sim_ownship.altitude = 1500.0f + (time_offset * 2.0f);  // 1500-1700m
-  sim_ownship.groundSpeed = 30.0f;                        // 30 m/s (~60 knots)
-  sim_ownship.track = 90.0f;                              // Heading east
+  sim_ownship.isAltitudeValid = true;
+  sim_ownship.isGroundSpeedValid = true;
+  sim_ownship.groundSpeed = 30.0f;  // 30 m/s (~60 knots)
+  sim_ownship.track = 90.0f;        // Heading east
   sim_ownship.isTrackValid = true;
   sim_ownship.verticalSpeed = 0.5f;  // Slight climb
   sim_ownship.isVerticalSpeedValid = true;

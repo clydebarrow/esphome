@@ -118,6 +118,8 @@ typedef struct {
   uint8_t priorityCode;
   uint8_t nic;
   uint8_t NACp;
+  bool isAltitudeValid;     // false when the report says the altitude is not available
+  bool isGroundSpeedValid;  // false when the report says the speed is not available
   bool isInFlight;
   bool isExtrapolated;
   bool isHeading;

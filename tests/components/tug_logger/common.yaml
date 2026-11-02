@@ -1,0 +1,37 @@
+wifi:
+  ssid: MySSID
+  password: password1
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+uart:
+  - id: gps_uart
+    rx_pin: ${rx_pin}
+    tx_pin: ${tx_pin}
+    baud_rate: 9600
+
+gps:
+  id: gps_hub
+  uart_id: gps_uart
+
+skyecho:
+  id: skyecho_hub
+
+tug_logger:
+  id: tug_logger_id
+  time_id: sntp_time
+  skyecho_id: skyecho_hub
+  gps_id: gps_hub
+  takeoff_speed: 45kt
+  takeoff_confirm: 4s
+  landing_speed: 20kt
+  landing_confirm: 20s
+  shutdown_window: 5min
+  on_takeoff:
+    - logger.log: Takeoff
+  on_landed:
+    - logger.log: Landed
+  on_power_off:
+    - logger.log: Power off

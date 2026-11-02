@@ -130,6 +130,7 @@ static gdl90Err_t decodePosition(const uint8_t *buffer, gdl90Data_t *out) {
   out->positionReport.longitude = (float) get24BitSigned(buffer + 8) * 360.0f / 0x1000000;
   // convert altitude in feet to meters
   out->positionReport.altitude = fromFt(((float) ((buffer[11] << 4) + (buffer[12] >> 4)) * 25.0f - 1000.0f));
+  out->positionReport.isAltitudeValid = ((buffer[11] << 4) + (buffer[12] >> 4)) != 0xFFF;
   byte = buffer[12];
   out->positionReport.isInFlight = FLAGSET(byte, 3);
   out->positionReport.isExtrapolated = FLAGSET(byte, 2);
@@ -140,6 +141,7 @@ static gdl90Err_t decodePosition(const uint8_t *buffer, gdl90Data_t *out) {
   out->positionReport.NACp = buffer[13] & 0xF;
   // convert speed in knots to m/s
   out->positionReport.groundSpeed = ((float) ((buffer[14] << 4) + (buffer[15] >> 4))) * 1852.0f / 3600;
+  out->positionReport.isGroundSpeedValid = ((buffer[14] << 4) + (buffer[15] >> 4)) != 0xFFF;
   uint16_t vs = buffer[16] + ((buffer[15] & 0xF) << 8);
   int16_t value = -4096;
   out->positionReport.isVerticalSpeedValid = vs < 0x1FF || vs > 0xE01;

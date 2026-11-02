@@ -114,6 +114,8 @@ class SkyEcho : public PollingComponent {
 
   // Public accessor methods for text sensor
   bool get_ownship_position(OwnshipT *position);
+  /// The GPS altitude in meters, from the ownship geometric altitude report; false if none has arrived lately.
+  bool get_ownship_geo_altitude(float *meters) const;
   bool get_heartbeat(gdl90Heartbeat_t *heartbeat);
   void get_traffic(TrafficT *buffer, size_t cnt);
 
@@ -158,6 +160,7 @@ class SkyEcho : public PollingComponent {
   gdl90Heartbeat_t heartbeat_{};
   OwnshipT ownship_{};
   gdl90OwnshipAltitude_t ownship_altitude_{};
+  uint32_t ownship_altitude_ms_{0};
 
   // Traffic data
   TrafficT traffic_[MAX_TRAFFIC_TRACKED]{};
