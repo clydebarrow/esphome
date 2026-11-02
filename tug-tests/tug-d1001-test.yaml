@@ -59,6 +59,7 @@ api:
             else if (command == "confirm") u.confirm_tow();
             else if (command == "discard") u.discard_tow();
             else if (command == "ground") u.back_to_ground();
+            else if (command == "dark") { id(dark_mode) = value != 0; u.set_dark_mode(value != 0); }
             else if (command == "flight") id(lvgl_id).show_page(id(flight_page).index, LV_SCREEN_LOAD_ANIM_NONE, 0);
     - action: forget_network
       variables:
@@ -76,6 +77,17 @@ api:
               lv_obj_set_size(fill, lv_pct(100), lv_pct(100));
               lv_obj_set_style_border_width(fill, 0, LV_PART_MAIN);
               lv_obj_set_style_radius(fill, 0, LV_PART_MAIN);
+              lv_obj_set_style_pad_all(fill, 0, LV_PART_MAIN);
+              // Bars across the top third, so a camera's white balance has something to go by
+              const uint32_t colors[] = {0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF, 0x000000};
+              for (int i = 0; i != 5; i++) {
+                lv_obj_t *bar = lv_obj_create(fill);
+                lv_obj_set_size(bar, lv_pct(20), 400);
+                lv_obj_set_pos(bar, lv_pct(i * 20), 0);
+                lv_obj_set_style_radius(bar, 0, LV_PART_MAIN);
+                lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
+                lv_obj_set_style_bg_color(bar, lv_color_hex(colors[i]), LV_PART_MAIN);
+              }
             }
             if (rgb < 0) {
               lv_obj_add_flag(fill, LV_OBJ_FLAG_HIDDEN);

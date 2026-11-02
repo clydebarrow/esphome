@@ -296,6 +296,7 @@ lvgl:
             text_font: montserrat_40
         - obj:
             id: picker_list
+            text_font: montserrat_28
             align: top_left
             y: 250
             width: 100%
@@ -334,6 +335,7 @@ lvgl:
       widgets:
         - obj:
             id: review_list
+            text_font: montserrat_28
             align: top_mid
             width: 100%
             height: 1040
@@ -471,6 +473,7 @@ lvgl:
               - label: {align: center, text: Back}
         - obj:
             id: wifi_list
+            text_font: montserrat_28
             align: top_mid
             y: 200
             width: 100%
