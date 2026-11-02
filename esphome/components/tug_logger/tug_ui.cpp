@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 #include <utility>
 
 #include "esphome/components/network/util.h"
@@ -19,6 +20,8 @@ static constexpr uint32_t COLOR_NORMAL = 0x202020;
 static constexpr uint32_t COLOR_WARNING = 0xB02020;
 // The Wi-Fi component takes a command on its next loop, so the list is read again on the second tick after one
 static constexpr uint8_t WIFI_LIST_REFRESH_TICKS = 2;
+// How long the Refuelled button waits for its second press
+static constexpr uint8_t REFUEL_ARMED_TICKS = 5;
 
 static const char *const FIELD_TITLES[TOW_FIELD_COUNT] = {"Glider", "Pilot 1", "Pilot 2", "Tug pilot"};
 
@@ -46,9 +49,10 @@ static std::string &field_of(TowDetails &details, TowField field) {
   }
 }
 
-static std::string field_text(const TowDetails &details, TowField field) {
+// The value of a field: the buttons have the field's name in a label of its own
+static const char *field_text(const TowDetails &details, TowField field) {
   const std::string &value = field_of(const_cast<TowDetails &>(details), field);
-  return std::string(FIELD_TITLES[size_t(field)]) + ": " + (value.empty() ? "-" : value);
+  return value.empty() ? "-" : value.c_str();
 }
 
 static std::string trimmed(const std::string &text) {
@@ -95,6 +99,10 @@ void TugUi::add_row_(lv_obj_t *list, const std::string &text, std::function<void
 void TugUi::bind(TugLogger *logger, const TugUiWidgets &widgets) {
   this->logger_ = logger;
   this->w_ = widgets;
+  lv_obj_add_event_cb(
+      widgets.picker_text,
+      [](lv_event_t *event) { static_cast<TugUi *>(lv_event_get_user_data(event))->picker_text_changed(); },
+      LV_EVENT_VALUE_CHANGED, this);
   // The rows are added at run time, so the configuration cannot give these a layout
   for (lv_obj_t *list : {widgets.picker_list, widgets.review_list, widgets.wifi_list}) {
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
@@ -131,17 +139,19 @@ void TugUi::show_(lvgl::LvPageType *page) { this->w_.lvgl->show_page(page->index
 
 void TugUi::set_status_() {
   auto *logger = this->logger_;
-  // Two rows, which the label is sized for: the time and links first, then the queue and anything wrong
-  std::string status = logger->clock_text();
+  // Three rows, which the label is sized for: the links, with the time beside them, then the day's counts, then
+  // anything wrong
+  lv_label_set_text(this->w_.status_time, logger->clock_text().c_str());
+  std::string status;
   switch (logger->gps_source()) {
     case GpsSource::GPS_SOURCE_SKYECHO:
-      status += "   GPS SkyEcho";
+      status += "GPS SkyEcho";
       break;
     case GpsSource::GPS_SOURCE_NMEA:
-      status += "   GPS NMEA";
+      status += "GPS NMEA";
       break;
     default:
-      status += "   NO GPS";
+      status += "NO GPS";
       break;
   }
   status +=
@@ -149,30 +159,30 @@ void TugUi::set_status_() {
   const float battery = logger->battery_voltage();
   if (!std::isnan(battery))
     status += Text("   %.1f V", battery).text;
-  status += Text("\nQueued %zu", logger->queued_count()).text;
-  bool warning = false;
+  const uint32_t flight = logger->flight_today_s(), fuel = logger->since_refuel_s();
+  status += Text("\nTows %u   Flight %u:%02u   Fuel %u:%02u   Queued %zu", unsigned(logger->tows_today()),
+                 unsigned(flight / 3600), unsigned(flight % 3600 / 60), unsigned(fuel / 3600),
+                 unsigned(fuel % 3600 / 60), logger->queued_count())
+                .text;
+  std::string problems;
   if (!logger->card_ok()) {
-    status += "   NO SD CARD";
-    warning = true;
+    problems += "NO SD CARD   ";
   } else if (!logger->has_provisioning()) {
-    status += "   NO TUG FILE";
-    warning = true;
+    problems += "NO TUG FILE   ";
   }
-  if (logger->failed_count() != 0) {
-    status += Text("   %zu REFUSED", logger->failed_count()).text;
-    warning = true;
-  }
-  if (logger->flight_data_lost()) {
-    status += "   GPS LOST";
-    warning = true;
-  }
+  if (logger->failed_count() != 0)
+    problems += Text("%zu REFUSED   ", logger->failed_count()).text;
+  if (logger->flight_data_lost())
+    problems += "GPS LOST   ";
+  const bool warning = !problems.empty();
+  status += "\n" + problems;
   lv_label_set_text(this->w_.status, status.c_str());
   lv_obj_set_style_bg_color(this->w_.status, lv_color_hex(warning ? COLOR_WARNING : COLOR_NORMAL), LV_PART_MAIN);
 }
 
 void TugUi::refresh_next_() {
   for (size_t i = 0; i != TOW_FIELD_COUNT; i++)
-    lv_label_set_text(this->w_.next_fields[i], field_text(this->logger_->next_details(), TowField(i)).c_str());
+    lv_label_set_text(this->w_.next_fields[i], field_text(this->logger_->next_details(), TowField(i)));
 }
 
 void TugUi::refresh() {
@@ -191,6 +201,8 @@ void TugUi::refresh() {
   }
   if (this->wifi_list_refresh_ticks_ != 0 && --this->wifi_list_refresh_ticks_ == 0)
     this->fill_wifi_list_();
+  if (this->refuel_armed_ticks_ != 0 && --this->refuel_armed_ticks_ == 0)
+    lv_label_set_text(this->w_.refuel_label, "Refuelled");
 }
 
 void TugUi::edit_next(TowField field) { this->open_picker_(PickerMode::PICKER_MODE_NEXT, field); }
@@ -226,7 +238,25 @@ void TugUi::open_picker_(PickerMode mode, TowField field) {
   const bool registration = mode != PickerMode::PICKER_MODE_WIFI_PASSWORD && field == TowField::TOW_FIELD_GLIDER;
   lv_keyboard_set_mode(this->w_.picker_keyboard,
                        registration ? LV_KEYBOARD_MODE_TEXT_UPPER : LV_KEYBOARD_MODE_TEXT_LOWER);
+  this->picker_text_changed();
   this->show_(this->w_.picker_page);
+}
+
+void TugUi::picker_text_changed() {
+  if (this->mode_ == PickerMode::PICKER_MODE_WIFI_PASSWORD || this->field_ == TowField::TOW_FIELD_GLIDER)
+    return;
+  // Leave the keyboard alone on the number and symbol pages
+  const lv_keyboard_mode_t mode = lv_keyboard_get_mode(this->w_.picker_keyboard);
+  if (mode != LV_KEYBOARD_MODE_TEXT_UPPER && mode != LV_KEYBOARD_MODE_TEXT_LOWER)
+    return;
+  // A name's capitals, as capital_case() gives them when the name is accepted
+  const char *text = lv_textarea_get_text(this->w_.picker_text);
+  const size_t length = strlen(text);
+  const char last = length != 0 ? text[length - 1] : ' ';
+  const lv_keyboard_mode_t wanted =
+      last == ' ' || last == '-' || last == '\'' ? LV_KEYBOARD_MODE_TEXT_UPPER : LV_KEYBOARD_MODE_TEXT_LOWER;
+  if (mode != wanted)
+    lv_keyboard_set_mode(this->w_.picker_keyboard, wanted);
 }
 
 void TugUi::picker_done() { this->accept_(lv_textarea_get_text(this->w_.picker_text)); }
@@ -261,8 +291,11 @@ void TugUi::accept_(const std::string &entered) {
     return;
   }
   std::string value = trimmed(entered);
-  if (this->field_ == TowField::TOW_FIELD_GLIDER)
+  if (this->field_ == TowField::TOW_FIELD_GLIDER) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::toupper(c); });
+  } else {
+    value = capital_case(value);
+  }
   if (this->mode_ == PickerMode::PICKER_MODE_NEXT) {
     field_of(this->logger_->next_details(), this->field_) = value;
     this->logger_->next_details_changed();
@@ -323,7 +356,7 @@ void TugUi::refresh_tow_() {
                                             unsigned(record.duration_s / 60), unsigned(record.duration_s % 60))
                                            .text);
   for (size_t i = 0; i != TOW_FIELD_COUNT; i++)
-    lv_label_set_text(this->w_.tow_fields[i], field_text(record.details, TowField(i)).c_str());
+    lv_label_set_text(this->w_.tow_fields[i], field_text(record.details, TowField(i)));
 }
 
 void TugUi::confirm_tow() {
@@ -356,8 +389,22 @@ void TugUi::discard_tow() {
     lv_label_set_text(this->w_.discard_label, "Press again to remove");
     return;
   }
-  this->logger_->store().discard(this->tow_id_);
+  TowRecord record;
+  if (this->current_tow_(record))
+    this->logger_->discard(record);
   this->show_review();
+}
+
+void TugUi::mark_refuelled() {
+  if (this->refuel_armed_ticks_ == 0) {
+    this->refuel_armed_ticks_ = REFUEL_ARMED_TICKS;
+    lv_label_set_text(this->w_.refuel_label, "Confirm?");
+    return;
+  }
+  this->refuel_armed_ticks_ = 0;
+  lv_label_set_text(this->w_.refuel_label, "Refuelled");
+  this->logger_->mark_refuelled();
+  this->set_status_();
 }
 
 void TugUi::back_to_ground() {

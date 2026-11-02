@@ -25,6 +25,8 @@ esphome:
           w.tow_page = id(tow_page);
           w.settings_page = id(settings_page);
           w.status = id(status_label);
+          w.status_time = id(status_time);
+          w.refuel_label = id(refuel_label);
           w.next_fields[0] = id(next_glider);
           w.next_fields[1] = id(next_pilot1);
           w.next_fields[2] = id(next_pilot2);
@@ -219,16 +221,24 @@ lvgl:
           id: status_label
           align: top_left
           width: 100%
-          height: 92
+          height: 128
           pad_all: 8
           text_font: bold_28
           text_color: white
           bg_color: 0x202020
           bg_opa: cover
           text: ""
+      - label:
+          id: status_time
+          align: top_right
+          x: -8
+          y: 8
+          text_font: bold_28
+          text_color: white
+          text: ""
   pages:
     - id: ground_page
-      pad_top: 100
+      pad_top: 136
       pad_all: 16
       layout:
         type: flex
@@ -240,25 +250,29 @@ lvgl:
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_GLIDER);
             widgets:
-              - label: {id: next_glider, align: left_mid, text_font: bold_40, text: ""}
+              - label: {align: left_mid, text_font: bold_40, text: Glider}
+              - label: {id: next_glider, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
         - button:
             styles: big_button
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_PILOT_1);
             widgets:
-              - label: {id: next_pilot1, align: left_mid, text_font: bold_40, text: ""}
+              - label: {align: left_mid, text_font: bold_40, text: Pilot 1}
+              - label: {id: next_pilot1, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
         - button:
             styles: big_button
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_PILOT_2);
             widgets:
-              - label: {id: next_pilot2, align: left_mid, text_font: bold_40, text: ""}
+              - label: {align: left_mid, text_font: bold_40, text: Pilot 2}
+              - label: {id: next_pilot2, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
         - button:
             styles: big_button
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_TUG_PILOT);
             widgets:
-              - label: {id: next_tug_pilot, align: left_mid, text_font: bold_40, text: ""}
+              - label: {align: left_mid, text_font: bold_40, text: Tug pilot}
+              - label: {id: next_tug_pilot, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
         - obj:
             width: 100%
             height: 150
@@ -281,13 +295,20 @@ lvgl:
                   styles: action_button
                   flex_grow: 1
                   on_click:
+                    - lambda: id(ui).mark_refuelled();
+                  widgets:
+                    - label: {id: refuel_label, align: center, text: Refuelled}
+              - button:
+                  styles: action_button
+                  flex_grow: 1
+                  on_click:
                     - lambda: id(ui).show_settings();
                   widgets:
                     - label: {align: center, text: Settings}
 
     # Read only: nothing here needs a touch in flight
     - id: flight_page
-      pad_top: 96
+      pad_top: 132
       pad_all: 0
       widgets:
         - skyecho_traffic:
@@ -305,7 +326,7 @@ lvgl:
         - obj:
             align: bottom_mid
             width: 780
-            height: 370
+            height: 350
             border_width: 0
             bg_opa: transp
             layout:
@@ -320,7 +341,7 @@ lvgl:
               - label: {id: flight_info, width: 100%, text_align: right, text_font: bold_40, text: ""}
 
     - id: picker_page
-      pad_top: 100
+      pad_top: 136
       pad_all: 16
       widgets:
         - label:
@@ -373,7 +394,7 @@ lvgl:
             text_font: montserrat_28
 
     - id: review_page
-      pad_top: 100
+      pad_top: 136
       pad_all: 16
       widgets:
         - obj:
@@ -381,7 +402,7 @@ lvgl:
             text_font: bold_28
             align: top_mid
             width: 100%
-            height: 1040
+            height: 1030
             pad_all: 6
         - button:
             styles: action_button
@@ -393,7 +414,7 @@ lvgl:
               - label: {align: center, text_font: bold_40, text: Back}
 
     - id: tow_page
-      pad_top: 100
+      pad_top: 136
       pad_all: 16
       widgets:
         - label:
@@ -420,28 +441,32 @@ lvgl:
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_GLIDER);
                   widgets:
-                    - label: {id: tow_glider, align: left_mid, text_font: bold_40, text: ""}
+                    - label: {align: left_mid, text_font: bold_40, text: Glider}
+                    - label: {id: tow_glider, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
               - button:
                   styles: action_button
                   width: 100%
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_PILOT_1);
                   widgets:
-                    - label: {id: tow_pilot1, align: left_mid, text_font: bold_40, text: ""}
+                    - label: {align: left_mid, text_font: bold_40, text: Pilot 1}
+                    - label: {id: tow_pilot1, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
               - button:
                   styles: action_button
                   width: 100%
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_PILOT_2);
                   widgets:
-                    - label: {id: tow_pilot2, align: left_mid, text_font: bold_40, text: ""}
+                    - label: {align: left_mid, text_font: bold_40, text: Pilot 2}
+                    - label: {id: tow_pilot2, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
               - button:
                   styles: action_button
                   width: 100%
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_TUG_PILOT);
                   widgets:
-                    - label: {id: tow_tug_pilot, align: left_mid, text_font: bold_40, text: ""}
+                    - label: {align: left_mid, text_font: bold_40, text: Tug pilot}
+                    - label: {id: tow_tug_pilot, align: right_mid, width: 530, long_mode: dot, text_align: right, text_font: bold_40, text: ""}
         - label:
             id: tow_message
             align: bottom_left
@@ -479,7 +504,7 @@ lvgl:
               - label: {align: center, text_font: bold_40, text: Back}
 
     - id: settings_page
-      pad_top: 100
+      pad_top: 136
       pad_all: 16
       widgets:
         - label:
@@ -520,7 +545,7 @@ lvgl:
             align: top_mid
             y: 200
             width: 100%
-            height: 740
+            height: 730
             pad_all: 6
         # Last, so that it covers the rest of the page, and leaves with the page
         - obj:

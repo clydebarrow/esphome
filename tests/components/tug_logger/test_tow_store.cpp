@@ -324,6 +324,77 @@ TEST_F(TowStoreTest, RemembersNamesMostRecentFirstWithoutRepeats) {
   EXPECT_EQ(this->store->recent_pilots(), (std::vector<std::string>{"Sam", "alex", "Jo"}));
 }
 
+TEST(CapitalCase, CapitalisesEachWord) {
+  EXPECT_EQ(capital_case("alex smith"), "Alex Smith");
+  EXPECT_EQ(capital_case("ALEX SMITH"), "Alex Smith");
+  EXPECT_EQ(capital_case("smith-jones"), "Smith-Jones");
+  EXPECT_EQ(capital_case("o'brien"), "O'Brien");
+}
+
+TEST(CapitalCase, LeavesAWordWithBothCases) { EXPECT_EQ(capital_case("alex McDonald"), "Alex McDonald"); }
+
+TEST(CapitalCase, HandlesEmptyAndRepeatedSpaces) {
+  EXPECT_EQ(capital_case(""), "");
+  EXPECT_EQ(capital_case("a  b"), "A  B");
+}
+
+TEST(TowTotals, StartAtZeroAndCountAFlight) {
+  TowTotals totals;
+  EXPECT_EQ(totals.tows, 0u);
+  totals.roll_to(20261102);
+  totals.add_flight(840);
+  EXPECT_EQ(totals.tows, 1u);
+  EXPECT_EQ(totals.flight_s, 840u);
+  EXPECT_EQ(totals.fuel_s, 840u);
+}
+
+TEST(TowTotals, ANewDayStartsTheDayCountsButNotTheFuel) {
+  TowTotals totals;
+  totals.roll_to(20261102);
+  totals.add_flight(840);
+  EXPECT_TRUE(totals.roll_to(20261103));
+  EXPECT_EQ(totals.tows, 0u);
+  EXPECT_EQ(totals.flight_s, 0u);
+  EXPECT_EQ(totals.fuel_s, 840u);
+}
+
+TEST(TowTotals, ACountBeforeTheClockIsSetBelongsToTheFirstDate) {
+  TowTotals totals;
+  EXPECT_FALSE(totals.roll_to(0));
+  totals.add_flight(840);
+  EXPECT_TRUE(totals.roll_to(20261102));
+  EXPECT_EQ(totals.tows, 1u);
+  EXPECT_FALSE(totals.roll_to(20261102));
+  EXPECT_FALSE(totals.roll_to(0));
+  EXPECT_EQ(totals.day, 20261102u);
+}
+
+TEST(TowTotals, RemovingAFlightKeepsTheFuelAndStopsAtZero) {
+  TowTotals totals;
+  totals.add_flight(100);
+  totals.remove_flight(100);
+  EXPECT_EQ(totals.tows, 0u);
+  EXPECT_EQ(totals.flight_s, 0u);
+  EXPECT_EQ(totals.fuel_s, 100u);
+  totals.remove_flight(100);
+  EXPECT_EQ(totals.tows, 0u);
+  EXPECT_EQ(totals.flight_s, 0u);
+}
+
+TEST_F(TowStoreTest, TotalsAreZeroWithNoFileAndSurviveARestart) {
+  EXPECT_EQ(this->store->load_totals().tows, 0u);
+  TowTotals totals;
+  totals.roll_to(20261102);
+  totals.add_flight(840);
+  ASSERT_TRUE(this->store->save_totals(totals));
+  this->reopen();
+  const TowTotals loaded = this->store->load_totals();
+  EXPECT_EQ(loaded.day, 20261102u);
+  EXPECT_EQ(loaded.tows, 1u);
+  EXPECT_EQ(loaded.flight_s, 840u);
+  EXPECT_EQ(loaded.fuel_s, 840u);
+}
+
 TEST(GliderFromCallsign, MatchesHowTheClubWritesRegistrations) {
   EXPECT_EQ(glider_from_callsign("VHWGQ   "), "WGQ");
   EXPECT_EQ(glider_from_callsign("VH-WGQ"), "WGQ");

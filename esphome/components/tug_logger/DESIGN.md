@@ -24,6 +24,7 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 
 | File | Purpose |
 |---|---|
+| `totals.json` | The day's tows and flight time, and the flight time since refuelling |
 | `current.json` | The flight in progress, written every 30 s |
 | `review.jsonl` | Landed tows awaiting the pilot |
 | `tows-pending.jsonl`, `tows-sending.jsonl` | Confirmed tows to send: the exact bytes that are signed and posted |
@@ -38,6 +39,9 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   sample.
 - **Takeoff** is above 40 kt for 5 s, **landing** below 15 kt for 30 s; times are when the speed was first crossed.
   These thresholds are untested in a real tug.
+- **The status bar counts** the tows and the tug's flight time for the local date, and flight time since the Refuelled
+  button was last pressed twice. A tow counts on landing. "Not a tow" takes it back out of the day's counts, but not
+  out of the fuel time, since the tug still flew.
 - **The glider on tow** is recognised in flight from a SkyEcho: a target of the glider category within 30 degrees of
   straight behind the tug's track, within 300 ft of its height and within 300 m. It stays on the display but raises no
   alert, and stays suppressed for 5 s after leaving that area, because positions are noisy at rope length. The first

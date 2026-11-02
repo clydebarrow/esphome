@@ -104,6 +104,13 @@ class TugLogger : public Component
   bool on_skyecho_network() const { return this->on_skyecho_network_.load(); }
   /// Confirms a tow and updates the queue count.
   ConfirmResult confirm(uint32_t id);
+  /// Takes a tow off the review list as not a tow, and out of the day's counts.
+  void discard(const TowRecord &record);
+  uint32_t tows_today() const { return this->totals_.tows; }
+  /// These include the flight in progress.
+  uint32_t flight_today_s() const { return this->totals_.flight_s + this->current_flight_s_(); }
+  uint32_t since_refuel_s() const { return this->totals_.fuel_s + this->current_flight_s_(); }
+  void mark_refuelled();
 
   /// Stays up while the screen is in use on battery.
   void note_activity() { this->last_activity_ms_ = millis(); }
@@ -120,6 +127,9 @@ class TugLogger : public Component
   void on_landed_();
   void save_flight_();
   void check_tow_watch_();
+  uint32_t current_flight_s_() const { return this->is_flying() ? this->flight_elapsed_s() : 0; }
+  uint32_t today_();
+  void record_flight_(uint32_t seconds);
   void check_network_();
   void check_power_();
   time_t epoch_();
@@ -147,6 +157,7 @@ class TugLogger : public Component
   Provisioning provisioning_{};
   TowDetails next_details_{};
   TowDetails flight_details_{};
+  TowTotals totals_{};
   GpsSource source_{GpsSource::GPS_SOURCE_NONE};
 
   // A flight found on the card at start: carried on if the aircraft is still moving, otherwise closed

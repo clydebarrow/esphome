@@ -34,6 +34,8 @@ struct TugUiWidgets {
   lvgl::LvPageType *tow_page;
   lvgl::LvPageType *settings_page;
   lv_obj_t *status;
+  lv_obj_t *status_time;
+  lv_obj_t *refuel_label;
   lv_obj_t *next_fields[TOW_FIELD_COUNT];
   lv_obj_t *review_count;
   lv_obj_t *flight_height;
@@ -85,6 +87,10 @@ class TugUi {
   /// Asks for a second press before the tow is taken off the list.
   void discard_tow();
   void back_to_ground();
+  /// Asks for a second press before the time since refuelling goes back to zero.
+  void mark_refuelled();
+  /// Called as the picker's text changes.
+  void picker_text_changed();
   /// Changes between the light and dark themes while running.
   void set_dark_mode(bool dark);
   bool dark_mode() const { return this->dark_mode_; }
@@ -114,6 +120,7 @@ class TugUi {
   TowField field_{TowField::TOW_FIELD_GLIDER};
   uint32_t tow_id_{0};
   bool discard_armed_{false};
+  uint8_t refuel_armed_ticks_{0};
   bool dark_mode_{false};
   uint8_t wifi_list_refresh_ticks_{0};
   std::string wifi_ssid_;

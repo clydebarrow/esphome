@@ -28,6 +28,58 @@ std::string glider_from_callsign(const char *callsign) {
   return text;
 }
 
+std::string capital_case(const std::string &name) {
+  std::string out;
+  size_t start = 0;
+  while (start < name.size()) {
+    size_t end = name.find(' ', start);
+    if (end == std::string::npos)
+      end = name.size();
+    std::string word = name.substr(start, end - start);
+    bool upper = false, lower = false;
+    for (const unsigned char c : word) {
+      upper = upper || std::isupper(c);
+      lower = lower || std::islower(c);
+    }
+    if (!upper || !lower) {
+      bool capital = true;
+      for (char &c : word) {
+        const auto letter = static_cast<unsigned char>(c);
+        c = static_cast<char>(capital ? std::toupper(letter) : std::tolower(letter));
+        capital = c == '-' || c == '\'';
+      }
+    }
+    out += word;
+    if (end != name.size())
+      out += ' ';
+    start = end + 1;
+  }
+  return out;
+}
+
+bool TowTotals::roll_to(uint32_t new_day) {
+  if (new_day == 0 || new_day == this->day)
+    return false;
+  if (this->day != 0) {
+    this->tows = 0;
+    this->flight_s = 0;
+  }
+  this->day = new_day;
+  return true;
+}
+
+void TowTotals::add_flight(uint32_t seconds) {
+  this->tows++;
+  this->flight_s += seconds;
+  this->fuel_s += seconds;
+}
+
+void TowTotals::remove_flight(uint32_t seconds) {
+  this->tows = this->tows != 0 ? this->tows - 1 : 0;
+  this->flight_s = this->flight_s > seconds ? this->flight_s - seconds : 0;
+}
+
+static constexpr const char *TOTALS_FILE = "totals.json";
 static constexpr const char *REVIEW_FILE = "review.jsonl";
 static constexpr const char *CURRENT_FILE = "current.json";
 static constexpr const char *RECENT_FILE = "recent.json";
@@ -386,6 +438,33 @@ static void remember_name(std::vector<std::string> &list, const std::string &nam
   list.insert(list.begin(), name);
   if (list.size() > MAX_RECENT)
     list.resize(MAX_RECENT);
+}
+
+TowTotals TowStore::load_totals() {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  TowTotals totals;
+  std::string content;
+  if (!this->read_with_fallback_(TOTALS_FILE, content))
+    return totals;
+  json::parse_json(content, [&](JsonObject root) -> bool {
+    totals.day = root["day"] | 0u;
+    totals.tows = root["tows"] | 0u;
+    totals.flight_s = root["flight"] | 0u;
+    totals.fuel_s = root["fuel"] | 0u;
+    return true;
+  });
+  return totals;
+}
+
+bool TowStore::save_totals(const TowTotals &totals) {
+  const std::string text = json::build_json([&](JsonObject root) {
+    root["day"] = totals.day;
+    root["tows"] = totals.tows;
+    root["flight"] = totals.flight_s;
+    root["fuel"] = totals.fuel_s;
+  });
+  std::lock_guard<std::mutex> guard(this->lock_);
+  return this->write_atomic_(TOTALS_FILE, text);
 }
 
 std::vector<std::string> TowStore::recent_gliders() {

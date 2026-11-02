@@ -72,6 +72,32 @@ std::string TugLogger::clock_text() {
 
 size_t TugLogger::review_count() { return this->store_.review_list().size(); }
 
+static uint32_t day_of(const ESPTime &time) {
+  return time.is_valid() ? time.year * 10000u + time.month * 100u + time.day_of_month : 0;
+}
+
+uint32_t TugLogger::today_() { return this->time_ != nullptr ? day_of(this->time_->now()) : 0; }
+
+void TugLogger::record_flight_(uint32_t seconds) {
+  this->totals_.roll_to(this->today_());
+  this->totals_.add_flight(seconds);
+  this->store_.save_totals(this->totals_);
+}
+
+void TugLogger::discard(const TowRecord &record) {
+  this->store_.discard(record.id);
+  // A launch from an earlier day has gone from the counts already
+  if (record.launch == 0 || day_of(ESPTime::from_epoch_local(record.launch)) == this->totals_.day) {
+    this->totals_.remove_flight(record.duration_s);
+    this->store_.save_totals(this->totals_);
+  }
+}
+
+void TugLogger::mark_refuelled() {
+  this->totals_.fuel_s = 0;
+  this->store_.save_totals(this->totals_);
+}
+
 void TugLogger::next_details_changed() {
   if (!this->next_details_.tug_pilot.empty())
     this->store_.remember(this->next_details_);
@@ -102,6 +128,7 @@ bool TugLogger::start_store_() {
     this->provisioning_.upload_key = this->upload_key_;
   this->queued_ = this->store_.queued_count();
   this->failed_ = this->store_.failed_count();
+  this->totals_ = this->store_.load_totals();
   this->has_saved_flight_ = this->store_.load_flight(this->saved_flight_, this->saved_details_, this->saved_at_);
   if (this->has_saved_flight_) {
     ESP_LOGI(TAG, "A flight was in progress when the device stopped");
@@ -126,6 +153,7 @@ void TugLogger::close_saved_flight_() {
   record.max_height_ft = this->saved_flight_.max_height_ft;
   record.approximate = true;
   record.details = this->saved_details_;
+  this->record_flight_(record.duration_s);
   this->store_.add_review(std::move(record));
   this->store_.clear_flight();
   this->has_saved_flight_ = false;
@@ -205,6 +233,7 @@ void TugLogger::on_landed_() {
   record.approximate = flight.approximate;
   record.details = this->flight_details_;
   this->store_.remember(record.details);
+  this->record_flight_(record.duration_s);
   if (!this->store_.add_review(std::move(record))) {
     ESP_LOGW(TAG, "The tow could not be saved");
   }
@@ -269,6 +298,8 @@ void TugLogger::tick_() {
   if (sample.epoch != 0)
     this->store_.resolve_launch_times(sample.epoch, now);
   this->check_tow_watch_();
+  if (this->store_ready_ && this->totals_.roll_to(this->today_()))
+    this->store_.save_totals(this->totals_);
 
   this->check_network_();
   this->check_power_();
