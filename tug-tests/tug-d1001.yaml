@@ -71,6 +71,12 @@ globals:
     restore_value: true
     initial_value: "false"
 
+# Not needed in use, but useful for logs. The key is in secrets.yaml next to this file, which is not committed:
+# tug_api_key: "$(openssl rand -base64 32)"
+api:
+  encryption:
+    key: !secret tug_api_key
+
 skyecho:
   id: skyecho_hub
 
