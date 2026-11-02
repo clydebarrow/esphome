@@ -17,6 +17,8 @@ namespace esphome::tug_logger {
 
 static constexpr uint32_t COLOR_NORMAL = 0x202020;
 static constexpr uint32_t COLOR_WARNING = 0xB02020;
+// The Wi-Fi component takes a command on its next loop, so the list is read again on the second tick after one
+static constexpr uint8_t WIFI_LIST_REFRESH_TICKS = 2;
 
 static const char *const FIELD_TITLES[TOW_FIELD_COUNT] = {"Glider", "Pilot 1", "Pilot 2", "Tug pilot"};
 
@@ -59,8 +61,6 @@ static std::string trimmed(const std::string &text) {
 // Each row owns its callbacks, for as long as the row exists
 struct RowActions {
   std::function<void()> on_click;
-  std::function<void()> on_long_press;
-  bool long_pressed{false};
 };
 
 static void row_event(lv_event_t *event) {
@@ -69,17 +69,8 @@ static void row_event(lv_event_t *event) {
     case LV_EVENT_DELETE:
       delete actions;
       break;
-    case LV_EVENT_PRESSED:
-      actions->long_pressed = false;
-      break;
-    case LV_EVENT_LONG_PRESSED:
-      if (actions->on_long_press) {
-        actions->long_pressed = true;
-        actions->on_long_press();
-      }
-      break;
     case LV_EVENT_CLICKED:
-      if (!actions->long_pressed && actions->on_click)
+      if (actions->on_click)
         actions->on_click();
       break;
     default:
@@ -87,8 +78,7 @@ static void row_event(lv_event_t *event) {
   }
 }
 
-void TugUi::add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click,
-                     std::function<void()> on_long_press) {
+void TugUi::add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click) {
   lv_obj_t *button = lv_button_create(list);
   lv_obj_set_width(button, lv_pct(100));
   lv_obj_set_height(button, 72);
@@ -98,7 +88,7 @@ void TugUi::add_row_(lv_obj_t *list, const std::string &text, std::function<void
   lv_obj_set_style_text_color(button, this->dark_mode_ ? lv_color_black() : lv_color_white(), LV_PART_MAIN);
   lv_obj_set_width(label, lv_pct(100));
   lv_obj_center(label);
-  auto *actions = new RowActions{std::move(on_click), std::move(on_long_press)};  // NOLINT
+  auto *actions = new RowActions{std::move(on_click)};  // NOLINT
   lv_obj_add_event_cb(button, row_event, LV_EVENT_ALL, actions);
 }
 
@@ -198,6 +188,8 @@ void TugUi::refresh() {
     const std::string &glider = logger->flight_details().glider_registration;
     lv_label_set_text(this->w_.flight_info, glider.empty() ? "" : glider.c_str());
   }
+  if (this->wifi_list_refresh_ticks_ != 0 && --this->wifi_list_refresh_ticks_ == 0)
+    this->fill_wifi_list_();
 }
 
 void TugUi::edit_next(TowField field) { this->open_picker_(PickerMode::PICKER_MODE_NEXT, field); }
@@ -250,6 +242,11 @@ void TugUi::picker_cancel() {
 
 void TugUi::accept_(const std::string &entered) {
   if (this->mode_ == PickerMode::PICKER_MODE_WIFI_PASSWORD) {
+    // Done on an empty box must not replace a saved password
+    if (entered.empty()) {
+      this->picker_cancel();
+      return;
+    }
 #ifdef USE_TUG_LOGGER_WIFI_NETWORKS
     if (auto *networks = this->logger_->get_wifi_networks(); networks != nullptr) {
       networks->connect(this->wifi_ssid_.c_str(), entered.c_str());
@@ -259,6 +256,7 @@ void TugUi::accept_(const std::string &entered) {
 #endif
     lv_textarea_set_text(this->w_.picker_text, "");
     this->show_settings();
+    this->wifi_list_refresh_ticks_ = WIFI_LIST_REFRESH_TICKS;
     return;
   }
   std::string value = trimmed(entered);
@@ -380,6 +378,7 @@ void TugUi::show_settings() {
   App.get_build_time_string(build_time);
   info += std::string("\nFirmware ") + build_time;
   lv_label_set_text(this->w_.settings_info, info.c_str());
+  this->wifi_dialog_close();
   this->show_wifi_list();
   this->show_(this->w_.settings_page);
 }
@@ -390,32 +389,74 @@ void TugUi::show_wifi_list() {
   if (networks == nullptr)
     return;
   networks->request_scan();
+  this->fill_wifi_list_();
+#endif
+}
+
+void TugUi::fill_wifi_list_() {
+#ifdef USE_TUG_LOGGER_WIFI_NETWORKS
+  auto *networks = this->logger_->get_wifi_networks();
+  if (networks == nullptr)
+    return;
   lv_obj_clean(this->w_.wifi_list);
   static wifi_networks::NetworkInfo list[wifi_networks::MAX_LISTED];
   const size_t count = networks->get_networks(list, wifi_networks::MAX_LISTED);
   for (size_t i = 0; i != count; i++) {
     const std::string ssid = list[i].ssid;
-    const bool known = list[i].known, secured = list[i].secured;
+    const bool known = list[i].known, secured = list[i].secured, saved = list[i].saved;
+    // An open SkyEcho can't be joined with a password, so don't offer to set one
+    const bool can_set_password = secured || !list[i].skyecho;
     std::string text = ssid;
     if (list[i].connected)
       text += " (in use)";
     if (list[i].skyecho)
       text += " SkyEcho";
-    else if (list[i].saved)
+    else if (saved)
       text += " saved";
-    this->add_row_(
-        this->w_.wifi_list, text,
-        [this, networks, ssid, known, secured]() {
-          if (known || !secured) {
-            networks->connect(ssid.c_str(), known ? nullptr : "");
-            networks->set_automatic();
-            return;
-          }
-          this->wifi_ssid_ = ssid;
-          this->open_picker_(PickerMode::PICKER_MODE_WIFI_PASSWORD, TowField::TOW_FIELD_GLIDER);
-        },
-        // Long press forgets a saved network
-        list[i].saved ? std::function<void()>([networks, ssid]() { networks->forget(ssid.c_str()); }) : nullptr);
+    this->add_row_(this->w_.wifi_list, text, [this, networks, ssid, known, secured, saved, can_set_password]() {
+      this->wifi_ssid_ = ssid;
+      if (known) {
+        this->open_wifi_dialog_(saved, can_set_password);
+      } else if (secured) {
+        this->open_picker_(PickerMode::PICKER_MODE_WIFI_PASSWORD, TowField::TOW_FIELD_GLIDER);
+      } else {
+        networks->connect(ssid.c_str(), "");
+        networks->set_automatic();
+      }
+    });
+  }
+#endif
+}
+
+static void set_hidden(lv_obj_t *obj, bool hidden) {
+  if (hidden) {
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
+void TugUi::open_wifi_dialog_(bool saved, bool can_set_password) {
+  lv_label_set_text(this->w_.wifi_dialog_title, this->wifi_ssid_.c_str());
+  // A network from the configuration has nothing saved to forget
+  set_hidden(this->w_.wifi_forget_button, !saved);
+  set_hidden(this->w_.wifi_password_button, !can_set_password);
+  set_hidden(this->w_.wifi_dialog, false);
+}
+
+void TugUi::wifi_dialog_close() { set_hidden(this->w_.wifi_dialog, true); }
+
+void TugUi::wifi_change_password() {
+  this->wifi_dialog_close();
+  this->open_picker_(PickerMode::PICKER_MODE_WIFI_PASSWORD, TowField::TOW_FIELD_GLIDER);
+}
+
+void TugUi::wifi_forget() {
+  this->wifi_dialog_close();
+#ifdef USE_TUG_LOGGER_WIFI_NETWORKS
+  if (auto *networks = this->logger_->get_wifi_networks(); networks != nullptr) {
+    networks->forget(this->wifi_ssid_.c_str());
+    this->wifi_list_refresh_ticks_ = WIFI_LIST_REFRESH_TICKS;
   }
 #endif
 }

@@ -11,7 +11,8 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
    `tug.json`, the device reports no tug file rather than guess.
 3. Flash from the worktree: `PYTHONPATH=$PWD python -m esphome run tug-tests/tug-d1001.yaml`. The Wi-Fi settings and
    secrets come from `../../../my-devices/wifi.yaml`, relative to `tug-tests`.
-4. Save the club's Wi-Fi network under Settings. A long press on a saved network forgets it.
+4. Save the club's Wi-Fi network under Settings. Tapping a known network opens a dialog to change its password or
+   forget it.
 5. Update the ESP32-C6 once, on each new board: `tug-tests/tug-d1001-c6-update.yaml` installs ESP-Hosted 3.0.10. Boards
    arrive with 2.3.2, which logs `eh_init_evt: major version mismatch` at every boot.
 

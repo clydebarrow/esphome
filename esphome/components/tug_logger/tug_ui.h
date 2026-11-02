@@ -49,6 +49,10 @@ struct TugUiWidgets {
   lv_obj_t *discard_label;
   lv_obj_t *settings_info;
   lv_obj_t *wifi_list;
+  lv_obj_t *wifi_dialog;
+  lv_obj_t *wifi_dialog_title;
+  lv_obj_t *wifi_password_button;
+  lv_obj_t *wifi_forget_button;
   lv_obj_t *picker_keyboard;
   lv_obj_t *theme_label;
 #ifdef USE_TUG_LOGGER_SKYECHO
@@ -73,6 +77,10 @@ class TugUi {
   void show_review();
   void show_settings();
   void show_wifi_list();
+  /// The dialog for the known network chosen in the Wi-Fi list.
+  void wifi_change_password();
+  void wifi_forget();
+  void wifi_dialog_close();
   void confirm_tow();
   /// Asks for a second press before the tow is taken off the list.
   void discard_tow();
@@ -95,8 +103,9 @@ class TugUi {
   void refresh_next_();
   void refresh_tow_();
   void set_status_();
-  void add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click,
-                std::function<void()> on_long_press = nullptr);
+  void add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click);
+  void fill_wifi_list_();
+  void open_wifi_dialog_(bool saved, bool can_set_password);
   bool current_tow_(TowRecord &record);
 
   TugLogger *logger_{nullptr};
@@ -106,6 +115,7 @@ class TugUi {
   uint32_t tow_id_{0};
   bool discard_armed_{false};
   bool dark_mode_{false};
+  uint8_t wifi_list_refresh_ticks_{0};
   std::string wifi_ssid_;
 };
 
