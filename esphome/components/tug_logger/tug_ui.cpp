@@ -131,6 +131,7 @@ void TugUi::show_(lvgl::LvPageType *page) { this->w_.lvgl->show_page(page->index
 
 void TugUi::set_status_() {
   auto *logger = this->logger_;
+  // Two rows, which the label is sized for: the time and links first, then the queue and anything wrong
   std::string status = logger->clock_text();
   switch (logger->gps_source()) {
     case GpsSource::GPS_SOURCE_SKYECHO:
@@ -145,16 +146,16 @@ void TugUi::set_status_() {
   }
   status +=
       logger->on_skyecho_network() ? "   Wi-Fi: SkyEcho" : (network::is_connected() ? "   Wi-Fi: on" : "   Wi-Fi: off");
-  status += Text("   Queued %zu", logger->queued_count()).text;
   const float battery = logger->battery_voltage();
   if (!std::isnan(battery))
     status += Text("   %.1f V", battery).text;
+  status += Text("\nQueued %zu", logger->queued_count()).text;
   bool warning = false;
   if (!logger->card_ok()) {
     status += "   NO SD CARD";
     warning = true;
   } else if (!logger->has_provisioning()) {
-    status += "   NO TUG FILE ON CARD";
+    status += "   NO TUG FILE";
     warning = true;
   }
   if (logger->failed_count() != 0) {
