@@ -475,6 +475,8 @@ class WiFiComponent final : public Component {
   void init_sta(size_t count);
   void add_sta(const WiFiAP &ap);
   void clear_sta();
+  /// The configured networks, in the order they are tried.
+  const FixedVector<WiFiAP> &get_sta_list() const { return this->sta_; }
 
 #ifdef USE_WIFI_AP
   /** Setup an Access Point that should be created if no connection to a station can be made.
@@ -624,6 +626,12 @@ class WiFiComponent final : public Component {
    * roam scan or connect is already in progress, or if roaming is currently suppressed.
    */
   void force_roam_check();
+
+  /** Scan without leaving the network, for the scan results listeners. A better access point of the same network is
+   * roamed to, as after a roaming scan. Does nothing (besides a debug log) if not connected, or if a scan or roam is in
+   * progress.
+   */
+  void scan_while_connected();
 
 #ifdef USE_WIFI_CONNECT_TRIGGER
   Trigger<> *get_connect_trigger() { return &this->connect_trigger_; }

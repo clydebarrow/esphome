@@ -1,0 +1,101 @@
+# Board check for the reTerminal D1001, without the tug logger: a touch counter on the screen, the SD card listed at
+# boot, the clock and the SkyEcho. Flash over USB: PYTHONPATH=$PWD python -m esphome run tug-tests/tug-d1001-bringup.yaml
+
+packages:
+  board: !include tug-d1001-board.yaml
+
+esphome:
+  name: tug-bringup
+  on_boot:
+    priority: -100
+    then:
+      - pcf8563.read_time: rtc
+      # the card is ready a moment after boot
+      - delay: 3s
+      - lambda: |-
+          auto *fs = id(sd_fs);
+          auto dir = fs->open_dir("/");
+          if (!dir) {
+            ESP_LOGE("bringup", "SD open_dir failed: %s", LOG_STR_ARG(filesystem::fs_error_to_string(fs->last_error())));
+            lv_label_set_text(id(sd_label), "SD: failed");
+            return;
+          }
+          filesystem::FileInfo info;
+          char name[64];
+          while (dir.read_next(info, name, sizeof(name)) == filesystem::FsError::FS_ERROR_NONE)
+            ESP_LOGI("bringup", "%s %s %u", info.is_dir ? "dir " : "file", name, (unsigned) info.size);
+          uint64_t total, free;
+          if (fs->space(total, free) == filesystem::FsError::FS_ERROR_NONE) {
+            ESP_LOGI("bringup", "SD total %llu MB, free %llu MB", total >> 20, free >> 20);
+            lv_label_set_text(id(sd_label), str_sprintf("SD: %llu MB free", free >> 20).c_str());
+          }
+
+skyecho:
+  id: skyecho_hub
+
+time:
+  - platform: skyecho
+    on_time_sync:
+      - pcf8563.write_time: rtc
+
+lvgl:
+  byte_order: little_endian
+  rotation: 270
+  widgets:
+    - label:
+        id: title_label
+        align: top_mid
+        y: 20
+        text_font: montserrat_28
+        text: D1001 bring-up
+    - label:
+        id: sd_label
+        align: left_mid
+        x: 40
+        y: -80
+        text_font: montserrat_28
+        text: "SD: waiting"
+    - label:
+        id: gps_label
+        align: left_mid
+        x: 40
+        y: -20
+        text_font: montserrat_28
+        text: "GPS: waiting"
+    - label:
+        id: clock_label
+        align: left_mid
+        x: 40
+        y: 40
+        text_font: montserrat_28
+        text: "Clock: waiting"
+    - button:
+        id: touch_button
+        align: bottom_mid
+        y: -40
+        width: 300
+        height: 100
+        on_click:
+          - lambda: |-
+              static int count = 0;
+              lv_label_set_text(id(touch_label), str_sprintf("Touched %d", ++count).c_str());
+        widgets:
+          - label:
+              id: touch_label
+              align: center
+              text_font: montserrat_28
+              text: Touch me
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          skyecho::OwnshipT own;
+          if (id(skyecho_hub).get_ownship_position(&own)) {
+            lv_label_set_text(id(gps_label), str_sprintf("GPS: %.1f m/s, altitude %.0f m", own.report.groundSpeed, own.report.altitude).c_str());
+          } else {
+            lv_label_set_text(id(gps_label), "GPS: no data");
+          }
+          auto now = id(rtc).now();
+          if (now.is_valid())
+            lv_label_set_text(id(clock_label), now.strftime("Clock: %Y-%m-%d %H:%M:%S").c_str());
