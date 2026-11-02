@@ -1540,7 +1540,11 @@ void WiFiComponent::disable() {
 void WiFiComponent::start_scanning() {
   this->action_started_ = millis();
   ESP_LOGD(TAG, "Starting scan");
-  this->wifi_scan_start_(this->passive_scan_);
+  // No scan done callback follows a scan that did not start: it counts as aborted, not as waiting for the timeout
+  if (!this->wifi_scan_start_(this->passive_scan_)) {
+    this->scan_done_ = true;
+    this->scan_aborted_ = true;
+  }
   this->state_ = WIFI_COMPONENT_STATE_STA_SCANNING;
 }
 

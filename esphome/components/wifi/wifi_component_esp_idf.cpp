@@ -1460,6 +1460,11 @@ bool WiFiComponent::wifi_scan_start_(bool passive) {
   }
 #endif
 
+  // After a restart an ESP-Hosted coprocessor goes back to its last network by itself, and the driver refuses to scan
+  // while it is connecting. This scan is to choose a network, so that attempt can go.
+  if (!this->is_roaming_scan_active())
+    esp_wifi_disconnect();
+
   esp_err_t err = esp_wifi_scan_start(&config, false);
   if (err != ESP_OK) {
     ESP_LOGV(TAG, "esp_wifi_scan_start failed: %s", esp_err_to_name(err));
