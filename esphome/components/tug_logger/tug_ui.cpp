@@ -294,7 +294,7 @@ void TugUi::refresh_tow_() {
                                             int(record.max_height_ft), record.approximate ? " (approximate)" : "",
                                             unsigned(record.climb_s / 60), unsigned(record.climb_s % 60),
                                             unsigned(record.duration_s / 60), unsigned(record.duration_s % 60))
-                                           .text.c_str());
+                                           .text);
   for (size_t i = 0; i != TOW_FIELD_COUNT; i++)
     lv_label_set_text(this->w_.tow_fields[i], field_text(record.details, TowField(i)).c_str());
 }
