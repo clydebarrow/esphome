@@ -1,0 +1,12 @@
+# One test tow to the live Worker: tug-d1001.yaml with the URL and key from the file on the card, the bench's API
+# actions, and a short landing confirmation for the simulated tow in fly.py. Flash tug-d1001.yaml afterwards.
+
+packages:
+  tug: !include tug-d1001.yaml
+  actions: !include tug-d1001-actions.yaml
+
+esphome:
+  name: tug-d1001-live-test
+
+tug_logger:
+  landing_confirm: 15s

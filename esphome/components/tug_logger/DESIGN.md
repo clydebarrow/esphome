@@ -15,6 +15,8 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 5. Update the ESP32-C6 once, on each new board: `tug-tests/tug-d1001-c6-update.yaml` installs ESP-Hosted 3.0.10. Boards
    arrive with 2.3.2, which logs `eh_init_evt: major version mismatch` at every boot.
 
+`tug-tests/tug-d1001-test.yaml` and `tug-d1001-live-test.yaml` are bench builds, with `fly.py` for a simulated tow.
+
 `tug-tests/tug-d1001-bringup.yaml` checks the board alone: screen, touch, SD card, clock and SkyEcho.
 
 ## Files on the card, in `/tug`

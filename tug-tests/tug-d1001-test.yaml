@@ -6,6 +6,7 @@ substitutions:
 
 packages:
   tug: !include tug-d1001.yaml
+  actions: !include tug-d1001-actions.yaml
 
 esphome:
   name: tug-d1001-test
@@ -38,77 +39,6 @@ tug_logger:
   upload_url: ${upload_url}
   upload_key: ${upload_key}
   landing_confirm: 15s
-
-api:
-  actions:
-    - action: ui
-      variables:
-        command: string
-        value: int
-      then:
-        - lambda: |-
-            auto &u = id(ui);
-            ESP_LOGI("test", "ui %s %d", command.c_str(), value);
-            if (command == "edit_next") u.edit_next(tug_logger::TowField(value));
-            else if (command == "edit_tow") u.edit_tow(tug_logger::TowField(value));
-            else if (command == "done") u.picker_done();
-            else if (command == "cancel") u.picker_cancel();
-            else if (command == "review") u.show_review();
-            else if (command == "settings") u.show_settings();
-            else if (command == "confirm") u.confirm_tow();
-            else if (command == "discard") u.discard_tow();
-            else if (command == "ground") u.back_to_ground();
-            else if (command == "dark") { id(dark_mode) = value != 0; u.set_dark_mode(value != 0); }
-            else if (command == "flight") id(lvgl_id).show_page(id(flight_page).index, LV_SCREEN_LOAD_ANIM_NONE, 0);
-    - action: forget_network
-      variables:
-        ssid: string
-      then:
-        - lambda: id(wifi_networks_hub).forget(ssid.c_str());
-    - action: fill_color
-      variables:
-        rgb: int
-      then:
-        - lambda: |-
-            static lv_obj_t *fill = nullptr;
-            if (fill == nullptr) {
-              fill = lv_obj_create(lv_layer_top());
-              lv_obj_set_size(fill, lv_pct(100), lv_pct(100));
-              lv_obj_set_style_border_width(fill, 0, LV_PART_MAIN);
-              lv_obj_set_style_radius(fill, 0, LV_PART_MAIN);
-              lv_obj_set_style_pad_all(fill, 0, LV_PART_MAIN);
-              // Bars across the top third, so a camera's white balance has something to go by
-              const uint32_t colors[] = {0xFF0000, 0x00FF00, 0x0000FF, 0xFFFFFF, 0x000000};
-              for (int i = 0; i != 5; i++) {
-                lv_obj_t *bar = lv_obj_create(fill);
-                lv_obj_set_size(bar, lv_pct(20), 400);
-                lv_obj_set_pos(bar, lv_pct(i * 20), 0);
-                lv_obj_set_style_radius(bar, 0, LV_PART_MAIN);
-                lv_obj_set_style_border_width(bar, 0, LV_PART_MAIN);
-                lv_obj_set_style_bg_color(bar, lv_color_hex(colors[i]), LV_PART_MAIN);
-              }
-            }
-            if (rgb < 0) {
-              lv_obj_add_flag(fill, LV_OBJ_FLAG_HIDDEN);
-            } else {
-              lv_obj_remove_flag(fill, LV_OBJ_FLAG_HIDDEN);
-              lv_obj_set_style_bg_color(fill, lv_color_hex(rgb), LV_PART_MAIN);
-            }
-    - action: type_text
-      variables:
-        content: string
-      then:
-        - lambda: lv_textarea_set_text(id(picker_text), content.c_str());
-    - action: click_row
-      variables:
-        list: string
-        row: int
-      then:
-        - lambda: |-
-            lv_obj_t *parent = list == "review" ? id(review_list) : (list == "picker" ? id(picker_list) : id(wifi_list));
-            lv_obj_t *child = lv_obj_get_child(parent, row);
-            if (child != nullptr)
-              lv_obj_send_event(child, LV_EVENT_CLICKED, nullptr);
 
 interval:
   - interval: 20s
