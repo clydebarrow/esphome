@@ -95,6 +95,7 @@ void TugUi::add_row_(lv_obj_t *list, const std::string &text, std::function<void
   lv_obj_t *label = lv_label_create(button);
   lv_label_set_text(label, text.c_str());
   lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_color(button, this->dark_mode_ ? lv_color_black() : lv_color_white(), LV_PART_MAIN);
   lv_obj_set_width(label, lv_pct(100));
   lv_obj_center(label);
   auto *actions = new RowActions{std::move(on_click), std::move(on_long_press)};  // NOLINT
@@ -112,6 +113,13 @@ void TugUi::bind(TugLogger *logger, const TugUiWidgets &widgets) {
   this->refresh();
 }
 
+// Black on the buttons in dark mode, which the theme leaves white
+static lv_obj_tree_walk_res_t set_button_text(lv_obj_t *obj, void *user_data) {
+  if (lv_obj_check_type(obj, &lv_button_class))
+    lv_obj_set_style_text_color(obj, *static_cast<lv_color_t *>(user_data), LV_PART_MAIN);
+  return LV_OBJ_TREE_WALK_NEXT;
+}
+
 void TugUi::set_dark_mode(bool dark) {
   this->dark_mode_ = dark;
   lv_obj_t *screen = lv_screen_active();
@@ -122,6 +130,10 @@ void TugUi::set_dark_mode(bool dark) {
   if (this->w_.traffic != nullptr)
     this->w_.traffic->refresh_colors();
 #endif
+  lv_color_t button_text = dark ? lv_color_black() : lv_color_white();
+  for (lvgl::LvPageType *page :
+       {this->w_.ground_page, this->w_.picker_page, this->w_.review_page, this->w_.tow_page, this->w_.settings_page})
+    lv_obj_tree_walk(page->obj, set_button_text, &button_text);
   lv_label_set_text(this->w_.theme_label, dark ? "Dark mode: on" : "Dark mode: off");
 }
 

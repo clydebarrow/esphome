@@ -50,7 +50,20 @@ esphome:
           id(ui).bind(id(logger_id), w);
           id(ui).set_dark_mode(id(dark_mode));
 
+font:
+  - file: {type: gfonts, family: Montserrat, weight: 700}
+    id: bold_28
+    size: 28
+  - file: {type: gfonts, family: Montserrat, weight: 700}
+    id: bold_40
+    size: 40
+  - file: {type: gfonts, family: Montserrat, weight: 700}
+    id: bold_48
+    size: 48
+
 globals:
+  - id: powering_off
+    type: bool
   - id: ui
     type: tug_logger::TugUi
   - id: dark_mode
@@ -83,6 +96,9 @@ tug_logger:
     - lambda: id(ui).back_to_ground();
   on_power_off:
     - switch.turn_off: power_hold
+    # Still running: external power came back. The card is unmounted, so start again
+    - delay: 5s
+    - lambda: App.safe_reboot();
 
 time:
   - id: !extend rtc
@@ -101,12 +117,17 @@ binary_sensor:
             binary_sensor.is_off: external_power
           then:
             - script.execute: power_down_script
+    # The button itself keeps the power on while it is held, so the power only goes once it is let go. That release
+    # must not turn power hold on again.
     on_release:
-      - script.stop: power_down_script
-      - lvgl.widget.update:
-          id: power_down_label
-          hidden: true
-      - switch.turn_on: power_hold
+      - if:
+          condition:
+            lambda: return !id(powering_off);
+          then:
+            - script.stop: power_down_script
+            - lvgl.widget.update:
+                id: power_down_label
+                hidden: true
 
 script:
   - id: power_down_script
@@ -125,13 +146,19 @@ script:
           id: power_down_label
           text: Powering off in 1 s
       - delay: 1s
+      - lambda: id(powering_off) = true;
       - lvgl.label.update:
           id: power_down_label
-          text: Powering off
+          text: Release to power off
       # Saves a flight in progress, and unmounts the SD card
       - lambda: App.run_safe_shutdown_hooks();
       - delay: 500ms
       - switch.turn_off: power_hold
+      - wait_until:
+          binary_sensor.is_off: power_button
+      # Still running: external power came back. The card is unmounted, so start again
+      - delay: 5s
+      - lambda: App.safe_reboot();
 
 interval:
   - interval: 1s
@@ -155,19 +182,19 @@ lvgl:
       radius: 10
   theme:
     label:
-      text_font: montserrat_28
+      text_font: bold_28
     button:
-      text_font: montserrat_28
+      text_font: bold_28
   top_layer:
     widgets:
       - label:
           id: power_down_label
           hidden: true
           align: center
-          width: 50%
+          width: 90%
           pad_all: 20
           text_align: center
-          text_font: montserrat_40
+          text_font: bold_40
           text_color: white
           bg_color: 0x404040
           bg_opa: cover
@@ -178,7 +205,7 @@ lvgl:
           width: 100%
           height: 92
           pad_all: 8
-          text_font: montserrat_28
+          text_font: bold_28
           text_color: white
           bg_color: 0x202020
           bg_opa: cover
@@ -197,25 +224,25 @@ lvgl:
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_GLIDER);
             widgets:
-              - label: {id: next_glider, align: left_mid, text_font: montserrat_40, text: ""}
+              - label: {id: next_glider, align: left_mid, text_font: bold_40, text: ""}
         - button:
             styles: big_button
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_PILOT_1);
             widgets:
-              - label: {id: next_pilot1, align: left_mid, text_font: montserrat_40, text: ""}
+              - label: {id: next_pilot1, align: left_mid, text_font: bold_40, text: ""}
         - button:
             styles: big_button
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_PILOT_2);
             widgets:
-              - label: {id: next_pilot2, align: left_mid, text_font: montserrat_40, text: ""}
+              - label: {id: next_pilot2, align: left_mid, text_font: bold_40, text: ""}
         - button:
             styles: big_button
             on_click:
               - lambda: id(ui).edit_next(tug_logger::TowField::TOW_FIELD_TUG_PILOT);
             widgets:
-              - label: {id: next_tug_pilot, align: left_mid, text_font: montserrat_40, text: ""}
+              - label: {id: next_tug_pilot, align: left_mid, text_font: bold_40, text: ""}
         - obj:
             width: 100%
             height: 150
@@ -233,7 +260,7 @@ lvgl:
                   on_click:
                     - lambda: id(ui).show_review();
                   widgets:
-                    - label: {id: review_count, align: center, text_font: montserrat_40, text: ""}
+                    - label: {id: review_count, align: center, text_font: bold_40, text: ""}
               - button:
                   styles: action_button
                   flex_grow: 1
@@ -255,7 +282,7 @@ lvgl:
             range_rings: 3
             ownship_size: 48
             target_size: 40
-            text_font: montserrat_28
+            text_font: bold_28
             width: 790
             height: 790
             align: top_mid
@@ -272,9 +299,9 @@ lvgl:
               flex_align_cross: center
             widgets:
               # Right aligned, so that the units stay put as the digits change
-              - label: {id: flight_height, width: 100%, text_align: right, text_font: montserrat_48, text: "0 ft"}
-              - label: {id: flight_elapsed, width: 100%, text_align: right, text_font: montserrat_48, text: "0:00"}
-              - label: {id: flight_info, width: 100%, text_align: right, text_font: montserrat_40, text: ""}
+              - label: {id: flight_height, width: 100%, text_align: right, text_font: bold_48, text: "0 ft"}
+              - label: {id: flight_elapsed, width: 100%, text_align: right, text_font: bold_48, text: "0:00"}
+              - label: {id: flight_info, width: 100%, text_align: right, text_font: bold_40, text: ""}
 
     - id: picker_page
       pad_top: 100
@@ -283,7 +310,7 @@ lvgl:
         - label:
             id: picker_title
             align: top_left
-            text_font: montserrat_40
+            text_font: bold_40
             text: ""
         - textarea:
             id: picker_text
@@ -293,10 +320,10 @@ lvgl:
             height: 80
             one_line: true
             max_length: 64
-            text_font: montserrat_40
+            text_font: bold_40
         - obj:
             id: picker_list
-            text_font: montserrat_28
+            text_font: bold_28
             align: top_left
             y: 250
             width: 100%
@@ -310,7 +337,7 @@ lvgl:
             on_click:
               - lambda: id(ui).picker_done();
             widgets:
-              - label: {align: center, text_font: montserrat_40, text: Done}
+              - label: {align: center, text_font: bold_40, text: Done}
         - button:
             styles: action_button
             align: top_right
@@ -319,7 +346,7 @@ lvgl:
             on_click:
               - lambda: id(ui).picker_cancel();
             widgets:
-              - label: {align: center, text_font: montserrat_40, text: Cancel}
+              - label: {align: center, text_font: bold_40, text: Cancel}
         - keyboard:
             id: picker_keyboard
             textarea: picker_text
@@ -335,7 +362,7 @@ lvgl:
       widgets:
         - obj:
             id: review_list
-            text_font: montserrat_28
+            text_font: bold_28
             align: top_mid
             width: 100%
             height: 1040
@@ -347,7 +374,7 @@ lvgl:
             on_click:
               - lambda: id(ui).back_to_ground();
             widgets:
-              - label: {align: center, text_font: montserrat_40, text: Back}
+              - label: {align: center, text_font: bold_40, text: Back}
 
     - id: tow_page
       pad_top: 100
@@ -377,28 +404,28 @@ lvgl:
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_GLIDER);
                   widgets:
-                    - label: {id: tow_glider, align: left_mid, text_font: montserrat_40, text: ""}
+                    - label: {id: tow_glider, align: left_mid, text_font: bold_40, text: ""}
               - button:
                   styles: action_button
                   width: 100%
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_PILOT_1);
                   widgets:
-                    - label: {id: tow_pilot1, align: left_mid, text_font: montserrat_40, text: ""}
+                    - label: {id: tow_pilot1, align: left_mid, text_font: bold_40, text: ""}
               - button:
                   styles: action_button
                   width: 100%
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_PILOT_2);
                   widgets:
-                    - label: {id: tow_pilot2, align: left_mid, text_font: montserrat_40, text: ""}
+                    - label: {id: tow_pilot2, align: left_mid, text_font: bold_40, text: ""}
               - button:
                   styles: action_button
                   width: 100%
                   on_click:
                     - lambda: id(ui).edit_tow(tug_logger::TowField::TOW_FIELD_TUG_PILOT);
                   widgets:
-                    - label: {id: tow_tug_pilot, align: left_mid, text_font: montserrat_40, text: ""}
+                    - label: {id: tow_tug_pilot, align: left_mid, text_font: bold_40, text: ""}
         - label:
             id: tow_message
             align: bottom_left
@@ -415,7 +442,7 @@ lvgl:
             on_click:
               - lambda: id(ui).confirm_tow();
             widgets:
-              - label: {align: center, text_font: montserrat_40, text: Confirm}
+              - label: {align: center, text_font: bold_40, text: Confirm}
         - button:
             styles: action_button
             align: bottom_right
@@ -433,7 +460,7 @@ lvgl:
             on_click:
               - lambda: id(ui).show_review();
             widgets:
-              - label: {align: center, text_font: montserrat_40, text: Back}
+              - label: {align: center, text_font: bold_40, text: Back}
 
     - id: settings_page
       pad_top: 100
@@ -473,7 +500,7 @@ lvgl:
               - label: {align: center, text: Back}
         - obj:
             id: wifi_list
-            text_font: montserrat_28
+            text_font: bold_28
             align: top_mid
             y: 200
             width: 100%
