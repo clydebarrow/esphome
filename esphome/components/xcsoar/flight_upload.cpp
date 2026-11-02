@@ -40,7 +40,17 @@ static constexpr size_t MAX_CLUB_JSON = 4096;
 // Written by XCSoar (ClubConfig.hpp, CLUB_FLIGHTS_PENDING); renamed before sending, so XCSoar starts a new one
 static constexpr const char *PENDING_FILE = "flights-pending.jsonl";
 static constexpr const char *SENDING_FILE = "flights-sending.jsonl";
+// Flights the server refused for their content; kept, but never sent again
+static constexpr const char *FAILED_FILE = "flights-failed.jsonl";
 static constexpr const char *CLUB_FILE = "club.json";
+
+enum class UploadResult : uint8_t {
+  UPLOAD_RESULT_SENT,
+  // Network or server trouble, or HTTP 401 (the key may be fixed): send it again later
+  UPLOAD_RESULT_RETRY,
+  // Any other 4xx: the server will never take this flight
+  UPLOAD_RESULT_REFUSED,
+};
 
 static bool file_exists(const char *path) {
   struct stat st;
@@ -88,12 +98,20 @@ static bool sign(const char *key, const char *body, size_t length, char *signatu
   return true;
 }
 
-// POST one flight; true if the server accepted it
-static bool post_flight(const UploadSettings &settings, const char *body, size_t length) {
+static void append_line(const char *path, const char *line) {
+  FILE *out = fopen(path, "ab");
+  if (out != nullptr) {
+    fprintf(out, "%s\n", line);
+    fclose(out);
+  }
+}
+
+// POST one flight
+static UploadResult post_flight(const UploadSettings &settings, const char *body, size_t length) {
   char signature[8 + 2 * SHA256_SIZE];
   if (settings.key[0] != '\0' && !sign(settings.key, body, length, signature, sizeof(signature))) {
     ESP_LOGW(TAG, "Signing failed");
-    return false;
+    return UploadResult::UPLOAD_RESULT_RETRY;
   }
   esp_http_client_config_t config{};
   config.url = settings.url;
@@ -104,7 +122,7 @@ static bool post_flight(const UploadSettings &settings, const char *body, size_t
 #endif
   esp_http_client_handle_t client = esp_http_client_init(&config);
   if (client == nullptr)
-    return false;
+    return UploadResult::UPLOAD_RESULT_RETRY;
   esp_http_client_set_header(client, "Content-Type", "application/json");
   if (settings.key[0] != '\0')
     esp_http_client_set_header(client, "X-Signature", signature);
@@ -114,20 +132,27 @@ static bool post_flight(const UploadSettings &settings, const char *body, size_t
   esp_http_client_cleanup(client);
   // A server that closes the connection after its answer gives an error, but the status says it was accepted
   if (status >= 200 && status < 300)
-    return true;
-  if (err != ESP_OK) {
+    return UploadResult::UPLOAD_RESULT_SENT;
+  if (status >= 400 && status < 500 && status != 401) {
+    ESP_LOGW(TAG, "Upload refused: HTTP %d; the flight is kept in %s and not sent again", status, FAILED_FILE);
+    return UploadResult::UPLOAD_RESULT_REFUSED;
+  }
+  // The client gives an error for a 401 without an authentication scheme, so the status goes first
+  if (err != ESP_OK && status < 400) {
     ESP_LOGW(TAG, "Upload failed: %s", esp_err_to_name(err));
   } else {
-    ESP_LOGW(TAG, "Upload refused: HTTP %d", status);
+    ESP_LOGW(TAG, "Upload refused: HTTP %d; trying again later", status);
   }
-  return false;
+  return UploadResult::UPLOAD_RESULT_RETRY;
 }
 
-// Send the flights in the sending file; the ones not accepted go back into the pending file
+// Send the flights in the sending file; the ones to try again go back into the pending file, the ones refused for
+// their content into the failed file
 static void send_flights(const char *data_path) {
-  char pending[MAX_PATH], sending[MAX_PATH];
+  char pending[MAX_PATH], sending[MAX_PATH], failed[MAX_PATH];
   snprintf(pending, sizeof(pending), "%s/%s", data_path, PENDING_FILE);
   snprintf(sending, sizeof(sending), "%s/%s", data_path, SENDING_FILE);
+  snprintf(failed, sizeof(failed), "%s/%s", data_path, FAILED_FILE);
 
   // A sending file left by a restart is sent before new flights are taken
   if (!file_exists(sending)) {
@@ -145,28 +170,33 @@ static void send_flights(const char *data_path) {
   if (in == nullptr)
     return;
   auto line = std::make_unique<char[]>(MAX_LINE);
-  unsigned sent = 0, kept = 0;
+  unsigned sent = 0, kept = 0, refused = 0;
   while (fgets(line.get(), MAX_LINE, in) != nullptr) {
     size_t length = strlen(line.get());
     while (length > 0 && (line[length - 1] == '\n' || line[length - 1] == '\r'))
       line[--length] = '\0';
     if (length == 0)
       continue;
-    if (network::is_connected() && post_flight(settings, line.get(), length)) {
-      sent++;
-      continue;
+    const UploadResult result =
+        network::is_connected() ? post_flight(settings, line.get(), length) : UploadResult::UPLOAD_RESULT_RETRY;
+    switch (result) {
+      case UploadResult::UPLOAD_RESULT_SENT:
+        sent++;
+        break;
+      case UploadResult::UPLOAD_RESULT_REFUSED:
+        append_line(failed, line.get());
+        refused++;
+        break;
+      case UploadResult::UPLOAD_RESULT_RETRY:
+        append_line(pending, line.get());
+        kept++;
+        break;
     }
-    FILE *out = fopen(pending, "ab");
-    if (out != nullptr) {
-      fprintf(out, "%s\n", line.get());
-      fclose(out);
-    }
-    kept++;
   }
   fclose(in);
   remove(sending);
-  if (sent > 0 || kept > 0) {
-    ESP_LOGI(TAG, "Flights sent: %u, still queued: %u", sent, kept);
+  if (sent > 0 || kept > 0 || refused > 0) {
+    ESP_LOGI(TAG, "Flights sent: %u, still queued: %u, refused: %u", sent, kept, refused);
   }
 }
 

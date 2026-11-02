@@ -746,13 +746,16 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   (`logs/flights.log`) is turned off; it does not run in simulator mode. XCSoar on the ESP32 has no HTTP client,
   so the ESPHome component sends them (`flight_upload: true`, `flight_upload.cpp`): a task with its stack in PSRAM
   looks once a minute while the network is up, renames the file to `flights-sending.jsonl` (so XCSoar starts a
-  new one), POSTs each line (`application/json`, the certificate bundle for https) and appends the ones not
-  accepted to the pending file again; a sending file left by a restart goes first. A 2xx status counts as
+  new one), POSTs each line (`application/json`, the certificate bundle for https) and appends the ones to try
+  again to the pending file; a sending file left by a restart goes first. A network error, a 5xx status or 401
+  (the key may be fixed) means try again; any other 4xx means the server will never take that flight, which
+  goes to `flights-failed.jsonl` instead and is not sent again. A 2xx status counts as
   accepted even when the server then closes the connection, so a flight is not sent twice. With a
   `flight_upload_key`, each request carries `X-Signature: sha256=<hex>`, the HMAC-SHA256 of the body with that
   key (the scheme of GitHub's webhooks), so the server can check where a flight came from. The key is on the SD
   card in plain text, so anyone with the card can sign flights. Tested with the stand-in server checking the
-  signature: accepted with the right key; with a wrong one HTTP 403, and the flight stayed queued.
+  signature: accepted with the right key; with a wrong one HTTP 401, and the flights stayed queued and were sent
+  once the key matched. With HTTP 422 both went to `flights-failed.jsonl`, and none was queued again.
   - Format: `flights-pending.jsonl` holds one JSON object per line, and each line is one POST body:
     `{"organisation":"Warwick Gliding Club","glider_type":"PW6","registration":"WGQ","pilot":"TEST",`
     `"takeoff":"2026-11-01T08:59:01Z","landing":"2026-11-01T09:01:01Z","duration":120}`.
