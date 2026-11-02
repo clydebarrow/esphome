@@ -1,6 +1,5 @@
-# tug-d1001.yaml for the bench: API actions to step through the screens from fly.py or aioesphomeapi, uploads to a
-# local Worker (wrangler dev), and the flight page shown for a while each minute and a half while on a SkyEcho, whose
-# network can't be reached from here. It also accepts a short flight, for the simulated tow in fly.py.
+# tug-d1001.yaml for the bench: API actions to step through the screens with aioesphomeapi, uploads to a local Worker
+# (wrangler dev), and a short landing confirmation for the simulated tow in fly.py.
 substitutions:
   upload_url: http://192.168.1.131:8787/api/tows
   upload_key: local-tug-secret
@@ -118,12 +117,3 @@ interval:
           ESP_LOGI("test", "External power %s, charge state pin %s, charge enable %s, battery %.2f V",
                    ONOFF(id(external_power).state), ONOFF(id(charge_state).state),
                    ONOFF(id(battery_charge_enable).state), id(vbat).state);
-  - interval: 90s
-    then:
-      - if:
-          condition:
-            lambda: return id(logger_id).on_skyecho_network() && !id(logger_id).is_flying();
-          then:
-            - lvgl.page.show: flight_page
-            - delay: 30s
-            - lambda: id(ui).back_to_ground();

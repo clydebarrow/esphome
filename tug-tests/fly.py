@@ -2,6 +2,9 @@
 
 Sends a heartbeat, ownship, GPS altitude and one traffic target each second: on the ground, a takeoff run, a climb, a
 descent and a landing. Keep the real SkyEcho off, so that the device stays on a network this computer can reach.
+
+GDL90 arriving marks the network it came over as a SkyEcho, on which the device neither uploads nor looks for the real
+one. Afterwards forget that network (the forget_network action of tug-d1001-test.yaml, or a long press in Settings).
 """
 
 import argparse
