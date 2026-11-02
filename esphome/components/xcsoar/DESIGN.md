@@ -193,16 +193,21 @@ xcsoar:
 ```
  XCSoar task (core 0, PSRAM stack)            ESPHome main loop (core 1)
  ---------------------------------            --------------------------
+ TopCanvas::Lock() -> frame_wait_()
+   wait until the last frame is converted
  draw into the memory canvas (RGB565)
  TopCanvas::Flip() -> frame_ready_()
+   wait until loop() took the last frame
    wait until the back buffer is off screen
-   PPA: rotate (and RGB888 if needed) into
-        the back frame buffer
-   frame_pending_ = true
-   enable_loop_soon_any_context() --------->  loop()
-   wait on semaphore                            show_frame_buffer(back buffer)
-                                   <--------    give semaphore
- next frame
+   start the PPA: rotate (and RGB888 if
+        needed) into the back frame buffer
+ handle events, calculate, next Lock() ...
+                                                PPA interrupt, last area done:
+                                                  frame_pending_ = true
+                                                  enable_loop_soon_any_context()
+                                                loop()
+                                                  show_frame_buffer(back buffer)
+                                                  give semaphore
 ```
 
 - **Threads.** Display drivers are not thread safe, so only the main loop calls the display. Writing pixels into
@@ -230,6 +235,13 @@ xcsoar:
 
   The PPA conversion is limited by the PPA itself (about 17 million pixels per second); the cache flush of the
   canvas takes only 0.5 ms of it.
+- **The conversion does not hold up XCSoar.** `frame_ready_()` starts the PPA on every changed area and returns;
+  the PPA's interrupt hands the frame to the main loop when the last area is done. XCSoar waits only in
+  `TopCanvas::Lock()` (`Config::frame_wait`), before it draws into its screen again, and the next
+  `frame_ready_()` waits for the main loop and the panel. A frame cannot appear sooner, since the panel needs it
+  converted, but XCSoar handles input and calculates while the PPA works. Dragging the map in pan mode: 2 ms in
+  `frame_ready_()` instead of 57 ms, then about 45 ms waiting before the next frame is drawn; 5.9 to 6.5 frames
+  per second instead of 5.4 to 5.7, as the map's own drawing sets the pace.
 - **Fonts.** XCSoar ships no fonts. The `fonts` option embeds TTF files in the firmware, and
   `XCSoarEsp32::MountRomFs()` registers a small read-only ESP-IDF VFS driver at `/rom`, so FreeType opens them
   with ordinary `fopen()`. That driver will also serve other embedded data later.
@@ -683,8 +695,9 @@ a Mac with bleak, the NMEA arrives with a 515 byte MTU.
   Channels are widened to 8 bits for the per-channel operations, so blending and anti-aliased text are unchanged;
   like greyscale it has no alpha channel (bitmaps already lose theirs when loaded). The PPA still rotates. Drawing
   straight into the panel's frame buffer without rotation would remove the PPA step too.
-- Overlap the PPA with drawing: start the conversion without waiting and draw the next frame into a second
-  canvas, so a frame takes the longer of the two steps instead of their sum (3.7 MB more PSRAM).
+- Overlap the PPA with drawing too, by drawing the next frame into a second canvas (1.8 MB more PSRAM; 9.8 MB
+  is free with the map shown). XCSoar repaints only what changed, so the areas changed in the other canvas
+  would have to be copied over first, which costs about as much PSRAM time as the conversion it hides.
 - Sound through an ESPHome speaker (XCSoar's vario tone generator, `PCMMixer`).
 - Live tracking and downloads once networking is in.
 

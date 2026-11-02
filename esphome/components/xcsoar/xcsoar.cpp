@@ -56,8 +56,12 @@ void XCSoarComponent::setup() {
 
   ppa_client_config_t ppa_config{};
   ppa_config.oper_type = PPA_OPERATION_SRM;
-  ppa_config.max_pending_trans_num = 1;
-  if (ppa_register_client(&ppa_config, &this->ppa_client_) != ESP_OK) {
+  // All the areas of a frame are started at once
+  ppa_config.max_pending_trans_num = DirtyRects{}.capacity();
+  ppa_event_callbacks_t ppa_callbacks{};
+  ppa_callbacks.on_trans_done = on_converted_;
+  if (ppa_register_client(&ppa_config, &this->ppa_client_) != ESP_OK ||
+      ppa_client_register_event_callbacks(this->ppa_client_, &ppa_callbacks) != ESP_OK) {
     this->mark_failed(LOG_STR("PPA client registration failed"));
     return;
   }
@@ -132,10 +136,12 @@ void XCSoarComponent::setup() {
 #endif
 
   this->frame_consumed_ = xSemaphoreCreateBinaryStatic(&this->frame_consumed_buffer_);
+  this->frame_converted_ = xSemaphoreCreateBinaryStatic(&this->frame_converted_buffer_);
   this->config_ = {
       .width = static_cast<unsigned>(width),
       .height = static_cast<unsigned>(height),
       .frame_ready = frame_ready_,
+      .frame_wait = frame_wait_,
       .ctx = this,
 #ifdef USE_FILESYSTEM_VFS
       .data_path = this->data_fs_ != nullptr ? this->data_path_ : nullptr,
@@ -301,7 +307,8 @@ bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, XCSoarEsp32::
   srm.rotation_angle = this->ppa_rotation_;
   srm.scale_x = 1.0f;
   srm.scale_y = 1.0f;
-  srm.mode = PPA_TRANS_MODE_BLOCKING;
+  srm.mode = PPA_TRANS_MODE_NON_BLOCKING;
+  srm.user_data = this;
   const esp_err_t err = ppa_do_scale_rotate_mirror(this->ppa_client_, &srm);
   if (err != ESP_OK) {
     ESP_LOGW(TAG, "PPA conversion failed: %s", esp_err_to_name(err));
@@ -310,9 +317,45 @@ bool XCSoarComponent::convert_(const void *pixels, unsigned pitch, XCSoarEsp32::
   return true;
 }
 
+bool XCSoarComponent::on_converted_(ppa_client_handle_t client, ppa_event_data_t *event, void *user_data) {
+  auto *self = static_cast<XCSoarComponent *>(user_data);
+  if (--self->conversions_left_ != 0)
+    return false;
+  BaseType_t woken = pdFALSE;
+  self->conversion_done_(&woken);
+  return woken == pdTRUE;
+}
+
+void XCSoarComponent::conversion_done_(BaseType_t *woken) {
+  if (this->show_converted_) {
+    this->frame_pending_ = true;
+    this->enable_loop_soon_any_context();
+  }
+  if (woken != nullptr) {
+    xSemaphoreGiveFromISR(this->frame_converted_, woken);
+  } else {
+    xSemaphoreGive(this->frame_converted_);
+  }
+}
+
+void XCSoarComponent::frame_wait_(void *ctx) noexcept {
+  auto *self = static_cast<XCSoarComponent *>(ctx);
+  if (!self->converting_)
+    return;
+  xSemaphoreTake(self->frame_converted_, portMAX_DELAY);
+  self->converting_ = false;
+}
+
 void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, const XCSoarEsp32::Rect *dirty,
                                    unsigned dirty_count, void *ctx) noexcept {
   auto *self = static_cast<XCSoarComponent *>(ctx);
+  // XCSoar waits before drawing, so the last conversion is finished; the last frame must be on screen before this
+  // one is converted into the next buffer
+  frame_wait_(self);
+  if (self->frame_given_) {
+    xSemaphoreTake(self->frame_consumed_, portMAX_DELAY);
+    self->frame_given_ = false;
+  }
   self->screen_pixels_ = static_cast<const uint8_t *>(pixels);
   self->screen_pitch_ = pitch;
   DirtyRects areas;
@@ -339,19 +382,27 @@ void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, const XCS
   uint8_t *dest = self->frame_;
   const size_t dest_size = self->frame_size_;
 #endif
+  // Held until every area is started, so the frame cannot be finished before then
+  self->conversions_left_ = 1;
+  bool started = true;
   for (const auto &r : areas) {
+    self->conversions_left_++;
     if (!self->convert_(pixels, pitch, r, dest, dest_size)) {
+      self->conversions_left_--;
 #ifdef USE_XCSOAR_FRAME_BUFFERS
       // This buffer may now be partly converted; the next frame converts all of it
       self->previous_dirty_[0].clear();
       self->previous_dirty_[0].push_back({0, 0, self->config_.width, self->config_.height});
 #endif
-      return;  // the next frame tries again
+      started = false;  // the next frame tries again
+      break;
     }
   }
-  self->frame_pending_ = true;
-  self->enable_loop_soon_any_context();
-  xSemaphoreTake(self->frame_consumed_, portMAX_DELAY);
+  self->show_converted_ = started;
+  self->frame_given_ = started;
+  self->converting_ = true;
+  if (--self->conversions_left_ == 0)
+    self->conversion_done_(nullptr);
 }
 
 bool XCSoarComponent::fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,

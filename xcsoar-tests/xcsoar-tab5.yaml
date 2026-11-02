@@ -177,3 +177,14 @@ time:
   - platform: sntp
     on_time_sync:
       - rx8130.write_time: rtc
+
+debug:
+  update_interval: 60s
+
+sensor:
+  - platform: debug
+    # Not the largest PSRAM block: finding it walks the whole heap with interrupts off, which corrupts a frame
+    psram:
+      name: PSRAM free
+    free:
+      name: Internal RAM free

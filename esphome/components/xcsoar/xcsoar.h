@@ -44,11 +44,12 @@ namespace esphome::xcsoar {
 
 /// Runs XCSoar in its own task and shows the frames it renders on an ESPHome display.
 ///
-/// The XCSoar task converts each frame to the display's format with the PPA, then hands it to the main loop, the
-/// only place the display is used. On a mipi_dsi display with two or more frame buffers the PPA writes straight
-/// into a frame buffer that the panel is not showing, also rotating the frame to the display's rotation, and the
-/// main loop just switches the panel to it. Otherwise the PPA writes into a buffer of this component that the main
-/// loop copies to the display.
+/// The XCSoar task starts the PPA converting each frame to the display's format and goes on; when the PPA is done,
+/// the frame goes to the main loop, the only place the display is used. XCSoar waits for the PPA only before it
+/// draws again. On a mipi_dsi display with two or more frame buffers the PPA writes straight into a frame buffer
+/// that the panel is not showing, also rotating the frame to the display's rotation, and the main loop just
+/// switches the panel to it. Otherwise the PPA writes into a buffer of this component that the main loop copies
+/// to the display.
 class XCSoarComponent : public Component
 #ifdef USE_TOUCHSCREEN
     ,
@@ -124,8 +125,13 @@ class XCSoarComponent : public Component
   static void *task_main_(void *param);
   static void frame_ready_(const void *pixels, unsigned pitch, const XCSoarEsp32::Rect *dirty, unsigned dirty_count,
                            void *ctx) noexcept;
-  /// Convert the area rect of an XCSoar frame into dest with the PPA; runs on the XCSoar task.
+  static void frame_wait_(void *ctx) noexcept;
+  /// Start converting the area rect of an XCSoar frame into dest with the PPA; runs on the XCSoar task.
   bool convert_(const void *pixels, unsigned pitch, XCSoarEsp32::Rect rect, uint8_t *dest, size_t dest_size);
+  /// The PPA has converted one area; called from its interrupt.
+  static bool on_converted_(ppa_client_handle_t client, ppa_event_data_t *event, void *user_data);
+  /// The whole frame is converted: show it, and let XCSoar draw again. woken is nullptr on the XCSoar task.
+  void conversion_done_(BaseType_t *woken);
   static void traffic_alarm_(unsigned level, void *ctx) noexcept;
   static void volume_(unsigned percent, bool preview, void *ctx) noexcept;
   static bool fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
@@ -152,7 +158,7 @@ class XCSoarComponent : public Component
   unsigned out_height_{0};
 #ifdef USE_XCSOAR_FRAME_BUFFERS
   mipi_dsi::MipiDsi *dsi_{nullptr};
-  // The frame buffer the next frame is converted into; changed by loop() only while the task waits
+  // The frame buffer the next frame is converted into; changed by loop() before it gives frame_consumed_
   uint8_t back_buffer_{0};
   bool buffer_shown_{false};
   // The areas changed by the last frames, newest first: a frame buffer last got the frame that many frames ago
@@ -164,6 +170,16 @@ class XCSoarComponent : public Component
   XCSoarEsp32::Config config_{};
   StaticSemaphore_t frame_consumed_buffer_{};
   SemaphoreHandle_t frame_consumed_{nullptr};
+  StaticSemaphore_t frame_converted_buffer_{};
+  SemaphoreHandle_t frame_converted_{nullptr};
+  // The PPA operations of the frame still running, plus one while they are being started
+  std::atomic<unsigned> conversions_left_{0};
+  // Whether the frame being converted goes to the screen; false if starting a conversion failed
+  std::atomic<bool> show_converted_{false};
+  // Used by the XCSoar task only: a conversion was started and not waited for, and a frame was given to loop()
+  // and not yet taken
+  bool converting_{false};
+  bool frame_given_{false};
   std::atomic<bool> frame_pending_{false};
   std::atomic<bool> task_stopped_{false};
   // Written before task_stopped_ is set
