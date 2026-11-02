@@ -36,6 +36,8 @@ static constexpr size_t MAX_KEY = 128;
 static constexpr size_t SHA256_SIZE = 32;
 static constexpr size_t MAX_PATH = 96;
 static constexpr size_t MAX_CLUB_JSON = 4096;
+// How much of the server's answer to a refused flight is logged
+static constexpr size_t MAX_ANSWER = 200;
 
 // Written by XCSoar (ClubConfig.hpp, CLUB_FLIGHTS_PENDING); renamed before sending, so XCSoar starts a new one
 static constexpr const char *PENDING_FILE = "flights-pending.jsonl";
@@ -106,6 +108,25 @@ static void append_line(const char *path, const char *line) {
   }
 }
 
+// The start of the server's answer, as one line of text
+struct Answer {
+  char text[MAX_ANSWER + 1];
+  size_t length;
+};
+
+static esp_err_t on_http_event(esp_http_client_event_t *event) {
+  if (event->event_id != HTTP_EVENT_ON_DATA)
+    return ESP_OK;
+  auto *answer = static_cast<Answer *>(event->user_data);
+  const auto *data = static_cast<const char *>(event->data);
+  for (int i = 0; i != event->data_len && answer->length != MAX_ANSWER; i++) {
+    const char c = data[i];
+    answer->text[answer->length++] = c >= ' ' && c != 0x7F ? c : ' ';
+  }
+  answer->text[answer->length] = '\0';
+  return ESP_OK;
+}
+
 // POST one flight
 static UploadResult post_flight(const UploadSettings &settings, const char *body, size_t length) {
   char signature[8 + 2 * SHA256_SIZE];
@@ -113,8 +134,11 @@ static UploadResult post_flight(const UploadSettings &settings, const char *body
     ESP_LOGW(TAG, "Signing failed");
     return UploadResult::UPLOAD_RESULT_RETRY;
   }
+  Answer answer{};
   esp_http_client_config_t config{};
   config.url = settings.url;
+  config.event_handler = on_http_event;
+  config.user_data = &answer;
   config.method = HTTP_METHOD_POST;
   config.timeout_ms = HTTP_TIMEOUT_MS;
 #ifdef CONFIG_MBEDTLS_CERTIFICATE_BUNDLE
@@ -134,14 +158,15 @@ static UploadResult post_flight(const UploadSettings &settings, const char *body
   if (status >= 200 && status < 300)
     return UploadResult::UPLOAD_RESULT_SENT;
   if (status >= 400 && status < 500 && status != 401) {
-    ESP_LOGW(TAG, "Upload refused: HTTP %d; the flight is kept in %s and not sent again", status, FAILED_FILE);
+    ESP_LOGW(TAG, "Upload refused: HTTP %d; the flight is kept in %s and not sent again. Server: %s", status,
+             FAILED_FILE, answer.text);
     return UploadResult::UPLOAD_RESULT_REFUSED;
   }
   // The client gives an error for a 401 without an authentication scheme, so the status goes first
   if (err != ESP_OK && status < 400) {
     ESP_LOGW(TAG, "Upload failed: %s", esp_err_to_name(err));
   } else {
-    ESP_LOGW(TAG, "Upload refused: HTTP %d; trying again later", status);
+    ESP_LOGW(TAG, "Upload refused: HTTP %d; trying again later. Server: %s", status, answer.text);
   }
   return UploadResult::UPLOAD_RESULT_RETRY;
 }

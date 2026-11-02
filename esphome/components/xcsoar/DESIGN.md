@@ -749,7 +749,8 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   new one), POSTs each line (`application/json`, the certificate bundle for https) and appends the ones to try
   again to the pending file; a sending file left by a restart goes first. A network error, a 5xx status or 401
   (the key may be fixed) means try again; any other 4xx means the server will never take that flight, which
-  goes to `flights-failed.jsonl` instead and is not sent again. A 2xx status counts as
+  goes to `flights-failed.jsonl` instead and is not sent again. The log shows the first 200 characters of the
+  server's answer to a refused flight. A 2xx status counts as
   accepted even when the server then closes the connection, so a flight is not sent twice. With a
   `flight_upload_key`, each request carries `X-Signature: sha256=<hex>`, the HMAC-SHA256 of the body with that
   key (the scheme of GitHub's webhooks), so the server can check where a flight came from. The key is on the SD
