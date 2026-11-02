@@ -48,6 +48,14 @@ void SkyEchoTime::update() {
       this->set_timeout(RETRY_ID, RETRY_MS, [this]() { this->update(); });
     return;
   }
+  // Without a lock the device still reports a time, which may be well out and would then be kept in the RTC
+  gdl90Heartbeat_t heartbeat;
+  if (!this->parent_->get_heartbeat(&heartbeat) || !heartbeat.gpsPosValid) {
+    ESP_LOGD(TAG, "Waiting for a GPS lock before setting the clock");
+    if (!this->synced_)
+      this->set_timeout(RETRY_ID, RETRY_MS, [this]() { this->update(); });
+    return;
+  }
   const auto *octets = reinterpret_cast<const uint8_t *>(&address);
   snprintf(this->host_, sizeof(this->host_), "%u.%u.%u.%u", octets[0], octets[1], octets[2], octets[3]);
   this->link_.set_host(this->host_);
@@ -202,6 +210,8 @@ bool SkyEchoTime::parse_stats_(char *text) {
     ESP_LOGD(TAG, "GPS time %" PRIu32 " not valid yet", gps);
     return false;
   }
+  ESP_LOGI(TAG, "Setting the clock from GPS time %" PRIu32 ", was %" PRIu32, unix_time,
+           static_cast<uint32_t>(this->timestamp_now()));
   this->synchronize_epoch_(unix_time);
   return true;
 }
