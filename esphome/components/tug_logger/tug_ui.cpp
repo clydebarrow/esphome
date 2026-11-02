@@ -112,6 +112,19 @@ void TugUi::bind(TugLogger *logger, const TugUiWidgets &widgets) {
   this->refresh();
 }
 
+void TugUi::set_dark_mode(bool dark) {
+  this->dark_mode_ = dark;
+  lv_obj_t *screen = lv_screen_active();
+  // Initialising the default theme again rebuilds its styles, and refreshes every object that uses them
+  lv_theme_default_init(lv_obj_get_display(screen), lv_theme_get_color_primary(screen),
+                        lv_theme_get_color_secondary(screen), dark, lv_theme_get_font_normal(screen));
+#ifdef USE_TUG_LOGGER_SKYECHO
+  if (this->w_.traffic != nullptr)
+    this->w_.traffic->refresh_colors();
+#endif
+  lv_label_set_text(this->w_.theme_label, dark ? "Dark mode: on" : "Dark mode: off");
+}
+
 void TugUi::show_(lvgl::LvPageType *page) { this->w_.lvgl->show_page(page->index, LV_SCREEN_LOAD_ANIM_NONE, 0); }
 
 void TugUi::set_status_() {
@@ -205,6 +218,9 @@ void TugUi::open_picker_(PickerMode mode, TowField field) {
       this->add_row_(this->w_.picker_list, name, [this, name]() { this->accept_(name); });
   }
   lv_textarea_set_text(this->w_.picker_text, value.c_str());
+  const bool registration = mode != PickerMode::PICKER_MODE_WIFI_PASSWORD && field == TowField::TOW_FIELD_GLIDER;
+  lv_keyboard_set_mode(this->w_.picker_keyboard,
+                       registration ? LV_KEYBOARD_MODE_TEXT_UPPER : LV_KEYBOARD_MODE_TEXT_LOWER);
   this->show_(this->w_.picker_page);
 }
 

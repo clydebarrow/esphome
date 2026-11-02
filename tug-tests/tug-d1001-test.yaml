@@ -11,6 +11,30 @@ packages:
 esphome:
   name: tug-d1001-test
 
+logger:
+  level: VERBOSE
+  logs:
+    # The wifi tag logs the network password at VERBOSE
+    wifi: DEBUG
+    binary_sensor: INFO
+    lvgl: INFO
+    api: DEBUG
+    api.connection: DEBUG
+    component: INFO
+    scheduler: INFO
+    i2c: INFO
+    xl9535: INFO
+    sensor: INFO
+    adc: INFO
+    touchscreen: INFO
+    gsl3670.touchscreen: INFO
+    json: INFO
+    sd_spi: DEBUG
+    fatfs: DEBUG
+    filesystem: DEBUG
+    skyecho: INFO
+    traffic_mgr: INFO
+
 tug_logger:
   upload_url: ${upload_url}
   upload_key: ${upload_key}
@@ -36,6 +60,29 @@ api:
             else if (command == "discard") u.discard_tow();
             else if (command == "ground") u.back_to_ground();
             else if (command == "flight") id(lvgl_id).show_page(id(flight_page).index, LV_SCREEN_LOAD_ANIM_NONE, 0);
+    - action: forget_network
+      variables:
+        ssid: string
+      then:
+        - lambda: id(wifi_networks_hub).forget(ssid.c_str());
+    - action: fill_color
+      variables:
+        rgb: int
+      then:
+        - lambda: |-
+            static lv_obj_t *fill = nullptr;
+            if (fill == nullptr) {
+              fill = lv_obj_create(lv_layer_top());
+              lv_obj_set_size(fill, lv_pct(100), lv_pct(100));
+              lv_obj_set_style_border_width(fill, 0, LV_PART_MAIN);
+              lv_obj_set_style_radius(fill, 0, LV_PART_MAIN);
+            }
+            if (rgb < 0) {
+              lv_obj_add_flag(fill, LV_OBJ_FLAG_HIDDEN);
+            } else {
+              lv_obj_remove_flag(fill, LV_OBJ_FLAG_HIDDEN);
+              lv_obj_set_style_bg_color(fill, lv_color_hex(rgb), LV_PART_MAIN);
+            }
     - action: type_text
       variables:
         content: string
@@ -53,6 +100,12 @@ api:
               lv_obj_send_event(child, LV_EVENT_CLICKED, nullptr);
 
 interval:
+  - interval: 20s
+    then:
+      - lambda: |-
+          ESP_LOGI("test", "External power %s, charge state pin %s, charge enable %s, battery %.2f V",
+                   ONOFF(id(external_power).state), ONOFF(id(charge_state).state),
+                   ONOFF(id(battery_charge_enable).state), id(vbat).state);
   - interval: 90s
     then:
       - if:

@@ -1155,6 +1155,10 @@ class WiFiComponent final : public Component {
   bool handled_connected_state_{false};
 #endif
   bool scan_done_{false};
+  // The driver gave up on the scan, as it does when one starts just after the adapter restarts
+  bool scan_aborted_{false};
+  uint8_t scan_abort_count_{0};
+  uint32_t scan_aborted_ms_{0};
   bool ap_setup_{false};
   bool ap_started_{false};
 #ifdef USE_WIFI_DPP

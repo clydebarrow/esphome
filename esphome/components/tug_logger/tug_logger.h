@@ -47,6 +47,7 @@ class TugLogger : public Component
   void setup() override;
   void loop() override;
   void dump_config() override;
+  void on_safe_shutdown() override;
   float get_setup_priority() const override { return setup_priority::AFTER_WIFI; }
 
   void set_time(time::RealTimeClock *time) { this->time_ = time; }

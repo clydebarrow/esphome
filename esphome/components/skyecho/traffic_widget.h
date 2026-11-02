@@ -33,6 +33,8 @@ class TrafficWidget : public lvgl::LvCompound {
    * generated setup code after all the setters above have run.
    */
   void build();
+  /// Takes the colors from the widget's style again, after the theme has changed.
+  void refresh_colors();
 
   /**
    * Recompute the position of every target from the current traffic list,

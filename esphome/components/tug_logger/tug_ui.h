@@ -11,6 +11,10 @@
 
 #include "tug_logger.h"
 
+#ifdef USE_TUG_LOGGER_SKYECHO
+#include "esphome/components/skyecho/traffic_widget.h"
+#endif
+
 namespace esphome::tug_logger {
 
 enum class TowField : uint8_t {
@@ -45,6 +49,11 @@ struct TugUiWidgets {
   lv_obj_t *discard_label;
   lv_obj_t *settings_info;
   lv_obj_t *wifi_list;
+  lv_obj_t *picker_keyboard;
+  lv_obj_t *theme_label;
+#ifdef USE_TUG_LOGGER_SKYECHO
+  skyecho::TrafficWidget *traffic;
+#endif
 };
 
 class TugUi {
@@ -68,6 +77,9 @@ class TugUi {
   /// Asks for a second press before the tow is taken off the list.
   void discard_tow();
   void back_to_ground();
+  /// Changes between the light and dark themes while running.
+  void set_dark_mode(bool dark);
+  bool dark_mode() const { return this->dark_mode_; }
 
  protected:
   enum class PickerMode : uint8_t {
@@ -93,6 +105,7 @@ class TugUi {
   TowField field_{TowField::TOW_FIELD_GLIDER};
   uint32_t tow_id_{0};
   bool discard_armed_{false};
+  bool dark_mode_{false};
   std::string wifi_ssid_;
 };
 

@@ -44,11 +44,19 @@ esphome:
           w.discard_label = id(discard_label);
           w.settings_info = id(settings_info);
           w.wifi_list = id(wifi_list);
+          w.picker_keyboard = id(picker_keyboard)->obj;
+          w.theme_label = id(theme_label);
+          w.traffic = id(traffic);
           id(ui).bind(id(logger_id), w);
+          id(ui).set_dark_mode(id(dark_mode));
 
 globals:
   - id: ui
     type: tug_logger::TugUi
+  - id: dark_mode
+    type: bool
+    restore_value: true
+    initial_value: "false"
 
 skyecho:
   id: skyecho_hub
@@ -84,6 +92,47 @@ time:
     on_time_sync:
       - pcf8563.write_time: rtc
 
+# Holding the green button powers off, on battery only: with external power the device can't turn itself off
+binary_sensor:
+  - id: !extend power_button
+    on_press:
+      - if:
+          condition:
+            binary_sensor.is_off: external_power
+          then:
+            - script.execute: power_down_script
+    on_release:
+      - script.stop: power_down_script
+      - lvgl.widget.update:
+          id: power_down_label
+          hidden: true
+      - switch.turn_on: power_hold
+
+script:
+  - id: power_down_script
+    mode: single
+    then:
+      - lvgl.label.update:
+          id: power_down_label
+          hidden: false
+          text: Powering off in 3 s
+      - delay: 1s
+      - lvgl.label.update:
+          id: power_down_label
+          text: Powering off in 2 s
+      - delay: 1s
+      - lvgl.label.update:
+          id: power_down_label
+          text: Powering off in 1 s
+      - delay: 1s
+      - lvgl.label.update:
+          id: power_down_label
+          text: Powering off
+      # Saves a flight in progress, and unmounts the SD card
+      - lambda: App.run_safe_shutdown_hooks();
+      - delay: 500ms
+      - switch.turn_off: power_hold
+
 interval:
   - interval: 1s
     then:
@@ -92,12 +141,13 @@ interval:
 lvgl:
   id: lvgl_id
   byte_order: little_endian
-  rotation: 270
+  # Portrait, 800x1280
+  rotation: 0
   on_pressing:
     - lambda: id(logger_id).note_activity();
   style_definitions:
     - id: big_button
-      height: 130
+      height: 220
       width: 100%
       radius: 10
     - id: action_button
@@ -111,20 +161,31 @@ lvgl:
   top_layer:
     widgets:
       - label:
+          id: power_down_label
+          hidden: true
+          align: center
+          width: 50%
+          pad_all: 20
+          text_align: center
+          text_font: montserrat_40
+          text_color: white
+          bg_color: 0x404040
+          bg_opa: cover
+          text: ""
+      - label:
           id: status_label
           align: top_left
           width: 100%
-          height: 50
+          height: 92
           pad_all: 8
           text_font: montserrat_28
           text_color: white
           bg_color: 0x202020
           bg_opa: cover
-          long_mode: dot
           text: ""
   pages:
     - id: ground_page
-      pad_top: 60
+      pad_top: 100
       pad_all: 16
       layout:
         type: flex
@@ -157,7 +218,7 @@ lvgl:
               - label: {id: next_tug_pilot, align: left_mid, text_font: montserrat_40, text: ""}
         - obj:
             width: 100%
-            height: 100
+            height: 150
             border_width: 0
             pad_all: 0
             bg_opa: transp
@@ -183,7 +244,7 @@ lvgl:
 
     # Read only: nothing here needs a touch in flight
     - id: flight_page
-      pad_top: 54
+      pad_top: 96
       pad_all: 0
       widgets:
         - skyecho_traffic:
@@ -195,13 +256,13 @@ lvgl:
             ownship_size: 48
             target_size: 40
             text_font: montserrat_28
-            width: 740
-            height: 740
-            align: left_mid
+            width: 790
+            height: 790
+            align: top_mid
         - obj:
-            align: right_mid
-            width: 520
-            height: 720
+            align: bottom_mid
+            width: 780
+            height: 370
             border_width: 0
             bg_opa: transp
             layout:
@@ -210,12 +271,13 @@ lvgl:
               flex_align_main: space_evenly
               flex_align_cross: center
             widgets:
-              - label: {id: flight_height, text_font: montserrat_48, text: "0 ft"}
-              - label: {id: flight_elapsed, text_font: montserrat_48, text: "0:00"}
-              - label: {id: flight_info, text_font: montserrat_40, text: ""}
+              # Right aligned, so that the units stay put as the digits change
+              - label: {id: flight_height, width: 100%, text_align: right, text_font: montserrat_48, text: "0 ft"}
+              - label: {id: flight_elapsed, width: 100%, text_align: right, text_font: montserrat_48, text: "0:00"}
+              - label: {id: flight_info, width: 100%, text_align: right, text_font: montserrat_40, text: ""}
 
     - id: picker_page
-      pad_top: 60
+      pad_top: 100
       pad_all: 16
       widgets:
         - label:
@@ -227,32 +289,32 @@ lvgl:
             id: picker_text
             align: top_left
             y: 56
-            width: 800
+            width: 100%
             height: 80
             one_line: true
             max_length: 64
             text_font: montserrat_40
         - obj:
             id: picker_list
-            align: top_right
-            width: 420
-            height: 620
+            align: top_left
+            y: 250
+            width: 100%
+            height: 440
             pad_all: 6
         - button:
             styles: action_button
             align: top_left
             y: 148
-            width: 390
+            width: 370
             on_click:
               - lambda: id(ui).picker_done();
             widgets:
               - label: {align: center, text_font: montserrat_40, text: Done}
         - button:
             styles: action_button
-            align: top_left
-            x: 410
+            align: top_right
             y: 148
-            width: 390
+            width: 370
             on_click:
               - lambda: id(ui).picker_cancel();
             widgets:
@@ -260,20 +322,21 @@ lvgl:
         - keyboard:
             id: picker_keyboard
             textarea: picker_text
-            align: bottom_left
-            width: 800
-            height: 380
+            align: bottom_mid
+            width: 100%
+            height: 420
             mode: text_upper
+            text_font: montserrat_28
 
     - id: review_page
-      pad_top: 60
+      pad_top: 100
       pad_all: 16
       widgets:
         - obj:
             id: review_list
             align: top_mid
             width: 100%
-            height: 590
+            height: 1040
             pad_all: 6
         - button:
             styles: action_button
@@ -285,16 +348,17 @@ lvgl:
               - label: {align: center, text_font: montserrat_40, text: Back}
 
     - id: tow_page
-      pad_top: 60
+      pad_top: 100
       pad_all: 16
       widgets:
         - label:
             id: tow_info
             align: top_left
+            width: 100%
             text: ""
         - obj:
             align: top_left
-            y: 90
+            y: 130
             width: 100%
             height: 440
             border_width: 0
@@ -336,13 +400,15 @@ lvgl:
         - label:
             id: tow_message
             align: bottom_left
-            y: -100
+            y: -210
+            width: 100%
             text_color: 0xFF6060
             text: ""
         - button:
             styles: action_button
             align: bottom_left
-            width: 400
+            y: -105
+            width: 370
             bg_color: 0x208020
             on_click:
               - lambda: id(ui).confirm_tow();
@@ -350,8 +416,9 @@ lvgl:
               - label: {align: center, text_font: montserrat_40, text: Confirm}
         - button:
             styles: action_button
-            align: bottom_mid
-            width: 400
+            align: bottom_right
+            y: -105
+            width: 370
             bg_color: 0x904020
             on_click:
               - lambda: id(ui).discard_tow();
@@ -359,42 +426,53 @@ lvgl:
               - label: {id: discard_label, align: center, text: Not a tow}
         - button:
             styles: action_button
-            align: bottom_right
-            width: 400
+            align: bottom_mid
+            width: 100%
             on_click:
               - lambda: id(ui).show_review();
             widgets:
               - label: {align: center, text_font: montserrat_40, text: Back}
 
     - id: settings_page
-      pad_top: 60
+      pad_top: 100
       pad_all: 16
       widgets:
         - label:
             id: settings_info
             align: top_left
-            width: 500
+            width: 100%
             text: ""
         - button:
             styles: action_button
+            align: bottom_mid
+            y: -100
+            width: 100%
+            on_click:
+              - lambda: |-
+                  id(dark_mode) = !id(ui).dark_mode();
+                  id(ui).set_dark_mode(id(dark_mode));
+            widgets:
+              - label: {id: theme_label, align: center, text: "Dark mode: off"}
+        - button:
+            styles: action_button
             align: bottom_left
-            width: 240
+            width: 370
             on_click:
               - lambda: id(ui).show_wifi_list();
             widgets:
               - label: {align: center, text: Refresh}
         - button:
             styles: action_button
-            align: bottom_left
-            x: 256
-            width: 240
+            align: bottom_right
+            width: 370
             on_click:
               - lambda: id(ui).back_to_ground();
             widgets:
               - label: {align: center, text: Back}
         - obj:
             id: wifi_list
-            align: top_right
-            width: 720
-            height: 700
+            align: top_mid
+            y: 200
+            width: 100%
+            height: 740
             pad_all: 6

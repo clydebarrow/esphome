@@ -146,6 +146,18 @@ binary_sensor:
       number: 4
       inverted: true
       mode: INPUT_PULLUP
+  # The green button on top
+  - platform: gpio
+    id: power_button
+    pin: 3
+    trigger_on_initial_state: false
+  # CHARGE_STATE on the schematic: logged as it reads, to check the battery charges
+  - platform: gpio
+    id: charge_state
+    name: Charge state
+    pin:
+      number: 15
+      mode: INPUT_PULLUP
 
 sensor:
   - platform: adc

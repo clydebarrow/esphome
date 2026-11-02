@@ -69,6 +69,13 @@ static bool s_sta_connect_error = false;      // NOLINT(cppcoreguidelines-avoid-
 static bool s_sta_connecting = false;         // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 static bool s_wifi_started = false;           // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
+// The SSID of the connection attempt in progress
+static char s_connecting_ssid[33];  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+static bool matches_connecting_ssid(const uint8_t *ssid, size_t length) {
+  return strlen(s_connecting_ssid) == length && memcmp(s_connecting_ssid, ssid, length) == 0;
+}
+
 static ExpectedDisconnect s_expected_disconnect;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 #ifdef USE_WIFI_DPP
@@ -632,6 +639,8 @@ bool WiFiComponent::wifi_sta_connect_(const WiFiAP &ap) {
   // Reset flags, do this _before_ wifi_station_connect as the callback method
   // may be called from wifi_station_connect
   s_sta_connecting = true;
+  memcpy(s_connecting_ssid, conf.sta.ssid, sizeof(conf.sta.ssid));
+  s_connecting_ssid[sizeof(conf.sta.ssid)] = '\0';
   s_sta_connect_error = false;
   s_sta_connect_not_found = false;
   // Ensures we don't report connected before DHCP completes (IP_EVENT_STA_LOST_IP doesn't always fire on disconnect)
@@ -1141,8 +1150,12 @@ void WiFiComponent::wifi_process_event_(IDFWiFiEvent *data) {
       ESP_LOGI(TAG, "Disconnected ssid='%.*s' reason='Station Roaming'", it.ssid_len, (const char *) it.ssid);
       return;
     }
+    // Leaving is only ever our own doing. With ESP-Hosted the event comes late, after the next attempt has begun, and
+    // must not count as that attempt failing. So must the result of an earlier attempt, for another network.
+    const bool stale_for_attempt =
+        s_sta_connecting && (it.reason == WIFI_REASON_ASSOC_LEAVE || !matches_connecting_ssid(it.ssid, it.ssid_len));
     const bool expected_disconnect =
-        s_expected_disconnect.consume_disconnect(it.bssid, it.reason == WIFI_REASON_ASSOC_LEAVE);
+        s_expected_disconnect.consume_disconnect(it.bssid, it.reason == WIFI_REASON_ASSOC_LEAVE) || stale_for_attempt;
     if (expected_disconnect) {
       ESP_LOGD(TAG, "Expected disconnect from previous AP");
     } else if (it.reason == WIFI_REASON_NO_AP_FOUND) {
@@ -1229,6 +1242,7 @@ void WiFiComponent::wifi_process_event_(IDFWiFiEvent *data) {
       this->scan_done_ = true;
       if (it.status != 0) {
         // scan error
+        this->scan_aborted_ = true;
         return;
       }
 

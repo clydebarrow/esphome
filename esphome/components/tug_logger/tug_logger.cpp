@@ -44,6 +44,11 @@ void TugLogger::dump_config() {
                 this->settings_.landing_speed_mps, this->settings_.landing_confirm_ms, this->shutdown_window_ms_);
 }
 
+void TugLogger::on_safe_shutdown() {
+  if (this->store_ready_ && this->detector_.is_flying())
+    this->save_flight_();
+}
+
 void TugLogger::loop() {
   const uint32_t now = millis();
   if (now - this->last_tick_ms_ < TICK_MS)

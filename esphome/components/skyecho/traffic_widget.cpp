@@ -157,6 +157,8 @@ void TrafficWidget::build() {
   // Bottom right: an arrow pointing towards the most significant target, then its details.
   this->ownship_box_ = this->create_box_(LV_ALIGN_BOTTOM_LEFT, INFO_MARGIN);
   this->ownship_label_ = lv_label_create(this->ownship_box_);
+  // Keeps the units still as the digits change
+  lv_obj_set_style_text_align(this->ownship_label_, LV_TEXT_ALIGN_RIGHT, 0);
   this->info_box_ = this->create_box_(LV_ALIGN_BOTTOM_RIGHT, -INFO_MARGIN);
 
   // The arrow is two text lines high, drawn in the text color.
@@ -229,6 +231,24 @@ lv_obj_t *TrafficWidget::create_box_(lv_align_t align, lv_coord_t x_offset) {
   lv_obj_align(box, align, x_offset, -INFO_MARGIN);
   set_hidden(box, true);
   return box;
+}
+
+void TrafficWidget::refresh_colors() {
+  lv_obj_t *root = this->obj;
+  this->bg_color_ = lv_obj_get_style_bg_color(root, LV_PART_MAIN);
+  this->text_color_ = lv_obj_get_style_text_color(root, LV_PART_MAIN);
+  for (lv_obj_t *box : {this->ownship_box_, this->info_box_}) {
+    lv_obj_set_style_bg_color(box, this->bg_color_, 0);
+    lv_obj_set_style_text_color(box, this->text_color_, 0);
+  }
+  lv_obj_set_style_line_color(this->info_arrow_, this->text_color_, 0);
+  lv_obj_set_style_bg_color(this->info_box_, this->text_color_, LV_STATE_CHECKED);
+  lv_obj_set_style_text_color(this->info_box_, this->bg_color_, LV_STATE_CHECKED);
+  lv_obj_set_style_line_color(this->info_arrow_, this->bg_color_, LV_STATE_CHECKED);
+  for (auto &target : this->targets_) {
+    if (target.image != nullptr)
+      lv_obj_set_style_outline_color(target.image, this->text_color_, 0);
+  }
 }
 
 void TrafficWidget::update_ownship_(const gdl90PositionReport_t *report) {

@@ -423,6 +423,9 @@ static constexpr uint32_t WIFI_COOLDOWN_WITH_AP_ACTIVE_MS = 30000;
 /// This is a fallback in case we don't receive a scan done callback from the WiFi driver.
 /// Normal scans complete via callback; this only triggers if something goes wrong.
 static constexpr uint32_t WIFI_SCAN_TIMEOUT_MS = 31000;
+/// How often an aborted scan is tried again, and how long after it
+static constexpr uint8_t MAX_SCAN_ABORTS = 3;
+static constexpr uint32_t SCAN_ABORT_RETRY_MS = 1000;
 
 /// Timeout for WiFi connection attempts
 /// This is a fallback in case we don't receive connection success/failure callbacks.
@@ -1685,6 +1688,25 @@ void WiFiComponent::check_scanning_finished() {
     }
     return;
   }
+  // An aborted scan says nothing about what is in range: that would count as no networks, and restart the adapter,
+  // which makes the next scan abort too
+  if (this->scan_aborted_ && this->scan_abort_count_ < MAX_SCAN_ABORTS) {
+    if (this->scan_aborted_ms_ == 0) {
+      this->scan_aborted_ms_ = millis();
+      ESP_LOGW(TAG, "Scan aborted; trying again");
+    }
+    if (millis() - this->scan_aborted_ms_ < SCAN_ABORT_RETRY_MS)
+      return;
+    this->scan_abort_count_++;
+    this->scan_aborted_ = false;
+    this->scan_aborted_ms_ = 0;
+    this->scan_done_ = false;
+    this->start_scanning();
+    return;
+  }
+  this->scan_aborted_ = false;
+  this->scan_aborted_ms_ = 0;
+  this->scan_abort_count_ = 0;
   this->scan_done_ = false;
   // A driver filtered scan saw one SSID; a portal that started during it still needs a full scan
   this->has_completed_scan_after_captive_portal_start_ = !this->is_scan_driver_filtered_();
