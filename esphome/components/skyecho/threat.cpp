@@ -1,6 +1,7 @@
 #include "threat.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include "riemann.h"
 
@@ -303,9 +304,10 @@ ThreatAssessment assess_threat(const TargetGeometry &geometry, const ThreatSetti
   return assessment;
 }
 
-ThreatAssessment SignificantTargetSelector::consider(size_t index, const gdl90PositionReport_t &target) {
+ThreatAssessment SignificantTargetSelector::consider(size_t index, const gdl90PositionReport_t &target,
+                                                     bool selectable) {
   const ThreatAssessment assessment = assess_threat(target_geometry(this->ownship_, target), this->settings_);
-  if (assessment.ignored)
+  if (assessment.ignored || !selectable)
     return assessment;
   bool better;
   if (this->best_ < 0) {
@@ -322,6 +324,67 @@ ThreatAssessment SignificantTargetSelector::consider(size_t index, const gdl90Po
     this->best_assessment_ = assessment;
   }
   return assessment;
+}
+
+void TowWatch::set_enabled(bool enabled) {
+  if (enabled == this->enabled_)
+    return;
+  this->enabled_ = enabled;
+  for (Candidate &candidate : this->candidates_)
+    candidate.used = false;
+  this->callsign_[0] = 0;
+}
+
+bool TowWatch::is_behind_(const gdl90PositionReport_t &ownship, const gdl90PositionReport_t &target) const {
+  if (target.category != Glider || !ownship.isTrackValid || !ownship.isAltitudeValid || !target.isAltitudeValid)
+    return false;
+  if (fabsf(target.altitude - ownship.altitude) > this->settings_.max_altitude_difference)
+    return false;
+  const float north = trafficNorthing(&ownship, &target);
+  const float east = trafficEasting(&ownship, &target);
+  const float distance = hypotf(north, east);
+  if (distance > this->settings_.max_distance)
+    return false;
+  if (distance == 0.0f)
+    return true;
+  // The cosine of the angle between the target and the direction straight behind
+  const float track = toRadians(ownship.track);
+  const float rear_cos = -(north * cosf(track) + east * sinf(track)) / distance;
+  return rear_cos >= cosf(toRadians(this->settings_.rear_angle));
+}
+
+bool TowWatch::check(const gdl90PositionReport_t &ownship, const gdl90PositionReport_t &target, uint32_t now) {
+  if (!this->enabled_)
+    return false;
+  Candidate *found = nullptr;
+  Candidate *spare = nullptr;
+  for (Candidate &candidate : this->candidates_) {
+    if (candidate.used && now - candidate.last_ms > this->settings_.hold_ms)
+      candidate.used = false;
+    if (candidate.used && candidate.address == target.address) {
+      found = &candidate;
+    } else if (!candidate.used) {
+      spare = &candidate;
+    }
+  }
+  if (!this->is_behind_(ownship, target))
+    return found != nullptr;
+  if (found == nullptr) {
+    if (spare == nullptr)
+      return false;
+    found = spare;
+    *found = Candidate{target.address, now, now, true};
+  }
+  found->last_ms = now;
+  if (this->callsign_[0] == 0 && now - found->first_ms >= this->settings_.identify_ms) {
+    size_t length = strnlen(target.callsign, GDL_CALLSIGN_LENGTH);
+    // Callsigns are padded with trailing spaces, and may be nothing but
+    while (length != 0 && target.callsign[length - 1] == ' ')
+      length--;
+    memcpy(this->callsign_, target.callsign, length);
+    this->callsign_[length] = 0;
+  }
+  return true;
 }
 
 }  // namespace esphome::skyecho

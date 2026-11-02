@@ -14,6 +14,20 @@
 
 namespace esphome::tug_logger {
 
+std::string glider_from_callsign(const char *callsign) {
+  std::string text;
+  for (const char *c = callsign; *c != 0; c++) {
+    if (*c != ' ')
+      text += static_cast<char>(std::toupper(static_cast<unsigned char>(*c)));
+  }
+  for (const char *prefix : {"VH-", "VH"}) {
+    const size_t length = strlen(prefix);
+    if (text.size() == length + 3 && text.compare(0, length, prefix) == 0)
+      return text.substr(length);
+  }
+  return text;
+}
+
 static constexpr const char *REVIEW_FILE = "review.jsonl";
 static constexpr const char *CURRENT_FILE = "current.json";
 static constexpr const char *RECENT_FILE = "recent.json";

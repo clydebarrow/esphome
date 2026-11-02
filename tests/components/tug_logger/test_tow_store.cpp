@@ -324,4 +324,22 @@ TEST_F(TowStoreTest, RemembersNamesMostRecentFirstWithoutRepeats) {
   EXPECT_EQ(this->store->recent_pilots(), (std::vector<std::string>{"Sam", "alex", "Jo"}));
 }
 
+TEST(GliderFromCallsign, MatchesHowTheClubWritesRegistrations) {
+  EXPECT_EQ(glider_from_callsign("VHWGQ   "), "WGQ");
+  EXPECT_EQ(glider_from_callsign("VH-WGQ"), "WGQ");
+  EXPECT_EQ(glider_from_callsign("vh-wgq"), "WGQ");
+  EXPECT_EQ(glider_from_callsign("WGQ"), "WGQ");
+}
+
+TEST(GliderFromCallsign, LeavesOtherCallsignsAlone) {
+  EXPECT_EQ(glider_from_callsign("VH"), "VH");
+  EXPECT_EQ(glider_from_callsign("VHABCD"), "VHABCD");
+  EXPECT_EQ(glider_from_callsign("ZK-GAB"), "ZK-GAB");
+}
+
+TEST(GliderFromCallsign, IsEmptyForABlankCallsign) {
+  EXPECT_EQ(glider_from_callsign(""), "");
+  EXPECT_EQ(glider_from_callsign("        "), "");
+}
+
 }  // namespace esphome::tug_logger::testing

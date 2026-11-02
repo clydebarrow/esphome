@@ -119,6 +119,7 @@ class TugLogger : public Component
   void on_takeoff_();
   void on_landed_();
   void save_flight_();
+  void check_tow_watch_();
   void check_network_();
   void check_power_();
   time_t epoch_();

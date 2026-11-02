@@ -268,9 +268,27 @@ void TugLogger::tick_() {
     this->save_flight_();
   if (sample.epoch != 0)
     this->store_.resolve_launch_times(sample.epoch, now);
+  this->check_tow_watch_();
 
   this->check_network_();
   this->check_power_();
+}
+
+void TugLogger::check_tow_watch_() {
+#ifdef USE_TUG_LOGGER_SKYECHO
+  if (this->skyecho_ == nullptr)
+    return;
+  auto &watch = this->skyecho_->tow_watch();
+  watch.set_enabled(this->detector_.is_flying());
+  if (!this->detector_.is_flying() || !this->flight_details_.glider_registration.empty())
+    return;
+  std::string glider = glider_from_callsign(watch.get_callsign());
+  if (glider.empty())
+    return;
+  ESP_LOGI(TAG, "%s has stayed behind, so it is the glider on tow", glider.c_str());
+  this->flight_details_.glider_registration = std::move(glider);
+  this->save_flight_();
+#endif
 }
 
 void TugLogger::check_network_() {

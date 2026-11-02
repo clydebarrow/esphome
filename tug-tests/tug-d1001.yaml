@@ -58,12 +58,15 @@ font:
   - file: {type: gfonts, family: Montserrat, weight: 700}
     id: bold_28
     size: 28
+    bpp: 4
   - file: {type: gfonts, family: Montserrat, weight: 700}
     id: bold_40
     size: 40
+    bpp: 4
   - file: {type: gfonts, family: Montserrat, weight: 700}
     id: bold_48
     size: 48
+    bpp: 4
 
 globals:
   - id: powering_off

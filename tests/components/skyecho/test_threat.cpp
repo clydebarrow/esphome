@@ -1,5 +1,8 @@
 #include <gtest/gtest.h>
 
+#include <cmath>
+#include <cstring>
+
 #include "esphome/components/skyecho/threat.h"
 
 namespace esphome::skyecho::testing {
@@ -370,6 +373,173 @@ TEST(SkyEchoThreat, WarningsStartAgainForANewThreatOrAfterTheAlarm) {
   Threat clear{};
   EXPECT_EQ(warnings.check(clear), 0);
   EXPECT_EQ(warnings.check(alarm_threat(2, 25.0f)), 30);
+}
+
+static constexpr float M_PER_DEGREE = 111320.0f;
+static constexpr uint32_t MINUTE_MS = 60000;
+
+// A tug heading north at a level flight, and a target placed relative to it
+static gdl90PositionReport_t tug() {
+  gdl90PositionReport_t report{};
+  report.address = 1;
+  report.category = Light;
+  report.altitude = 1000.0f;
+  report.isAltitudeValid = true;
+  report.isTrackValid = true;
+  report.groundSpeed = 36.0f;
+  return report;
+}
+
+static gdl90PositionReport_t glider_at(float north, float east, float height = 15.0f) {
+  gdl90PositionReport_t report = tug();
+  report.address = 2;
+  report.category = Glider;
+  report.latitude = north / M_PER_DEGREE;
+  report.longitude = east / M_PER_DEGREE;
+  report.altitude += height;
+  strcpy(report.callsign, "VHWGQ   ");
+  return report;
+}
+
+static TowWatch enabled_watch() {
+  TowWatch watch;
+  watch.set_enabled(true);
+  return watch;
+}
+
+// Reports once a second from from_s up to and including to_s
+static bool hold(TowWatch &watch, const gdl90PositionReport_t &target, uint32_t from_s, uint32_t to_s) {
+  bool suppressed = false;
+  for (uint32_t s = from_s; s <= to_s; s++)
+    suppressed = watch.check(tug(), target, s * 1000);
+  return suppressed;
+}
+
+TEST(SkyEchoTowWatch, SuppressesAGliderBehindAtOnce) {
+  TowWatch watch = enabled_watch();
+  EXPECT_TRUE(watch.check(tug(), glider_at(-60.0f, 0.0f), 0));
+}
+
+TEST(SkyEchoTowWatch, DoesNothingWhileDisabled) {
+  TowWatch watch;
+  EXPECT_FALSE(watch.check(tug(), glider_at(-60.0f, 0.0f), 0));
+}
+
+TEST(SkyEchoTowWatch, RearAreaIsThirtyDegreesEitherSide) {
+  const float angle = 25.0f * 3.14159265f / 180.0f;
+  const float outside = 35.0f * 3.14159265f / 180.0f;
+  for (const float side : {1.0f, -1.0f}) {
+    TowWatch inside_watch = enabled_watch();
+    EXPECT_TRUE(inside_watch.check(tug(), glider_at(-100.0f * cosf(angle), side * 100.0f * sinf(angle)), 0));
+    TowWatch outside_watch = enabled_watch();
+    EXPECT_FALSE(outside_watch.check(tug(), glider_at(-100.0f * cosf(outside), side * 100.0f * sinf(outside)), 0));
+  }
+}
+
+TEST(SkyEchoTowWatch, FollowsTheTrackOfTheTugAcrossNorth) {
+  // Heading 350: straight behind is 170, so a target due south is 10 degrees off it
+  gdl90PositionReport_t own = tug();
+  own.track = 350.0f;
+  TowWatch watch = enabled_watch();
+  EXPECT_TRUE(watch.check(own, glider_at(-100.0f, 0.0f), 0));
+  // Due north is ahead
+  TowWatch ahead = enabled_watch();
+  EXPECT_FALSE(ahead.check(own, glider_at(100.0f, 0.0f), 0));
+}
+
+TEST(SkyEchoTowWatch, AlertsForAnythingElse) {
+  TowWatch watch = enabled_watch();
+  EXPECT_FALSE(watch.check(tug(), glider_at(60.0f, 0.0f), 0));            // ahead
+  EXPECT_FALSE(watch.check(tug(), glider_at(-60.0f, 0.0f, 150.0f), 0));   // well above
+  EXPECT_FALSE(watch.check(tug(), glider_at(-60.0f, 0.0f, -150.0f), 0));  // well below
+  EXPECT_FALSE(watch.check(tug(), glider_at(-1000.0f, 0.0f), 0));         // too far behind
+  gdl90PositionReport_t powered = glider_at(-60.0f, 0.0f);
+  powered.category = Light;
+  EXPECT_FALSE(watch.check(tug(), powered, 0));
+  gdl90PositionReport_t no_altitude = glider_at(-60.0f, 0.0f);
+  no_altitude.isAltitudeValid = false;
+  EXPECT_FALSE(watch.check(tug(), no_altitude, 0));
+  gdl90PositionReport_t own = tug();
+  own.isTrackValid = false;
+  EXPECT_FALSE(watch.check(own, glider_at(-60.0f, 0.0f), 0));
+}
+
+TEST(SkyEchoTowWatch, IdentifiesAfterThirtySeconds) {
+  TowWatch watch = enabled_watch();
+  hold(watch, glider_at(-60.0f, 0.0f), 0, 29);
+  EXPECT_STREQ(watch.get_callsign(), "");
+  hold(watch, glider_at(-60.0f, 0.0f), 30, 30);
+  EXPECT_STREQ(watch.get_callsign(), "VHWGQ");
+}
+
+TEST(SkyEchoTowWatch, KeepsSuppressingThroughAMomentOutside) {
+  TowWatch watch = enabled_watch();
+  hold(watch, glider_at(-60.0f, 0.0f), 0, 10);
+  EXPECT_TRUE(hold(watch, glider_at(0.0f, 60.0f), 11, 14));  // noise, or a turn
+  // ...and that time still counts
+  hold(watch, glider_at(-60.0f, 0.0f), 15, 30);
+  EXPECT_STREQ(watch.get_callsign(), "VHWGQ");
+}
+
+TEST(SkyEchoTowWatch, ALeavingGliderAlertsAndStartsAgain) {
+  TowWatch watch = enabled_watch();
+  hold(watch, glider_at(-60.0f, 0.0f), 0, 20);
+  EXPECT_FALSE(hold(watch, glider_at(0.0f, 60.0f), 21, 27));
+  hold(watch, glider_at(-60.0f, 0.0f), 28, 57);
+  EXPECT_STREQ(watch.get_callsign(), "");
+  hold(watch, glider_at(-60.0f, 0.0f), 58, 58);
+  EXPECT_STREQ(watch.get_callsign(), "VHWGQ");
+}
+
+TEST(SkyEchoTowWatch, ABlankCallsignDoesNotIdentify) {
+  TowWatch watch = enabled_watch();
+  gdl90PositionReport_t blank = glider_at(-60.0f, 0.0f);
+  strcpy(blank.callsign, "        ");
+  EXPECT_TRUE(hold(watch, blank, 0, 40));
+  EXPECT_STREQ(watch.get_callsign(), "");
+}
+
+TEST(SkyEchoTowWatch, TheFirstGliderToStayIsKept) {
+  TowWatch watch = enabled_watch();
+  hold(watch, glider_at(-60.0f, 0.0f), 0, 30);
+  gdl90PositionReport_t other = glider_at(-80.0f, 0.0f);
+  other.address = 3;
+  strcpy(other.callsign, "VHZDZ   ");
+  hold(watch, other, 31, 70);
+  EXPECT_STREQ(watch.get_callsign(), "VHWGQ");
+}
+
+TEST(SkyEchoTowWatch, DisablingForgetsTheGlider) {
+  TowWatch watch = enabled_watch();
+  hold(watch, glider_at(-60.0f, 0.0f), 0, 30);
+  watch.set_enabled(false);
+  watch.set_enabled(true);
+  EXPECT_STREQ(watch.get_callsign(), "");
+  hold(watch, glider_at(-60.0f, 0.0f), MINUTE_MS / 1000, MINUTE_MS / 1000 + 29);
+  EXPECT_STREQ(watch.get_callsign(), "");
+}
+
+TEST(SkyEchoTowWatch, RunsOutOfRoomByAlerting) {
+  TowWatch watch = enabled_watch();
+  for (uint32_t address = 10; address != 14; address++) {
+    gdl90PositionReport_t target = glider_at(-60.0f, 0.0f);
+    target.address = address;
+    EXPECT_TRUE(watch.check(tug(), target, 0));
+  }
+  gdl90PositionReport_t extra = glider_at(-60.0f, 0.0f);
+  extra.address = 14;
+  EXPECT_FALSE(watch.check(tug(), extra, 0));
+}
+
+TEST(SkyEchoThreat, ATargetThatCannotBeSelectedIsPassedOver) {
+  const gdl90PositionReport_t own = tug();
+  const ThreatSettings settings{};
+  SignificantTargetSelector selector(own, settings);
+  const ThreatAssessment assessment = selector.consider(0, glider_at(-60.0f, 0.0f), false);
+  EXPECT_FALSE(assessment.ignored);
+  EXPECT_EQ(selector.get_best(), -1);
+  selector.consider(1, glider_at(5000.0f, 0.0f));
+  EXPECT_EQ(selector.get_best(), 1);
 }
 
 }  // namespace esphome::skyecho::testing

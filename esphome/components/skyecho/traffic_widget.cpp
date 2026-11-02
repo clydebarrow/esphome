@@ -469,7 +469,8 @@ void TrafficWidget::update() {
   for (; cnt != MAX_TRAFFIC_TRACKED && traffic[cnt].active; cnt++) {
     float target_dt = std::min((now - traffic[cnt].timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S);
     extrapolate_report(traffic[cnt].report, target_dt);
-    ignored[cnt] = selector.consider(cnt, traffic[cnt].report).ignored;
+    const bool towed = this->parent_->tow_watch().check(ownship.report, traffic[cnt].report, now);
+    ignored[cnt] = selector.consider(cnt, traffic[cnt].report, !towed).ignored;
   }
   if (selector.get_best() < 0) {
     this->update_info_(nullptr, {}, 0.0f, 0.0f, 0.0f, 0);

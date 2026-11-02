@@ -105,7 +105,7 @@ void SkyEcho::assess_threats_() {
     SignificantTargetSelector selector(ownship.report, this->threat_settings_);
     for (size_t i = 0; i != MAX_TRAFFIC_TRACKED && traffic[i].active; i++) {
       extrapolate_report(traffic[i].report, std::min((now - traffic[i].timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S));
-      selector.consider(i, traffic[i].report);
+      selector.consider(i, traffic[i].report, !this->tow_watch_.check(ownship.report, traffic[i].report, now));
       threat.targets++;
     }
     if (selector.get_best() >= 0) {

@@ -110,8 +110,9 @@ class SignificantTargetSelector {
   SignificantTargetSelector(const gdl90PositionReport_t &ownship, const ThreatSettings &settings)
       : ownship_(ownship), settings_(settings) {}
 
-  /// Assess a target, remember it if it is the most significant so far, and return the assessment.
-  ThreatAssessment consider(size_t index, const gdl90PositionReport_t &target);
+  /// Assess a target, remember it if it is the most significant so far, and return the assessment. A target that
+  /// can't be selected is still assessed, but never becomes the most significant.
+  ThreatAssessment consider(size_t index, const gdl90PositionReport_t &target, bool selectable = true);
 
   /// The index of the most significant target, or -1 when none was considered or all were ignored.
   int get_best() const { return this->best_; }
@@ -139,6 +140,48 @@ class ThreatWarnings {
   FixedVector<uint16_t> times_{};
   uint32_t address_{0};  // the threat being warned about, or zero for none
   size_t next_{0};       // index of the next warning time for that threat
+};
+
+/// Where a glider on tow is expected to be, relative to the tug. Distances in meters, times in milliseconds.
+struct TowSettings {
+  float rear_angle{30.0f};                // degrees either side of directly behind, along the tug's track
+  float max_altitude_difference{91.44f};  // 300 ft
+  float max_distance{300.0f};   // a rope is much shorter, but positions aren't exact and a further glider isn't on tow
+  uint32_t hold_ms{5000};       // positions are noisy at rope length, so a moment outside doesn't count as leaving
+  uint32_t identify_ms{30000};  // how long a glider stays there to be taken as the one on tow
+};
+
+/**
+ * Recognises a glider on tow from where it flies, for a tug. Any glider behind the tug gets no alert, for as long as
+ * it stays there; the first with a callsign to stay for the identify time is taken to be the glider on tow.
+ */
+class TowWatch {
+ public:
+  explicit TowWatch(const TowSettings &settings = {}) : settings_(settings) {}
+
+  /// While disabled, as on the ground, nothing is suppressed. Disabling forgets the glider.
+  void set_enabled(bool enabled);
+  /// Check a target at the time now, in ms. Returns true if it should raise no alert.
+  bool check(const gdl90PositionReport_t &ownship, const gdl90PositionReport_t &target, uint32_t now);
+  /// The callsign of the glider on tow, empty until one is known.
+  const char *get_callsign() const { return this->callsign_; }
+
+ protected:
+  struct Candidate {
+    uint32_t address;
+    uint32_t first_ms;
+    uint32_t last_ms;
+    bool used;
+  };
+  // Few gliders fit behind a tug. A target with no room raises alerts as usual.
+  static constexpr size_t MAX_CANDIDATES = 4;
+
+  bool is_behind_(const gdl90PositionReport_t &ownship, const gdl90PositionReport_t &target) const;
+
+  TowSettings settings_;
+  Candidate candidates_[MAX_CANDIDATES]{};
+  char callsign_[GDL_CALLSIGN_LENGTH + 1]{};
+  bool enabled_{false};
 };
 
 }  // namespace esphome::skyecho

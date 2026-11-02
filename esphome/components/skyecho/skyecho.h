@@ -87,6 +87,8 @@ class SkyEcho : public PollingComponent {
   void set_max_distance(float meters) { this->threat_settings_.max_distance = meters; }
   void set_max_altitude_difference(float meters) { this->threat_settings_.max_altitude_difference = meters; }
   const ThreatSettings &get_threat_settings() const { return this->threat_settings_; }
+  /// For a tug, while flying: a glider behind it raises no alert, and one that stays is taken as the glider on tow.
+  TowWatch &tow_watch() { return this->tow_watch_; }
   /// Seconds before close proximity at which to warn about a threat, longest first.
   void set_warning_times(std::initializer_list<uint16_t> seconds) { this->warnings_.set_times(seconds); }
 
@@ -179,6 +181,7 @@ class SkyEcho : public PollingComponent {
   // Collision prediction
   ThreatSettings threat_settings_{};
   ThreatWarnings warnings_{};
+  TowWatch tow_watch_{};
   Threat threat_{};
   LazyCallbackManager<void(const Threat &)> threat_callback_;
   LazyCallbackManager<void(uint32_t)> warning_callback_;

@@ -20,6 +20,10 @@ struct TowDetails {
   std::string tug_pilot;
 };
 
+/// The registration to record for a glider from its callsign, as the club writes it: "VHWGQ" or "VH-WGQ" is "WGQ".
+/// Empty if the callsign is blank.
+std::string glider_from_callsign(const char *callsign);
+
 /// A landed tow waiting for the pilot, on the review list.
 struct TowRecord {
   /// Identifies the record on the list; stays the same when it is edited.

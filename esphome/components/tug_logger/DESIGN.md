@@ -38,7 +38,16 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   sample.
 - **Takeoff** is above 40 kt for 5 s, **landing** below 15 kt for 30 s; times are when the speed was first crossed.
   These thresholds are untested in a real tug.
+- **The glider on tow** is recognised in flight from a SkyEcho: a target of the glider category within 30 degrees of
+  straight behind the tug's track, within 300 ft of its height and within 300 m. It stays on the display but raises no
+  alert, and stays suppressed for 5 s after leaving that area, because positions are noisy at rope length. The first
+  with a callsign to stay 30 s fills in the glider if none was entered, with `VH` removed to match how the club writes
+  registrations. The pilot still checks it on review. The figures are untested in a real tow.
 - **A tow uploads only once confirmed**, because the server refuses changes to a tow it already holds (409).
+- **The clock is set only while the SkyEcho reports a GPS lock.** Without one it may still report a time, and a wrong
+  one would stay in the RTC and date every tow.
+- **A SkyEcho is first joined by hand** under Settings, because several may be in range at a launch point. Once saved,
+  it is joined whenever it is seen.
 - **Upload** happens only on a network that isn't a SkyEcho. `wifi_networks` joins a SkyEcho whenever it is seen, so
   tows wait until it is off or out of range.
 - **A restart in flight:** a flight on the card is carried on if the aircraft is moving when a position arrives, and
