@@ -1,0 +1,64 @@
+# tug-d1001.yaml for the bench: API actions to step through the screens from fly.py or aioesphomeapi, uploads to a
+# local Worker (wrangler dev), and the flight page shown for a while each minute and a half while on a SkyEcho, whose
+# network can't be reached from here. It also accepts a short flight, for the simulated tow in fly.py.
+substitutions:
+  upload_url: http://192.168.1.131:8787/api/tows
+  upload_key: local-tug-secret
+
+packages:
+  tug: !include tug-d1001.yaml
+
+esphome:
+  name: tug-d1001-test
+
+tug_logger:
+  upload_url: ${upload_url}
+  upload_key: ${upload_key}
+  landing_confirm: 15s
+
+api:
+  actions:
+    - action: ui
+      variables:
+        command: string
+        value: int
+      then:
+        - lambda: |-
+            auto &u = id(ui);
+            ESP_LOGI("test", "ui %s %d", command.c_str(), value);
+            if (command == "edit_next") u.edit_next(tug_logger::TowField(value));
+            else if (command == "edit_tow") u.edit_tow(tug_logger::TowField(value));
+            else if (command == "done") u.picker_done();
+            else if (command == "cancel") u.picker_cancel();
+            else if (command == "review") u.show_review();
+            else if (command == "settings") u.show_settings();
+            else if (command == "confirm") u.confirm_tow();
+            else if (command == "discard") u.discard_tow();
+            else if (command == "ground") u.back_to_ground();
+            else if (command == "flight") id(lvgl_id).show_page(id(flight_page).index, LV_SCREEN_LOAD_ANIM_NONE, 0);
+    - action: type_text
+      variables:
+        content: string
+      then:
+        - lambda: lv_textarea_set_text(id(picker_text), content.c_str());
+    - action: click_row
+      variables:
+        list: string
+        row: int
+      then:
+        - lambda: |-
+            lv_obj_t *parent = list == "review" ? id(review_list) : (list == "picker" ? id(picker_list) : id(wifi_list));
+            lv_obj_t *child = lv_obj_get_child(parent, row);
+            if (child != nullptr)
+              lv_obj_send_event(child, LV_EVENT_CLICKED, nullptr);
+
+interval:
+  - interval: 90s
+    then:
+      - if:
+          condition:
+            lambda: return id(logger_id).on_skyecho_network() && !id(logger_id).is_flying();
+          then:
+            - lvgl.page.show: flight_page
+            - delay: 30s
+            - lambda: id(ui).back_to_ground();

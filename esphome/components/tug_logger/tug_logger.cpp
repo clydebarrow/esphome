@@ -27,6 +27,7 @@ static constexpr uint32_t NETWORK_CHECK_MS = 5000;
 // How long a flight found at start waits for a position before it is closed
 static constexpr uint32_t RESUME_WAIT_MS = 120000;
 static constexpr uint32_t NMEA_MAX_AGE_MS = 5000;
+static constexpr uint32_t POSITION_LOG_MS = 15000;
 
 void TugLogger::setup() {
   this->detector_ = FlightDetector(this->settings_);
@@ -90,6 +91,10 @@ bool TugLogger::start_store_() {
   } else {
     ESP_LOGW(TAG, "No usable tug.json or tug-*.json in the root of the SD card");
   }
+  if (this->upload_url_ != nullptr)
+    this->provisioning_.upload_url = this->upload_url_;
+  if (this->upload_key_ != nullptr)
+    this->provisioning_.upload_key = this->upload_key_;
   this->queued_ = this->store_.queued_count();
   this->failed_ = this->store_.failed_count();
   this->has_saved_flight_ = this->store_.load_flight(this->saved_flight_, this->saved_details_, this->saved_at_);
@@ -216,6 +221,12 @@ void TugLogger::tick_() {
   }
 
   const PositionSample sample = this->read_position_();
+  if (now - this->last_position_log_ms_ >= POSITION_LOG_MS) {
+    this->last_position_log_ms_ = now;
+    ESP_LOGD(TAG, "Position: source %u, speed %.1f m/s (%s), GPS altitude %.0f m (%s), pressure altitude %.0f m (%s)",
+             unsigned(this->source_), sample.ground_speed_mps, YESNO(sample.speed_valid), sample.geometric_m,
+             YESNO(sample.geometric_valid), sample.pressure_m, YESNO(sample.pressure_valid));
+  }
 
   if (this->has_saved_flight_) {
     if (this->source_ == GpsSource::GPS_SOURCE_NONE && now < RESUME_WAIT_MS) {

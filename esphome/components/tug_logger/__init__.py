@@ -23,6 +23,8 @@ CONF_SHUTDOWN_WINDOW = "shutdown_window"
 CONF_SKYECHO_ID = "skyecho_id"
 CONF_TAKEOFF_CONFIRM = "takeoff_confirm"
 CONF_TAKEOFF_SPEED = "takeoff_speed"
+CONF_UPLOAD_KEY = "upload_key"
+CONF_UPLOAD_URL = "upload_url"
 CONF_WIFI_NETWORKS_ID = "wifi_networks_id"
 
 KNOTS_TO_MPS = 1852.0 / 3600.0
@@ -84,6 +86,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_SHUTDOWN_WINDOW, default="10min"
             ): cv.positive_time_period_milliseconds,
+            # For testing against another server: used instead of the values in the tug's file on the card
+            cv.Optional(CONF_UPLOAD_URL): cv.string_strict,
+            cv.Optional(CONF_UPLOAD_KEY): cv.string_strict,
             cv.Optional(CONF_ON_TAKEOFF): automation.validate_automation({}),
             cv.Optional(CONF_ON_LANDED): automation.validate_automation({}),
             cv.Optional(CONF_ON_POWER_OFF): automation.validate_automation({}),
@@ -121,6 +126,10 @@ async def to_code(config: ConfigType) -> None:
     cg.add(var.set_landing_speed(config[CONF_LANDING_SPEED]))
     cg.add(var.set_landing_confirm(config[CONF_LANDING_CONFIRM]))
     cg.add(var.set_shutdown_window(config[CONF_SHUTDOWN_WINDOW]))
+    if (url := config.get(CONF_UPLOAD_URL)) is not None:
+        cg.add(var.set_upload_url(url))
+    if (upload_key := config.get(CONF_UPLOAD_KEY)) is not None:
+        cg.add(var.set_upload_key(upload_key))
     for key, method in (
         (CONF_ON_TAKEOFF, "add_on_takeoff_callback"),
         (CONF_ON_LANDED, "add_on_landed_callback"),

@@ -67,6 +67,8 @@ class TugLogger : public Component
   void set_landing_speed(float speed) { this->settings_.landing_speed_mps = speed; }
   void set_landing_confirm(uint32_t ms) { this->settings_.landing_confirm_ms = ms; }
   void set_shutdown_window(uint32_t ms) { this->shutdown_window_ms_ = ms; }
+  void set_upload_url(const char *url) { this->upload_url_ = url; }
+  void set_upload_key(const char *key) { this->upload_key_ = key; }
 
   template<typename F> void add_on_takeoff_callback(F &&callback) {
     this->takeoff_callback_.add(std::forward<F>(callback));
@@ -151,6 +153,9 @@ class TugLogger : public Component
   time_t saved_at_{0};
   bool has_saved_flight_{false};
 
+  const char *upload_url_{nullptr};
+  const char *upload_key_{nullptr};
+  uint32_t last_position_log_ms_{0};
   uint32_t last_tick_ms_{0};
   uint32_t last_store_try_ms_{0};
   uint32_t last_save_ms_{0};

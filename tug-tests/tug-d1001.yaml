@@ -97,7 +97,7 @@ lvgl:
     - lambda: id(logger_id).note_activity();
   style_definitions:
     - id: big_button
-      height: 110
+      height: 130
       width: 100%
       radius: 10
     - id: action_button
@@ -157,7 +157,7 @@ lvgl:
               - label: {id: next_tug_pilot, align: left_mid, text_font: montserrat_40, text: ""}
         - obj:
             width: 100%
-            height: 110
+            height: 100
             border_width: 0
             pad_all: 0
             bg_opa: transp
