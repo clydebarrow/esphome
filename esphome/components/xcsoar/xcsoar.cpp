@@ -3,6 +3,7 @@
 #include "xcsoar.h"
 #include "flight_upload.h"
 
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
 #include <esp_heap_caps.h>
@@ -32,8 +33,10 @@ static constexpr uint32_t FILL_PENDING_MAX = 4;
 static constexpr size_t EVENTFD_COUNT = 4;
 // XCSoar's directory below the data filesystem's vfs_path
 static constexpr const char *DATA_DIR = "XCSoar";
-// How long XCSoar waits for its data filesystem, e.g. an SD card that is still starting
+// How long XCSoar waits for its data filesystem after the other components' setup, e.g. an SD card that is still
+// starting
 static constexpr uint32_t DATA_READY_TIMEOUT_MS = 5000;
+static constexpr uint32_t SETUP_POLL_MS = 50;
 #ifdef USE_XCSOAR_SKYECHO
 // The names XCSoar shows as the devices' ports
 static constexpr const char *SKYECHO_STREAM = "SkyEcho";
@@ -199,8 +202,13 @@ void XCSoarComponent::setup() {
 void *XCSoarComponent::task_main_(void *param) {
   auto *self = static_cast<XCSoarComponent *>(param);
 #ifdef USE_FILESYSTEM_VFS
-  if (self->data_fs_ != nullptr && !self->data_fs_->get_vfs()->wait_ready(DATA_READY_TIMEOUT_MS)) {
-    ESP_LOGW(TAG, "Data filesystem not ready; XCSoar starts without it");
+  if (self->data_fs_ != nullptr) {
+    // A slow setup elsewhere (esp32_ble without co-processor support took 5 s) holds up the card's start too
+    while (!App.is_setup_complete())
+      delay(SETUP_POLL_MS);
+    if (!self->data_fs_->get_vfs()->wait_ready(DATA_READY_TIMEOUT_MS)) {
+      ESP_LOGW(TAG, "Data filesystem not ready; XCSoar starts without it");
+    }
   }
 #endif
   const bool quit = self->demo_ ? XCSoarEsp32::RunDemo(self->config_) : XCSoarEsp32::Run(self->config_);
