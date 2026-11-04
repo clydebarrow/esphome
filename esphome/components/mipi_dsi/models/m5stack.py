@@ -1,3 +1,5 @@
+from esphome.components.mipi import delay
+
 from . import DsiDriverChip
 
 # fmt: off
@@ -126,7 +128,8 @@ DsiDriverChip(
     requires={"psram"},
     reset_pin={"pi4ioe5v6408": {"address": 0x43}, "number": 4},
     initsequence=[
-        (0x01,),
+        # The panel ignores commands sent too soon after the hardware reset
+        delay(120),
         (0x60, 0x71, 0x21, 0xA2),
         (0x60, 0x71, 0x21, 0xA3),
         (0x60, 0x71, 0x21, 0xA4),
