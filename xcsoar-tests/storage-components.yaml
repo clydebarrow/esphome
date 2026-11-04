@@ -1,0 +1,5 @@
+# The SD card and filesystem components, from the storage branch. esp32 comes from there too, for its FAT settings.
+external_components:
+  - source: github://clydebarrow/esphome@storage
+    components: [esp32, storage, sd_spi, fatfs, filesystem, file]
+    refresh: 1h

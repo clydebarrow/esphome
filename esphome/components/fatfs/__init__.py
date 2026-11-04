@@ -1,2 +1,0 @@
-CODEOWNERS = ["@clydebarrow"]
-DOMAIN = "fatfs"

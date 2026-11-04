@@ -4,6 +4,15 @@
 packages:
   tab5: !include xcsoar-tab5.yaml
 
+# wifi comes with wifi_networks, which needs two additions to it
+external_components:
+  - source: github://clydebarrow/esphome@skyecho
+    components: [skyecho]
+    refresh: 1h
+  - source: github://clydebarrow/esphome@wifi_networks
+    components: [wifi, wifi_networks]
+    refresh: 1h
+
 esphome:
   name: xcsoar-tab5-skyecho
 

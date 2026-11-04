@@ -1,2 +1,0 @@
-packages:
-  fatfs: !include common.yaml
