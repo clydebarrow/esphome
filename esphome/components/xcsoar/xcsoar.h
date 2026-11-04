@@ -29,6 +29,9 @@
 #ifdef USE_XCSOAR_WIFI_NETWORKS
 #include "esphome/components/wifi_networks/wifi_networks.h"
 #endif
+#ifdef USE_XCSOAR_UART
+#include "esphome/components/uart/uart.h"
+#endif
 
 #include <XCSoarEsp32.hpp>
 
@@ -102,6 +105,10 @@ class XCSoarComponent : public Component
 #ifdef USE_XCSOAR_SKYECHO
   /// Pass the SkyEcho's GDL90 data to XCSoar, and the data of its FLARM UART if it has one, each read as a device.
   void set_skyecho(skyecho::SkyEcho *skyecho) { this->skyecho_ = skyecho; }
+#endif
+#ifdef XCSOAR_STREAM_COUNT
+  /// Declare a stream XCSoar reads as a device, before setup(); name is also the port it shows.
+  void add_stream(const char *name, const char *driver) { this->streams_.push_back({name, driver}); }
 #endif
 #ifdef USE_XCSOAR_WIFI_NETWORKS
   /// Let XCSoar's network settings list, join and forget Wi-Fi networks.
@@ -215,8 +222,10 @@ class XCSoarComponent : public Component
 #endif
 #ifdef USE_XCSOAR_SKYECHO
   skyecho::SkyEcho *skyecho_{nullptr};
-  // GDL90, and FLARM if the SkyEcho has a FLARM UART
-  StaticVector<XCSoarEsp32::Stream, 2> streams_;
+#endif
+#ifdef XCSOAR_STREAM_COUNT
+  // The UART streams, then GDL90 and FLARM (if the SkyEcho has a FLARM UART)
+  StaticVector<XCSoarEsp32::Stream, XCSOAR_STREAM_COUNT> streams_;
 #endif
 #ifdef USE_XCSOAR_WIFI_NETWORKS
   XCSoarEsp32::WifiHost wifi_host_{};
@@ -225,6 +234,18 @@ class XCSoarComponent : public Component
   XCSoarEsp32::BleHost ble_host_{};
 #endif
 };
+
+#ifdef USE_XCSOAR_UART
+/// Passes what a UART receives to XCSoar's stream of the same name.
+class XCSoarUartStream : public Component, public uart::UARTDevice {
+ public:
+  XCSoarUartStream(uart::UARTComponent *parent, const char *name) : uart::UARTDevice(parent), name_(name) {}
+  void loop() override;
+
+ protected:
+  const char *name_;
+};
+#endif
 
 }  // namespace esphome::xcsoar
 
