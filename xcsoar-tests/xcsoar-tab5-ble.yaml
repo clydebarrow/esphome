@@ -5,6 +5,11 @@
 packages:
   skyecho: !include xcsoar-tab5-skyecho.yaml
 
+external_components:
+  - source: github://clydebarrow/esphome@ble_serial
+    components: [ble_serial]
+    refresh: 1h
+
 esphome:
   name: xcsoar-tab5-ble
 
