@@ -1,0 +1,12 @@
+# xcsoar-tab5-ble.yaml for a Tab5 V2 with an ST7121 panel instead of the ST7123, and a USB GPS.
+
+packages:
+  ble: !include xcsoar-tab5-ble.yaml
+  gps: !include usb-gps.yaml
+
+esphome:
+  name: xcsoar-tab5-st7121
+
+display:
+  - id: !extend lcd
+    model: M5STACK-TAB5-ST7121
