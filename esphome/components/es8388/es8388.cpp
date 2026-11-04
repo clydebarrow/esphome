@@ -50,8 +50,6 @@ static constexpr i2c::I2CRegValue ES8388_INIT[] PROGMEM = {
     {ES8388_DACCONTROL23, 0x00},
     // power down adc and line in
     {ES8388_ADCPOWER, 0xFF},
-    //@nightdav
-    {ES8388_ADCCONTROL1, 0x00},  // +21dB : recommended value for ALC & voice recording
     // set to Mono Right
     {ES8388_ADCCONTROL3, 0x02},
     // I2S 16 Bits length and I2S serial audio data format
@@ -93,6 +91,8 @@ void ES8388::setup() {
   this->set_mute_state_(true);
 
   ES8388_ERROR_FAILED(this->write_registers(ES8388_INIT));
+  // ADC PGA gain (reg 0x09): MicAmpL in bits 7:4, MicAmpR in bits 3:0, 3 dB per step
+  ES8388_ERROR_FAILED(this->write_byte(ES8388_ADCCONTROL1, this->mic_gain_));
   delay(1);
   ES8388_ERROR_FAILED(this->write_byte(ES8388_CHIPPOWER, 0x00));
 
@@ -146,6 +146,7 @@ void ES8388::dump_config() {
                 "  Volume range: %.1f dB to %.1f dB",
                 this->volume_min_db_, this->volume_max_db_);
   LOG_I2C_DEVICE(this);
+  ESP_LOGCONFIG(TAG, "  Mic gain: %u dB", (this->mic_gain_ & 0x0F) * 3);
 #ifdef USE_ES8388_SELECT
   LOG_SELECT("  ", "DAC Output", this->dac_output_select_);
   LOG_SELECT("  ", "ADC Input Mic", this->adc_input_mic_select_);

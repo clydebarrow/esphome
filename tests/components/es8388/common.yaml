@@ -13,6 +13,7 @@ audio_dac:
     id: es8388_parent
     volume_min_db: -50dB
     volume_max_db: -3dB
+    mic_gain: 21DB
 
 select:
   - platform: es8388
