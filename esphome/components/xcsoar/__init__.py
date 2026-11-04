@@ -9,7 +9,7 @@ from pathlib import Path
 
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components import display, filesystem, psram, touchscreen, uart
+from esphome.components import display, psram, touchscreen, uart
 from esphome.components.const import BYTE_ORDER_LITTLE, CONF_BYTE_ORDER
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
@@ -52,6 +52,7 @@ def AUTO_LOAD(config: ConfigType | None = None) -> list[str]:
 CONF_DEMO = "demo"
 CONF_DPI = "dpi"
 CONF_DRIVER = "driver"
+CONF_FILESYSTEM_ID = "filesystem_id"
 CONF_FLIGHT_UPLOAD = "flight_upload"
 CONF_FONTS = "fonts"
 CONF_ON_STOPPED = "on_stopped"
@@ -89,6 +90,8 @@ WifiNetworks = cg.esphome_ns.namespace("wifi_networks").class_(
     "WifiNetworks", cg.Component
 )
 BleSerial = cg.esphome_ns.namespace("ble_serial").class_("BleSerial", cg.Component)
+# The filesystem component is an external component, imported only by configs that use it
+Filesystem = cg.esphome_ns.namespace("filesystem").class_("Filesystem")
 XCSoarUartStream = xcsoar_ns.class_("XCSoarUartStream", cg.Component, uart.UARTDevice)
 
 
@@ -151,9 +154,9 @@ def _validate_streams(config: ConfigType) -> ConfigType:
 
 
 def _require_data_filesystem(config: ConfigType) -> ConfigType:
-    if not config[CONF_DEMO] and filesystem.CONF_FILESYSTEM_ID not in config:
+    if not config[CONF_DEMO] and CONF_FILESYSTEM_ID not in config:
         raise cv.Invalid(
-            f"XCSoar keeps its data on a filesystem: set '{filesystem.CONF_FILESYSTEM_ID}', "
+            f"XCSoar keeps its data on a filesystem: set '{CONF_FILESYSTEM_ID}', "
             f"or '{CONF_DEMO}: true' for the test scene"
         )
     return config
@@ -169,9 +172,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_BLE_SERIAL_ID): cv.use_id(BleSerial),
             cv.Optional(CONF_SKYECHO_ID): cv.use_id(SkyEcho),
             cv.Optional(CONF_WIFI_NETWORKS_ID): cv.use_id(WifiNetworks),
-            cv.Optional(filesystem.CONF_FILESYSTEM_ID): cv.use_id(
-                filesystem.Filesystem
-            ),
+            cv.Optional(CONF_FILESYSTEM_ID): cv.use_id(Filesystem),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
             # Each UART is read by XCSoar as a device, e.g. a GPS with the Generic NMEA driver
             cv.Optional(CONF_UARTS, default=[]): cv.ensure_list(UART_STREAM_SCHEMA),
@@ -211,7 +212,9 @@ def _get_data() -> XCSoarData:
 def _final_validate(config: ConfigType) -> None:
     if config[CONF_FLIGHT_UPLOAD] and "network" not in CORE.loaded_integrations:
         raise cv.Invalid(f"'{CONF_FLIGHT_UPLOAD}' needs a network connection")
-    if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
+    if (fs_id := config.get(CONF_FILESYSTEM_ID)) is not None:
+        from esphome.components import filesystem  # pylint: disable=no-name-in-module
+
         filesystem.require_vfs_path(fs_id)
     disp = fv.get_declaring_config(config[CONF_DISPLAY_ID])
     if disp.get(CONF_PLATFORM) != MIPI_DSI_DOMAIN or disp[CONF_FRAME_BUFFERS] < 2:
@@ -292,7 +295,9 @@ async def to_code(config: ConfigType) -> None:
         cg.add_define("USE_XCSOAR_UART")
     if stream_count := _stream_count(config):
         cg.add_define("XCSOAR_STREAM_COUNT", stream_count)
-    if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
+    if (fs_id := config.get(CONF_FILESYSTEM_ID)) is not None:
+        from esphome.components import filesystem  # pylint: disable=no-name-in-module
+
         filesystem.request_vfs_handles(fs_id, VFS_MAX_FILES, VFS_MAX_DIRS)
         await cg.add_variable(var.set_filesystem, fs_id)
     if config[CONF_FLIGHT_UPLOAD]:

@@ -8,6 +8,7 @@ substitutions:
 
 packages:
   network: !include network.yaml
+  storage: !include storage-components.yaml
 
 esphome:
   name: xcsoar-tab5

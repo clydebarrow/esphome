@@ -1,6 +1,9 @@
 # SD card check on the M5Stack Tab5: mount the card through the storage components and list its root
 # directory at boot.
 
+packages:
+  storage: !include storage-components.yaml
+
 esphome:
   name: tab5-sd
   on_boot:
