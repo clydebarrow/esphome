@@ -1,0 +1,26 @@
+# A GPS receiver (MediaTek, CDC ACM) in the Tab5's USB-A port, read by XCSoar with the Generic NMEA driver.
+# USB 5V (pin 3 of the second I/O expander) powers the port.
+
+switch:
+  - platform: gpio
+    id: usb_5v_power
+    name: USB 5V
+    pin: {pi4ioe5v6408: pi4ioe2, number: 3}
+    restore_mode: ALWAYS_ON
+
+usb_host:
+
+usb_uart:
+  - id: gps_usb
+    type: cdc_acm
+    vid: 0x0E8D
+    pid: 0x3329
+    channels:
+      - id: gps_uart
+        baud_rate: 115200
+        buffer_size: 1024
+
+xcsoar:
+  uarts:
+    - uart_id: gps_uart
+      name: GPS
