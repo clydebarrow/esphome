@@ -369,10 +369,10 @@ To do:
 
 - **Flash space.** 1.3 MB are left in each OTA slot. More room: keeping resources (sounds, large bitmaps) on
   the SD card. OTA itself is wanted, so the two-slot partition table must stay.
-- **GPS and vario input.** Use the host stream mechanism below: a component (UART GPS, a pressure sensor turned
-  into `$POV` or `$PLXVF` sentences, or the SkyEcho's own ownship report) calls `XCSoarEsp32::Feed()` with a
-  stream whose driver is the matching XCSoar driver (`"Generic"` NMEA for a GPS). `TCP_LISTENER`/`UDP_LISTENER`
-  over lwIP should work without code changes now that Wi-Fi is up, but have not been tried.
+- **GPS and vario input.** A UART (a GPS, including a USB one through `usb_uart`) is done: see `uarts` under
+  "Data from the host". Still to do: a pressure sensor turned into `$POV` or `$PLXVF` sentences, and the
+  SkyEcho's own ownship report. `TCP_LISTENER`/`UDP_LISTENER` over lwIP should work without code changes now that
+  Wi-Fi is up, but have not been tried.
 - **Dates.** GDL90 has no date. The GDL90 driver takes the date from the system clock (its "use system UTC
   date" setting, on by default), so the clock must be set or IGC logs are dated 1970. `time: - platform: skyecho`
   sets it from the GPS time in the SkyEcho's websocket `/stats` stream (`host.GPS.UTCTime`, seconds since the
@@ -507,6 +507,18 @@ skyecho component has a FLARM UART, and registers `add_on_gdl90_data_callback()`
 `add_on_flarm_data_callback()` (added to skyecho for this; `LazyCallbackManager`, so they cost nothing
 without a listener). The callbacks pass the raw bytes the skyecho component received, so XCSoar's own
 drivers decode them. `xcsoar-tests/xcsoar-tab5-skyecho.yaml` is the test config.
+
+`uarts` passes what a UART receives to a stream: `name` (default `GPS`) is the port XCSoar shows and `driver`
+(default `Generic`, plain NMEA) the driver it is set up with. Each is an `XCSoarUartStream` component whose
+`loop()` feeds the bytes waiting in the UART's buffer. `XCSOAR_STREAM_COUNT` sizes the stream list from the
+UARTs and the SkyEcho's two streams. `xcsoar-tests/xcsoar-tab5-v1.yaml` reads a USB GPS this way:
+
+```yaml
+xcsoar:
+  uarts:
+    - uart_id: gps_uart
+      name: GPS
+```
 
 **Traffic alarms.** XCSoar raised traffic alarms only from a FLARM: the alarm level of each target in `$PFLAA`, and
 the most urgent one in `$PFLAU` (spoken, and the traffic gauge forced up); its GDL90 driver sets every target's alarm

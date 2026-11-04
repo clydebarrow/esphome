@@ -125,11 +125,11 @@ void XCSoarComponent::setup() {
 
 #ifdef USE_XCSOAR_SKYECHO
   // XCSoar drops the data until its devices are open
-  this->streams_.push_back({SKYECHO_STREAM, "GDL90"});
+  this->add_stream(SKYECHO_STREAM, "GDL90");
   this->skyecho_->add_on_gdl90_data_callback(
       [](const uint8_t *data, size_t len) { XCSoarEsp32::Feed(SKYECHO_STREAM, std::as_bytes(std::span(data, len))); });
   if (this->skyecho_->has_flarm_uart()) {
-    this->streams_.push_back({FLARM_STREAM, "FLARM"});
+    this->add_stream(FLARM_STREAM, "FLARM");
     this->skyecho_->add_on_flarm_data_callback(
         [](const uint8_t *data, size_t len) { XCSoarEsp32::Feed(FLARM_STREAM, std::as_bytes(std::span(data, len))); });
   }
@@ -149,7 +149,7 @@ void XCSoarComponent::setup() {
       .data_path = nullptr,
 #endif
       .dpi = this->dpi_,
-#ifdef USE_XCSOAR_SKYECHO
+#ifdef XCSOAR_STREAM_COUNT
       .streams = this->streams_,
 #else
       .streams = {},
@@ -671,6 +671,14 @@ void XCSoarComponent::dump_config() {
   }
 #endif
 }
+
+#ifdef USE_XCSOAR_UART
+void XCSoarUartStream::loop() {
+  // XCSoar drops the data until a device reads the stream
+  this->read_available_chunks<128>(
+      [this](const uint8_t *data, size_t len) { XCSoarEsp32::Feed(this->name_, std::as_bytes(std::span(data, len))); });
+}
+#endif
 
 }  // namespace esphome::xcsoar
 

@@ -9,7 +9,7 @@ from pathlib import Path
 
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components import display, filesystem, psram, touchscreen
+from esphome.components import display, filesystem, psram, touchscreen, uart
 from esphome.components.const import BYTE_ORDER_LITTLE, CONF_BYTE_ORDER
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
@@ -30,6 +30,7 @@ from esphome.const import (
     CONF_NAME,
     CONF_PLATFORM,
     CONF_RAW_DATA_ID,
+    CONF_UART_ID,
     Framework,
 )
 from esphome.core import CORE, HexInt
@@ -50,6 +51,7 @@ def AUTO_LOAD(config: ConfigType | None = None) -> list[str]:
 
 CONF_DEMO = "demo"
 CONF_DPI = "dpi"
+CONF_DRIVER = "driver"
 CONF_FLIGHT_UPLOAD = "flight_upload"
 CONF_FONTS = "fonts"
 CONF_ON_STOPPED = "on_stopped"
@@ -64,7 +66,13 @@ VFS_MAX_DIRS = 4
 CONF_FRAME_INTERVAL = "frame_interval"
 CONF_TASK_STACK_SIZE = "task_stack_size"
 CONF_TOUCHSCREEN_ID = "touchscreen_id"
+CONF_UARTS = "uarts"
 CONF_XCSOAR_PATH = "xcsoar_path"
+
+# HostPort's MAX_STREAMS in XCSoar
+MAX_STREAMS = 4
+# The skyecho component gives GDL90 and, with a FLARM UART, FLARM
+SKYECHO_STREAMS = 2
 
 # The IDF component inside the XCSoar checkout
 IDF_COMPONENT_DIR = Path("esp32", "xcsoar")
@@ -81,6 +89,7 @@ WifiNetworks = cg.esphome_ns.namespace("wifi_networks").class_(
     "WifiNetworks", cg.Component
 )
 BleSerial = cg.esphome_ns.namespace("ble_serial").class_("BleSerial", cg.Component)
+XCSoarUartStream = xcsoar_ns.class_("XCSoarUartStream", cg.Component, uart.UARTDevice)
 
 
 def _validate_xcsoar_path(value: object) -> Path:
@@ -108,6 +117,39 @@ FONT_SCHEMA = cv.All(
 )
 
 
+UART_STREAM_SCHEMA = cv.Schema(
+    {
+        cv.GenerateID(): cv.declare_id(XCSoarUartStream),
+        cv.Required(CONF_UART_ID): cv.use_id(uart.UARTComponent),
+        # Shown as the device's port in XCSoar
+        cv.Optional(CONF_NAME, default="GPS"): cv.All(
+            cv.string_strict, cv.Length(min=1)
+        ),
+        # The XCSoar driver set up for it in a free device slot at the first start
+        cv.Optional(CONF_DRIVER, default="Generic"): cv.All(
+            cv.string_strict, cv.Length(min=1)
+        ),
+    }
+)
+
+
+def _stream_count(config: ConfigType) -> int:
+    return (SKYECHO_STREAMS if CONF_SKYECHO_ID in config else 0) + len(
+        config[CONF_UARTS]
+    )
+
+
+def _validate_streams(config: ConfigType) -> ConfigType:
+    names = [conf[CONF_NAME] for conf in config[CONF_UARTS]]
+    if len(set(names)) != len(names):
+        raise cv.Invalid(f"Each of '{CONF_UARTS}' needs its own '{CONF_NAME}'")
+    if _stream_count(config) > MAX_STREAMS:
+        raise cv.Invalid(
+            f"XCSoar takes at most {MAX_STREAMS} streams; the SkyEcho uses {SKYECHO_STREAMS}"
+        )
+    return config
+
+
 def _require_data_filesystem(config: ConfigType) -> ConfigType:
     if not config[CONF_DEMO] and filesystem.CONF_FILESYSTEM_ID not in config:
         raise cv.Invalid(
@@ -131,6 +173,8 @@ CONFIG_SCHEMA = cv.All(
                 filesystem.Filesystem
             ),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
+            # Each UART is read by XCSoar as a device, e.g. a GPS with the Generic NMEA driver
+            cv.Optional(CONF_UARTS, default=[]): cv.ensure_list(UART_STREAM_SCHEMA),
             cv.Optional(CONF_DEMO, default=False): cv.boolean,
             # Send the flights XCSoar queues to the flight_upload_url of club.json
             cv.Optional(CONF_FLIGHT_UPLOAD, default=False): cv.boolean,
@@ -148,6 +192,7 @@ CONFIG_SCHEMA = cv.All(
     cv.only_with_framework(Framework.ESP_IDF),
     only_on_variant(supported=[VARIANT_ESP32P4]),
     _require_data_filesystem,
+    _validate_streams,
 )
 
 
@@ -237,6 +282,16 @@ async def to_code(config: ConfigType) -> None:
         is not None
     ):
         cg.add_define("USE_XCSOAR_BLE_SERIAL")
+    for conf in config[CONF_UARTS]:
+        stream = cg.new_Pvariable(
+            conf[CONF_ID], await cg.get_variable(conf[CONF_UART_ID]), conf[CONF_NAME]
+        )
+        await cg.register_component(stream, conf)
+        cg.add(var.add_stream(conf[CONF_NAME], conf[CONF_DRIVER]))
+    if config[CONF_UARTS]:
+        cg.add_define("USE_XCSOAR_UART")
+    if stream_count := _stream_count(config):
+        cg.add_define("XCSOAR_STREAM_COUNT", stream_count)
     if (fs_id := config.get(filesystem.CONF_FILESYSTEM_ID)) is not None:
         filesystem.request_vfs_handles(fs_id, VFS_MAX_FILES, VFS_MAX_DIRS)
         await cg.add_variable(var.set_filesystem, fs_id)
