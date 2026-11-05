@@ -10,6 +10,10 @@ external_components:
       type: local
       path: ../../gt9895/esphome/components
     components: [gt9895]
+  - source:
+      type: local
+      path: ../../icm20948/esphome/components
+    components: [icm20948]
 
 packages:
   network: !include t-display-p4-network.yaml
@@ -201,6 +205,14 @@ time:
   - platform: pcf8563
     id: rtc
     i2c_id: sys_i2c
+
+# The ICM-20948 motion sensor (accelerometer, gyroscope, and the AK09916 magnetometer behind it)
+motion:
+  - platform: icm20948
+    id: imu
+    i2c_id: aux_i2c
+    address: 0x68
+    update_interval: 100ms
 
 # The BQ27220 battery fuel gauge (a 1000 mAh cell); the LGS4056H charger has no interface
 sensor:
