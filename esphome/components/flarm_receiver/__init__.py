@@ -1,5 +1,5 @@
 import esphome.codegen as cg
-from esphome.components import sx126x, uart
+from esphome.components import sensor, sx126x, uart
 from esphome.components.const import CONF_BITRATE, CONF_CRC_ENABLE, CONF_MODULATION
 from esphome.components.sx126x import (
     CONF_DEVIATION,
@@ -30,6 +30,7 @@ CONF_ADDRESS_TYPE = "address_type"
 CONF_AIRCRAFT_TYPE = "aircraft_type"
 CONF_BAND = "band"
 CONF_NO_TRACK = "no_track"
+CONF_PRESSURE_ID = "pressure_id"
 CONF_REGISTRATION = "registration"
 CONF_TRANSMIT = "transmit"
 CONF_FLARM_RECEIVER_ID = "flarm_receiver_id"
@@ -149,6 +150,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_TIMEOUT, default="10s"
             ): cv.positive_time_period_milliseconds,
+            # A pressure in hPa, such as a SkyEcho's, for the climb rate sent
+            cv.Optional(CONF_PRESSURE_ID): cv.use_id(sensor.Sensor),
             # Send this aircraft's position, so that FLARMs nearby see it
             cv.Optional(CONF_TRANSMIT): TRANSMIT_SCHEMA,
         }
@@ -205,6 +208,7 @@ async def to_code(config: ConfigType) -> None:
             )
         )
     cg.add(var.set_timeout(config[CONF_TIMEOUT]))
+    await cg.add_variable(var.set_pressure_sensor, config.get(CONF_PRESSURE_ID))
     if (transmit := config.get(CONF_TRANSMIT)) is not None:
         cg.add(
             var.set_transmit(

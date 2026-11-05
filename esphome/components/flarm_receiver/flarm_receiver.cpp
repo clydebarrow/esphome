@@ -32,6 +32,12 @@ static constexpr uint32_t AIR_TIME_MS = 6;
 // PFLAU reports transmitting for this long after a packet is sent
 static constexpr uint32_t TRANSMIT_STATUS_MS = 3000;
 static constexpr float CLIMB_SMOOTHING = 0.2f;
+// The pressure's climb rate is used while its readings are this recent
+static constexpr uint32_t PRESSURE_MAX_AGE_MS = 3000;
+// The standard atmosphere: sea-level pressure (hPa), and the constants of the altitude formula
+static constexpr float SEA_LEVEL_HPA = 1013.25f;
+static constexpr float ISA_ALTITUDE_SCALE = 44330.8f;
+static constexpr float ISA_EXPONENT = 0.190263f;
 static constexpr uint32_t AUSTRALIAN_ADDRESS_BASE = 0x7C0000;
 static constexpr uint8_t ADDRESS_TYPE_ICAO = 1;
 static constexpr uint8_t ADDRESS_TYPE_FLARM = 2;
@@ -52,6 +58,10 @@ static uint32_t freq_hop_hash(uint32_t value) {
 
 void FlarmReceiver::setup() {
   this->radio_->register_listener(this);
+#ifdef USE_SENSOR
+  if (this->pressure_sensor_ != nullptr)
+    this->pressure_sensor_->add_on_state_callback([this](float hpa) { this->on_pressure_(hpa); });
+#endif
   if (this->transmit_ && !this->address_fixed_)
     this->set_registration("");
 }
@@ -124,6 +134,9 @@ void FlarmReceiver::dump_config() {
                   this->own_address_type_ == ADDRESS_TYPE_ICAO ? LOG_STR_LITERAL("ICAO") : LOG_STR_LITERAL("FLARM"),
                   this->own_aircraft_type_, this->no_track_ ? LOG_STR_LITERAL(", no tracking") : "");
   }
+#ifdef USE_SENSOR
+  LOG_SENSOR("  ", "Pressure for the climb rate", this->pressure_sensor_);
+#endif
   if (this->has_position_ && !this->gps_fix_) {
     ESP_LOGCONFIG(TAG, "  Fixed position: %.5f, %.5f, %.0f m", this->latitude_, this->longitude_, this->altitude_);
   }
@@ -193,10 +206,21 @@ void FlarmReceiver::send_position_() {
   // Too late for the slot, after a long loop
   if (utc_ms > this->transmit_at_ms_ + SLOT_MS / 2)
     return;
-  const OwnAircraft own{this->own_address_, this->own_address_type_, this->own_aircraft_type_,
-                        this->no_track_,    this->latitude_,         this->longitude_,
-                        this->altitude_,    this->geoid_separation_, this->ground_speed_,
-                        this->course_,      this->climb_rate_,       static_cast<uint32_t>(utc_ms / 1000)};
+  // The pressure gives a smoother climb rate than the GPS altitude, while its readings arrive
+  const bool pressure_recent = this->last_pressure_ms_ != 0 && millis() - this->last_pressure_ms_ < PRESSURE_MAX_AGE_MS;
+  const float climb_rate = pressure_recent ? this->pressure_climb_rate_ : this->climb_rate_;
+  const OwnAircraft own{this->own_address_,
+                        this->own_address_type_,
+                        this->own_aircraft_type_,
+                        this->no_track_,
+                        this->latitude_,
+                        this->longitude_,
+                        this->altitude_,
+                        this->geoid_separation_,
+                        this->ground_speed_,
+                        this->course_,
+                        climb_rate,
+                        static_cast<uint32_t>(utc_ms / 1000)};
   uint8_t packet[LEGACY_PACKET_SIZE];
   legacy_encode(own, packet);
   uint8_t frame[LEGACY_FRAME_SIZE];
@@ -209,6 +233,22 @@ void FlarmReceiver::send_position_() {
   this->transmit_count_++;
   this->last_transmit_ms_ = millis();
   ESP_LOGV(TAG, "Sent on channel %d", this->channel_);
+}
+
+void FlarmReceiver::on_pressure_(float hpa) {
+  if (std::isnan(hpa) || hpa <= 0)
+    return;
+  const float altitude = ISA_ALTITUDE_SCALE * (1.0f - std::pow(hpa / SEA_LEVEL_HPA, ISA_EXPONENT));
+  const uint32_t now = millis();
+  const float seconds = (now - this->last_pressure_ms_) / 1000.0f;
+  if (!std::isnan(this->pressure_altitude_) && seconds > 0.1f && seconds < 5.0f) {
+    this->pressure_climb_rate_ +=
+        CLIMB_SMOOTHING * ((altitude - this->pressure_altitude_) / seconds - this->pressure_climb_rate_);
+  } else {
+    this->pressure_climb_rate_ = 0;
+  }
+  this->pressure_altitude_ = altitude;
+  this->last_pressure_ms_ = now;
 }
 
 void FlarmReceiver::read_gps_() {

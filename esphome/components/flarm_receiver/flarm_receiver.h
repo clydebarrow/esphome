@@ -3,6 +3,9 @@
 #include <array>
 #include <cmath>
 
+#ifdef USE_SENSOR
+#include "esphome/components/sensor/sensor.h"
+#endif
 #include "esphome/components/sx126x/sx126x.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
@@ -42,6 +45,11 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
     this->has_position_ = true;
   }
   void set_timeout(uint32_t timeout_ms) { this->timeout_ms_ = timeout_ms; }
+#ifdef USE_SENSOR
+  /// A pressure in hPa, such as a SkyEcho's barometer, whose changes give the climb rate sent, in place of the GPS
+  /// altitude's
+  void set_pressure_sensor(sensor::Sensor *sensor) { this->pressure_sensor_ = sensor; }
+#endif
   /// Send this aircraft's position in each slot, while the GPS has a fix. An address of 0 is taken from
   /// set_registration(), or until then made from the MAC address.
   void set_transmit(uint32_t address, uint8_t address_type, uint8_t aircraft_type, bool no_track) {
@@ -80,6 +88,7 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   bool utc_ms_(int64_t &utc_ms) const;
   void hop_();
   void send_position_();
+  void on_pressure_(float hpa);
   void read_gps_();
   void parse_sentence_(char *line, size_t len);
   void send_traffic_();
@@ -107,6 +116,12 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   float climb_rate_{0};    // meters per second, from the GPS altitude
   bool has_altitude_{false};
   uint32_t last_altitude_ms_{0};
+#ifdef USE_SENSOR
+  sensor::Sensor *pressure_sensor_{nullptr};
+#endif
+  float pressure_altitude_{NAN};  // meters, in the standard atmosphere
+  float pressure_climb_rate_{0};  // meters per second
+  uint32_t last_pressure_ms_{0};
 
   // Transmitting: the slot (second * 2 + slot) the next packet is for, and when in UTC to send it
   uint32_t own_address_{0};

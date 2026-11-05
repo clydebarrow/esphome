@@ -1,0 +1,48 @@
+# xcsoar-t-display-p4-flarm.yaml with a SkyEcho as well: its GDL90 traffic, the clock from its GPS time, and its
+# barometer for the climb rate the FLARM radio sends. The glider's own SkyEcho, named "SkyEcho_" and the
+# registration in club.json, is joined before any other network.
+
+packages:
+  flarm: !include xcsoar-t-display-p4-flarm.yaml
+
+# wifi comes with wifi_networks
+external_components:
+  - source:
+      type: local
+      path: ../../skyecho/esphome/components
+    components: [skyecho]
+  - source:
+      type: local
+      path: ../../wifi_networks/esphome/components
+    components: [wifi, wifi_networks]
+
+esphome:
+  name: xcsoar-p4-flarm-skyecho
+
+skyecho:
+  id: skyecho_hub
+
+# Networks saved from XCSoar's Config > System > Network; fast_connect would go back to the last network at each
+# start instead
+wifi:
+  fast_connect: false
+
+wifi_networks:
+  id: wifi_networks_hub
+  skyecho_id: skyecho_hub
+
+xcsoar:
+  skyecho_id: skyecho_hub
+  wifi_networks_id: wifi_networks_hub
+
+time:
+  - platform: skyecho
+    id: skyecho_time
+    pressure:
+      id: skyecho_pressure
+      name: SkyEcho pressure
+    on_time_sync:
+      - pcf8563.write_time: rtc
+
+flarm_receiver:
+  pressure_id: skyecho_pressure

@@ -769,6 +769,17 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   Australian registration (0x7C0000 plus the three characters in base 36: A to Z are 0 to 25, 0 to 9 are 26 to
   35; VH-GKP is 7C1FD7). With no registration, or one that is not Australian, it sends a FLARM ID made from the
   MAC address. The XCSoar side is on the `esp32-club-glider` branch, in `../xcsoar-src-flarm`.
+- **The glider's own SkyEcho (done).** The registration from `club.json` also goes to `wifi_networks`
+  (`set_registration()`): an open network named "SkyEcho_" and the registration (in any case, without "VH-") is
+  the glider's own SkyEcho, put first in the station list and switched to when a scan sees it, also from another
+  SkyEcho. Joining a network by hand still keeps that network. Tested with gdlsim: the log shows
+  `The glider's own SkyEcho is 'SkyEcho_GKP'`; the switch to such a network is not tested yet.
+- **Climb rate from the SkyEcho's barometer (done).** The skyecho time platform takes a `pressure` sensor from
+  the `/stats` stream (once a second, the websocket then stays open), and the FLARM receiver's `pressure_id`
+  turns it into a standard-atmosphere altitude whose smoothed rate of change is the climb rate sent, while the
+  readings are less than 3 s old. The altitude sent stays the GPS's: FLARM compares GNSS altitudes, and a pressure
+  altitude would put the glider at the wrong height for other aircraft. `xcsoar-t-display-p4-flarm-skyecho.yaml`
+  has the radio, the SkyEcho and both of these.
 - **Flight upload (done).** XCSoar's `FlightLogger` keeps the confirmed takeoff time; at the landing
   `GlueFlightLogger::OnFlight()` calls `SaveClubFlight()`, which appends one JSON object per line to
   `XCSoar/flights-pending.jsonl`: `organisation`, `glider_type`, `registration`, `pilot`, `takeoff` and `landing`
