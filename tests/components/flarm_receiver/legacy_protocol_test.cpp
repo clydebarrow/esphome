@@ -13,26 +13,7 @@ static constexpr uint8_t V7_PACKET[LEGACY_PACKET_SIZE] = {0x65, 0x72, 0x62, 0x22
                                                           0x87, 0xa2, 0xe3, 0x38, 0x61, 0xe5, 0x02, 0x93};
 static constexpr uint32_t V7_TIME = 1793909931;
 
-static void manchester_encode(const uint8_t *bytes, size_t len, uint8_t *frame) {
-  for (size_t i = 0; i != len; i++) {
-    uint16_t chips = 0;
-    for (unsigned bit = 0; bit != 8; bit++)
-      chips |= ((bytes[i] & (0x80 >> bit)) ? 1 : 2) << (14 - bit * 2);
-    frame[i * 2] = chips >> 8;
-    frame[i * 2 + 1] = chips & 0xFF;
-  }
-}
-
-static void make_frame(uint8_t frame[LEGACY_FRAME_SIZE]) {
-  static constexpr uint8_t ADDRESS[3] = {0x31, 0xFA, 0xB6};
-  uint8_t bytes[LEGACY_PACKET_SIZE + 2];
-  std::memcpy(bytes, V7_PACKET, LEGACY_PACKET_SIZE);
-  uint16_t crc = crc16be(ADDRESS, sizeof(ADDRESS), 0xFFFF);
-  crc = crc16be(V7_PACKET, LEGACY_PACKET_SIZE, crc);
-  bytes[LEGACY_PACKET_SIZE] = crc >> 8;
-  bytes[LEGACY_PACKET_SIZE + 1] = crc & 0xFF;
-  manchester_encode(bytes, sizeof(bytes), frame);
-}
+static void make_frame(uint8_t frame[LEGACY_FRAME_SIZE]) { legacy_pack(V7_PACKET, frame); }
 
 TEST(FlarmLegacy, UnpackChecksManchesterAndCrc) {
   uint8_t frame[LEGACY_FRAME_SIZE];
@@ -88,6 +69,28 @@ TEST(FlarmLegacy, RejectsOtherPacketTypes) {
   const OwnPosition own{-31.0f, 153.0f, 0.0f, V7_TIME};
   LegacyTarget target{};
   EXPECT_FALSE(legacy_decode(packet, own, target));
+}
+
+TEST(FlarmLegacy, EncodeRoundTrip) {
+  const OwnAircraft own{0x7C1FD7, 1, 1, false, -28.2f, 152.1f, 1500.0f, 30.0f, 30.0f, 270.0f, 2.5f, V7_TIME};
+  uint8_t packet[LEGACY_PACKET_SIZE];
+  legacy_encode(own, packet);
+  uint8_t frame[LEGACY_FRAME_SIZE];
+  legacy_pack(packet, frame);
+  uint8_t received[LEGACY_PACKET_SIZE];
+  ASSERT_TRUE(legacy_unpack(frame, sizeof(frame), received));
+  LegacyTarget target{};
+  // The receiver is elsewhere, with its own geoid separation
+  ASSERT_TRUE(legacy_decode(received, OwnPosition{-28.0f, 152.5f, 30.0f, V7_TIME + 1}, target));
+  EXPECT_EQ(target.address, 0x7C1FD7u);
+  EXPECT_EQ(target.address_type, 1);
+  EXPECT_EQ(target.aircraft_type, 1);
+  EXPECT_NEAR(target.latitude, -28.2f, 1e-4f);
+  EXPECT_NEAR(target.longitude, 152.1f, 1e-4f);
+  EXPECT_NEAR(target.altitude, 1500.0f, 1.0f);
+  EXPECT_NEAR(target.speed, 30.0f, 0.2f);
+  EXPECT_NEAR(target.course, 270.0f, 0.5f);
+  EXPECT_NEAR(target.climb_rate, 2.5f, 0.1f);
 }
 
 }  // namespace esphome::flarm_receiver::testing

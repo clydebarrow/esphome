@@ -9,6 +9,7 @@ from esphome.components.sx126x import (
 )
 import esphome.config_validation as cv
 from esphome.const import (
+    CONF_ADDRESS,
     CONF_ALTITUDE,
     CONF_FREQUENCY,
     CONF_ID,
@@ -25,7 +26,12 @@ CODEOWNERS = ["@clydebarrow"]
 DEPENDENCIES = ["sx126x"]
 AUTO_LOAD = ["uart"]
 
+CONF_ADDRESS_TYPE = "address_type"
+CONF_AIRCRAFT_TYPE = "aircraft_type"
 CONF_BAND = "band"
+CONF_NO_TRACK = "no_track"
+CONF_REGISTRATION = "registration"
+CONF_TRANSMIT = "transmit"
 CONF_FLARM_RECEIVER_ID = "flarm_receiver_id"
 
 flarm_receiver_ns = cg.esphome_ns.namespace("flarm_receiver")
@@ -41,6 +47,61 @@ BANDS = {
     "AU": (917_000_000, 400_000, 24, True),
     "NZ": (869_250_000, 200_000, 1, False),
 }
+
+# FLARM address types and aircraft types
+ADDRESS_TYPES = {"ICAO": 1, "FLARM": 2}
+AIRCRAFT_TYPES = {
+    "UNKNOWN": 0,
+    "GLIDER": 1,
+    "TOW_PLANE": 2,
+    "HELICOPTER": 3,
+    "SKYDIVER": 4,
+    "DROP_PLANE": 5,
+    "HANG_GLIDER": 6,
+    "PARAGLIDER": 7,
+    "POWERED": 8,
+    "JET": 9,
+    "BALLOON": 11,
+    "AIRSHIP": 12,
+    "UAV": 13,
+    "STATIC_OBSTACLE": 15,
+}
+
+AUSTRALIAN_ADDRESS_BASE = 0x7C0000
+REGISTRATION_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+
+
+def australian_address(value: str) -> int:
+    """The ICAO address of an Australian registration: 7C0000 plus its three characters in base 36."""
+    value = cv.string_strict(value).upper().removeprefix("VH-").removeprefix("VH")
+    if len(value) != 3 or any(ch not in REGISTRATION_CHARS for ch in value):
+        raise cv.Invalid(
+            "Give an Australian registration, such as VH-GKP: three letters or digits after VH-"
+        )
+    total = 0
+    for ch in value:
+        total = total * 36 + REGISTRATION_CHARS.index(ch)
+    return AUSTRALIAN_ADDRESS_BASE + total
+
+
+TRANSMIT_SCHEMA = cv.Schema(
+    {
+        # The aircraft's ICAO (Mode S) address, given as a hex number or, for an Australian aircraft, worked out
+        # from its registration
+        cv.Exclusive(CONF_ADDRESS, CONF_ADDRESS): cv.All(
+            cv.hex_int, cv.int_range(min=1, max=0xFFFFFF)
+        ),
+        cv.Exclusive(CONF_REGISTRATION, CONF_ADDRESS): australian_address,
+        cv.Optional(CONF_ADDRESS_TYPE, default="ICAO"): cv.enum(
+            ADDRESS_TYPES, upper=True
+        ),
+        cv.Optional(CONF_AIRCRAFT_TYPE, default="GLIDER"): cv.enum(
+            AIRCRAFT_TYPES, upper=True, space="_"
+        ),
+        # Asks receivers such as OGN not to show the aircraft on the internet
+        cv.Optional(CONF_NO_TRACK, default=False): cv.boolean,
+    }
+)
 
 # What the radio must be set to for the legacy protocol: 100 kbit/s Manchester chips, with the CRC checked here
 RADIO_SETTINGS = {
@@ -61,6 +122,17 @@ def _validate_position(config: ConfigType) -> ConfigType:
     if CONF_ALTITUDE in config and CONF_LATITUDE not in config:
         raise cv.Invalid(
             f"'{CONF_ALTITUDE}' needs '{CONF_LATITUDE}' and '{CONF_LONGITUDE}'"
+        )
+    if (transmit := config.get(CONF_TRANSMIT)) is not None and not (
+        CONF_ADDRESS in transmit or CONF_REGISTRATION in transmit
+    ):
+        raise cv.Invalid(
+            f"Set the '{CONF_ADDRESS}' or the '{CONF_REGISTRATION}' to send",
+            path=[CONF_TRANSMIT],
+        )
+    if CONF_TRANSMIT in config and CONF_UART_ID not in config:
+        raise cv.Invalid(
+            f"'{CONF_TRANSMIT}' needs a GPS ('{CONF_UART_ID}'): the position sent comes only from a GPS fix"
         )
     if CONF_UART_ID not in config and CONF_LATITUDE not in config:
         raise cv.Invalid(
@@ -83,6 +155,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_TIMEOUT, default="10s"
             ): cv.positive_time_period_milliseconds,
+            # Send this aircraft's position, so that FLARMs nearby see it
+            cv.Optional(CONF_TRANSMIT): TRANSMIT_SCHEMA,
         }
     ).extend(cv.COMPONENT_SCHEMA),
     _validate_position,
@@ -137,3 +211,12 @@ async def to_code(config: ConfigType) -> None:
             )
         )
     cg.add(var.set_timeout(config[CONF_TIMEOUT]))
+    if (transmit := config.get(CONF_TRANSMIT)) is not None:
+        cg.add(
+            var.set_transmit(
+                transmit.get(CONF_ADDRESS, transmit.get(CONF_REGISTRATION)),
+                transmit[CONF_ADDRESS_TYPE],
+                transmit[CONF_AIRCRAFT_TYPE],
+                transmit[CONF_NO_TRACK],
+            )
+        )

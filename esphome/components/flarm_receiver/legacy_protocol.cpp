@@ -57,6 +57,24 @@ static void btea_decrypt(uint32_t *v, unsigned n, const uint32_t key[4]) {
   }
 }
 
+// XXTEA encryption with 6 rounds
+static void btea_encrypt(uint32_t *v, unsigned n, const uint32_t key[4]) {
+  uint32_t sum = 0;
+  uint32_t z = v[n - 1];
+  uint32_t y;
+  for (unsigned rounds = 6; rounds != 0; rounds--) {
+    sum += DELTA;
+    const uint32_t e = (sum >> 2) & 3;
+    unsigned p;
+    for (p = 0; p < n - 1; p++) {
+      y = v[p + 1];
+      z = v[p] += (((z >> 5 ^ y << 2) + (y >> 3 ^ z << 4)) ^ ((sum ^ y) + (key[(p & 3) ^ e] ^ z)));
+    }
+    y = v[0];
+    z = v[n - 1] += (((z >> 5 ^ y << 2) + (y >> 3 ^ z << 4)) ^ ((sum ^ y) + (key[(p & 3) ^ e] ^ z)));
+  }
+}
+
 static uint32_t obscure(uint32_t key, uint32_t seed) {
   const uint32_t m1 = seed * (key ^ (key >> 16));
   const uint32_t m2 = seed * (m1 ^ (m1 >> 16));
@@ -105,12 +123,67 @@ static int descale(uint32_t value, unsigned mbits, unsigned ebits, bool is_signe
   return negative ? -static_cast<int>(value) : static_cast<int>(value);
 }
 
+// The inverse of descale, saturating at the largest value
+static uint32_t enscale(int value, unsigned mbits, unsigned ebits, bool is_signed) {
+  const uint32_t offset = 1u << mbits;
+  const uint32_t signbit = offset << ebits;
+  const uint32_t max_val = signbit - 1;
+  uint32_t sign = 0;
+  if (value < 0) {
+    if (!is_signed)
+      return 0;
+    value = -value;
+    sign = signbit;
+  }
+  const uint32_t magnitude = static_cast<uint32_t>(value);
+  if (magnitude < offset)
+    return sign | magnitude;
+  uint32_t e = 0;
+  uint32_t m = offset + magnitude;
+  const uint32_t mlimit = offset + offset - 1;
+  while (m > mlimit) {
+    m >>= 1;
+    e += offset;
+    if (e > max_val)
+      return sign | max_val;
+  }
+  return sign | e | (m - offset);
+}
+
+static void set_bits(uint8_t *data, unsigned offset, unsigned len, uint32_t value) {
+  for (unsigned i = 0; i != len; i++) {
+    const unsigned bit = offset + i;
+    const uint8_t mask = 1 << (bit % 8);
+    if ((value >> i) & 1) {
+      data[bit / 8] |= mask;
+    } else {
+      data[bit / 8] &= ~mask;
+    }
+  }
+}
+
 // The full coordinate nearest the reference whose low bits are the packet's
 static int32_t nearest(uint32_t packet_value, int32_t reference, uint32_t modulus) {
   int32_t diff = static_cast<int32_t>((packet_value - static_cast<uint32_t>(reference)) % modulus);
   if (diff >= static_cast<int32_t>(modulus / 2))
     diff -= static_cast<int32_t>(modulus);
   return reference + diff;
+}
+
+void legacy_pack(const uint8_t packet[LEGACY_PACKET_SIZE], uint8_t frame[LEGACY_FRAME_SIZE]) {
+  uint8_t bytes[LEGACY_PACKET_SIZE + 2];
+  std::memcpy(bytes, packet, LEGACY_PACKET_SIZE);
+  uint16_t crc = crc16be(CRC_ADDRESS, sizeof(CRC_ADDRESS), 0xFFFF);
+  crc = crc16be(packet, LEGACY_PACKET_SIZE, crc);
+  bytes[LEGACY_PACKET_SIZE] = crc >> 8;
+  bytes[LEGACY_PACKET_SIZE + 1] = crc & 0xFF;
+  for (size_t i = 0; i != sizeof(bytes); i++) {
+    uint16_t chips = 0;
+    for (unsigned bit = 0; bit != 8; bit++)
+      chips |= ((bytes[i] & (0x80 >> bit)) ? 1 : 2) << (14 - bit * 2);
+    frame[i * 2] = chips >> 8;
+    frame[i * 2 + 1] = chips & 0xFF;
+  }
 }
 
 bool legacy_unpack(const uint8_t *frame, size_t len, uint8_t packet[LEGACY_PACKET_SIZE]) {
@@ -137,6 +210,49 @@ bool legacy_unpack(const uint8_t *frame, size_t len, uint8_t packet[LEGACY_PACKE
     return false;
   std::memcpy(packet, bytes, LEGACY_PACKET_SIZE);
   return true;
+}
+
+// FTD-014: below this ground speed (m/s), by aircraft type, the aircraft is on the ground
+static constexpr uint8_t GROUND_SPEED_THRESHOLD[16] = {0, 2, 10, 2, 5, 10, 2, 2, 10, 10, 0, 0, 0, 2, 0, 0};
+
+void legacy_encode(const OwnAircraft &own, uint8_t packet[LEGACY_PACKET_SIZE]) {
+  std::memset(packet, 0, LEGACY_PACKET_SIZE);
+  const uint8_t aircraft_type = own.aircraft_type & 0x0F;
+  set_bits(packet, 0, 24, own.address);
+  set_bits(packet, 24, 4, 2);  // Air V7 position
+  set_bits(packet, 28, 2, own.address_type);
+  set_bits(packet, 55, 1, own.no_track);
+  set_bits(packet, 56, 4, 3);  // version, as SoftRF sends
+  set_bits(packet, 60, 4, 3);
+  set_bits(packet, 66, 4, own.timestamp & 0xF);
+  set_bits(packet, 70, 5, aircraft_type);
+  const int altitude = static_cast<int>(std::lround(own.altitude + own.geoid_separation)) + 1000;
+  set_bits(packet, 75, 13, enscale(altitude, 12, 1, false));
+  const int32_t lat = static_cast<int32_t>(std::lround(own.latitude * 1e7 / 52));
+  set_bits(packet, 88, 20, static_cast<uint32_t>(lat) & 0xFFFFF);
+  const int ilat = std::min(static_cast<int>(std::fabs(own.latitude)), 89);
+  const int32_t lon_div = ilat < 14 ? 52 : V7_LON_DIV[ilat - 14];
+  const int32_t lon = static_cast<int32_t>(std::lround(own.longitude * 1e7 / lon_div));
+  set_bits(packet, 108, 20, static_cast<uint32_t>(lon) & 0xFFFFF);
+  set_bits(packet, 128, 9, 0);  // turn rate
+  set_bits(packet, 137, 10, enscale(static_cast<int>(std::lround(own.speed * 10)), 8, 2, false));
+  set_bits(packet, 147, 9, enscale(static_cast<int>(std::lround(own.climb_rate * 10)), 6, 2, true));
+  float course = std::fmod(own.course, 360.0f);
+  if (course < 0)
+    course += 360.0f;
+  set_bits(packet, 156, 10, static_cast<uint32_t>(course * 2) % 720);
+  set_bits(packet, 166, 2, own.speed >= GROUND_SPEED_THRESHOLD[aircraft_type] ? 2 : 1);
+  set_bits(packet, 168, 6, 0x1d);  // horizontal accuracy 10 m, vertical 20 m, as SoftRF sends
+  set_bits(packet, 174, 5, 0x11);
+
+  uint32_t words[6];
+  std::memcpy(words, packet, sizeof(words));
+  uint32_t key[4] = {words[0], words[1], own.timestamp >> 4, V7_KEY4};
+  make_v7_key(key);
+  for (unsigned i = 0; i != 4; i++)
+    words[i + 2] ^= key[i];
+  btea_encrypt(words + 2, 4, V7_XXTEA_KEY);
+  std::memcpy(packet, words, sizeof(words));
 }
 
 static bool decode_v6(uint8_t *packet, const OwnPosition &own, LegacyTarget &target) {

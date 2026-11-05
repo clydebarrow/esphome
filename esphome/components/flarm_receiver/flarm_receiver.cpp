@@ -24,6 +24,12 @@ static constexpr float EARTH_RADIUS_M = 6371000.0f;
 static constexpr float DEG_TO_RAD = static_cast<float>(M_PI) / 180.0f;
 static constexpr float KNOTS_TO_MPS = 1852.0f / 3600.0f;
 static constexpr size_t MAX_FIELDS = 16;
+// A slot lasts 400 ms; a packet takes about 5 ms to send
+static constexpr uint32_t SLOT_MS = 400;
+static constexpr uint32_t AIR_TIME_MS = 6;
+// PFLAU reports transmitting for this long after a packet is sent
+static constexpr uint32_t TRANSMIT_STATUS_MS = 3000;
+static constexpr float CLIMB_SMOOTHING = 0.2f;
 // Limits for two packets from one aircraft to agree
 static constexpr float MAX_SPEED_MPS = 300.0f;
 static constexpr float MAX_CLIMB_MPS = 50.0f;
@@ -49,6 +55,11 @@ void FlarmReceiver::dump_config() {
                 "  Traffic timeout: %" PRIu32 " ms",
                 this->plan_.channels, this->plan_.base_frequency, this->plan_.spacing, YESNO(this->has_gps_()),
                 this->timeout_ms_);
+  if (this->transmit_) {
+    ESP_LOGCONFIG(TAG, "  Transmitting as %06" PRIX32 " (%s), aircraft type %u%s", this->own_address_,
+                  this->own_address_type_ == 1 ? LOG_STR_LITERAL("ICAO") : LOG_STR_LITERAL("FLARM"),
+                  this->own_aircraft_type_, this->no_track_ ? LOG_STR_LITERAL(", no tracking") : "");
+  }
   if (this->has_position_ && !this->gps_fix_) {
     ESP_LOGCONFIG(TAG, "  Fixed position: %.5f, %.5f, %.0f m", this->latitude_, this->longitude_, this->altitude_);
   }
@@ -58,6 +69,8 @@ void FlarmReceiver::loop() {
   if (this->has_gps_())
     this->read_gps_();
   this->hop_();
+  if (this->transmit_pending_)
+    this->send_position_();
   const uint32_t now = App.get_loop_component_start_time();
   if (now - this->last_traffic_ms_ >= TRAFFIC_INTERVAL_MS) {
     this->last_traffic_ms_ = now;
@@ -90,11 +103,48 @@ void FlarmReceiver::hop_() {
     if (ms < 200)
       second--;
     channel = this->plan_.hopping ? freq_hop_hash((second << 1) + slot) % this->plan_.channels : slot;
+    // Each slot gets one packet, at a random time in it
+    const uint32_t key = (second << 1) + slot;
+    if (this->transmit_ && key != this->slot_key_) {
+      this->slot_key_ = key;
+      const int64_t start = static_cast<int64_t>(second) * 1000 + (slot ? 800 : 400);
+      this->transmit_at_ms_ = start + random_uint32() % (SLOT_MS - AIR_TIME_MS * 2);
+      this->transmit_pending_ = true;
+    }
   }
   if (channel != this->channel_) {
     this->channel_ = channel;
     this->radio_->retune(this->plan_.base_frequency + this->plan_.spacing * channel);
   }
+}
+
+void FlarmReceiver::send_position_() {
+  int64_t utc_ms;
+  if (!this->utc_ms_(utc_ms) || utc_ms < this->transmit_at_ms_)
+    return;
+  this->transmit_pending_ = false;
+  // Only with a fix: other aircraft act on this position, so it must not come from the fixed position or an old fix
+  if (!this->gps_fix_ || !this->gps_time_valid_ || !this->has_altitude_)
+    return;
+  // Too late for the slot, after a long loop
+  if (utc_ms > this->transmit_at_ms_ + SLOT_MS / 2)
+    return;
+  const OwnAircraft own{this->own_address_, this->own_address_type_, this->own_aircraft_type_,
+                        this->no_track_,    this->latitude_,         this->longitude_,
+                        this->altitude_,    this->geoid_separation_, this->ground_speed_,
+                        this->course_,      this->climb_rate_,       static_cast<uint32_t>(utc_ms / 1000)};
+  uint8_t packet[LEGACY_PACKET_SIZE];
+  legacy_encode(own, packet);
+  uint8_t frame[LEGACY_FRAME_SIZE];
+  legacy_pack(packet, frame);
+  if (this->radio_->transmit_packet(frame, sizeof(frame)) != sx126x::SX126xError::NONE) {
+    this->status_set_warning();
+    return;
+  }
+  this->status_clear_warning();
+  this->transmit_count_++;
+  this->last_transmit_ms_ = millis();
+  ESP_LOGV(TAG, "Sent on channel %d", this->channel_);
 }
 
 void FlarmReceiver::read_gps_() {
@@ -197,14 +247,30 @@ void FlarmReceiver::parse_sentence_(char *line, size_t len) {
       }
       const float speed = parse_float(fields[7], lengths[7]);
       this->ground_speed_ = std::isnan(speed) ? 0 : speed * KNOTS_TO_MPS;
+      const float course = parse_float(fields[8], lengths[8]);
+      if (!std::isnan(course))
+        this->course_ = course;
     }
   } else if (memcmp(type, "GGA", 3) == 0 && count >= 12) {
     // time, latitude, N/S, longitude, E/W, quality, satellites, HDOP, altitude, M, geoid separation, M
-    if (lengths[6] != 0 && fields[6][0] != '0') {
+    if (lengths[6] == 0 || fields[6][0] == '0') {
+      this->has_altitude_ = false;
+    } else {
       const float altitude = parse_float(fields[9], lengths[9]);
       const float separation = parse_float(fields[11], lengths[11]);
-      if (!std::isnan(altitude))
+      if (!std::isnan(altitude)) {
+        const uint32_t now = millis();
+        const float seconds = (now - this->last_altitude_ms_) / 1000.0f;
+        if (this->has_altitude_ && seconds > 0.1f && seconds < 5.0f) {
+          // Smoothed, as the GPS altitude jumps by a meter or so from fix to fix
+          this->climb_rate_ += CLIMB_SMOOTHING * ((altitude - this->altitude_) / seconds - this->climb_rate_);
+        } else {
+          this->climb_rate_ = 0;
+        }
         this->altitude_ = altitude;
+        this->last_altitude_ms_ = now;
+        this->has_altitude_ = true;
+      }
       if (!std::isnan(separation))
         this->geoid_separation_ = separation;
     }
@@ -230,6 +296,8 @@ void FlarmReceiver::on_packet(const std::vector<uint8_t> &frame, float rssi, flo
     ESP_LOGD(TAG, "Packet from %06" PRIX32 " not decoded", target.address);
     return;
   }
+  if (this->transmit_ && target.address == this->own_address_)
+    return;
   this->packet_count_++;
 
   const uint32_t now = millis();
@@ -289,7 +357,8 @@ void FlarmReceiver::send_traffic_() {
 
   char body[NMEA_LINE_SIZE];
   const unsigned gps = this->gps_fix_ ? (this->ground_speed_ > 5.0f ? 2 : 1) : 0;
-  snprintf(body, sizeof(body), "PFLAU,%u,0,%u,1,0,,0,,,", count, gps);
+  const unsigned tx = this->transmit_count_ != 0 && now - this->last_transmit_ms_ < TRANSMIT_STATUS_MS ? 1 : 0;
+  snprintf(body, sizeof(body), "PFLAU,%u,%u,%u,1,0,,0,,,", count, tx, gps);
   this->send_sentence_(body);
   if (!this->has_position_)
     return;

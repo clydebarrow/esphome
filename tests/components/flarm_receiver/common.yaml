@@ -28,3 +28,8 @@ flarm_receiver:
   longitude: 152.8
   altitude: 40
   timeout: 20s
+  transmit:
+    registration: VH-GKP
+    address_type: ICAO
+    aircraft_type: GLIDER
+    no_track: true

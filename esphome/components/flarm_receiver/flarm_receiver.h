@@ -42,11 +42,20 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
     this->has_position_ = true;
   }
   void set_timeout(uint32_t timeout_ms) { this->timeout_ms_ = timeout_ms; }
+  /// Send this aircraft's position in each slot, while the GPS has a fix
+  void set_transmit(uint32_t address, uint8_t address_type, uint8_t aircraft_type, bool no_track) {
+    this->own_address_ = address;
+    this->own_address_type_ = address_type;
+    this->own_aircraft_type_ = aircraft_type;
+    this->no_track_ = no_track;
+    this->transmit_ = true;
+  }
 
   /// Called with each NMEA sentence sent, "\r\n" included
   template<typename F> void add_on_nmea_callback(F &&callback) { this->nmea_callback_.add(std::forward<F>(callback)); }
 
   uint32_t get_packet_count() const { return this->packet_count_; }
+  uint32_t get_transmit_count() const { return this->transmit_count_; }
 
  protected:
   struct Traffic {
@@ -62,6 +71,7 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   bool has_gps_() const { return this->parent_ != nullptr; }
   bool utc_ms_(int64_t &utc_ms) const;
   void hop_();
+  void send_position_();
   void read_gps_();
   void parse_sentence_(char *line, size_t len);
   void send_traffic_();
@@ -85,6 +95,22 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   bool has_position_{false};
   bool gps_fix_{false};
   float ground_speed_{0};  // meters per second
+  float course_{0};        // degrees true
+  float climb_rate_{0};    // meters per second, from the GPS altitude
+  bool has_altitude_{false};
+  uint32_t last_altitude_ms_{0};
+
+  // Transmitting: the slot (second * 2 + slot) the next packet is for, and when in UTC to send it
+  uint32_t own_address_{0};
+  uint8_t own_address_type_{0};
+  uint8_t own_aircraft_type_{0};
+  bool no_track_{false};
+  bool transmit_{false};
+  bool transmit_pending_{false};
+  uint32_t slot_key_{0};
+  int64_t transmit_at_ms_{0};
+  uint32_t last_transmit_ms_{0};
+  uint32_t transmit_count_{0};
 
   uint32_t timeout_ms_{0};
   uint32_t last_traffic_ms_{0};

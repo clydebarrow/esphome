@@ -37,6 +37,28 @@ struct LegacyTarget {
   float turn_rate;   // degrees per second, NAN if not sent
 };
 
+/// The sender's own state, for a packet to send.
+struct OwnAircraft {
+  uint32_t address;
+  uint8_t address_type;   // 1 ICAO, 2 FLARM
+  uint8_t aircraft_type;  // FLARM aircraft type, 0 to 15
+  bool no_track;
+  float latitude;
+  float longitude;
+  float altitude;          // meters above mean sea level
+  float geoid_separation;  // meters from the WGS84 ellipsoid up to mean sea level
+  float speed;             // meters per second
+  float course;            // degrees true
+  float climb_rate;        // meters per second
+  uint32_t timestamp;      // UTC, seconds since 1970
+};
+
+/// Build an encrypted Air V7 position packet.
+void legacy_encode(const OwnAircraft &own, uint8_t packet[LEGACY_PACKET_SIZE]);
+
+/// Add the CRC to a packet and Manchester-code it into the frame the radio sends after the sync word.
+void legacy_pack(const uint8_t packet[LEGACY_PACKET_SIZE], uint8_t frame[LEGACY_FRAME_SIZE]);
+
 /// Remove the Manchester coding from a received frame and check its CRC; packet gets the 24 packet bytes.
 bool legacy_unpack(const uint8_t *frame, size_t len, uint8_t packet[LEGACY_PACKET_SIZE]);
 
