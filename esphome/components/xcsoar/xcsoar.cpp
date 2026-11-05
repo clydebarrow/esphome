@@ -174,7 +174,7 @@ void XCSoarComponent::setup() {
 #endif
       .traffic_alarm = traffic_alarm_,
       .volume = volume_,
-#ifdef USE_XCSOAR_FLARM_RECEIVER
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
       .club_glider = club_glider_,
 #else
       .club_glider = nullptr,
@@ -529,7 +529,7 @@ void XCSoarComponent::volume_(unsigned percent, bool preview, void *ctx) noexcep
   self->enable_loop_soon_any_context();
 }
 
-#ifdef USE_XCSOAR_FLARM_RECEIVER
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
 void XCSoarComponent::club_glider_(const char *type, const char *registration, void *ctx) noexcept {
   auto *self = static_cast<XCSoarComponent *>(ctx);
   {
@@ -555,14 +555,21 @@ void XCSoarComponent::loop() {
     xSemaphoreGive(this->frame_consumed_);
   }
 
-#ifdef USE_XCSOAR_FLARM_RECEIVER
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
   if (this->registration_pending_.exchange(false)) {
     char registration[sizeof(this->pending_registration_)];
     {
       LockGuard guard(this->registration_lock_);
       memcpy(registration, this->pending_registration_, sizeof(registration));
     }
-    this->flarm_receiver_->set_registration(registration);
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+    if (this->flarm_receiver_ != nullptr)
+      this->flarm_receiver_->set_registration(registration);
+#endif
+#ifdef USE_XCSOAR_WIFI_NETWORKS
+    if (this->wifi_host_.ctx != nullptr)
+      static_cast<wifi_networks::WifiNetworks *>(this->wifi_host_.ctx)->set_registration(registration);
+#endif
   }
 #endif
 

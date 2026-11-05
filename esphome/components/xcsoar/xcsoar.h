@@ -148,7 +148,7 @@ class XCSoarComponent : public Component
   void conversion_done_(BaseType_t *woken);
   static void traffic_alarm_(unsigned level, void *ctx) noexcept;
   static void volume_(unsigned percent, bool preview, void *ctx) noexcept;
-#ifdef USE_XCSOAR_FLARM_RECEIVER
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
   static void club_glider_(const char *type, const char *registration, void *ctx) noexcept;
 #endif
   static bool fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
@@ -232,7 +232,10 @@ class XCSoarComponent : public Component
 #endif
 #ifdef USE_XCSOAR_FLARM_RECEIVER
   flarm_receiver::FlarmReceiver *flarm_receiver_{nullptr};
-  // The glider registration from club.json, set on XCSoar's thread and passed to the receiver in loop()
+#endif
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
+  // The glider registration from club.json, set on XCSoar's thread and passed on in loop(): to the FLARM
+  // receiver for its address, and to wifi_networks for the glider's own SkyEcho
   Mutex registration_lock_;
   char pending_registration_[16]{};
   std::atomic<bool> registration_pending_{false};

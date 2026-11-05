@@ -33,3 +33,9 @@ flarm_receiver:
     address_type: ICAO
     aircraft_type: GLIDER
     no_track: true
+  pressure_id: test_pressure
+
+sensor:
+  - platform: template
+    id: test_pressure
+    lambda: return 1013.25;
