@@ -80,15 +80,17 @@ esphome:
         - lambda: |-
             for (auto pin : {GPIO_NUM_39, GPIO_NUM_40, GPIO_NUM_41, GPIO_NUM_42, GPIO_NUM_44})
               gpio_pullup_en(pin);
-    # Start the ESP32-C6 the way LilyGO does: drive its enable high briefly, then let it float so the C6 R
-    # button can still reset it.
+    # Reset the ESP32-C6 through its enable, so it starts fresh with every P4 boot (esp32_hosted cannot do it, see
+    # t-display-p4-network.yaml), then let the enable float the way LilyGO does, so the C6 R button still works.
     - priority: 800
       then:
         - lambda: |-
-            id(xl9535_hub).digital_write(14, true);
+            id(xl9535_hub).digital_write(14, false);
             id(xl9535_hub).pin_mode(14, gpio::FLAG_OUTPUT);
-        - delay: 20ms
-        - lambda: id(xl9535_hub).pin_mode(14, gpio::FLAG_INPUT);
+            delay(100);
+            id(xl9535_hub).digital_write(14, true);
+            delay(20);
+            id(xl9535_hub).pin_mode(14, gpio::FLAG_INPUT);
 
 spi:
   - id: sd_spi_bus
