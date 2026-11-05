@@ -1,0 +1,40 @@
+# xcsoar-t-display-p4.yaml with traffic from a SkyEcho, or the GDL90 simulator in gdlsim, over Wi-Fi. XCSoar reads
+# the SkyEcho's GDL90 data as a device with the GDL90 driver, which it sets up in a free device slot at its first
+# start.
+
+packages:
+  t_display_p4: !include xcsoar-t-display-p4.yaml
+
+# wifi comes with wifi_networks, which needs two additions to it
+external_components:
+  - source: github://clydebarrow/esphome@skyecho
+    components: [skyecho]
+    refresh: 1h
+  - source: github://clydebarrow/esphome@wifi_networks
+    components: [wifi, wifi_networks]
+    refresh: 1h
+
+esphome:
+  name: xcsoar-t-display-p4-skyecho
+
+skyecho:
+  id: skyecho_hub
+
+# Networks saved from XCSoar's Config > System > Network; a network that GDL90 data arrives over is joined first.
+# fast_connect would go back to the last network at each start instead.
+wifi:
+  fast_connect: false
+
+wifi_networks:
+  id: wifi_networks_hub
+  skyecho_id: skyecho_hub
+
+xcsoar:
+  skyecho_id: skyecho_hub
+  wifi_networks_id: wifi_networks_hub
+
+# Sets the clock, from which XCSoar's GDL90 driver takes the date, from the SkyEcho's GPS time
+time:
+  - platform: skyecho
+    on_time_sync:
+      - pcf8563.write_time: rtc

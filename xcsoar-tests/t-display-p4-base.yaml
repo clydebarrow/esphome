@@ -143,6 +143,59 @@ uart:
     tx_pin: GPIO23
     baud_rate: 115200
     rx_buffer_size: 1024
+    # Sets the clock from the GPS: the debug hook sees what XCSoar reads without taking it. The clock is set from
+    # the first valid RMC sentence, then once an hour.
+    debug:
+      direction: RX
+      dummy_receiver: false
+      after:
+        delimiter: "\n"
+      sequence:
+        - lambda: |-
+            static uint32_t last_set = 0;
+            static bool set_once = false;
+            if (set_once && millis() - last_set < 3600000)
+              return;
+            // $xxRMC,hhmmss.ss,A,lat,N,lon,E,speed,course,ddmmyy,...*CS
+            const std::string line(bytes.begin(), bytes.end());
+            if (line.size() < 20 || line[0] != '$' || line.compare(3, 4, "RMC,") != 0)
+              return;
+            const size_t star = line.find('*');
+            if (star == std::string::npos || star + 3 > line.size())
+              return;
+            uint8_t sum = 0;
+            for (size_t i = 1; i < star; i++)
+              sum ^= line[i];
+            if (sum != std::strtoul(line.substr(star + 1, 2).c_str(), nullptr, 16))
+              return;
+            std::string fields[10];
+            size_t start = 7;
+            for (auto &field : fields) {
+              const size_t comma = line.find(',', start);
+              if (comma == std::string::npos)
+                return;
+              field = line.substr(start, comma - start);
+              start = comma + 1;
+            }
+            // fields[0] is the time, [1] the status, [8] the date
+            if (fields[1] != "A" || fields[0].size() < 6 || fields[8].size() != 6)
+              return;
+            auto two = [](const std::string &s, size_t i) { return (s[i] - '0') * 10 + (s[i + 1] - '0'); };
+            ESPTime t{};
+            t.hour = two(fields[0], 0);
+            t.minute = two(fields[0], 2);
+            t.second = two(fields[0], 4);
+            t.day_of_month = two(fields[8], 0);
+            t.month = two(fields[8], 2);
+            t.year = 2000 + two(fields[8], 4);
+            t.recalc_timestamp_utc(false);
+            const struct timeval tv = {.tv_sec = t.timestamp, .tv_usec = 0};
+            settimeofday(&tv, nullptr);
+            id(rtc).write_time();
+            set_once = true;
+            last_set = millis();
+            ESP_LOGI("gps_clock", "Clock set from the GPS: %04u-%02u-%02u %02u:%02u:%02u UTC", t.year, t.month,
+                     t.day_of_month, t.hour, t.minute, t.second);
 
 time:
   - platform: pcf8563
