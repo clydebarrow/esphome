@@ -28,3 +28,28 @@ touchscreen:
       - logger.log:
           format: "Touch at %d, %d (raw %d, %d)"
           args: [touch.x, touch.y, touch.x_raw, touch.y_raw]
+
+sensor:
+  - platform: icm20948
+    name: IMU temperature
+  - platform: icm20948
+    type: magnetic_field_x
+    name: Magnetic field X
+  - platform: icm20948
+    type: magnetic_field_y
+    name: Magnetic field Y
+  - platform: icm20948
+    type: magnetic_field_z
+    name: Magnetic field Z
+  - platform: motion
+    motion_id: imu
+    type: acceleration_z
+    name: Acceleration Z
+  - platform: motion
+    motion_id: imu
+    type: pitch
+    name: Pitch
+  - platform: motion
+    motion_id: imu
+    type: roll
+    name: Roll
