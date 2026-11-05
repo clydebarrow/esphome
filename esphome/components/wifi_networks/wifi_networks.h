@@ -48,8 +48,10 @@ struct Status {
 
 /// Keeps a list of Wi-Fi networks saved at run time, and chooses which to join.
 ///
-/// The station list of the wifi component becomes: the SkyEcho networks (those over which GDL90 data has arrived, and
-/// those named "SkyEcho..."), then the other saved networks, then the networks from the configuration. An open network
+/// The station list of the wifi component becomes: the glider's own SkyEcho (named "SkyEcho_" and its registration,
+/// see set_registration()), the other SkyEcho networks (those over which GDL90 data has arrived, and those named
+/// "SkyEcho...", in any case), then the other saved networks, then the networks from the configuration. The glider's
+/// own SkyEcho is switched to when it is seen, also from another SkyEcho. An open network
 /// named "SkyEcho..." is saved when it is seen. A SkyEcho that comes into range while another network is in use is
 /// switched to, at most every 5 minutes. Joining a network by hand keeps that network until set_automatic(),
 /// disconnect() or a restart.
@@ -84,6 +86,11 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
   void disconnect() { this->queue_(CommandType::COMMAND_TYPE_DISCONNECT, nullptr, nullptr); }
   /// Chooses the network by priority again, turning Wi-Fi on if it was off.
   void set_automatic() { this->queue_(CommandType::COMMAND_TYPE_AUTOMATIC, nullptr, nullptr); }
+  /// The glider's registration, such as "GKP" or "VH-GKP": an open network named "SkyEcho_GKP" is then its own
+  /// SkyEcho, joined before any other. Empty for none.
+  void set_registration(const char *registration) {
+    this->queue_(CommandType::COMMAND_TYPE_REGISTRATION, registration, nullptr);
+  }
 
   void on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiFiScanResult> &results) override;
   void on_wifi_connect_state(StringRef ssid, std::span<const uint8_t, 6> bssid) override;
@@ -95,6 +102,7 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
     COMMAND_TYPE_FORGET,
     COMMAND_TYPE_DISCONNECT,
     COMMAND_TYPE_AUTOMATIC,
+    COMMAND_TYPE_REGISTRATION,
   };
   struct Command {
     CommandType type;
@@ -132,6 +140,8 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
   /// Appends a saved network without a password; nullptr when the list is full.
   SavedNetwork *add_saved_(const char *ssid);
   bool current_is_skyecho_();
+  /// Whether ssid is the glider's own SkyEcho
+  bool is_preferred_(const char *ssid) const;
 
   ESPPreferenceObject pref_;
   SavedNetworks saved_{};
@@ -142,6 +152,8 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
   // The network joined by hand; empty while the network is chosen by priority
   char pinned_[SSID_SIZE]{};
   char current_[SSID_SIZE]{};
+  // The name of the glider's own SkyEcho, empty without a registration
+  char preferred_[SSID_SIZE]{};
   uint32_t last_snapshot_{0};
   // When the last switch to a SkyEcho began; 0 for never
   uint32_t last_switch_{0};

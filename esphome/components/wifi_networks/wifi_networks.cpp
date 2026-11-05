@@ -2,7 +2,9 @@
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
+#include <cstdio>
 #include <cstring>
+#include <strings.h>
 
 namespace esphome::wifi_networks {
 
@@ -14,6 +16,7 @@ static constexpr uint32_t SKYECHO_SCAN_INTERVAL_MS = 60000;
 static constexpr uint32_t SNAPSHOT_INTERVAL_MS = 1000;
 // After switching to a SkyEcho, how long before another switch: one that cannot be joined is not tried every scan
 static constexpr uint32_t SWITCH_BACKOFF_MS = 300000;
+static constexpr int8_t PREFERRED_PRIORITY = 120;
 static constexpr int8_t SKYECHO_PRIORITY = 100;
 static constexpr int8_t SAVED_PRIORITY = 50;
 
@@ -22,8 +25,8 @@ static void copy_string(char *dest, size_t size, const char *src) {
   dest[size - 1] = 0;
 }
 
-// SkyEcho access points are named "SkyEcho_" and part of the serial number
-static bool is_skyecho_ssid(const char *ssid) { return strncmp(ssid, "SkyEcho", 7) == 0; }
+// SkyEcho access points are named "SkyEcho_" and part of the serial number, or a name given to them
+static bool is_skyecho_ssid(const char *ssid) { return strncasecmp(ssid, "SkyEcho", 7) == 0; }
 
 void WifiNetworks::setup() {
   auto *wifi = wifi::global_wifi_component;
@@ -42,7 +45,8 @@ void WifiNetworks::setup() {
 
   this->set_interval(SKYECHO_SCAN_ID, SKYECHO_SCAN_INTERVAL_MS, [this]() {
     auto *wifi = wifi::global_wifi_component;
-    if (this->pinned_[0] == 0 && wifi->is_connected() && !this->current_is_skyecho_())
+    if (this->pinned_[0] == 0 && wifi->is_connected() &&
+        (!this->current_is_skyecho_() || (this->preferred_[0] != 0 && !this->is_preferred_(this->current_))))
       wifi->scan_while_connected();
   });
 }
@@ -52,6 +56,9 @@ void WifiNetworks::dump_config() {
                 "Wi-Fi networks:\n"
                 "  Saved: %u of %u",
                 this->saved_.count, WIFI_NETWORKS_MAX);
+  if (this->preferred_[0] != 0) {
+    ESP_LOGCONFIG(TAG, "  Own SkyEcho: " LOG_SECRET("'%s'"), this->preferred_);
+  }
   for (uint8_t i = 0; i != this->saved_.count; i++) {
     const auto &n = this->saved_.networks[i];
     ESP_LOGCONFIG(TAG, "  " LOG_SECRET("'%s'") "%s", n.ssid,
@@ -158,6 +165,27 @@ void WifiNetworks::run_(const Command &command) {
       this->snapshot_dirty_ = true;
       return;
 
+    case CommandType::COMMAND_TYPE_REGISTRATION: {
+      const char *registration = command.ssid;
+      if (strncasecmp(registration, "VH", 2) == 0 && strlen(registration) > 3) {
+        registration += 2;
+        if (*registration == '-')
+          registration++;
+      }
+      if (*registration == 0) {
+        this->preferred_[0] = 0;
+      } else {
+        snprintf(this->preferred_, sizeof(this->preferred_), "SkyEcho_%s", registration);
+        ESP_LOGI(TAG, "The glider's own SkyEcho is " LOG_SECRET("'%s'"), this->preferred_);
+      }
+      this->apply_(false);
+      // Look for it now rather than at the next scan
+      if (this->preferred_[0] != 0 && this->pinned_[0] == 0 && wifi->is_connected() &&
+          !this->is_preferred_(this->current_))
+        wifi->scan_while_connected();
+      return;
+    }
+
     case CommandType::COMMAND_TYPE_AUTOMATIC:
       ESP_LOGI(TAG, "Choosing the network by priority");
       this->pinned_[0] = 0;
@@ -188,16 +216,19 @@ void WifiNetworks::apply_(bool restart) {
         count++;
     }
     wifi->init_sta(count);
-    // In order of priority, for the first attempt before any scan
-    for (const bool skyecho : {true, false}) {
+    // In order of priority, for the first attempt before any scan: the glider's own SkyEcho, the other SkyEchos,
+    // the other saved networks
+    for (uint8_t rank = 0; rank != 3; rank++) {
       for (uint8_t i = 0; i != this->saved_.count; i++) {
         const auto &saved = this->saved_.networks[i];
-        if (((saved.flags & FLAG_SKYECHO) != 0) != skyecho)
+        const uint8_t saved_rank = this->is_preferred_(saved.ssid) ? 0 : (saved.flags & FLAG_SKYECHO) != 0 ? 1 : 2;
+        if (saved_rank != rank)
           continue;
+        static constexpr int8_t PRIORITIES[3] = {PREFERRED_PRIORITY, SKYECHO_PRIORITY, SAVED_PRIORITY};
         wifi::WiFiAP ap;
         ap.set_ssid(saved.ssid);
         ap.set_password(saved.password);
-        ap.set_priority(skyecho ? SKYECHO_PRIORITY : SAVED_PRIORITY);
+        ap.set_priority(PRIORITIES[rank]);
         wifi->add_sta(ap);
       }
     }
@@ -265,13 +296,16 @@ void WifiNetworks::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiF
   }
   this->snapshot_dirty_ = true;
 
-  if (this->pinned_[0] != 0 || this->current_is_skyecho_())
+  // On the glider's own SkyEcho, or on another one while the glider has none, there is nothing better
+  const bool on_preferred = this->is_preferred_(this->current_);
+  if (this->pinned_[0] != 0 || on_preferred || (this->current_is_skyecho_() && this->preferred_[0] == 0))
     return;
   const uint32_t now = App.get_loop_component_start_time();
   if (this->last_switch_ != 0 && now - this->last_switch_ < SWITCH_BACKOFF_MS)
     return;
   bool added = false;
   bool in_range = false;
+  bool preferred_in_range = false;
   for (uint8_t i = 0; i != this->visible_count_; i++) {
     const Visible &visible = this->visible_[i];
     SavedNetwork *saved = this->find_saved_(visible.ssid);
@@ -286,11 +320,19 @@ void WifiNetworks::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiF
     }
     if (saved != nullptr && (saved->flags & FLAG_SKYECHO) != 0)
       in_range = true;
+    if (saved != nullptr && this->is_preferred_(saved->ssid))
+      preferred_in_range = true;
   }
-  if (added)
+  if (added) {
     this->save_();
+    // The new network takes its place in the list, by priority
+    this->apply_(false);
+  }
+  // Another SkyEcho is only left for the glider's own
+  if (this->current_is_skyecho_() && !preferred_in_range)
+    return;
   // While connecting, a SkyEcho saved before is on the list already and is chosen by its priority
-  if (added || (in_range && wifi::global_wifi_component->is_connected())) {
+  if (added || ((in_range || preferred_in_range) && wifi::global_wifi_component->is_connected())) {
     this->switch_to_skyecho_ = true;
     this->last_switch_ = now == 0 ? 1 : now;
   }
@@ -410,6 +452,10 @@ WifiNetworks::SavedNetwork *WifiNetworks::add_saved_(const char *ssid) {
   if (is_skyecho_ssid(ssid))
     saved->flags = FLAG_SKYECHO;
   return saved;
+}
+
+bool WifiNetworks::is_preferred_(const char *ssid) const {
+  return this->preferred_[0] != 0 && strcasecmp(ssid, this->preferred_) == 0;
 }
 
 bool WifiNetworks::current_is_skyecho_() {
