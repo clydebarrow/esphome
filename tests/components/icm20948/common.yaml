@@ -1,0 +1,33 @@
+sensor:
+  - platform: icm20948
+    name: "ICM-20948 Temperature"
+  - platform: icm20948
+    type: magnetic_field_x
+    name: "Magnetic field X"
+  - platform: icm20948
+    type: magnetic_field_y
+    name: "Magnetic field Y"
+  - platform: icm20948
+    type: magnetic_field_z
+    name: "Magnetic field Z"
+  - platform: motion
+    motion_id: icm20948_motion
+    type: acceleration_z
+    name: "Accel Z"
+  - platform: motion
+    motion_id: icm20948_motion
+    type: gyroscope_x
+    name: "Gyro X"
+  - platform: motion
+    motion_id: icm20948_motion
+    type: pitch
+    name: "Pitch"
+
+motion:
+  - platform: icm20948
+    id: icm20948_motion
+    i2c_id: i2c_bus
+    address: 0x68
+    update_interval: 100ms
+    accelerometer_range: 8G
+    gyroscope_range: 1000DPS
