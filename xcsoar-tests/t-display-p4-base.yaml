@@ -1,0 +1,112 @@
+# Hardware of the LilyGO T-Display-P4 V1.0 with the AMOLED panel (RM69A10, GT9895 touch), shared by the
+# bring-up test (t-display-p4.yaml) and XCSoar (xcsoar-t-display-p4.yaml). No network: the ESP32-C6 runs AT
+# firmware, which esp32_hosted cannot use. Logs are on the USB-C port next to the power button (a CH343 on
+# UART0). Its DTR line drives the reset and RTS the boot pin, the reverse of the usual wiring, so opening the port
+# can leave the P4 in download mode: pulse DTR alone to start it.
+# Pins are from https://github.com/Xinyuan-LilyGO/lilygo_device_driver (src/device/t_display_p4/v1/config.h).
+
+external_components:
+  - source:
+      type: local
+      path: ../../gt9895/esphome/components
+    components: [gt9895]
+
+packages:
+  storage: !include storage-components.yaml
+
+esp32:
+  variant: esp32p4
+  engineering_sample: true
+  cpu_frequency: 360MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0
+
+psram:
+  speed: 200MHz
+
+esp_ldo:
+  - id: ldo_dsi
+    channel: 3
+    voltage: 2.5V
+  # GPIO39 to GPIO44 (the SD card slot) are powered by LDO channel 4, passed through at 3.3V
+  - id: ldo_sd
+    channel: 4
+    voltage: passthrough
+
+i2c:
+  - id: sys_i2c
+    sda: GPIO7
+    scl: GPIO8
+    frequency: 400kHz
+  - id: aux_i2c
+    sda: GPIO20
+    scl: GPIO21
+    frequency: 400kHz
+
+xl9535:
+  - id: xl9535_hub
+    i2c_id: sys_i2c
+    address: 0x20
+
+switch:
+  # LilyGO keeps this low; their notes say it must stay on, or chips reset badly and the P4 can stay in download mode
+  - platform: gpio
+    id: power_3v3
+    pin: {xl9535: xl9535_hub, number: 0, inverted: true}
+    restore_mode: ALWAYS_ON
+  - platform: gpio
+    id: usb_phy_power
+    pin: {xl9535: xl9535_hub, number: 10}
+    restore_mode: ALWAYS_ON
+  # Low powers the SD card
+  - platform: gpio
+    id: sd_power
+    pin: {xl9535: xl9535_hub, number: 15, inverted: true}
+    restore_mode: ALWAYS_ON
+
+spi:
+  - id: sd_spi_bus
+    clk_pin: GPIO43
+    mosi_pin: GPIO44
+    miso_pin: GPIO39
+
+storage:
+  - platform: sd_spi
+    id: sd_card
+    spi_id: sd_spi_bus
+    cs_pin: GPIO42
+
+filesystem:
+  - platform: fatfs
+    id: sd_fs
+    storage_id: sd_card
+    vfs_path: /sdcard
+
+display:
+  - platform: mipi_dsi
+    id: lcd
+    model: LILYGO-T-DISPLAY-P4-AMOLED
+
+touchscreen:
+  - platform: gt9895
+    id: touch
+    i2c_id: sys_i2c
+    display: lcd
+    reset_pin: {xl9535: xl9535_hub, number: 3}
+
+# The L76K GPS: P4 GPIO22 receives from it
+uart:
+  - id: gps_uart
+    rx_pin: GPIO22
+    tx_pin: GPIO23
+    baud_rate: 9600
+    rx_buffer_size: 1024
+
+time:
+  - platform: pcf8563
+    id: rtc
+    i2c_id: sys_i2c

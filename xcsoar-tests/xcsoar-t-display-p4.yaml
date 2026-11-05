@@ -1,0 +1,82 @@
+# XCSoar on a LilyGO T-Display-P4 AMOLED, in landscape, with its data on the SD card (in /XCSoar on the card) and the
+# built-in L76K GPS. No network yet (see t-display-p4-base.yaml).
+# xcsoar_path is relative to this file: a checkout of the XCSoar branch with esp32/xcsoar next to this
+# worktree. Flash over USB: python -m esphome run xcsoar-tests/xcsoar-t-display-p4.yaml
+
+substitutions:
+  xcsoar_path: ../../xcsoar-src
+
+packages:
+  base: !include t-display-p4-base.yaml
+
+esphome:
+  name: xcsoar-t-display-p4
+  # The PCF8563 keeps the time while the board is off; XCSoar dates its fixes from it
+  on_boot:
+    - pcf8563.read_time: rtc
+
+display:
+  - id: !extend lcd
+    frame_buffers: 2
+    rotation: 90
+    # XCSoar draws the screen; this only runs once it has stopped
+    update_interval: never
+    lambda: |-
+      if (!id(xcsoar_stopped))
+        return;
+      it.fill(Color::BLACK);
+      it.print(it.get_width() / 2, it.get_height() / 2, id(message_font), Color::WHITE, display::TextAlign::CENTER,
+               "XCSoar has stopped");
+
+touchscreen:
+  - id: !extend touch
+    # match the display's rotation: 90
+    transform:
+      swap_xy: true
+      mirror_y: true
+    calibration:
+      x_min: 0
+      x_max: 2400
+      y_min: 0
+      y_max: 1060
+
+globals:
+  - id: xcsoar_stopped
+    type: bool
+    initial_value: "false"
+
+font:
+  - file: ../tests/components/lvgl/roboto.ttf
+    id: message_font
+    size: 48
+
+xcsoar:
+  id: xcsoar_app
+  on_stopped:
+    - globals.set:
+        id: xcsoar_stopped
+        value: "true"
+    - component.update: lcd
+  display_id: lcd
+  touchscreen_id: touch
+  filesystem_id: sd_fs
+  task_stack_size: 262144
+  # The panel has about 330 dpi
+  dpi: 240
+  xcsoar_path: ${xcsoar_path}
+  fonts:
+    - file: ../tests/components/lvgl/roboto.ttf
+      name: Roboto-Regular.ttf
+  uarts:
+    - uart_id: gps_uart
+      name: GPS
+
+debug:
+  update_interval: 60s
+
+sensor:
+  - platform: debug
+    psram:
+      name: PSRAM free
+    free:
+      name: Internal RAM free

@@ -1,0 +1,30 @@
+# Bring-up test for the LilyGO T-Display-P4 AMOLED: a test card on the panel, touches in the log, the I2C buses
+# scanned and the SD card mounted.
+
+packages:
+  base: !include t-display-p4-base.yaml
+
+esphome:
+  name: t-display-p4
+
+i2c:
+  - id: !extend sys_i2c
+    scan: true
+  - id: !extend aux_i2c
+    scan: true
+
+display:
+  - id: !extend lcd
+    show_test_card: true
+
+touchscreen:
+  - id: !extend touch
+    calibration:
+      x_min: 0
+      x_max: 1060
+      y_min: 0
+      y_max: 2400
+    on_touch:
+      - logger.log:
+          format: "Touch at %d, %d (raw %d, %d)"
+          args: [touch.x, touch.y, touch.x_raw, touch.y_raw]
