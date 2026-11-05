@@ -37,6 +37,9 @@ static constexpr const char *DATA_DIR = "XCSoar";
 // starting
 static constexpr uint32_t DATA_READY_TIMEOUT_MS = 5000;
 static constexpr uint32_t SETUP_POLL_MS = 50;
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+static constexpr const char *FLARM_RECEIVER_STREAM = "FLARM";
+#endif
 #ifdef USE_XCSOAR_SKYECHO
 // The names XCSoar shows as the devices' ports
 static constexpr const char *SKYECHO_STREAM = "SkyEcho";
@@ -124,6 +127,13 @@ void XCSoarComponent::setup() {
     this->mark_failed(LOG_STR("Mounting embedded files failed"));
     return;
   }
+#endif
+
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+  this->add_stream(FLARM_RECEIVER_STREAM, "FLARM");
+  this->flarm_receiver_->add_on_nmea_callback([](const uint8_t *data, size_t len) {
+    XCSoarEsp32::Feed(FLARM_RECEIVER_STREAM, std::as_bytes(std::span(data, len)));
+  });
 #endif
 
 #ifdef USE_XCSOAR_SKYECHO

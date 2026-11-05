@@ -1,0 +1,8 @@
+# t-display-p4.yaml with the FLARM receiver: the test card, and the traffic heard in the log.
+
+packages:
+  base: !include t-display-p4.yaml
+  radio: !include t-display-p4-radio.yaml
+
+esphome:
+  name: t-display-p4-flarm

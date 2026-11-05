@@ -98,6 +98,9 @@ class SX126x final : public Component,
   void set_tcxo_voltage(uint8_t tcxo_voltage) { this->tcxo_voltage_ = tcxo_voltage; }
   void set_tcxo_delay(uint32_t tcxo_delay) { this->tcxo_delay_ = tcxo_delay; }
   void run_image_cal();
+  /// Change the frequency of the running radio without a reset; the new frequency must be in the band that the
+  /// image was calibrated for, then return to receive (or sleep, without rx_start).
+  void retune(uint32_t frequency);
   void configure();
   SX126xError transmit_packet(const uint8_t *data, size_t len);
   SX126xError transmit_packet(const std::vector<uint8_t> &packet) {
@@ -119,6 +122,7 @@ class SX126x final : public Component,
   void read_register_(uint16_t reg, uint8_t *data, uint8_t size);
   void call_listeners_(const std::vector<uint8_t> &packet, float rssi, float snr);
   void wait_busy_();
+  void write_frequency_();
   Trigger<std::vector<uint8_t>, float, float> packet_trigger_;
   std::vector<SX126xListener *> listeners_;
   std::vector<uint8_t> packet_;

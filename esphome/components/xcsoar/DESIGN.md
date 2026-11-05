@@ -508,6 +508,15 @@ skyecho component has a FLARM UART, and registers `add_on_gdl90_data_callback()`
 without a listener). The callbacks pass the raw bytes the skyecho component received, so XCSoar's own
 drivers decode them. `xcsoar-tests/xcsoar-tab5-skyecho.yaml` is the test config.
 
+`flarm_receiver_id` adds the stream "FLARM" with the FLARM driver, fed by the `flarm_receiver` component: legacy
+FLARM packets heard by an SX126x radio, decoded with SoftRF's code (`legacy_protocol.cpp`). The receiver reads
+the GPS UART itself and passes each GPS sentence on, followed every second by `$PFLAU` and a `$PFLAA` per
+aircraft, as a FLARM does, so the GPS UART is not also in `uarts`. It follows FLARM's channel hopping by the
+GPS time, or by the system clock (SNTP) without a fix; the packets' keys also depend on the time. An aircraft is
+reported once two packets agree on its place, since a packet decrypted with the wrong key now and then passes
+the checks. `xcsoar-tests/xcsoar-t-display-p4-flarm.yaml` is the test config, `t-display-p4-flarm.yaml` the
+same radio without XCSoar.
+
 `uarts` passes what a UART receives to a stream: `name` (default `GPS`) is the port XCSoar shows and `driver`
 (default `Generic`, plain NMEA) the driver it is set up with. Each is an `XCSoarUartStream` component whose
 `loop()` feeds the bytes waiting in the UART's buffer. `XCSOAR_STREAM_COUNT` sizes the stream list from the

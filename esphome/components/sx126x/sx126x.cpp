@@ -178,13 +178,7 @@ void SX126x::configure() {
   // calibrate image
   this->run_image_cal();
 
-  // set frequency
-  uint64_t freq = ((uint64_t) this->frequency_ << 25) / XTAL_FREQ;
-  buf[0] = (uint8_t) ((freq >> 24) & 0xFF);
-  buf[1] = (uint8_t) ((freq >> 16) & 0xFF);
-  buf[2] = (uint8_t) ((freq >> 8) & 0xFF);
-  buf[3] = (uint8_t) (freq & 0xFF);
-  this->write_opcode_(RADIO_SET_RFFREQUENCY, buf, 4);
+  this->write_frequency_();
 
   // configure pa
   int8_t pa_power = this->pa_power_;
@@ -402,6 +396,27 @@ void SX126x::loop() {
       this->read_fifo_(buf[1], this->packet_);
       this->call_listeners_(this->packet_, (float) rssi / -2.0f, (float) snr / 4.0f);
     }
+  }
+}
+
+void SX126x::write_frequency_() {
+  uint64_t freq = ((uint64_t) this->frequency_ << 25) / XTAL_FREQ;
+  uint8_t buf[4];
+  buf[0] = (uint8_t) ((freq >> 24) & 0xFF);
+  buf[1] = (uint8_t) ((freq >> 16) & 0xFF);
+  buf[2] = (uint8_t) ((freq >> 8) & 0xFF);
+  buf[3] = (uint8_t) (freq & 0xFF);
+  this->write_opcode_(RADIO_SET_RFFREQUENCY, buf, 4);
+}
+
+void SX126x::retune(uint32_t frequency) {
+  this->frequency_ = frequency;
+  this->set_mode_standby(STDBY_XOSC);
+  this->write_frequency_();
+  if (this->rx_start_) {
+    this->set_mode_rx();
+  } else {
+    this->set_mode_sleep();
   }
 }
 
