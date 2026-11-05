@@ -1,12 +1,8 @@
 # The T-Display-P4's SX1262 receiving legacy FLARM packets on the Australian channels, used by t-display-p4-flarm.yaml
 # and xcsoar-t-display-p4-flarm.yaml. The GPS gives the time and position; until it has a fix, the position below
-# (whole degrees are close enough) and the system clock are used. It transmits only with a GPS fix.
-
-substitutions:
-  # A test ID of the FLARM type, so that a real aircraft is not shown on the bench. For an aircraft, replace
-  # "address" below with "registration: VH-GKP" (which gives its ICAO address, 7C1FD7) and use the type ICAO.
-  flarm_address: "0xEE5E5C"
-  flarm_address_type: FLARM
+# (whole degrees are close enough) and the system clock are used. It transmits only with a GPS fix, as the glider
+# in XCSoar's club.json (set with the Glider button in "Who is flying?"), or without one, as a FLARM ID made from
+# the MAC address. "registration: VH-GKP" or "address: 0x7C1FD7" under transmit would fix the address instead.
 
 logger:
   logs:
@@ -56,8 +52,6 @@ flarm_receiver:
   latitude: -31
   longitude: 153
   transmit:
-    address: ${flarm_address}
-    address_type: ${flarm_address_type}
     aircraft_type: GLIDER
 
 # The radio follows the senders' channels by the time, to a tenth of a second: without a GPS fix this sets it

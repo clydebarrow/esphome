@@ -87,7 +87,8 @@ def australian_address(value: str) -> int:
 TRANSMIT_SCHEMA = cv.Schema(
     {
         # The aircraft's ICAO (Mode S) address, given as a hex number or, for an Australian aircraft, worked out
-        # from its registration
+        # from its registration. Without either, the registration comes from XCSoar's club.json, or the unit
+        # sends a FLARM ID made from its MAC address.
         cv.Exclusive(CONF_ADDRESS, CONF_ADDRESS): cv.All(
             cv.hex_int, cv.int_range(min=1, max=0xFFFFFF)
         ),
@@ -122,13 +123,6 @@ def _validate_position(config: ConfigType) -> ConfigType:
     if CONF_ALTITUDE in config and CONF_LATITUDE not in config:
         raise cv.Invalid(
             f"'{CONF_ALTITUDE}' needs '{CONF_LATITUDE}' and '{CONF_LONGITUDE}'"
-        )
-    if (transmit := config.get(CONF_TRANSMIT)) is not None and not (
-        CONF_ADDRESS in transmit or CONF_REGISTRATION in transmit
-    ):
-        raise cv.Invalid(
-            f"Set the '{CONF_ADDRESS}' or the '{CONF_REGISTRATION}' to send",
-            path=[CONF_TRANSMIT],
         )
     if CONF_TRANSMIT in config and CONF_UART_ID not in config:
         raise cv.Invalid(
@@ -214,7 +208,7 @@ async def to_code(config: ConfigType) -> None:
     if (transmit := config.get(CONF_TRANSMIT)) is not None:
         cg.add(
             var.set_transmit(
-                transmit.get(CONF_ADDRESS, transmit.get(CONF_REGISTRATION)),
+                transmit.get(CONF_ADDRESS, transmit.get(CONF_REGISTRATION, 0)),
                 transmit[CONF_ADDRESS_TYPE],
                 transmit[CONF_AIRCRAFT_TYPE],
                 transmit[CONF_NO_TRACK],

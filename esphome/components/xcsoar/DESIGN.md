@@ -760,6 +760,15 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   the keyboard, then `profiles/TEST.prf` loaded with the map, airspace and all four devices.
   - Still open: a change to a glider setting made by one pilot reaches only that pilot's profile. A glider
     profile read before the pilot profile would keep them in one place.
+- **Moving the unit to another glider (done).** "Who is flying?" has a Glider button: a form with the type and
+  registration, saved into `club.json` (`SaveClubGlider()`, which keeps the other settings and replaces the file
+  through a new one), so the unit moves between gliders without flashing. The start and progress screens show
+  the new glider. XCSoar tells the host the glider at each read of the file and each change (`club_glider` in
+  `XCSoarEsp32::Config`, called on XCSoar's thread). With a `flarm_receiver` that has `transmit` and no address
+  in its YAML, the xcsoar component passes the registration on, and the receiver sends the ICAO address of an
+  Australian registration (0x7C0000 plus the three characters in base 36: A to Z are 0 to 25, 0 to 9 are 26 to
+  35; VH-GKP is 7C1FD7). With no registration, or one that is not Australian, it sends a FLARM ID made from the
+  MAC address. The XCSoar side is on the `esp32-club-glider` branch, in `../xcsoar-src-flarm`.
 - **Flight upload (done).** XCSoar's `FlightLogger` keeps the confirmed takeoff time; at the landing
   `GlueFlightLogger::OnFlight()` calls `SaveClubFlight()`, which appends one JSON object per line to
   `XCSoar/flights-pending.jsonl`: `organisation`, `glider_type`, `registration`, `pilot`, `takeoff` and `landing`
