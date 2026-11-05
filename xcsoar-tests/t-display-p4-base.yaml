@@ -62,11 +62,23 @@ switch:
     id: usb_phy_power
     pin: {xl9535: xl9535_hub, number: 10}
     restore_mode: ALWAYS_ON
-  # Low powers the SD card
+  # Low powers the SD card, as LilyGO set it; the card answered with the pin either way. After the expander (IO)
+  # and before the card (HARDWARE)
   - platform: gpio
     id: sd_power
     pin: {xl9535: xl9535_hub, number: 15, inverted: true}
     restore_mode: ALWAYS_ON
+    setup_priority: 850
+
+# The card slot has no pull-ups of its own: LilyGO turns on the internal ones. After the SPI bus (BUS) and before the
+# card (HARDWARE)
+esphome:
+  on_boot:
+    - priority: 850
+      then:
+        - lambda: |-
+            for (auto pin : {GPIO_NUM_39, GPIO_NUM_40, GPIO_NUM_41, GPIO_NUM_42, GPIO_NUM_44})
+              gpio_pullup_en(pin);
 
 spi:
   - id: sd_spi_bus

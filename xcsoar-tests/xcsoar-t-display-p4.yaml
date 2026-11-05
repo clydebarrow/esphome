@@ -13,7 +13,8 @@ esphome:
   name: xcsoar-t-display-p4
   # The PCF8563 keeps the time while the board is off; XCSoar dates its fixes from it
   on_boot:
-    - pcf8563.read_time: rtc
+    - then:
+        - pcf8563.read_time: rtc
 
 display:
   - id: !extend lcd
