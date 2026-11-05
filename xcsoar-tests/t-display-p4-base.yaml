@@ -63,6 +63,11 @@ switch:
     id: usb_phy_power
     pin: {xl9535: xl9535_hub, number: 10}
     restore_mode: ALWAYS_ON
+  # The speaker amplifier's power
+  - platform: gpio
+    id: speaker_enable
+    pin: {xl9535: xl9535_hub, number: 6}
+    restore_mode: ALWAYS_ON
   # Low powers the SD card, as LilyGO set it; the card answered with the pin either way. After the expander (IO)
   # and before the card (HARDWARE)
   - platform: gpio
@@ -143,3 +148,52 @@ time:
   - platform: pcf8563
     id: rtc
     i2c_id: sys_i2c
+
+# The BQ27220 battery fuel gauge (a 1000 mAh cell); the LGS4056H charger has no interface
+sensor:
+  - platform: bq27220
+    i2c_id: sys_i2c
+    voltage:
+      name: Battery voltage
+    current:
+      name: Battery current
+    battery_level:
+      name: Battery level
+    temperature:
+      name: Battery temperature
+    time_to_empty:
+      name: Battery time to empty
+
+# The speaker: an ES8311 codec on the second I2C bus driving the amplifier
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: aux_i2c
+
+i2s_audio:
+  - id: audio_bus
+    i2s_lrclk_pin: GPIO9
+    i2s_bclk_pin: GPIO12
+    i2s_mclk_pin: GPIO13
+
+speaker:
+  - platform: i2s_audio
+    id: board_speaker
+    i2s_audio_id: audio_bus
+    i2s_dout_pin: GPIO10
+    audio_dac: es8311_dac
+    dac_type: external
+    channel: mono
+    buffer_duration: 500ms
+    bits_per_sample: 16bit
+    sample_rate: 16000
+
+rtttl:
+  id: alarm_tone
+  speaker: board_speaker
+
+button:
+  - platform: template
+    name: Test alarm tone
+    on_press:
+      - rtttl.play: "alarm:d=4,o=6,b=150:a,e,a,e,a,e"
