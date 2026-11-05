@@ -1,0 +1,48 @@
+# The T-Display-P4's SX1262 receiving legacy FLARM packets on the Australian channels, used by t-display-p4-flarm.yaml
+# and xcsoar-t-display-p4-flarm.yaml. The GPS gives the time and position; until it has a fix, the position below
+# (whole degrees are close enough) and the system clock are used.
+
+logger:
+  logs:
+    sx126x: INFO
+
+spi:
+  - id: radio_spi_bus
+    clk_pin: GPIO2
+    mosi_pin: GPIO3
+    miso_pin: GPIO4
+
+# Reset and DIO1 are on the I/O expander, so the radio is polled
+sx126x:
+  id: radio
+  spi_id: radio_spi_bus
+  cs_pin: GPIO24
+  busy_pin: GPIO6
+  rst_pin: {xl9535: xl9535_hub, number: 16}
+  dio1_pin: {xl9535: xl9535_hub, number: 17}
+  hw_version: sx1262
+  rf_switch: false
+  tcxo_voltage: 1_6V
+  modulation: FSK
+  frequency: 917000000
+  bitrate: 100000
+  deviation: 50kHz
+  bandwidth: 234_3kHz
+  shaping: GAUSSIAN_BT_0_5
+  preamble_size: 8
+  preamble_detect: 0
+  sync_value: [0x55, 0x99, 0xA5, 0xA9, 0x55, 0x66, 0x65, 0x96]
+  payload_length: 52
+  crc_enable: false
+
+flarm_receiver:
+  id: flarm
+  sx126x_id: radio
+  band: AU
+  uart_id: gps_uart
+  latitude: -31
+  longitude: 153
+
+# The radio follows the senders' channels by the time, to a tenth of a second: without a GPS fix this sets it
+time:
+  - platform: sntp

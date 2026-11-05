@@ -1,0 +1,13 @@
+# xcsoar-t-display-p4.yaml with traffic from the board's own radio: the FLARM receiver reads the GPS and passes its
+# sentences to XCSoar with the traffic, read as a FLARM device.
+
+packages:
+  t_display_p4: !include xcsoar-t-display-p4.yaml
+  radio: !include t-display-p4-radio.yaml
+
+esphome:
+  name: xcsoar-t-display-p4-flarm
+
+xcsoar:
+  flarm_receiver_id: flarm
+  uarts: !remove

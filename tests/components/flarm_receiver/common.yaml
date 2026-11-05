@@ -1,0 +1,30 @@
+sx126x:
+  id: radio
+  cs_pin: ${cs_pin}
+  rst_pin: ${rst_pin}
+  busy_pin: ${busy_pin}
+  dio1_pin: ${dio1_pin}
+  hw_version: sx1262
+  rf_switch: true
+  tcxo_voltage: 1_8V
+  modulation: FSK
+  frequency: 917000000
+  bitrate: 100000
+  deviation: 50kHz
+  bandwidth: 234_3kHz
+  shaping: GAUSSIAN_BT_0_5
+  preamble_size: 8
+  preamble_detect: 0
+  sync_value: [0x55, 0x99, 0xA5, 0xA9, 0x55, 0x66, 0x65, 0x96]
+  payload_length: 52
+  crc_enable: false
+
+flarm_receiver:
+  id: receiver
+  sx126x_id: radio
+  band: AU
+  uart_id: uart_bus
+  latitude: -31.4
+  longitude: 152.8
+  altitude: 40
+  timeout: 20s

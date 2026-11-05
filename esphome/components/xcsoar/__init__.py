@@ -60,6 +60,7 @@ CONF_ON_TRAFFIC_ALARM = "on_traffic_alarm"
 CONF_ON_VOLUME = "on_volume"
 CONF_BLE_SERIAL_ID = "ble_serial_id"
 CONF_SKYECHO_ID = "skyecho_id"
+CONF_FLARM_RECEIVER_ID = "flarm_receiver_id"
 CONF_WIFI_NETWORKS_ID = "wifi_networks_id"
 # The C library file and directory handles XCSoar can have open on its data filesystem
 VFS_MAX_FILES = 8
@@ -86,6 +87,9 @@ xcsoar_ns = cg.esphome_ns.namespace(DOMAIN)
 XCSoarComponent = xcsoar_ns.class_("XCSoarComponent", cg.Component)
 # Named here rather than imported, so the skyecho component is only loaded by configs that use it
 SkyEcho = cg.esphome_ns.namespace("skyecho").class_("SkyEcho", cg.PollingComponent)
+FlarmReceiver = cg.esphome_ns.namespace("flarm_receiver").class_(
+    "FlarmReceiver", cg.Component
+)
 WifiNetworks = cg.esphome_ns.namespace("wifi_networks").class_(
     "WifiNetworks", cg.Component
 )
@@ -137,8 +141,10 @@ UART_STREAM_SCHEMA = cv.Schema(
 
 
 def _stream_count(config: ConfigType) -> int:
-    return (SKYECHO_STREAMS if CONF_SKYECHO_ID in config else 0) + len(
-        config[CONF_UARTS]
+    return (
+        (SKYECHO_STREAMS if CONF_SKYECHO_ID in config else 0)
+        + (1 if CONF_FLARM_RECEIVER_ID in config else 0)
+        + len(config[CONF_UARTS])
     )
 
 
@@ -148,7 +154,8 @@ def _validate_streams(config: ConfigType) -> ConfigType:
         raise cv.Invalid(f"Each of '{CONF_UARTS}' needs its own '{CONF_NAME}'")
     if _stream_count(config) > MAX_STREAMS:
         raise cv.Invalid(
-            f"XCSoar takes at most {MAX_STREAMS} streams; the SkyEcho uses {SKYECHO_STREAMS}"
+            f"XCSoar takes at most {MAX_STREAMS} streams; the SkyEcho uses {SKYECHO_STREAMS}, "
+            "the FLARM receiver 1"
         )
     return config
 
@@ -171,6 +178,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_TOUCHSCREEN_ID): cv.use_id(touchscreen.Touchscreen),
             cv.Optional(CONF_BLE_SERIAL_ID): cv.use_id(BleSerial),
             cv.Optional(CONF_SKYECHO_ID): cv.use_id(SkyEcho),
+            # Its GPS sentences and traffic are read by XCSoar as a FLARM
+            cv.Optional(CONF_FLARM_RECEIVER_ID): cv.use_id(FlarmReceiver),
             cv.Optional(CONF_WIFI_NETWORKS_ID): cv.use_id(WifiNetworks),
             cv.Optional(CONF_FILESYSTEM_ID): cv.use_id(Filesystem),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
@@ -275,6 +284,13 @@ async def to_code(config: ConfigType) -> None:
     await cg.add_variable(var.set_touchscreen, config.get(CONF_TOUCHSCREEN_ID))
     if await cg.add_variable(var.set_skyecho, config.get(CONF_SKYECHO_ID)) is not None:
         cg.add_define("USE_XCSOAR_SKYECHO")
+    if (
+        await cg.add_variable(
+            var.set_flarm_receiver, config.get(CONF_FLARM_RECEIVER_ID)
+        )
+        is not None
+    ):
+        cg.add_define("USE_XCSOAR_FLARM_RECEIVER")
     if (
         await cg.add_variable(var.set_wifi_networks, config.get(CONF_WIFI_NETWORKS_ID))
         is not None

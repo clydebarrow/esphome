@@ -19,6 +19,9 @@
 #include "esphome/components/filesystem/vfs.h"
 #endif
 
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+#include "esphome/components/flarm_receiver/flarm_receiver.h"
+#endif
 #ifdef USE_XCSOAR_SKYECHO
 #include "esphome/components/skyecho/skyecho.h"
 #endif
@@ -101,6 +104,10 @@ class XCSoarComponent : public Component
 #ifdef USE_FILESYSTEM_VFS
   /// The filesystem XCSoar keeps its data on, in XCSoar/ below its vfs_path.
   void set_filesystem(filesystem::Filesystem *fs) { this->data_fs_ = fs; }
+#endif
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+  /// Pass the FLARM receiver's GPS sentences and traffic to XCSoar, read as a FLARM.
+  void set_flarm_receiver(flarm_receiver::FlarmReceiver *receiver) { this->flarm_receiver_ = receiver; }
 #endif
 #ifdef USE_XCSOAR_SKYECHO
   /// Pass the SkyEcho's GDL90 data to XCSoar, and the data of its FLARM UART if it has one, each read as a device.
@@ -219,6 +226,9 @@ class XCSoarComponent : public Component
 #endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   StaticVector<XCSoarEsp32::RomFile, XCSOAR_ROM_FILE_COUNT> rom_files_;
+#endif
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+  flarm_receiver::FlarmReceiver *flarm_receiver_{nullptr};
 #endif
 #ifdef USE_XCSOAR_SKYECHO
   skyecho::SkyEcho *skyecho_{nullptr};
