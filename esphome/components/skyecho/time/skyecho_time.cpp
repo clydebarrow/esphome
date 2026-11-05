@@ -13,6 +13,7 @@ ESPHOME_LOG_TAG(TAG, "skyecho.time");
 static constexpr uint32_t RETRY_ID = 0;
 // Retry interval until the first sync, while there is no device or it has no GPS time yet.
 static constexpr uint32_t RETRY_MS = 30000;
+// Without a message for this long, the connection is given up: while waiting for the time, or while streaming
 static constexpr uint32_t SYNC_TIMEOUT_MS = 15000;
 // The GPS epoch is 1980-01-06; GPS time runs ahead of UTC by the leap seconds since then (18 from 2017).
 static constexpr uint32_t GPS_EPOCH_UNIX = 315964800;
@@ -22,6 +23,9 @@ static constexpr uint32_t MIN_PLAUSIBLE_UNIX = 1704067200;
 
 static constexpr uint8_t WS_OPCODE_TEXT = 1;
 static constexpr uint8_t WS_OPCODE_CLOSE = 8;
+static constexpr uint8_t WS_OPCODE_PING = 9;
+static constexpr uint8_t WS_OPCODE_PONG = 10;
+static constexpr size_t WS_MAX_CONTROL_PAYLOAD = 125;
 
 void SkyEchoTime::setup() {
   this->link_.set_port(this->port_);
@@ -35,10 +39,22 @@ void SkyEchoTime::dump_config() {
                 "SkyEcho time:\n"
                 "  Websocket port: %u",
                 this->port_);
+#ifdef USE_SENSOR
+  LOG_SENSOR("  ", "Pressure", this->pressure_sensor_);
+#endif
   RealTimeClock::dump_config();
 }
 
+bool SkyEchoTime::streaming_() const {
+#ifdef USE_SENSOR
+  return this->pressure_sensor_ != nullptr;
+#else
+  return false;
+#endif
+}
+
 void SkyEchoTime::update() {
+  this->want_time_ = true;
   if (this->state_ != SyncState::SYNC_STATE_IDLE)
     return;
   const uint32_t address = this->parent_->get_source_address();
@@ -61,7 +77,8 @@ void SkyEchoTime::update() {
 
 void SkyEchoTime::loop() {
   if (App.get_loop_component_start_time() - this->started_ms_ > SYNC_TIMEOUT_MS) {
-    ESP_LOGW(TAG, "No time from %s:%u", this->host_, this->port_);
+    ESP_LOGW(TAG, "No %s from %s:%u", this->want_time_ ? LOG_STR_LITERAL("time") : LOG_STR_LITERAL("data"), this->host_,
+             this->port_);
     this->finish_(false);
     return;
   }
@@ -121,8 +138,12 @@ void SkyEchoTime::loop() {
       this->state_ = SyncState::SYNC_STATE_FRAMES;
     }
     if (this->parse_frames_()) {
-      this->finish_(true);
-      return;
+      this->synced_ = true;
+      this->cancel_timeout(RETRY_ID);
+      if (!this->streaming_()) {
+        this->finish_(true);
+        return;
+      }
     }
     if (this->state_ == SyncState::SYNC_STATE_IDLE)
       return;
@@ -173,22 +194,40 @@ bool SkyEchoTime::parse_frames_() {
     const size_t frame_len = header_len + payload_len;
     if (this->rx_len_ < frame_len)
       return false;
+    bool synced = false;
     if (opcode == WS_OPCODE_TEXT) {
       char *text = this->rx_ + header_len;
       const char saved = text[payload_len];
       text[payload_len] = 0;
-      const bool synced = this->parse_stats_(text);
+      synced = this->parse_stats_(text);
       text[payload_len] = saved;
-      if (synced)
-        return true;
+    } else if (opcode == WS_OPCODE_PING && payload_len <= WS_MAX_CONTROL_PAYLOAD) {
+      this->send_pong_(reinterpret_cast<const uint8_t *>(this->rx_ + header_len), payload_len);
     }
-    // Pings are not answered: the connection only lives until the first message with the time.
     this->rx_len_ -= frame_len;
     memmove(this->rx_, this->rx_ + frame_len, this->rx_len_);
+    if (synced)
+      return true;
   }
 }
 
 bool SkyEchoTime::parse_stats_(char *text) {
+  // A message counts as data arriving, for the timeout
+  this->started_ms_ = App.get_loop_component_start_time();
+#ifdef USE_SENSOR
+  // {..., "sensor": {"baro": {"altitude_m": ..., "pressure_mbar": <hPa>, ...}}}
+  if (this->pressure_sensor_ != nullptr) {
+    if (const char *pressure = strstr(text, "\"pressure_mbar\""); pressure != nullptr) {
+      if (const char *colon = strchr(pressure, ':'); colon != nullptr) {
+        const float hpa = strtof(colon + 1, nullptr);
+        if (hpa > 0)
+          this->pressure_sensor_->publish_state(hpa);
+      }
+    }
+  }
+#endif
+  if (!this->want_time_)
+    return false;
   // {"host": {"GPS": {"UTCTime": <seconds since the GPS epoch>, ...}}, ...}
   const char *field = strstr(text, "\"UTCTime\"");
   if (field == nullptr)
@@ -203,7 +242,21 @@ bool SkyEchoTime::parse_stats_(char *text) {
     return false;
   }
   this->synchronize_epoch_(unix_time);
+  this->want_time_ = false;
   return true;
+}
+
+void SkyEchoTime::send_pong_(const uint8_t *payload, size_t len) {
+  // A client's frames are masked; the mask can be all zero, which leaves the payload as it is
+  if (this->link_.tx_free() < len + 6)
+    return;
+  uint8_t *out = this->link_.tx_tail();
+  out[0] = 0x80 | WS_OPCODE_PONG;
+  out[1] = 0x80 | static_cast<uint8_t>(len);
+  memset(out + 2, 0, 4);
+  memcpy(out + 6, payload, len);
+  this->link_.tx_commit(len + 6);
+  this->link_.flush_tx();
 }
 
 void SkyEchoTime::finish_(bool synced) {
@@ -215,7 +268,7 @@ void SkyEchoTime::finish_(bool synced) {
   if (synced) {
     this->synced_ = true;
     this->cancel_timeout(RETRY_ID);
-  } else if (!this->synced_) {
+  } else if (!this->synced_ || this->streaming_()) {
     this->set_timeout(RETRY_ID, RETRY_MS, [this]() { this->update(); });
   }
 }
