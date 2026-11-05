@@ -115,6 +115,14 @@ display:
     id: lcd
     model: LILYGO-T-DISPLAY-P4-AMOLED
 
+# The AMOLED panel's brightness, set by command; on at full brightness unless a saved state says otherwise
+light:
+  - platform: mipi_dsi
+    id: display_brightness
+    name: Display brightness
+    display_id: lcd
+    restore_mode: RESTORE_DEFAULT_ON
+
 touchscreen:
   - platform: gt9895
     id: touch
