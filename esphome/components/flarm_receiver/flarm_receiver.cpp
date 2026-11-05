@@ -3,7 +3,9 @@
 #include <cinttypes>
 #include <cstdio>
 #include <cstdlib>
+#include <cctype>
 #include <cstring>
+#include <strings.h>
 #include <sys/time.h>
 
 #include "esphome/core/application.h"
@@ -30,6 +32,9 @@ static constexpr uint32_t AIR_TIME_MS = 6;
 // PFLAU reports transmitting for this long after a packet is sent
 static constexpr uint32_t TRANSMIT_STATUS_MS = 3000;
 static constexpr float CLIMB_SMOOTHING = 0.2f;
+static constexpr uint32_t AUSTRALIAN_ADDRESS_BASE = 0x7C0000;
+static constexpr uint8_t ADDRESS_TYPE_ICAO = 1;
+static constexpr uint8_t ADDRESS_TYPE_FLARM = 2;
 // Limits for two packets from one aircraft to agree
 static constexpr float MAX_SPEED_MPS = 300.0f;
 static constexpr float MAX_CLIMB_MPS = 50.0f;
@@ -45,7 +50,66 @@ static uint32_t freq_hop_hash(uint32_t value) {
   return value ^ (value >> 16);
 }
 
-void FlarmReceiver::setup() { this->radio_->register_listener(this); }
+void FlarmReceiver::setup() {
+  this->radio_->register_listener(this);
+  if (this->transmit_ && !this->address_fixed_)
+    this->set_registration("");
+}
+
+bool FlarmReceiver::australian_address(const char *registration, uint32_t &address) {
+  if (strncasecmp(registration, "VH", 2) == 0) {
+    registration += 2;
+    if (*registration == '-')
+      registration++;
+  }
+  if (strlen(registration) != 3)
+    return false;
+  uint32_t value = 0;
+  for (const char *p = registration; *p != '\0'; p++) {
+    // Base 36: A to Z are 0 to 25, 0 to 9 are 26 to 35
+    const char c = static_cast<char>(toupper(static_cast<unsigned char>(*p)));
+    unsigned digit;
+    if (c >= 'A' && c <= 'Z') {
+      digit = c - 'A';
+    } else if (c >= '0' && c <= '9') {
+      digit = c - '0' + 26;
+    } else {
+      return false;
+    }
+    value = value * 36 + digit;
+  }
+  address = AUSTRALIAN_ADDRESS_BASE + value;
+  return true;
+}
+
+void FlarmReceiver::set_registration(const char *registration) {
+  if (!this->transmit_)
+    return;
+  if (this->address_fixed_) {
+    if (*registration != '\0') {
+      ESP_LOGD(TAG, "Registration %s ignored: the address is configured", registration);
+    }
+    return;
+  }
+  uint32_t address;
+  if (australian_address(registration, address)) {
+    this->own_address_ = address;
+    this->own_address_type_ = ADDRESS_TYPE_ICAO;
+    ESP_LOGI(TAG, "Sending as %s, ICAO address %06" PRIX32, registration, address);
+    return;
+  }
+  // A FLARM ID made from the MAC address, which stays the same for this unit
+  uint8_t mac[6];
+  get_mac_address_raw(mac);
+  this->own_address_ = encode_uint24(mac[3], mac[4], mac[5]);
+  this->own_address_type_ = ADDRESS_TYPE_FLARM;
+  if (*registration != '\0') {
+    ESP_LOGW(TAG, "Registration %s is not an Australian one; sending FLARM ID %06" PRIX32, registration,
+             this->own_address_);
+  } else {
+    ESP_LOGI(TAG, "No registration; sending FLARM ID %06" PRIX32, this->own_address_);
+  }
+}
 
 void FlarmReceiver::dump_config() {
   ESP_LOGCONFIG(TAG,
@@ -57,7 +121,7 @@ void FlarmReceiver::dump_config() {
                 this->timeout_ms_);
   if (this->transmit_) {
     ESP_LOGCONFIG(TAG, "  Transmitting as %06" PRIX32 " (%s), aircraft type %u%s", this->own_address_,
-                  this->own_address_type_ == 1 ? LOG_STR_LITERAL("ICAO") : LOG_STR_LITERAL("FLARM"),
+                  this->own_address_type_ == ADDRESS_TYPE_ICAO ? LOG_STR_LITERAL("ICAO") : LOG_STR_LITERAL("FLARM"),
                   this->own_aircraft_type_, this->no_track_ ? LOG_STR_LITERAL(", no tracking") : "");
   }
   if (this->has_position_ && !this->gps_fix_) {

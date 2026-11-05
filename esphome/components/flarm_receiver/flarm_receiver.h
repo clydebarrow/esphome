@@ -42,14 +42,22 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
     this->has_position_ = true;
   }
   void set_timeout(uint32_t timeout_ms) { this->timeout_ms_ = timeout_ms; }
-  /// Send this aircraft's position in each slot, while the GPS has a fix
+  /// Send this aircraft's position in each slot, while the GPS has a fix. An address of 0 is taken from
+  /// set_registration(), or until then made from the MAC address.
   void set_transmit(uint32_t address, uint8_t address_type, uint8_t aircraft_type, bool no_track) {
     this->own_address_ = address;
     this->own_address_type_ = address_type;
     this->own_aircraft_type_ = aircraft_type;
     this->no_track_ = no_track;
+    this->address_fixed_ = address != 0;
     this->transmit_ = true;
   }
+  /// The registration of the aircraft, such as "GKP" or "VH-GKP", whose ICAO address is sent unless one was
+  /// configured. An empty or unknown registration sends the FLARM ID made from the MAC address.
+  void set_registration(const char *registration);
+
+  /// The ICAO address of an Australian registration, three letters or digits after "VH-"; false if it is not one.
+  static bool australian_address(const char *registration, uint32_t &address);
 
   /// Called with each NMEA sentence sent, "\r\n" included
   template<typename F> void add_on_nmea_callback(F &&callback) { this->nmea_callback_.add(std::forward<F>(callback)); }
@@ -105,6 +113,7 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   uint8_t own_address_type_{0};
   uint8_t own_aircraft_type_{0};
   bool no_track_{false};
+  bool address_fixed_{false};
   bool transmit_{false};
   bool transmit_pending_{false};
   uint32_t slot_key_{0};

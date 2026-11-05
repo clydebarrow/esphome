@@ -1,6 +1,10 @@
 # xcsoar-t-display-p4.yaml with traffic from the board's own radio: the FLARM receiver reads the GPS and passes its
 # sentences to XCSoar with the traffic, read as a FLARM device.
 
+substitutions:
+  # The XCSoar branch with the glider settings in club.json (esp32-club-glider)
+  xcsoar_path: ../../xcsoar-src-flarm
+
 packages:
   t_display_p4: !include xcsoar-t-display-p4.yaml
   radio: !include t-display-p4-radio.yaml
