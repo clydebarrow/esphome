@@ -31,6 +31,7 @@ const uint8_t MADCTL_CMD = 0x36;
 const uint8_t INVERT_OFF = 0x20;
 const uint8_t INVERT_ON = 0x21;
 const uint8_t DISPLAY_ON = 0x29;
+const uint8_t BRIGHTNESS_CMD = 0x51;
 const uint8_t CMD2_BKSEL = 0xFF;
 const uint8_t DELAY_FLAG = 0xFF;
 const uint8_t MADCTL_BGR = 0x08;
@@ -81,6 +82,9 @@ class MipiDsi final : public display::Display {
   bool wait_frame_buffer_free(uint32_t timeout_ms) {
     return xSemaphoreTake(this->frame_complete_, pdMS_TO_TICKS(timeout_ms)) == pdTRUE;
   }
+  /// Set the panel brightness with the MIPI DCS command; before setup the value is stored and sent after the init
+  /// sequence.
+  void set_brightness(uint8_t brightness);
 
   void smark_failed(const LogString *message, esp_err_t err);
 
@@ -156,6 +160,7 @@ class MipiDsi final : public display::Display {
   bool big_endian_{false};
   bool updating_{false};
   uint8_t pixel_mode_{};
+  optional<uint8_t> brightness_{};
 
   esp_lcd_panel_handle_t handle_{};
   esp_lcd_dsi_bus_handle_t bus_handle_{};

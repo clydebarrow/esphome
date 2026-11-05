@@ -169,6 +169,10 @@ void MipiDsi::setup() {
         delay(10);
     }
   }
+  if (this->brightness_.has_value()) {
+    const uint8_t brightness = this->brightness_.value();
+    esp_lcd_panel_io_tx_param(this->io_handle_, BRIGHTNESS_CMD, &brightness, 1);
+  }
   this->io_lock_ = xSemaphoreCreateBinary();
   this->frame_complete_ = xSemaphoreCreateBinary();
   esp_lcd_dpi_panel_event_callbacks_t cbs = {
@@ -199,6 +203,16 @@ void MipiDsi::setup() {
   }
 
   ESP_LOGCONFIG(TAG, "MIPI DSI setup complete");
+}
+
+void MipiDsi::set_brightness(uint8_t brightness) {
+  this->brightness_ = brightness;
+  if (!this->is_ready())
+    return;
+  esp_err_t err = esp_lcd_panel_io_tx_param(this->io_handle_, BRIGHTNESS_CMD, &brightness, 1);
+  if (err != ESP_OK) {
+    ESP_LOGW(TAG, "Setting brightness failed: %s", esp_err_to_name(err));
+  }
 }
 
 void MipiDsi::update() {
