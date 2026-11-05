@@ -122,12 +122,13 @@ touchscreen:
     display: lcd
     reset_pin: {xl9535: xl9535_hub, number: 3}
 
-# The L76K GPS: P4 GPIO22 receives from it
+# The L76K GPS: P4 GPIO22 receives from it. LilyGO's factory firmware sets it to 115200 baud and 5 Hz, which it
+# keeps while it has backup power.
 uart:
   - id: gps_uart
     rx_pin: GPIO22
     tx_pin: GPIO23
-    baud_rate: 9600
+    baud_rate: 115200
     rx_buffer_size: 1024
 
 time:
