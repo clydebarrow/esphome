@@ -1,0 +1,36 @@
+# Wi-Fi through the T-Display-P4's ESP32-C6 running ESP-Hosted, and a plaintext API with a button for test scripts:
+# press "Safe shutdown" (scripts/api_button.py HOST - press "Safe shutdown") before flashing over USB. The Wi-Fi
+# settings and their secrets come from the my-devices directory next to the worktrees.
+#
+# The C6 shipped with ESP-AT; it was flashed with ESP-Hosted through its "C6 UART" connector (backup of the original
+# flash in t-display-p4-c6-factory-backup.bin). The C6 enable is on the XL9535 (see the base file), but esp32_hosted
+# requires a P4 GPIO for the reset, so it gets GPIO54, a free pin on the 2x8 header.
+
+esp32_hosted:
+  variant: esp32c6
+  clk_pin: GPIO18
+  cmd_pin: GPIO19
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+  reset_pin: GPIO54
+  slot: 1
+  use_psram: true
+
+wifi: !include ../../../my-devices/wifi.yaml
+
+# XCSoar's c-ares build expects lwIP with IPv6
+network:
+  enable_ipv6: true
+
+api:
+  reboot_timeout: 0s
+
+button:
+  - platform: template
+    name: Safe shutdown
+    on_press:
+      - lambda: |-
+          ESP_LOGW("test", "Running the shutdown hooks; the device can now be reset");
+          App.run_safe_shutdown_hooks();

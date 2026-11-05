@@ -1,8 +1,8 @@
 # Hardware of the LilyGO T-Display-P4 V1.0 with the AMOLED panel (RM69A10, GT9895 touch), shared by the
-# bring-up test (t-display-p4.yaml) and XCSoar (xcsoar-t-display-p4.yaml). No network: the ESP32-C6 runs AT
-# firmware, which esp32_hosted cannot use. Logs are on the USB-C port next to the power button (a CH343 on
-# UART0). Its DTR line drives the reset and RTS the boot pin, the reverse of the usual wiring, so opening the port
-# can leave the P4 in download mode: pulse DTR alone to start it.
+# bring-up test (t-display-p4.yaml) and XCSoar (xcsoar-t-display-p4.yaml). Wi-Fi is in t-display-p4-network.yaml.
+# Logs are on the USB-C port next to the power button (a CH343 on UART0). Its DTR line drives the reset and RTS the
+# boot pin, the reverse of the usual wiring, so opening the port can leave the P4 in download mode: pulse DTR alone
+# to start it.
 # Pins are from https://github.com/Xinyuan-LilyGO/lilygo_device_driver (src/device/t_display_p4/v1/config.h).
 
 external_components:
@@ -12,6 +12,7 @@ external_components:
     components: [gt9895]
 
 packages:
+  network: !include t-display-p4-network.yaml
   storage: !include storage-components.yaml
 
 esp32:
@@ -79,6 +80,15 @@ esphome:
         - lambda: |-
             for (auto pin : {GPIO_NUM_39, GPIO_NUM_40, GPIO_NUM_41, GPIO_NUM_42, GPIO_NUM_44})
               gpio_pullup_en(pin);
+    # Start the ESP32-C6 the way LilyGO does: drive its enable high briefly, then let it float so the C6 R
+    # button can still reset it.
+    - priority: 800
+      then:
+        - lambda: |-
+            id(xl9535_hub).digital_write(14, true);
+            id(xl9535_hub).pin_mode(14, gpio::FLAG_OUTPUT);
+        - delay: 20ms
+        - lambda: id(xl9535_hub).pin_mode(14, gpio::FLAG_INPUT);
 
 spi:
   - id: sd_spi_bus
