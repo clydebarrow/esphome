@@ -122,7 +122,7 @@ void DeepSleepComponent::deep_sleep_() {
   // Single pin wakeup (ext0) - ESP32, S2, S3 only
 #if !defined(USE_ESP32_VARIANT_ESP32C2) && !defined(USE_ESP32_VARIANT_ESP32C3) && \
     !defined(USE_ESP32_VARIANT_ESP32C5) && !defined(USE_ESP32_VARIANT_ESP32C6) && \
-    !defined(USE_ESP32_VARIANT_ESP32C61) && !defined(USE_ESP32_VARIANT_ESP32H2)
+    !defined(USE_ESP32_VARIANT_ESP32C61) && !defined(USE_ESP32_VARIANT_ESP32H2) && !defined(USE_ESP32_VARIANT_ESP32P4)
   if (this->wakeup_pin_ != nullptr) {
     const auto gpio_pin = gpio_num_t(this->wakeup_pin_->get_pin());
     if (this->wakeup_pin_->get_flags() & gpio::FLAG_PULLUP) {
