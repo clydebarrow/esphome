@@ -42,7 +42,7 @@ class TugLogger : public Component
 #endif
 {
  public:
-  explicit TugLogger(const char *card_path) : store_(card_path) {}
+  explicit TugLogger(const char *card_path) : card_path_(card_path), store_(card_path) {}
 
   void setup() override;
   void loop() override;
@@ -91,6 +91,7 @@ class TugLogger : public Component
   TowDetails &next_details() { return this->next_details_; }
   /// Keeps what the pilot entered for the next tow; a restart keeps the tug pilot too.
   void next_details_changed();
+  const std::string &card_path() const { return this->card_path_; }
   const Provisioning &provisioning() const { return this->provisioning_; }
   bool has_provisioning() const { return this->provisioned_; }
   bool card_ok() const { return this->card_ok_; }
@@ -153,6 +154,7 @@ class TugLogger : public Component
 
   DetectorSettings settings_{};
   FlightDetector detector_{};
+  std::string card_path_;
   TowStore store_;
   Provisioning provisioning_{};
   TowDetails next_details_{};

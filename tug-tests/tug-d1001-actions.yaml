@@ -20,6 +20,7 @@ api:
             else if (command == "discard") u.discard_tow();
             else if (command == "ground") u.back_to_ground();
             else if (command == "refuelled") u.mark_refuelled();
+            else if (command == "shutdown") { if (u.confirm_shutdown()) id(shutdown_script).execute(); }
             else if (command == "wifi_password") u.wifi_change_password();
             else if (command == "wifi_forget") u.wifi_forget();
             else if (command == "wifi_close") u.wifi_dialog_close();

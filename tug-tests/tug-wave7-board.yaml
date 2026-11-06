@@ -1,0 +1,75 @@
+# The Waveshare ESP32-S3-Touch-LCD-7: display, touch and SD card. From Waveshare's schematic. Flash and logs through the
+# port marked UART1. It has no clock chip, and its battery voltage only reaches a test pad, so neither is available here.
+# The backlight is on or off only (EXIO2). Dimming needs GPIO13 wired to the PWM pad, but GPIO13 is the SD card's MISO.
+
+esp32:
+  variant: esp32s3
+  flash_size: 8MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+
+logger:
+  hardware_uart: UART0
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+preferences:
+  flash_write_interval: 1min
+
+wifi: !include ../../../my-devices/wifi.yaml
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+# Touch and the expander share this bus
+i2c:
+  - id: main_i2c
+    sda: GPIO8
+    scl: GPIO9
+    frequency: 400kHz
+    scan: true
+
+ch422g:
+  - id: expander
+
+display:
+  - platform: mipi_rgb
+    id: panel
+    model: ESP32-S3-TOUCH-LCD-7-800X480
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: main_i2c
+    interrupt_pin: GPIO4
+    reset_pin:
+      ch422g: expander
+      number: 1
+
+spi:
+  - id: sd_spi_bus
+    clk_pin: GPIO12
+    mosi_pin: GPIO11
+    miso_pin: GPIO13
+
+storage:
+  - platform: sd_spi
+    id: sd_card
+    spi_id: sd_spi_bus
+    cs_pin:
+      ch422g: expander
+      number: 4
+
+filesystem:
+  - platform: fatfs
+    id: sd_fs
+    storage_id: sd_card
+    vfs_path: /sdcard

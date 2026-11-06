@@ -1,0 +1,52 @@
+# One-off: installs ESP-Hosted 3.0.10 on the JC1060P470's ESP32-C6, to match the esp_hosted version ESPHome's host side
+# uses. Wi-Fi may not work until this has run, so it installs by itself, once, shortly after the first start. Flash the
+# logger back afterwards.
+
+packages:
+  board: !include tug-jc1060-board.yaml
+
+esphome:
+  name: tug-c6-update
+  on_boot:
+    priority: -100
+    then:
+      - delay: 15s
+      - if:
+          condition:
+            lambda: return !id(c6_installed);
+          then:
+            - lambda: |-
+                id(c6_installed) = true;
+                global_preferences->sync();
+            - logger.log: Installing the co-processor firmware
+            - update.perform:
+                id: c6_update
+                force_update: true
+
+# The update component asks the old C6 for its version during setup, and that can block for a long time
+esp32:
+  watchdog_timeout: 60s
+
+logger:
+  level: VERBOSE
+  logs:
+    # The wifi tag logs the network password at VERBOSE
+    wifi: DEBUG
+    scheduler: INFO
+
+preferences:
+  flash_write_interval: 0s
+
+globals:
+  - id: c6_installed
+    type: bool
+    restore_value: true
+    initial_value: "false"
+
+update:
+  - platform: esp32_hosted
+    id: c6_update
+    name: Coprocessor firmware
+    type: embedded
+    url: https://esphome.github.io/esp-hosted-firmware/v3.0.10/network_adapter_esp32c6.bin
+    sha256: c552957fad9f35cf31b0273099dd3b23dc5c388bb43884c6567756ab97fd8cce

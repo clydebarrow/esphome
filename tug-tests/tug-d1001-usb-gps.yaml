@@ -1,0 +1,54 @@
+# tug-d1001.yaml with an MTK USB GPS (0E8D:3329) on the board's only USB connector, for a test outdoors.
+#
+# The connector becomes a host port, so USB flashing and logging stop once this is running. Flash with
+#   python -m esphome run tug-tests/tug-d1001-usb-gps.yaml --device <IP address>
+# and read logs with
+#   python -m esphome logs tug-tests/tug-d1001-usb-gps.yaml --device <IP address>
+# To get USB back: ten quick resets start safe mode, where USB host doesn't run.
+#
+# The board can't supply 5 V on this connector (the charger's OTG pin is grounded), so the GPS needs 5 V from elsewhere.
+
+packages:
+  tug: !include tug-d1001.yaml
+
+esphome:
+  name: tug-d1001-gps
+
+logger:
+  baud_rate: 0
+  level: DEBUG
+
+usb_host:
+  jtag_port: true
+
+usb_uart:
+  - id: gps_usb
+    type: cdc_acm
+    vid: 0x0E8D
+    pid: 0x3329
+    channels:
+      - id: gps_uart
+        baud_rate: 115200
+        buffer_size: 1024
+
+gps:
+  id: gps_hub
+  uart_id: gps_uart
+  update_interval: 5s
+  latitude:
+    name: GPS latitude
+  longitude:
+    name: GPS longitude
+  altitude:
+    name: GPS altitude
+  speed:
+    name: GPS speed
+  satellites:
+    name: GPS satellites
+  hdop:
+    name: GPS HDOP
+
+tug_logger:
+  gps_id: gps_hub
+  # Stay up outdoors on battery
+  shutdown_window: 8h

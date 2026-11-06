@@ -76,6 +76,20 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 - No usable serial header: J5 is not fitted and the mPCIe UART doesn't reach the P4. For NMEA, look first at
   ESPHome `usb_serial` on the USB JTAG port. The `gps_id` option takes any `gps` component.
 
+## Screens and boards (`tug-tests/`)
+
+- `tug-common.yaml` holds the screens and settings. A board's file gives `display_width`, `display_height` (as the
+  screens are seen) and `ui_rotation`; sizes and fonts are those for 800x1280 times `scale`, the smaller of the two
+  ratios. Each board also gives `time` id `rtc` and `shutdown_script`, which the Shut down button in Settings runs.
+- **Splash:** the first page, white in either theme, with `logo.png` from the card's root (optional) above the
+  organisation from the tug's file. It shows for 5 s from when the card has been read, or 12 s without a card.
+- **JC1060P470 shutdown:** it has no power control, so it sleeps with the C6 and backlight off until the reset button
+  is pressed, or external power is cycled with no battery fitted. On battery the board stays powered: on an early board
+  (no Ethernet) the side button reaches no P4 GPIO and the charger ignores its presses, so only removing the battery
+  turns it off. The BOOT button is GPIO35, which can't wake the P4 from deep sleep.
+- **JC1060P470 power:** the USB-C ports and 4-pin socket share a 5 V rail the battery doesn't feed, so a USB GPS needs
+  5 V in at another port. The board can't sense external power, so nothing shuts it down when that goes.
+
 ## Not done
 
 - GPS tracks, detecting the real release point, and lists from the server.

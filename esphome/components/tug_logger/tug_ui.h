@@ -15,6 +15,10 @@
 #include "esphome/components/skyecho/traffic_widget.h"
 #endif
 
+namespace esphome::runtime_image {
+class RuntimeImage;
+}  // namespace esphome::runtime_image
+
 namespace esphome::tug_logger {
 
 enum class TowField : uint8_t {
@@ -33,6 +37,12 @@ struct TugUiWidgets {
   lvgl::LvPageType *review_page;
   lvgl::LvPageType *tow_page;
   lvgl::LvPageType *settings_page;
+  /// Holds the splash screen: the logo goes first, above splash_name
+  lv_obj_t *splash_box;
+  lv_obj_t *splash_name;
+  lv_obj_t *shutdown_label;
+  /// Height of a row in the lists
+  int row_height;
   lv_obj_t *status;
   lv_obj_t *status_time;
   lv_obj_t *refuel_label;
@@ -89,6 +99,8 @@ class TugUi {
   void back_to_ground();
   /// Asks for a second press before the time since refuelling goes back to zero.
   void mark_refuelled();
+  /// True on the second press in time: the board's configuration then shuts down.
+  bool confirm_shutdown();
   /// Called as the picker's text changes.
   void picker_text_changed();
   /// Changes between the light and dark themes while running.
@@ -103,6 +115,8 @@ class TugUi {
   };
 
   void show_(lvgl::LvPageType *page);
+  void refresh_splash_();
+  void load_logo_();
   void open_picker_(PickerMode mode, TowField field);
   void accept_(const std::string &value);
   void open_tow_(uint32_t id);
@@ -121,6 +135,12 @@ class TugUi {
   uint32_t tow_id_{0};
   bool discard_armed_{false};
   uint8_t refuel_armed_ticks_{0};
+  uint8_t shutdown_armed_ticks_{0};
+  // Counts down while the splash shows; it stays up longer until the card has been read
+  uint8_t splash_ticks_;
+  bool splash_active_{true};
+  bool splash_loaded_{false};
+  runtime_image::RuntimeImage *logo_{nullptr};
   bool dark_mode_{false};
   uint8_t wifi_list_refresh_ticks_{0};
   std::string wifi_ssid_;

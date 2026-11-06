@@ -1,12 +1,18 @@
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components import binary_sensor, esp32, sensor, time as time_
+from esphome.components import (
+    binary_sensor,
+    esp32,
+    runtime_image,
+    sensor,
+    time as time_,
+)
 import esphome.config_validation as cv
 from esphome.const import CONF_ID, CONF_TIME_ID
 from esphome.types import ConfigType
 
 CODEOWNERS = ["@clydebarrow"]
-AUTO_LOAD = ["binary_sensor", "json", "sensor"]
+AUTO_LOAD = ["binary_sensor", "json", "runtime_image", "sensor"]
 DEPENDENCIES = ["network", "time"]
 DOMAIN = "tug_logger"
 
@@ -103,6 +109,8 @@ async def to_code(config: ConfigType) -> None:
     var = cg.new_Pvariable(config[CONF_ID], config[CONF_CARD_PATH])
     await cg.register_component(var, config)
     esp32.request_http_client()
+    # The splash screen's logo
+    runtime_image.enable_format("PNG")
     esp32.require_certificate_bundle()
 
     cg.add(var.set_time(await cg.get_variable(config[CONF_TIME_ID])))

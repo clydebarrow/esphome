@@ -1,0 +1,96 @@
+# The tug logger on a Guition JC1060P470, with GPS from an MTK USB GPS (0E8D:3329) on the high-speed USB port.
+# The GPS takes 5 V from the board's shared USB rail, which the battery doesn't feed, so power the board from another
+# USB-C port or the 4-pin socket. Copy the tug's file and logo.png to the root of the SD card.
+# Flash and logs over the CH340 port: PYTHONPATH=$PWD python -m esphome run tug-tests/tug-jc1060.yaml
+
+substitutions:
+  display_width: 600
+  display_height: 1024
+  ui_rotation: 90
+
+packages:
+  board: !include tug-jc1060-board.yaml
+  common: !include tug-common.yaml
+
+esphome:
+  name: tug-jc1060
+  on_boot:
+    priority: -100
+    then:
+      - lambda: id(rtc).read_time();
+
+tug_logger:
+  gps_id: gps_hub
+  battery_id: vbat
+
+time:
+  - id: !extend skyecho_time
+    on_time_sync:
+      - lambda: id(rtc).write_time();
+  # Only valid once the GPS has a real date
+  - platform: gps
+    gps_id: gps_hub
+    timezone: ${timezone}
+    on_time_sync:
+      - lambda: id(rtc).write_time();
+
+usb_host:
+
+usb_uart:
+  - id: gps_usb
+    type: cdc_acm
+    vid: 0x0E8D
+    pid: 0x3329
+    channels:
+      - id: gps_uart
+        baud_rate: 115200
+        buffer_size: 1024
+
+gps:
+  id: gps_hub
+  uart_id: gps_uart
+  update_interval: 5s
+  latitude:
+    name: GPS latitude
+  longitude:
+    name: GPS longitude
+  altitude:
+    name: GPS altitude
+  speed:
+    name: GPS speed
+  satellites:
+    name: GPS satellites
+  hdop:
+    name: GPS HDOP
+
+deep_sleep:
+  id: sleeper
+
+# The Shut down button in Settings. The board has no power control, so this sleeps with the C6 and backlight off until
+# the reset button is pressed, or external power is cycled with no battery fitted. On battery the charger keeps the board
+# powered, and its side button doesn't reach the P4 or respond to presses on this board, so only removing the battery
+# turns it off.
+script:
+  - id: shutdown_script
+    mode: single
+    then:
+      - lvgl.label.update:
+          id: power_down_label
+          hidden: false
+          text: Shutting down
+      - delay: 500ms
+      - light.turn_off:
+          id: backlight
+          transition_length: 0s
+      # Hold the backlight off now, and the C6 in reset at the last moment: esp_hosted aborts if it sees the C6 go away
+      - lambda: |-
+          gpio_set_direction(GPIO_NUM_23, GPIO_MODE_OUTPUT);
+          gpio_set_level(GPIO_NUM_23, 0);
+          gpio_hold_en(GPIO_NUM_23);
+          esp_deep_sleep_register_hook(+[]() {
+            gpio_set_direction(GPIO_NUM_54, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_54, 0);
+            gpio_hold_en(GPIO_NUM_54);
+          });
+      # Also saves a flight in progress, and unmounts the SD card
+      - deep_sleep.enter: sleeper

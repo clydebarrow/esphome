@@ -11,10 +11,14 @@
 #include <utility>
 
 #include "esphome/components/network/util.h"
+#include "esphome/components/runtime_image/runtime_image.h"
 #include "esphome/core/application.h"
 #include "esphome/core/helpers.h"
+#include "esphome/core/log.h"
 
 namespace esphome::tug_logger {
+
+ESPHOME_LOG_TAG(TAG, "tug_ui");
 
 static constexpr uint32_t COLOR_NORMAL = 0x202020;
 static constexpr uint32_t COLOR_WARNING = 0xB02020;
@@ -22,6 +26,14 @@ static constexpr uint32_t COLOR_WARNING = 0xB02020;
 static constexpr uint8_t WIFI_LIST_REFRESH_TICKS = 2;
 // How long the Refuelled button waits for its second press
 static constexpr uint8_t REFUEL_ARMED_TICKS = 5;
+// How long the Shut down button waits for its second press
+static constexpr uint8_t SHUTDOWN_ARMED_TICKS = 5;
+// How long the splash shows, from when the card has been read, and at most if it never is
+static constexpr uint8_t SPLASH_SHOW_TICKS = 6;
+static constexpr uint8_t SPLASH_WAIT_TICKS = 12;
+// Sized for the width of the display
+static constexpr int SPLASH_LOGO_WIDTH_PERCENT = 80;
+static constexpr size_t LOGO_MAX_BYTES = 1024 * 1024;
 
 static const char *const FIELD_TITLES[TOW_FIELD_COUNT] = {"Glider", "Pilot 1", "Pilot 2", "Tug pilot"};
 
@@ -85,7 +97,7 @@ static void row_event(lv_event_t *event) {
 void TugUi::add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click) {
   lv_obj_t *button = lv_button_create(list);
   lv_obj_set_width(button, lv_pct(100));
-  lv_obj_set_height(button, 72);
+  lv_obj_set_height(button, this->w_.row_height);
   lv_obj_t *label = lv_label_create(button);
   lv_label_set_text(label, text.c_str());
   lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
@@ -108,6 +120,7 @@ void TugUi::bind(TugLogger *logger, const TugUiWidgets &widgets) {
     lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_style_pad_row(list, 8, LV_PART_MAIN);
   }
+  this->splash_ticks_ = SPLASH_WAIT_TICKS;
   this->refresh();
 }
 
@@ -189,6 +202,8 @@ void TugUi::refresh() {
   if (this->logger_ == nullptr)
     return;
   auto *logger = this->logger_;
+  if (this->splash_active_)
+    this->refresh_splash_();
   this->set_status_();
   this->refresh_next_();
   lv_label_set_text(this->w_.review_count, Text("To review: %zu", logger->review_count()).text);
@@ -203,6 +218,77 @@ void TugUi::refresh() {
     this->fill_wifi_list_();
   if (this->refuel_armed_ticks_ != 0 && --this->refuel_armed_ticks_ == 0)
     lv_label_set_text(this->w_.refuel_label, "Refuelled");
+  if (this->shutdown_armed_ticks_ != 0 && --this->shutdown_armed_ticks_ == 0)
+    lv_label_set_text(this->w_.shutdown_label, "Shut down");
+}
+
+void TugUi::refresh_splash_() {
+  if (!this->splash_loaded_ && this->logger_->has_provisioning()) {
+    this->splash_loaded_ = true;
+    lv_label_set_text(this->w_.splash_name, this->logger_->provisioning().organisation.c_str());
+    this->load_logo_();
+    this->splash_ticks_ = SPLASH_SHOW_TICKS;
+  }
+  if (this->splash_ticks_ != 0 && --this->splash_ticks_ != 0 && !this->logger_->is_flying())
+    return;
+  this->splash_active_ = false;
+  lv_obj_remove_flag(this->w_.status, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_remove_flag(this->w_.status_time, LV_OBJ_FLAG_HIDDEN);
+  // A takeoff has already shown its page
+  if (!this->logger_->is_flying())
+    this->show_(this->w_.ground_page);
+}
+
+void TugUi::load_logo_() {
+  const std::string path = this->logger_->card_path() + "/logo.png";
+  FILE *file = fopen(path.c_str(), "rb");
+  if (file == nullptr) {
+    ESP_LOGI(TAG, "No %s for the splash screen", path.c_str());
+    return;
+  }
+  fseek(file, 0, SEEK_END);
+  const long length = ftell(file);
+  rewind(file);
+  RAMAllocator<uint8_t> allocator;
+  uint8_t *data = length > 0 && size_t(length) <= LOGO_MAX_BYTES ? allocator.allocate(length) : nullptr;
+  if (data == nullptr) {
+    ESP_LOGW(TAG, "%s is too big, or empty", path.c_str());
+    fclose(file);
+    return;
+  }
+  const size_t size = fread(data, 1, length, file);
+  fclose(file);
+  auto *logo = new runtime_image::RuntimeImage(runtime_image::PNG, image::IMAGE_TYPE_RGB565,  // NOLINT
+                                               image::TRANSPARENCY_ALPHA_CHANNEL);
+  bool good = logo->begin_decode(size, runtime_image::PNG);
+  size_t offset = 0;
+  // The decoder works for a limited time per call
+  for (int stuck = 0; good && offset != size && stuck != 100;) {
+    const int consumed = logo->feed_data(data + offset, size - offset);
+    if (consumed < 0) {
+      good = false;
+    } else if (consumed == 0) {
+      stuck++;
+    } else {
+      offset += consumed;
+      stuck = 0;
+    }
+  }
+  good = good && offset == size && logo->end_decode() && logo->get_width() > 0;
+  allocator.deallocate(data, length);
+  if (!good) {
+    ESP_LOGW(TAG, "%s could not be read as a PNG", path.c_str());
+    logo->abort_decode();
+    delete logo;  // NOLINT
+    return;
+  }
+  this->logo_ = logo;
+  lv_obj_t *image = lv_image_create(this->w_.splash_box);
+  lv_obj_move_to_index(image, 0);
+  lv_image_set_src(image, logo->get_lv_image_dsc());
+  const int width = lv_display_get_horizontal_resolution(nullptr) * SPLASH_LOGO_WIDTH_PERCENT / 100;
+  lv_obj_set_size(image, width, width * logo->get_height() / logo->get_width());
+  lv_image_set_inner_align(image, LV_IMAGE_ALIGN_STRETCH);
 }
 
 void TugUi::edit_next(TowField field) { this->open_picker_(PickerMode::PICKER_MODE_NEXT, field); }
@@ -405,6 +491,17 @@ void TugUi::mark_refuelled() {
   lv_label_set_text(this->w_.refuel_label, "Refuelled");
   this->logger_->mark_refuelled();
   this->set_status_();
+}
+
+bool TugUi::confirm_shutdown() {
+  if (this->shutdown_armed_ticks_ == 0) {
+    this->shutdown_armed_ticks_ = SHUTDOWN_ARMED_TICKS;
+    lv_label_set_text(this->w_.shutdown_label, "Confirm?");
+    return false;
+  }
+  this->shutdown_armed_ticks_ = 0;
+  lv_label_set_text(this->w_.shutdown_label, "Shut down");
+  return true;
 }
 
 void TugUi::back_to_ground() {

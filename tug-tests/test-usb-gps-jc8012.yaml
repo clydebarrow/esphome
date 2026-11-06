@@ -1,0 +1,49 @@
+# Bench test: does usb_uart's CDC-ACM driver accept the MTK USB GPS (0E8D:3329)?
+# Logs the USB descriptors on connect, then prints whatever the GPS sends.
+# Logs on UART0, the CH340 port. The GPS goes in the board's USB host port.
+
+esphome:
+  name: usb-gps-test
+
+esp32:
+  variant: esp32p4
+  flash_size: 16MB
+  engineering_sample: true
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0
+  baud_rate: 115200
+  level: VERBOSE
+  logs:
+    usb_uart: DEBUG
+    scheduler: DEBUG
+
+usb_host:
+
+usb_uart:
+  - id: gps_usb
+    type: cdc_acm
+    vid: 0x0E8D
+    pid: 0x3329
+    channels:
+      - id: gps_uart
+        baud_rate: 115200
+        buffer_size: 1024
+
+# Reads through the normal UART interface, as a GPS parser would, and logs each sentence
+interval:
+  - interval: 20ms
+    then:
+      - lambda: |-
+          static std::string line;
+          uint8_t c;
+          while (id(gps_uart).available() != 0 && id(gps_uart).read_byte(&c)) {
+            if (c == '\n') {
+              ESP_LOGI("gps", "%s", line.c_str());
+              line.clear();
+            } else if (c != '\r' && line.size() < 120) {
+              line += char(c);
+            }
+          }

@@ -1,0 +1,27 @@
+# tug-jc1060.yaml for the bench: API actions to step through the screens, and one to fetch a file to the card.
+packages:
+  tug: !include tug-jc1060.yaml
+  actions: !include tug-d1001-actions.yaml
+
+esphome:
+  name: tug-jc1060-test
+  includes:
+    - fetch_file.h
+
+api:
+  actions:
+    - action: fetch_to_card
+      variables:
+        url: string
+        path: string
+      then:
+        - lambda: fetch_file(url, path);
+    - action: set_clock
+      variables:
+        epoch: int
+      then:
+        - lambda: |-
+            struct timeval tv{};
+            tv.tv_sec = epoch;
+            settimeofday(&tv, nullptr);
+            id(rtc).write_time();

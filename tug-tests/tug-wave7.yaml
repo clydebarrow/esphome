@@ -1,0 +1,40 @@
+# The tug logger on a Waveshare ESP32-S3-Touch-LCD-7, with GPS from a SkyEcho over Wi-Fi. Copy the tug's file and logo.png
+# to the root of the SD card. With no clock chip, the time comes from the SkyEcho or from the internet after each start.
+# Flash and logs over the UART1 port: PYTHONPATH=$PWD python -m esphome run tug-tests/tug-wave7.yaml
+
+substitutions:
+  display_width: 480
+  display_height: 800
+  ui_rotation: 90
+
+packages:
+  board: !include tug-wave7-board.yaml
+  common: !include tug-common.yaml
+
+esphome:
+  name: tug-wave7
+
+time:
+  - platform: sntp
+    id: rtc
+
+deep_sleep:
+  id: sleeper
+
+# The Shut down button in Settings. The board has no power control of its own, so this sleeps with the panel and its
+# backlight off, until the reset button is pressed or the power is removed.
+script:
+  - id: shutdown_script
+    mode: single
+    then:
+      - lvgl.label.update:
+          id: power_down_label
+          hidden: false
+          text: Shutting down
+      - delay: 500ms
+      # The expander keeps its outputs during sleep: EXIO2 is the backlight, EXIO6 the panel's power
+      - lambda: |-
+          id(expander).digital_write(2, false);
+          id(expander).digital_write(6, false);
+      # Also saves a flight in progress, and unmounts the SD card
+      - deep_sleep.enter: sleeper
