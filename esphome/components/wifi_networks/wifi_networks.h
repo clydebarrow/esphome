@@ -51,7 +51,8 @@ struct Status {
 /// The station list of the wifi component becomes: the glider's own SkyEcho (named "SkyEcho_" and its registration,
 /// see set_registration()), the other SkyEcho networks (those over which GDL90 data has arrived, and those named
 /// "SkyEcho...", in any case), then the other saved networks, then the networks from the configuration. The glider's
-/// own SkyEcho is switched to when it is seen, also from another SkyEcho. An open network
+/// own SkyEcho is switched to when it is seen, also from another SkyEcho. While the glider has a registration, the
+/// SkyEchos of other gliders (named "SkyEcho_" and three other letters or digits) are left out. An open network
 /// named "SkyEcho..." is saved when it is seen. A SkyEcho that comes into range while another network is in use is
 /// switched to, at most every 5 minutes. Joining a network by hand keeps that network until set_automatic(),
 /// disconnect() or a restart.
@@ -142,8 +143,13 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
   bool current_is_skyecho_();
   /// Whether ssid is the glider's own SkyEcho
   bool is_preferred_(const char *ssid) const;
+  /// Whether ssid is named as another glider's SkyEcho, "SkyEcho_" and another registration, while this glider has
+  /// one: it is not joined unless chosen by hand
+  bool is_other_glider_(const char *ssid) const;
 
   ESPPreferenceObject pref_;
+  // The glider's own SkyEcho, kept so that it is known before the registration arrives after a restart
+  ESPPreferenceObject preferred_pref_;
   SavedNetworks saved_{};
   // The networks of the configuration, as the wifi component had them before setup()
   FixedVector<wifi::WiFiAP> configured_;

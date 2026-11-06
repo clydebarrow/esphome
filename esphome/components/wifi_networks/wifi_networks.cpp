@@ -2,6 +2,7 @@
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
 
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <strings.h>
@@ -38,6 +39,11 @@ void WifiNetworks::setup() {
   this->pref_ = global_preferences->make_preference<SavedNetworks>(fnv1_hash("wifi_networks"), true);
   if (!this->pref_.load(&this->saved_) || this->saved_.count > WIFI_NETWORKS_MAX)
     this->saved_ = {};
+  this->preferred_pref_ =
+      global_preferences->make_preference<decltype(this->preferred_)>(fnv1_hash("wifi_networks_preferred"), true);
+  if (!this->preferred_pref_.load(&this->preferred_))
+    this->preferred_[0] = 0;
+  this->preferred_[sizeof(this->preferred_) - 1] = 0;
 
   wifi->add_scan_results_listener(this);
   wifi->add_connect_state_listener(this);
@@ -172,13 +178,19 @@ void WifiNetworks::run_(const Command &command) {
         if (*registration == '-')
           registration++;
       }
-      if (*registration == 0) {
-        this->preferred_[0] = 0;
-      } else {
-        snprintf(this->preferred_, sizeof(this->preferred_), "SkyEcho_%s", registration);
+      char preferred[SSID_SIZE]{};
+      if (*registration != 0)
+        snprintf(preferred, sizeof(preferred), "SkyEcho_%s", registration);
+      if (strcmp(preferred, this->preferred_) != 0) {
+        memcpy(this->preferred_, preferred, sizeof(this->preferred_));
+        this->preferred_pref_.save(&this->preferred_);
+        global_preferences->sync();
+      }
+      if (this->preferred_[0] != 0) {
         ESP_LOGI(TAG, "The glider's own SkyEcho is " LOG_SECRET("'%s'"), this->preferred_);
       }
-      this->apply_(false);
+      // Another glider's SkyEcho in use is left, unless it was joined by hand
+      this->apply_(this->pinned_[0] == 0 && this->is_other_glider_(this->current_));
       // Look for it now rather than at the next scan
       if (this->preferred_[0] != 0 && this->pinned_[0] == 0 && wifi->is_connected() &&
           !this->is_preferred_(this->current_))
@@ -221,6 +233,8 @@ void WifiNetworks::apply_(bool restart) {
     for (uint8_t rank = 0; rank != 3; rank++) {
       for (uint8_t i = 0; i != this->saved_.count; i++) {
         const auto &saved = this->saved_.networks[i];
+        if (this->is_other_glider_(saved.ssid))
+          continue;
         const uint8_t saved_rank = this->is_preferred_(saved.ssid) ? 0 : (saved.flags & FLAG_SKYECHO) != 0 ? 1 : 2;
         if (saved_rank != rank)
           continue;
@@ -308,6 +322,8 @@ void WifiNetworks::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiF
   bool preferred_in_range = false;
   for (uint8_t i = 0; i != this->visible_count_; i++) {
     const Visible &visible = this->visible_[i];
+    if (this->is_other_glider_(visible.ssid))
+      continue;
     SavedNetwork *saved = this->find_saved_(visible.ssid);
     // An open network named as a SkyEcho is joined before any of its data has arrived
     if (saved == nullptr && !visible.secured && is_skyecho_ssid(visible.ssid)) {
@@ -456,6 +472,23 @@ WifiNetworks::SavedNetwork *WifiNetworks::add_saved_(const char *ssid) {
 
 bool WifiNetworks::is_preferred_(const char *ssid) const {
   return this->preferred_[0] != 0 && strcasecmp(ssid, this->preferred_) == 0;
+}
+
+bool WifiNetworks::is_other_glider_(const char *ssid) const {
+  if (this->preferred_[0] == 0 || !is_skyecho_ssid(ssid) || this->is_preferred_(ssid))
+    return false;
+  // A SkyEcho's own name ends in more characters of its serial number; a registration has three
+  const char *suffix = ssid + 7;
+  if (*suffix != '_')
+    return false;
+  suffix++;
+  if (strlen(suffix) != 3)
+    return false;
+  for (const char *p = suffix; *p != 0; p++) {
+    if (!isalnum(static_cast<unsigned char>(*p)))
+      return false;
+  }
+  return true;
 }
 
 bool WifiNetworks::current_is_skyecho_() {
