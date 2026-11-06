@@ -4,6 +4,9 @@
 #include "usb_host.h"
 #include <cinttypes>
 #include "esphome/core/log.h"
+#ifdef USE_USB_HOST_JTAG_PORT
+#include "hal/usb_wrap_ll.h"
+#endif
 
 namespace esphome::usb_host {
 
@@ -14,6 +17,11 @@ void USBHost::setup() {
   config.fifo_settings_custom.rx_fifo_lines = USB_HOST_FIFO_RX_LINES;
   config.fifo_settings_custom.nptx_fifo_lines = USB_HOST_FIFO_NPTX_LINES;
   config.fifo_settings_custom.ptx_fifo_lines = USB_HOST_FIFO_PTX_LINES;
+#endif
+#ifdef USE_USB_HOST_JTAG_PORT
+  // Swap the two full-speed PHYs: the full-speed controller takes GPIO24/25, and the USB JTAG unit moves to GPIO26/27
+  usb_wrap_ll_phy_select(&USB_WRAP, 0);
+  config.peripheral_map = BIT1;
 #endif
 
   if (usb_host_install(&config) != ESP_OK) {

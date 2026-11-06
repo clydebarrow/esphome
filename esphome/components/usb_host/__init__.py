@@ -35,6 +35,7 @@ usb_host_ns = cg.esphome_ns.namespace("usb_host")
 USBHost = usb_host_ns.class_("USBHost", Component)
 USBClient = usb_host_ns.class_("USBClient", Component)
 DOMAIN = "usb_host"
+CONF_JTAG_PORT = "jtag_port"
 CONF_VID = "vid"
 CONF_PID = "pid"
 CONF_PRODUCT = "product"
@@ -201,6 +202,9 @@ def fifo_split() -> tuple[int, int, int] | None:
     requested = CORE.data.get(DOMAIN, {}).get(KEY_PERIODIC_FIFO)
     if requested is None:
         return None
+    # FIFO_GEOMETRY describes the high-speed controller; leave the full-speed one to ESP-IDF's default split
+    if fv.full_config.get().get(DOMAIN, {}).get(CONF_JTAG_PORT):
+        return None
     if (geometry := FIFO_GEOMETRY.get(get_esp32_variant())) is None:
         return None
     in_bytes, out_bytes = requested
@@ -270,6 +274,12 @@ CONFIG_SCHEMA = cv.All(
                 64, 128, 256, 512, 1024, int=True
             ),
             cv.Optional(CONF_DEVICES): cv.ensure_list(usb_device_schema()),
+            # ESP32-P4: host on the full-speed controller, through the pins of the USB JTAG unit (GPIO24/25),
+            # for boards whose only USB connector is wired there. USB flashing and logging stop while this runs,
+            # so set the logger's baud_rate to 0, and flash over the air.
+            cv.Optional(CONF_JTAG_PORT, default=False): cv.All(
+                cv.boolean, only_on_variant(supported=[VARIANT_ESP32P4])
+            ),
         }
     ),
     only_on_variant(
@@ -310,6 +320,8 @@ async def to_code(config: ConfigType) -> None:
 
     cg.add_define("USB_HOST_MAX_REQUESTS", config[CONF_MAX_TRANSFER_REQUESTS])
     cg.add_define("USB_HOST_MAX_PACKET_SIZE", config[CONF_MAX_PACKET_SIZE])
+    if config[CONF_JTAG_PORT]:
+        cg.add_define("USE_USB_HOST_JTAG_PORT")
 
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
