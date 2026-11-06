@@ -1,0 +1,6 @@
+# Test only: xcsoar-t-display-p4-flarm-skyecho.yaml against gdlsim, whose websocket is on port 7070
+packages:
+  base: !include xcsoar-t-display-p4-flarm-skyecho.yaml
+time:
+  - id: !extend skyecho_time
+    port: 7070
