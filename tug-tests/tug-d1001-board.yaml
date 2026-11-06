@@ -149,7 +149,10 @@ binary_sensor:
   # The green button on top
   - platform: gpio
     id: power_button
-    pin: 3
+    pin:
+      number: 3
+      # Also the wake pin where a device config sleeps
+      allow_other_uses: true
     trigger_on_initial_state: false
   # CHARGE_STATE on the schematic: logged as it reads, to check the battery charges
   - platform: gpio

@@ -36,15 +36,12 @@ tug_logger:
     - delay: 5s
     - lambda: App.safe_reboot();
 
-# Holding the green button powers off, on battery only: with external power the device can't turn itself off
+# Holding the green button for 3 s powers off. With external power the device can't cut its own power, so it releases
+# power hold and sleeps: unplugging it then turns it off, and pressing the button wakes it.
 binary_sensor:
   - id: !extend power_button
     on_press:
-      - if:
-          condition:
-            binary_sensor.is_off: external_power
-          then:
-            - script.execute: power_down_script
+      - script.execute: power_down_script
     # The button itself keeps the power on while it is held, so the power only goes once it is let go. That release
     # must not turn power hold on again.
     on_release:
@@ -56,6 +53,15 @@ binary_sensor:
             - lvgl.widget.update:
                 id: power_down_label
                 hidden: true
+
+deep_sleep:
+  id: sleeper
+  # The green button reads high while pressed
+  esp32_ext1_wakeup:
+    pins:
+      - number: GPIO3
+        allow_other_uses: true
+    mode: ANY_HIGH
 
 script:
   - id: power_down_script
@@ -84,10 +90,10 @@ script:
       - switch.turn_off: power_hold
       - wait_until:
           binary_sensor.is_off: power_button
-      # Still running: external power came back. The card is unmounted, so start again
-      - delay: 5s
-      - lambda: App.safe_reboot();
-  # The Shut down button in Settings. With external power the device can't turn itself off, so it restarts
+      # Still running, so external power is on. A pressed button would wake it at once
+      - delay: 1s
+      - script.execute: sleep_script
+  # The Shut down button in Settings
   - id: shutdown_script
     mode: single
     then:
@@ -100,6 +106,29 @@ script:
       - lambda: App.run_safe_shutdown_hooks();
       - delay: 500ms
       - switch.turn_off: power_hold
-      # Still running: external power is on. The card is unmounted, so start again
-      - delay: 5s
-      - lambda: App.safe_reboot();
+      # Still running, so external power is on
+      - delay: 1s
+      - script.execute: sleep_script
+  # With power hold released: unplugging turns the device off, and the green button wakes it
+  - id: sleep_script
+    mode: single
+    then:
+      - lvgl.label.update:
+          id: power_down_label
+          hidden: false
+          text: Unplug to power off, or press the button to start again
+      - delay: 3s
+      - light.turn_off:
+          id: backlight
+          transition_length: 0s
+      # Hold the backlight off now, and the C6 in reset at the last moment: esp_hosted aborts if it sees the C6 go away
+      - lambda: |-
+          gpio_set_direction(GPIO_NUM_14, GPIO_MODE_OUTPUT);
+          gpio_set_level(GPIO_NUM_14, 0);
+          gpio_hold_en(GPIO_NUM_14);
+          esp_deep_sleep_register_hook(+[]() {
+            gpio_set_direction(GPIO_NUM_13, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_13, 0);
+            gpio_hold_en(GPIO_NUM_13);
+          });
+      - deep_sleep.enter: sleeper
