@@ -87,6 +87,12 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   is pressed, or external power is cycled with no battery fitted. On battery the board stays powered: on an early board
   (no Ethernet) the side button reaches no P4 GPIO and the charger ignores its presses, so only removing the battery
   turns it off. The BOOT button is GPIO35, which can't wake the P4 from deep sleep.
+- **Firmware updates:** Settings > Check for update asks the Worker (`/api/firmware/check`, beside the upload address
+  in the tug's file, signed with its key) for firmware built with this device's name other than the running build.
+  A second press installs it with `ota.http_request.flash`, after saving any flight and unmounting the card. The link
+  expires after 10 minutes, so a failed install asks for a fresh check. The Worker's README covers uploads.
+- **Settings:** refreshed every second while it shows, including the Wi-Fi state ("joining" while connecting). A
+  saved network can be joined from its dialog with Connect.
 - **JC1060P470 power:** the USB-C ports and 4-pin socket share a 5 V rail the battery doesn't feed, so a USB GPS needs
   5 V in at another port. The board can't sense external power, so nothing shuts it down when that goes.
 

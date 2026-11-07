@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "esphome/components/binary_sensor/binary_sensor.h"
@@ -31,6 +32,22 @@ enum class GpsSource : uint8_t {
   GPS_SOURCE_NONE,
   GPS_SOURCE_SKYECHO,
   GPS_SOURCE_NMEA,
+};
+
+enum class FirmwareState : uint8_t {
+  FIRMWARE_STATE_IDLE,
+  FIRMWARE_STATE_CHECKING,
+  FIRMWARE_STATE_CURRENT,
+  FIRMWARE_STATE_AVAILABLE,
+  FIRMWARE_STATE_FAILED,
+};
+
+/// What the server offered: a link that expires, and the image's MD5 for the OTA to check.
+struct FirmwareOffer {
+  std::string url;
+  std::string md5;
+  std::string uploaded_at;
+  std::string message;
 };
 
 /// Detects flights from a SkyEcho or an NMEA GPS, keeps tows on the SD card for the pilot to review, and uploads the
@@ -118,6 +135,18 @@ class TugLogger : public Component
 
   /// Run by the upload task.
   void upload_step();
+  /// Run by the upload task: answers a request_firmware_check().
+  void firmware_step();
+
+  /// Asks the server, from the upload task, whether there is firmware for this device other than what it runs.
+  void request_firmware_check();
+  FirmwareState firmware_state() const { return this->firmware_state_.load(); }
+  FirmwareOffer firmware_offer() {
+    std::lock_guard<std::mutex> guard(this->firmware_lock_);
+    return this->firmware_offer_;
+  }
+  /// After a failed install, so that a fresh link is fetched.
+  void firmware_install_failed();
 
  protected:
   void tick_();
@@ -189,6 +218,11 @@ class TugLogger : public Component
   std::atomic<size_t> failed_{0};
   std::atomic<bool> on_skyecho_network_{false};
   uint32_t last_upload_ms_{0};
+
+  std::atomic<FirmwareState> firmware_state_{FirmwareState::FIRMWARE_STATE_IDLE};
+  std::atomic<bool> firmware_check_requested_{false};
+  std::mutex firmware_lock_;
+  FirmwareOffer firmware_offer_;
 
   LazyCallbackManager<void()> takeoff_callback_;
   LazyCallbackManager<void()> landed_callback_;

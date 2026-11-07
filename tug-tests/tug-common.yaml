@@ -54,6 +54,7 @@ esphome:
           w.wifi_dialog_title = id(wifi_dialog_title);
           w.wifi_password_button = id(wifi_password_button);
           w.wifi_forget_button = id(wifi_forget_button);
+          w.firmware_label = id(firmware_label);
           w.picker_keyboard = id(picker_keyboard)->obj;
           w.theme_label = id(theme_label);
           w.traffic = id(traffic);
@@ -117,6 +118,41 @@ time:
     id: skyecho_time
     port: ${skyecho_time_port}
     timezone: ${timezone}
+
+# Firmware updates from the Worker that takes the tows: Settings checks for one, and installs it on a second press
+http_request:
+  id: http_client
+  verify_ssl: true
+  timeout: 30s
+  watchdog_timeout: 30s
+
+ota:
+  - platform: http_request
+    id: ota_http
+
+script:
+  - id: firmware_update_script
+    mode: single
+    then:
+      - lvgl.label.update:
+          id: power_down_label
+          hidden: false
+          text: Installing the update. This takes a minute or two; the device restarts when it is done
+      # Let the message show before the download holds the main loop
+      - delay: 200ms
+      # Saves a flight in progress, and unmounts the SD card. The device restarts after a good install
+      - lambda: App.run_safe_shutdown_hooks();
+      - ota.http_request.flash:
+          id: ota_http
+          url: !lambda return id(logger_id).firmware_offer().url;
+          md5: !lambda return id(logger_id).firmware_offer().md5;
+      # Still here, so the install failed. The card is unmounted, so start again
+      - lvgl.label.update:
+          id: power_down_label
+          text: The update failed. Restarting
+      - lambda: id(ui).firmware_install_failed();
+      - delay: 5s
+      - lambda: App.safe_reboot();
 
 interval:
   - interval: 1s
@@ -481,9 +517,22 @@ lvgl:
             text: ""
         - button:
             styles: action_button
-            align: bottom_mid
+            align: bottom_left
             y: "${(-200 * scale) | round | int}"
-            width: 100%
+            width: "${(370 * scale) | round | int}"
+            on_click:
+              - if:
+                  condition:
+                    lambda: return id(ui).firmware_button();
+                  then:
+                    - script.execute: firmware_update_script
+            widgets:
+              - label: {id: firmware_label, align: center, text: Check for update}
+        - button:
+            styles: action_button
+            align: bottom_right
+            y: "${(-200 * scale) | round | int}"
+            width: "${(370 * scale) | round | int}"
             bg_color: 0xD02020
             on_click:
               - lambda: |-
@@ -522,9 +571,10 @@ lvgl:
             id: wifi_list
             text_font: bold_28
             align: top_mid
-            y: "${(200 * scale) | round | int}"
+            # Below the six lines of settings_info
+            y: "${(280 * scale) | round | int}"
             width: 100%
-            height: "${(630 * scale) | round | int}"
+            height: "${(550 * scale) | round | int}"
             pad_all: "${(6 * scale) | round | int}"
         # Last, so that it covers the rest of the page, and leaves with the page
         - obj:
@@ -550,6 +600,13 @@ lvgl:
                     pad_row: "${(16 * scale) | round | int}"
                   widgets:
                     - label: {id: wifi_dialog_title, width: 100%, text_font: bold_40, text: ""}
+                    - button:
+                        styles: action_button
+                        width: 100%
+                        on_click:
+                          - lambda: id(ui).wifi_connect();
+                        widgets:
+                          - label: {align: center, text: Connect}
                     - button:
                         id: wifi_password_button
                         styles: action_button

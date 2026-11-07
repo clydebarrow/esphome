@@ -167,8 +167,18 @@ void TugUi::set_status_() {
       status += "NO GPS";
       break;
   }
-  status +=
-      logger->on_skyecho_network() ? "   Wi-Fi: SkyEcho" : (network::is_connected() ? "   Wi-Fi: on" : "   Wi-Fi: off");
+  if (logger->on_skyecho_network()) {
+    status += "   Wi-Fi: SkyEcho";
+  } else if (network::is_connected()) {
+    status += "   Wi-Fi: on";
+  } else {
+    bool joining = false;
+#ifdef USE_TUG_LOGGER_WIFI_NETWORKS
+    if (auto *networks = logger->get_wifi_networks(); networks != nullptr)
+      joining = networks->get_status().state == wifi_networks::WifiState::WIFI_STATE_CONNECTING;
+#endif
+    status += joining ? "   Wi-Fi: joining" : "   Wi-Fi: off";
+  }
   const float battery = logger->battery_voltage();
   if (!std::isnan(battery))
     status += Text("   %.1f V", battery).text;
@@ -216,6 +226,8 @@ void TugUi::refresh() {
   }
   if (this->wifi_list_refresh_ticks_ != 0 && --this->wifi_list_refresh_ticks_ == 0)
     this->fill_wifi_list_();
+  if (lv_screen_active() == this->w_.settings_page->obj)
+    this->refresh_settings_();
   if (this->refuel_armed_ticks_ != 0 && --this->refuel_armed_ticks_ == 0)
     lv_label_set_text(this->w_.refuel_label, "Refuelled");
   if (this->shutdown_armed_ticks_ != 0 && --this->shutdown_armed_ticks_ == 0)
@@ -509,7 +521,25 @@ void TugUi::back_to_ground() {
   this->show_(this->w_.ground_page);
 }
 
-void TugUi::show_settings() {
+std::string TugUi::wifi_text_() {
+#ifdef USE_TUG_LOGGER_WIFI_NETWORKS
+  if (auto *networks = this->logger_->get_wifi_networks(); networks != nullptr) {
+    const wifi_networks::Status status = networks->get_status();
+    switch (status.state) {
+      case wifi_networks::WifiState::WIFI_STATE_CONNECTING:
+        return status.ssid[0] != 0 ? std::string("Wi-Fi: joining ") + status.ssid + "..." : "Wi-Fi: joining...";
+      case wifi_networks::WifiState::WIFI_STATE_CONNECTED:
+        return std::string("Wi-Fi: ") + status.ssid + ", " + status.ip;
+      default:
+        return "Wi-Fi: off";
+    }
+  }
+#endif
+  return network::is_connected() ? "Wi-Fi: on" : "Wi-Fi: off";
+}
+
+// Kept up to date while the page shows
+void TugUi::refresh_settings_() {
   const Provisioning &settings = this->logger_->provisioning();
   std::string info;
   if (this->logger_->has_provisioning()) {
@@ -519,10 +549,56 @@ void TugUi::show_settings() {
     info = "No tug.json on the SD card";
   }
   info += Text("\nQueued %zu, refused %zu", this->logger_->queued_count(), this->logger_->failed_count()).text;
+  const std::string wifi = this->wifi_text_();
+  info += "\n" + wifi;
   char build_time[Application::BUILD_TIME_STR_SIZE];
   App.get_build_time_string(build_time);
   info += std::string("\nFirmware ") + build_time;
-  lv_label_set_text(this->w_.settings_info, info.c_str());
+  const FirmwareState state = this->logger_->firmware_state();
+  const char *button = "Check for update";
+  if (state == FirmwareState::FIRMWARE_STATE_CHECKING) {
+    info += "\nChecking for an update...";
+    button = "Checking...";
+  } else if (state != FirmwareState::FIRMWARE_STATE_IDLE) {
+    info += "\n" + this->logger_->firmware_offer().message;
+    if (state == FirmwareState::FIRMWARE_STATE_AVAILABLE)
+      button = "Install update";
+  }
+  if (strcmp(lv_label_get_text(this->w_.settings_info), info.c_str()) != 0)
+    lv_label_set_text(this->w_.settings_info, info.c_str());
+  if (strcmp(lv_label_get_text(this->w_.firmware_label), button) != 0)
+    lv_label_set_text(this->w_.firmware_label, button);
+  // The list shows which network is in use, so fill it again when that changes, unless a dialog is over it
+  if (wifi != this->wifi_shown_ && lv_obj_has_flag(this->w_.wifi_dialog, LV_OBJ_FLAG_HIDDEN)) {
+    this->wifi_shown_ = wifi;
+    this->fill_wifi_list_();
+  }
+}
+
+bool TugUi::firmware_button() {
+  switch (this->logger_->firmware_state()) {
+    case FirmwareState::FIRMWARE_STATE_CHECKING:
+      return false;
+    case FirmwareState::FIRMWARE_STATE_AVAILABLE:
+      if (!this->logger_->is_flying())
+        return true;
+      lv_label_set_text(this->w_.settings_info, "Not while flying");
+      return false;
+    default:
+      this->logger_->request_firmware_check();
+      this->refresh_settings_();
+      return false;
+  }
+}
+
+void TugUi::firmware_install_failed() {
+  this->logger_->firmware_install_failed();
+  this->refresh_settings_();
+}
+
+void TugUi::show_settings() {
+  lv_label_set_text(this->w_.settings_info, "");
+  this->refresh_settings_();
   this->wifi_dialog_close();
   this->show_wifi_list();
   this->show_(this->w_.settings_page);
@@ -590,6 +666,17 @@ void TugUi::open_wifi_dialog_(bool saved, bool can_set_password) {
 }
 
 void TugUi::wifi_dialog_close() { set_hidden(this->w_.wifi_dialog, true); }
+
+void TugUi::wifi_connect() {
+  this->wifi_dialog_close();
+#ifdef USE_TUG_LOGGER_WIFI_NETWORKS
+  if (auto *networks = this->logger_->get_wifi_networks(); networks != nullptr) {
+    // A known network: joined with its own password
+    networks->connect(this->wifi_ssid_.c_str(), nullptr);
+    this->wifi_list_refresh_ticks_ = WIFI_LIST_REFRESH_TICKS;
+  }
+#endif
+}
 
 void TugUi::wifi_change_password() {
   this->wifi_dialog_close();

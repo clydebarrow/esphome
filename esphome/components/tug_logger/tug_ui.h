@@ -65,6 +65,7 @@ struct TugUiWidgets {
   lv_obj_t *wifi_dialog_title;
   lv_obj_t *wifi_password_button;
   lv_obj_t *wifi_forget_button;
+  lv_obj_t *firmware_label;
   lv_obj_t *picker_keyboard;
   lv_obj_t *theme_label;
 #ifdef USE_TUG_LOGGER_SKYECHO
@@ -90,9 +91,14 @@ class TugUi {
   void show_settings();
   void show_wifi_list();
   /// The dialog for the known network chosen in the Wi-Fi list.
+  void wifi_connect();
   void wifi_change_password();
   void wifi_forget();
   void wifi_dialog_close();
+  /// The firmware button in Settings: checks for an update, or returns true when one should be installed.
+  bool firmware_button();
+  /// The install could not complete.
+  void firmware_install_failed();
   void confirm_tow();
   /// Asks for a second press before the tow is taken off the list.
   void discard_tow();
@@ -125,6 +131,8 @@ class TugUi {
   void set_status_();
   void add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click);
   void fill_wifi_list_();
+  void refresh_settings_();
+  std::string wifi_text_();
   void open_wifi_dialog_(bool saved, bool can_set_password);
   bool current_tow_(TowRecord &record);
 
@@ -144,6 +152,8 @@ class TugUi {
   bool dark_mode_{false};
   uint8_t wifi_list_refresh_ticks_{0};
   std::string wifi_ssid_;
+  // What the Wi-Fi list last showed, so it is filled again when the connection changes
+  std::string wifi_shown_;
 };
 
 }  // namespace esphome::tug_logger
