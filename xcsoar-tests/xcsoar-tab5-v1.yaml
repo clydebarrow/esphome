@@ -10,9 +10,15 @@ esphome:
 display:
   - id: !extend lcd
     model: M5STACK-TAB5
+    # the other way round from the V2 panels
+    rotation: 270
     # 60 MHz refreshes at 48 Hz, which flickers visibly; 75 MHz gives 60 Hz
     pclk_frequency: 75MHz
 
 touchscreen:
   - id: !extend touch
     platform: gt911
+    transform:
+      swap_xy: true
+      mirror_x: true
+      mirror_y: false
