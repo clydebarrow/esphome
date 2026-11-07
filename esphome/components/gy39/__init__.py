@@ -1,2 +1,0 @@
-CODEOWNERS = ["@St0fF-NPL-ToM"]
-DOMAIN = "gy39"
