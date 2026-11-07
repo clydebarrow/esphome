@@ -39,6 +39,9 @@ network:
 api:
   reboot_timeout: 0s
 
+# Flashing over Wi-Fi; the password comes from the my-devices directory, like the Wi-Fi settings
+ota: !include ../../../my-devices/ota.yaml
+
 button:
   - platform: template
     name: Safe shutdown
