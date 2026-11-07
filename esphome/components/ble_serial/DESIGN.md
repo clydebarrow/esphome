@@ -1,8 +1,8 @@
 # ble_serial design
 
-ble_serial connects to Bluetooth LE serial devices (HM-10, Nordic UART, ISSC and LXNAV services). Today the devices are
-chosen at run time from C++: an application (XCSoar) asks for a scan, gets each serial device found through a
-callback, and opens or closes devices by address. Nothing can be done with it from YAML beyond `max_devices`.
+ble_serial connects to Bluetooth LE serial devices (HM-10, Nordic UART, ISSC and Control-J services). Today the
+devices are chosen at run time from C++: an application (XCSoar) asks for a scan, gets each serial device found through
+a callback, and opens or closes devices by address. Nothing can be done with it from YAML beyond `max_devices`.
 
 This document plans YAML-configured devices. It is a plan only; none of it is written yet.
 
