@@ -24,6 +24,8 @@ static constexpr uint32_t COLOR_NORMAL = 0x202020;
 static constexpr uint32_t COLOR_WARNING = 0xB02020;
 // The Wi-Fi component takes a command on its next loop, so the list is read again on the second tick after one
 static constexpr uint8_t WIFI_LIST_REFRESH_TICKS = 2;
+// The most of a network's name that the status bar shows
+static constexpr size_t STATUS_SSID_LENGTH = 16;
 // How long the Refuelled button waits for its second press
 static constexpr uint8_t REFUEL_ARMED_TICKS = 5;
 // How long the Shut down button waits for its second press
@@ -167,16 +169,21 @@ void TugUi::set_status_() {
       status += "NO GPS";
       break;
   }
-  if (logger->on_skyecho_network()) {
-    status += "   Wi-Fi: SkyEcho";
-  } else if (network::is_connected()) {
-    status += "   Wi-Fi: on";
-  } else {
-    bool joining = false;
+  // The network in use, by name; a long name is cut so the row still fits
+  std::string ssid;
+  bool joining = false;
 #ifdef USE_TUG_LOGGER_WIFI_NETWORKS
-    if (auto *networks = logger->get_wifi_networks(); networks != nullptr)
-      joining = networks->get_status().state == wifi_networks::WifiState::WIFI_STATE_CONNECTING;
+  if (auto *networks = logger->get_wifi_networks(); networks != nullptr) {
+    const wifi_networks::Status wifi = networks->get_status();
+    ssid = wifi.ssid;
+    joining = wifi.state == wifi_networks::WifiState::WIFI_STATE_CONNECTING;
+  }
 #endif
+  if (ssid.size() > STATUS_SSID_LENGTH)
+    ssid = ssid.substr(0, STATUS_SSID_LENGTH - 1) + "~";
+  if (network::is_connected()) {
+    status += "   Wi-Fi: " + (ssid.empty() ? std::string(logger->on_skyecho_network() ? "SkyEcho" : "on") : ssid);
+  } else {
     status += joining ? "   Wi-Fi: joining" : "   Wi-Fi: off";
   }
   const float battery = logger->battery_voltage();
