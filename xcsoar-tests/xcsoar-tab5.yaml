@@ -89,7 +89,8 @@ display:
     id: lcd
     model: M5STACK-TAB5-ST7123
     frame_buffers: 2
-    rotation: 270
+    # Landscape with the USB ports on the left
+    rotation: 90
     # The model's 80 MHz leaves the panel's PSRAM reads too little time while XCSoar draws: dragging the map gave
     # about 4 underruns (a corrupt frame each) in two minutes, none at 70 MHz (58 Hz)
     pclk_frequency: 70MHz
@@ -128,10 +129,10 @@ touchscreen:
     display: lcd
     interrupt_pin: GPIO23
     reset_pin: {pi4ioe5v6408: pi4ioe1, number: 5}
-    # match the display's rotation: 270
+    # match the display's rotation: 90
     transform:
       swap_xy: true
-      mirror_x: true
+      mirror_y: true
 
 xcsoar:
   id: xcsoar_app
