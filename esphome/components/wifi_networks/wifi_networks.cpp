@@ -325,8 +325,8 @@ void WifiNetworks::on_wifi_scan_results(const wifi::wifi_scan_vector_t<wifi::WiF
     if (this->is_other_glider_(visible.ssid))
       continue;
     SavedNetwork *saved = this->find_saved_(visible.ssid);
-    // An open network named as a SkyEcho is joined before any of its data has arrived
-    if (saved == nullptr && !visible.secured && is_skyecho_ssid(visible.ssid)) {
+    // The glider's own SkyEcho is joined by its name; other SkyEchos only once saved
+    if (saved == nullptr && !visible.secured && this->is_preferred_(visible.ssid)) {
       saved = this->add_saved_(visible.ssid);
       if (saved != nullptr) {
         saved->flags = FLAG_SKYECHO;

@@ -49,12 +49,12 @@ struct Status {
 /// Keeps a list of Wi-Fi networks saved at run time, and chooses which to join.
 ///
 /// The station list of the wifi component becomes: the glider's own SkyEcho (named "SkyEcho_" and its registration,
-/// see set_registration()), the other SkyEcho networks (those over which GDL90 data has arrived, and those named
-/// "SkyEcho...", in any case), then the other saved networks, then the networks from the configuration. The glider's
-/// own SkyEcho is switched to when it is seen, also from another SkyEcho. While the glider has a registration, the
-/// SkyEchos of other gliders (named "SkyEcho_" and three other letters or digits) are left out. An open network
-/// named "SkyEcho..." is saved when it is seen. A SkyEcho that comes into range while another network is in use is
-/// switched to, at most every 5 minutes. Joining a network by hand keeps that network until set_automatic(),
+/// see set_registration()), the other saved SkyEcho networks (those over which GDL90 data has arrived, and those
+/// named "SkyEcho...", in any case), then the other saved networks, then the networks from the configuration. The
+/// glider's own SkyEcho is saved and switched to when it is seen, also from another SkyEcho; no other network is
+/// joined unless it is saved. While the glider has a registration, the SkyEchos of other gliders (named "SkyEcho_"
+/// and three other letters or digits) are left out. A saved SkyEcho that comes into range while another network is in
+/// use is switched to, at most every 5 minutes. Joining a network by hand keeps that network until set_automatic(),
 /// disconnect() or a restart.
 ///
 /// The public methods may be called from any task: requests are queued for the main loop, and the lists are read
