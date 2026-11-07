@@ -24,7 +24,7 @@ static constexpr size_t MAX_REPORTED = 16;
 
 class BleSerial;
 
-/// One connection to a device with a serial service: HM-10 (FFE0), Nordic UART or ISSC (BlueFly). The device's
+/// One connection to a device with a serial service: HM-10 (FFE0), Nordic UART, ISSC (BlueFly) or LXNAV. The device's
 /// address is set at run time; while it is open the client connects whenever the device advertises.
 class BleSerialClient : public esp32_ble_client::BLEClientBase {
  public:

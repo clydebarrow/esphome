@@ -23,9 +23,9 @@ struct SerialService {
   espbt::ESPBTUUID write;   // data to the device
 };
 
-// The services XCSoar's Android BleSerialPort uses
-const std::array<SerialService, 3> &serial_services() {
-  static const std::array<SerialService, 3> SERVICES{{
+// The services XCSoar's Android BleSerialPort uses, and LXNAV's
+const std::array<SerialService, 4> &serial_services() {
+  static const std::array<SerialService, 4> SERVICES{{
       // HM-10: one characteristic both ways
       {espbt::ESPBTUUID::from_uint16(0xFFE0), espbt::ESPBTUUID::from_uint16(0xFFE1),
        espbt::ESPBTUUID::from_uint16(0xFFE1)},
@@ -37,6 +37,9 @@ const std::array<SerialService, 3> &serial_services() {
       {espbt::ESPBTUUID::from_raw("49535343-FE7D-4AE5-8FA9-9FAFD205E455"),
        espbt::ESPBTUUID::from_raw("49535343-1E4D-4BD9-BA61-23C647249616"),
        espbt::ESPBTUUID::from_raw("49535343-8841-43F4-A8D4-ECBE34729BB3")},
+      // LXNAV (LX and FLARM instruments): the HM-10 characteristic in LXNAV's own service
+      {espbt::ESPBTUUID::from_raw("40961000-D065-45BD-890B-D960E85E0247"), espbt::ESPBTUUID::from_uint16(0xFFE1),
+       espbt::ESPBTUUID::from_uint16(0xFFE1)},
   }};
   return SERVICES;
 }
