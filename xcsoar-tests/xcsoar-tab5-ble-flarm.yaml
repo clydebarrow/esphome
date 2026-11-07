@@ -1,0 +1,9 @@
+# xcsoar-tab5-ble.yaml built with the XCSoar branch that has the club glider dialog, so the registration set in
+# "Who is flying?" picks the glider's own SkyEcho.
+
+packages:
+  ble: !include xcsoar-tab5-ble.yaml
+  gps: !include usb-gps.yaml
+
+substitutions:
+  xcsoar_path: ../../xcsoar-src-flarm
