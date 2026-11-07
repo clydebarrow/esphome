@@ -484,6 +484,9 @@ class WiFiComponent final : public Component {
   // init_sta/add_sta kept out of line: inlining them into the generated setup() grows flash
   void init_sta(size_t count);
   void add_sta(const WiFiAP &ap);
+  /// Whether a network missing from the scan is tried once as a hidden network before the next scan (the
+  /// default). Without it, only networks marked hidden are, so a device that moves between networks rescans sooner.
+  void set_retry_unseen_as_hidden(bool retry) { this->retry_unseen_as_hidden_ = retry; }
   void clear_sta();
   /// The configured networks, in the order they are tried.
   const FixedVector<WiFiAP> &get_sta_list() const { return this->sta_; }
@@ -1137,6 +1140,7 @@ class WiFiComponent final : public Component {
   bool lt_teardown_event_pending_{false};
 #endif
   RetryHiddenMode retry_hidden_mode_{RetryHiddenMode::BLIND_RETRY};
+  bool retry_unseen_as_hidden_{true};
   RoamingState roaming_state_{RoamingState::IDLE};
   bssid_t roaming_target_bssid_{};  // BSSID of the AP we're trying to roam to
 #if defined(USE_ESP32) && defined(USE_WIFI_RUNTIME_POWER_SAVE)

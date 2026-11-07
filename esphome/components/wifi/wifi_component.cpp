@@ -608,7 +608,8 @@ int8_t WiFiComponent::find_next_hidden_sta_(int8_t start_index) {
 
     // In BLIND_RETRY mode, treat all networks as candidates
     // In SCAN_BASED mode, only retry networks that weren't seen in the scan
-    if (this->retry_hidden_mode_ == RetryHiddenMode::BLIND_RETRY || !this->ssid_was_seen_in_scan_(sta.ssid_)) {
+    if (this->retry_hidden_mode_ == RetryHiddenMode::BLIND_RETRY ||
+        (!this->ssid_was_seen_in_scan_(sta.ssid_) && (this->retry_unseen_as_hidden_ || sta.get_hidden()))) {
       ESP_LOGD(TAG, "Hidden candidate " LOG_SECRET("'%s'") " at index %d", sta.ssid_.c_str(), static_cast<int>(i));
       return static_cast<int8_t>(i);
     }

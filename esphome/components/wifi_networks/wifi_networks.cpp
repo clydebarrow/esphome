@@ -47,6 +47,8 @@ void WifiNetworks::setup() {
 
   wifi->add_scan_results_listener(this);
   wifi->add_connect_state_listener(this);
+  // None of these networks is hidden: one out of range is found by the next scan, sooner than by trying it blind
+  wifi->set_retry_unseen_as_hidden(false);
   this->apply_(false);
 
   this->set_interval(SKYECHO_SCAN_ID, SKYECHO_SCAN_INTERVAL_MS, [this]() {
