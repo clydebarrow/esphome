@@ -18,6 +18,8 @@ static const uint8_t RX8130_REG_CTRL0 = 0x1E;
 static const uint8_t RX8130_REG_CTRL1 = 0x1F;
 static const uint8_t RX8130_REG_DIG_OFFSET = 0x30;
 static const uint8_t RX8130_BIT_CTRL_STOP = 0x40;
+// The supply fell so low that the time registers may hold anything
+static constexpr uint8_t RX8130_BIT_FLAG_VLF = 0x02;
 static const uint8_t RX8130_BAT_FLAGS = 0x30;
 static const uint8_t RX8130_CLEAR_FLAGS = 0x00;
 
@@ -30,7 +32,13 @@ void RX8130Component::setup() {
   // Disable wakeup timers
   if (!this->setup_check(this->write_register(RX8130_REG_EXTEN, &RX8130_CLEAR_FLAGS, 1) == i2c::ERROR_OK))
     return;
-  // Clear VLF flag in case there has been data loss
+  uint8_t flags;
+  if (!this->setup_check(this->read_register(RX8130_REG_FLAG, &flags, 1) == i2c::ERROR_OK))
+    return;
+  this->time_lost_ = (flags & RX8130_BIT_FLAG_VLF) != 0;
+  if (this->time_lost_) {
+    ESP_LOGW(TAG, "The RTC lost its time; it is not read until the time is written");
+  }
   if (!this->setup_check(this->write_register(RX8130_REG_FLAG, &RX8130_CLEAR_FLAGS, 1) == i2c::ERROR_OK))
     return;
   // Clear test flag and disable interrupts
@@ -52,6 +60,10 @@ void RX8130Component::dump_config() {
 }
 
 void RX8130Component::read_time() {
+  if (this->time_lost_) {
+    ESP_LOGW(TAG, "The RTC lost its time, not syncing to system clock.");
+    return;
+  }
   uint8_t date[7];
   if (this->read_register(RX8130_REG_SEC, date, 7) != i2c::ERROR_OK) {
     this->status_set_warning(LOG_STR(ESP_LOG_MSG_COMM_FAIL));
@@ -79,6 +91,7 @@ void RX8130Component::write_time() {
   if (this->write_register(RX8130_REG_SEC, buff, 7) != i2c::ERROR_OK) {
     this->status_set_warning(LOG_STR(ESP_LOG_MSG_COMM_FAIL));
   } else {
+    this->time_lost_ = false;
     ESP_LOGD(TAG, "Wrote UTC time: %04d-%02d-%02d %02d:%02d:%02d", now.year, now.month, now.day_of_month, now.hour,
              now.minute, now.second);
   }
