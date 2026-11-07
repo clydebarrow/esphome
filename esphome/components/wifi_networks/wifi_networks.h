@@ -49,10 +49,10 @@ struct Status {
 /// Keeps a list of Wi-Fi networks saved at run time, and chooses which to join.
 ///
 /// The station list of the wifi component becomes: the SkyEcho networks (those over which GDL90 data has arrived, and
-/// those named "SkyEcho..."), then the other saved networks, then the networks from the configuration. An open network
-/// named "SkyEcho..." is saved when it is seen. A SkyEcho that comes into range while another network is in use is
-/// switched to, at most every 5 minutes. Joining a network by hand keeps that network until set_automatic(),
-/// disconnect() or a restart.
+/// those named "SkyEcho..."), then the other saved networks, then the networks from the configuration. A SkyEcho is
+/// saved only when it is joined by hand, since several may be in range at a launch point. A saved SkyEcho that comes
+/// into range while another network is in use is switched to, at most every 5 minutes. Joining a network by hand keeps
+/// that network until set_automatic(), disconnect() or a restart.
 ///
 /// The public methods may be called from any task: requests are queued for the main loop, and the lists are read
 /// from a copy made there.

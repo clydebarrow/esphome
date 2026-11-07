@@ -1,5 +1,4 @@
 # The Seeed reTerminal D1001 board: display, touch, backlight, SD card, clock, power and Wi-Fi through its ESP32-C6.
-# The Wi-Fi settings and their secrets come from the my-devices directory next to the worktrees.
 
 esp32:
   variant: esp32p4
@@ -39,8 +38,6 @@ esp32_hosted:
   d1_pin: GPIO8
   d2_pin: GPIO9
   d3_pin: GPIO10
-
-wifi: !include ../../../my-devices/wifi.yaml
 
 api:
   reboot_timeout: 0s
@@ -149,10 +146,7 @@ binary_sensor:
   # The green button on top
   - platform: gpio
     id: power_button
-    pin:
-      number: 3
-      # Also the wake pin where a device config sleeps
-      allow_other_uses: true
+    pin: 3
     trigger_on_initial_state: false
   # CHARGE_STATE on the schematic: logged as it reads, to check the battery charges
   - platform: gpio

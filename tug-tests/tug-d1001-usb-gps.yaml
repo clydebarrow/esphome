@@ -9,6 +9,8 @@
 # The board can't supply 5 V on this connector (the charger's OTG pin is grounded), so the GPS needs 5 V from elsewhere.
 
 packages:
+  # First, so that the screens' fast_connect: false wins
+  bench_wifi: !include bench-wifi.yaml
   tug: !include tug-d1001.yaml
 
 esphome:

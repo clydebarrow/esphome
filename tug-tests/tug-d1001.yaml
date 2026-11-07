@@ -40,6 +40,10 @@ tug_logger:
 # power hold and sleeps: unplugging it then turns it off, and pressing the button wakes it.
 binary_sensor:
   - id: !extend power_button
+    # Also the wake pin below
+    pin:
+      number: 3
+      allow_other_uses: true
     on_press:
       - script.execute: power_down_script
     # The button itself keeps the power on while it is held, so the power only goes once it is let go. That release

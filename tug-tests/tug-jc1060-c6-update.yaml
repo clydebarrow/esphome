@@ -4,6 +4,7 @@
 
 packages:
   board: !include tug-jc1060-board.yaml
+  bench_wifi: !include bench-wifi.yaml
 
 esphome:
   name: tug-c6-update

@@ -1,5 +1,7 @@
 # tug-jc1060.yaml for the bench: API actions to step through the screens, and one to fetch a file to the card.
 packages:
+  # First, so that the screens' fast_connect: false wins
+  bench_wifi: !include bench-wifi.yaml
   tug: !include tug-jc1060.yaml
   actions: !include tug-d1001-actions.yaml
 

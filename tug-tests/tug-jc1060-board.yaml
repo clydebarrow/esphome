@@ -42,8 +42,6 @@ esp32_hosted:
   d3_pin: GPIO17
   active_high: true
 
-wifi: !include ../../../my-devices/wifi.yaml
-
 api:
   reboot_timeout: 0s
 

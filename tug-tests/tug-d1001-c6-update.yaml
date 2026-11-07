@@ -6,6 +6,7 @@
 
 packages:
   board: !include tug-d1001-board.yaml
+  bench_wifi: !include bench-wifi.yaml
 
 esphome:
   name: tug-c6-update

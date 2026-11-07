@@ -2,6 +2,8 @@
 # actions, and a short landing confirmation for the simulated tow in fly.py. Flash tug-d1001.yaml afterwards.
 
 packages:
+  # First, so that the screens' fast_connect: false wins
+  bench_wifi: !include bench-wifi.yaml
   tug: !include tug-d1001.yaml
   actions: !include tug-d1001-actions.yaml
 

@@ -21,8 +21,6 @@ psram:
 preferences:
   flash_write_interval: 1min
 
-wifi: !include ../../../my-devices/wifi.yaml
-
 api:
   reboot_timeout: 0s
 

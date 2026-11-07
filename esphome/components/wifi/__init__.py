@@ -464,7 +464,7 @@ def _has_upstream(config: ConfigType, full_config: ConfigType) -> bool:
 
 
 # Components that save station credentials at run time
-_PROVISIONERS = ("captive_portal", "improv_ble", "improv_serial")
+_PROVISIONERS = ("captive_portal", "improv_ble", "improv_serial", "wifi_networks")
 
 
 def wifi_stays_ap_only(config: ConfigType, full_config: ConfigType) -> bool:
@@ -483,9 +483,18 @@ def final_validate(config):
     full_config = fv.full_config.get()
     has_improv = "improv_ble" in full_config
     has_improv_serial = "improv_serial" in full_config
+    # Keeps networks entered on the device's own screen
+    has_wifi_networks = "wifi_networks" in full_config
     has_captive_portal = "captive_portal" in full_config
     has_web_server = "web_server" in full_config
-    if not (has_sta or has_ap or has_dpp or has_improv or has_improv_serial):
+    if not (
+        has_sta
+        or has_ap
+        or has_dpp
+        or has_improv
+        or has_improv_serial
+        or has_wifi_networks
+    ):
         raise cv.Invalid(
             "Please specify at least an SSID or an Access Point to create, or configure DPP (Easy Connect)."
         )

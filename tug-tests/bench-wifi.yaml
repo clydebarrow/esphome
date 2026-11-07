@@ -1,0 +1,3 @@
+# For bench builds only: the Wi-Fi network from the my-devices directory next to the worktrees, so the board joins it
+# without first being given a network on its screen. Builds for use have no network built in.
+wifi: !include ../../../my-devices/wifi.yaml
