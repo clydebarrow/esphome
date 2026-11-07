@@ -30,7 +30,10 @@ esp32_hosted:
   # internal RAM is short with XCSoar running; the transport buffers fail to allocate there
   use_psram: true
 
-wifi: !include ../../../my-devices/wifi.yaml
+# Without a network, as away from home or between SkyEchos, it must not restart
+wifi:
+  <<: !include ../../../my-devices/wifi.yaml
+  reboot_timeout: 0s
 
 # XCSoar's c-ares build expects lwIP with IPv6
 network:
