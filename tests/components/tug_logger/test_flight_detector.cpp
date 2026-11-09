@@ -138,26 +138,49 @@ TEST(TugFlightDetector, StaleGroundAltitudeIsNotUsed) {
   EXPECT_TRUE(flight.detector.flight().approximate);
 }
 
+TEST(TugFlightDetector, PrefersPressureAltitude) {
+  Flight flight;
+  // GPS wanders on the ground while pressure altitude holds, as seen on a glider's SkyEcho
+  for (int i = 0; i != 30; i++)
+    flight.step(0, i % 2 ? 1800 : 1500, 900);
+  flight.run(10, 60, 1500, 900);
+  flight.run(5, 70, 3400, 2800);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1900);
+  EXPECT_FALSE(flight.detector.flight().approximate);
+}
+
 TEST(TugFlightDetector, NeverMixesAltitudeKinds) {
   Flight flight;
-  // Geometric on the ground, then only pressure, reading far higher because of QNH
+  // Both on the ground, then only GPS altitude, reading far higher because of the geoid
   flight.run(30, 0, 1500, 900);
   flight.run(10, 60, 1500, 900);
   flight.run(5, 70, 2500, 1900);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
-  flight.run(20, 70, -1, 9000);
+  flight.run(20, 70, 9000, -1);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
 }
 
-TEST(TugFlightDetector, FallsBackToPressureAltitude) {
+TEST(TugFlightDetector, FallsBackToGpsAltitude) {
   Flight flight;
-  flight.run(30, 0, -1, 900);
-  flight.run(10, 60, -1, 900);
-  flight.run(5, 70, -1, 1900);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
+  flight.run(30, 0, 1500);
+  flight.run(10, 60, 1500);
+  flight.run(5, 70, 2500);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
   EXPECT_FALSE(flight.detector.flight().approximate);
+}
+
+TEST(TugFlightDetector, ReferenceIsTheMeanOfTheLast30Seconds) {
+  Flight flight;
+  // An old reading, outside the window, then readings that wander either side of 1600 ft
+  flight.run(20, 0, 3000);
+  for (int i = 0; i != 30; i++)
+    flight.step(0, i % 2 ? 1700 : 1500);
+  flight.run(10, 60, 1600);
+  flight.run(5, 70, 3600);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 2000);
 }
 
 TEST(TugFlightDetector, OneBadFixDoesNotSetThePeak) {

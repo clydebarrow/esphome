@@ -96,6 +96,8 @@ skyecho:
 # fast_connect would go back to the last network at each start instead.
 wifi:
   fast_connect: false
+  # Out of range of every network is normal in a tug, so never restart for it
+  reboot_timeout: 0s
 
 wifi_networks:
   id: wifi_networks_hub
@@ -126,18 +128,53 @@ http_request:
   timeout: 30s
   watchdog_timeout: 30s
 
+# The main loop is held while an update installs, so each step redraws the screen itself
 ota:
   - platform: http_request
     id: ota_http
+    on_begin:
+      - lvgl.widget.show: ota_box
+      - lvgl.label.update:
+          id: ota_label
+          text: Installing the update
+      - lvgl.bar.update:
+          id: ota_bar
+          value: 0
+      - lambda: id(lvgl_id).loop();
+    on_progress:
+      - lvgl.bar.update:
+          id: ota_bar
+          value: !lambda return int(x);
+      - lvgl.label.update:
+          id: ota_label
+          text:
+            format: "Installing the update: %.0f%%"
+            args: [x]
+      - lambda: id(lvgl_id).loop();
+    on_end:
+      - lvgl.bar.update:
+          id: ota_bar
+          value: 100
+      - lvgl.label.update:
+          id: ota_label
+          text: Update installed. Restarting
+      - lambda: id(lvgl_id).loop();
+    on_error:
+      - lvgl.label.update:
+          id: ota_label
+          text:
+            format: "The update failed (error %u)"
+            args: [x]
+      - lambda: id(lvgl_id).loop();
 
 script:
   - id: firmware_update_script
     mode: single
     then:
+      - lvgl.widget.show: ota_box
       - lvgl.label.update:
-          id: power_down_label
-          hidden: false
-          text: Installing the update. This takes a minute or two; the device restarts when it is done
+          id: ota_label
+          text: Starting the update
       # Let the message show before the download holds the main loop
       - delay: 200ms
       # Saves a flight in progress, and unmounts the SD card. The device restarts after a good install
@@ -148,7 +185,7 @@ script:
           md5: !lambda return id(logger_id).firmware_offer().md5;
       # Still here, so the install failed. The card is unmounted, so start again
       - lvgl.label.update:
-          id: power_down_label
+          id: ota_label
           text: The update failed. Restarting
       - lambda: id(ui).firmware_install_failed();
       - delay: 5s
@@ -179,6 +216,36 @@ lvgl:
       text_font: bold_28
   top_layer:
     widgets:
+      # Shown while an update installs
+      - obj:
+          id: ota_box
+          hidden: true
+          align: center
+          width: 90%
+          height: size_content
+          pad_all: "${(24 * scale) | round | int}"
+          bg_color: 0x404040
+          bg_opa: cover
+          layout:
+            type: flex
+            flex_flow: column
+            flex_align_cross: center
+            pad_row: "${(20 * scale) | round | int}"
+          widgets:
+            - label:
+                id: ota_label
+                width: 100%
+                text_align: center
+                text_font: bold_40
+                text_color: white
+                text: ""
+            - bar:
+                id: ota_bar
+                width: 100%
+                height: "${(40 * scale) | round | int}"
+                min_value: 0
+                max_value: 100
+                value: 0
       - label:
           id: power_down_label
           hidden: true

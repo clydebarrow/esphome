@@ -330,15 +330,13 @@ void TugUi::open_picker_(PickerMode mode, TowField field) {
     lv_label_set_text(this->w_.picker_title, ("Password for " + this->wifi_ssid_).c_str());
   } else {
     lv_label_set_text(this->w_.picker_title, FIELD_TITLES[size_t(field)]);
-    // Blank clears an optional field, which the keyboard alone makes hard to reach
-    const bool required = field == TowField::TOW_FIELD_GLIDER;
-    if (!required)
-      this->add_row_(this->w_.picker_list, "(blank)", [this]() { this->accept_(""); });
-    const auto names = field == TowField::TOW_FIELD_GLIDER ? this->logger_->store().recent_gliders()
-                                                           : this->logger_->store().recent_pilots();
-    for (const std::string &name : names)
-      this->add_row_(this->w_.picker_list, name, [this, name]() { this->accept_(name); });
+    this->picker_names_ = field == TowField::TOW_FIELD_GLIDER ? this->logger_->store().recent_gliders()
+                                                              : this->logger_->store().recent_pilots();
   }
+  this->picker_initial_ = value;
+  this->picker_filter_.clear();
+  this->delete_armed_.clear();
+  this->fill_picker_();
   lv_textarea_set_text(this->w_.picker_text, value.c_str());
   const bool registration = mode != PickerMode::PICKER_MODE_WIFI_PASSWORD && field == TowField::TOW_FIELD_GLIDER;
   lv_keyboard_set_mode(this->w_.picker_keyboard,
@@ -347,8 +345,77 @@ void TugUi::open_picker_(PickerMode mode, TowField field) {
   this->show_(this->w_.picker_page);
 }
 
+// True if the name, or a word in it, starts with what was typed, ignoring case: "da" finds "Dan" and "Sam Davis"
+static bool name_matches(const std::string &name, const std::string &typed) {
+  if (typed.empty())
+    return true;
+  for (size_t start = 0; start < name.size();) {
+    if (strncasecmp(name.c_str() + start, typed.c_str(), typed.size()) == 0)
+      return true;
+    const size_t space = name.find(' ', start);
+    if (space == std::string::npos)
+      break;
+    start = space + 1;
+  }
+  return false;
+}
+
+void TugUi::fill_picker_() {
+  lv_obj_clean(this->w_.picker_list);
+  // Blank clears an optional field, which the keyboard alone makes hard to reach
+  if (this->field_ != TowField::TOW_FIELD_GLIDER && this->picker_filter_.empty())
+    this->add_row_(this->w_.picker_list, "(blank)", [this]() { this->accept_(""); });
+  for (const std::string &name : this->picker_names_) {
+    if (name_matches(name, this->picker_filter_))
+      this->add_name_row_(name);
+  }
+}
+
+// A name, with a button at its end that takes it off the list on a second press
+void TugUi::add_name_row_(const std::string &name) {
+  this->add_row_(this->w_.picker_list, name, [this, name]() { this->accept_(name); });
+  lv_obj_t *row = lv_obj_get_child(this->w_.picker_list, -1);
+  lv_obj_t *label = lv_obj_get_child(row, 0);
+  const int32_t button_width = this->w_.row_height * 2;
+  lv_obj_set_width(label, lv_pct(100));
+  lv_obj_set_style_pad_right(row, button_width + 8, LV_PART_MAIN);
+  const bool armed = this->delete_armed_ == name;
+  lv_obj_t *remove = lv_button_create(row);
+  lv_obj_set_size(remove, button_width, this->w_.row_height - 12);
+  lv_obj_align(remove, LV_ALIGN_RIGHT_MID, button_width + 4, 0);
+  lv_obj_add_flag(remove, LV_OBJ_FLAG_IGNORE_LAYOUT);
+  lv_obj_set_style_bg_color(remove, lv_color_hex(armed ? COLOR_WARNING : 0x808080), LV_PART_MAIN);
+  lv_obj_t *text = lv_label_create(remove);
+  lv_label_set_text(text, armed ? "Delete" : "X");
+  lv_obj_set_style_text_color(text, lv_color_white(), LV_PART_MAIN);
+  lv_obj_center(text);
+  auto *actions = new RowActions{[this, name]() {  // NOLINT
+    if (this->delete_armed_ != name) {
+      this->delete_armed_ = name;
+    } else {
+      this->delete_armed_.clear();
+      this->logger_->store().forget_name(this->field_ == TowField::TOW_FIELD_GLIDER, name);
+      this->picker_names_.erase(std::remove(this->picker_names_.begin(), this->picker_names_.end(), name),
+                                this->picker_names_.end());
+    }
+    // Not from inside this button's own event: the list it is in is rebuilt
+    lv_async_call([](void *ui) { static_cast<TugUi *>(ui)->fill_picker_(); }, this);
+  }};
+  lv_obj_add_event_cb(remove, row_event, LV_EVENT_ALL, actions);
+}
+
 void TugUi::picker_text_changed() {
-  if (this->mode_ == PickerMode::PICKER_MODE_WIFI_PASSWORD || this->field_ == TowField::TOW_FIELD_GLIDER)
+  if (this->mode_ == PickerMode::PICKER_MODE_WIFI_PASSWORD)
+    return;
+  // Filtered once the pilot types: the name the picker opened with shows the whole list
+  const char *typed = lv_textarea_get_text(this->w_.picker_text);
+  const std::string filter = this->picker_initial_ == typed ? std::string() : std::string(typed);
+  if (filter != this->picker_filter_) {
+    this->picker_filter_ = filter;
+    this->delete_armed_.clear();
+    this->fill_picker_();
+  }
+  if (this->field_ == TowField::TOW_FIELD_GLIDER)
     return;
   // Leave the keyboard alone on the number and symbol pages
   const lv_keyboard_mode_t mode = lv_keyboard_get_mode(this->w_.picker_keyboard);
@@ -558,9 +625,7 @@ void TugUi::refresh_settings_() {
   info += Text("\nQueued %zu, refused %zu", this->logger_->queued_count(), this->logger_->failed_count()).text;
   const std::string wifi = this->wifi_text_();
   info += "\n" + wifi;
-  char build_time[Application::BUILD_TIME_STR_SIZE];
-  App.get_build_time_string(build_time);
-  info += std::string("\nFirmware ") + build_time;
+  info += "\nFirmware built " + local_time_text(App.get_build_time());
   const FirmwareState state = this->logger_->firmware_state();
   const char *button = "Check for update";
   if (state == FirmwareState::FIRMWARE_STATE_CHECKING) {

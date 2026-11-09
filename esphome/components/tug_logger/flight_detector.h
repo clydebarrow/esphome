@@ -36,6 +36,9 @@ struct DetectorSettings {
   float field_elevation_ft{0.0f};
   /// A ground altitude older than this is not used as the reference.
   uint32_t max_reference_age_ms{300000};
+  /// The reference is the mean of the ground altitudes over this long before the takeoff run, since one reading can
+  /// be well out: GPS altitude wanders by a couple of hundred feet on the ground.
+  uint32_t reference_window_ms{30000};
   /// A silence longer than this in flight makes the figures approximate.
   uint32_t max_data_gap_ms{60000};
 };
@@ -55,6 +58,24 @@ struct FlightSnapshot {
   bool has_reference{false};
 };
 
+/// Altitudes seen on the ground, for a reference that is a mean rather than one reading.
+class GroundAltitudes {
+ public:
+  void add(uint32_t now_ms, float altitude_m);
+  /// The mean of the altitudes in the window that ends at the newest. False if there are none, or the newest is
+  /// older than max_age_ms at now_ms.
+  bool mean(uint32_t now_ms, uint32_t window_ms, uint32_t max_age_ms, float &mean_m) const;
+  void clear() { this->count_ = 0; }
+
+ protected:
+  // At a sample a second, twice the default window
+  static constexpr uint8_t SIZE = 64;
+  float altitudes_[SIZE]{};
+  uint32_t times_[SIZE]{};
+  uint8_t next_{0};
+  uint8_t count_{0};
+};
+
 enum class FlightEvent : uint8_t {
   FLIGHT_EVENT_NONE,
   FLIGHT_EVENT_TAKEOFF,
@@ -62,7 +83,8 @@ enum class FlightEvent : uint8_t {
 };
 
 /// Finds takeoffs and landings from ground speed, and measures the flight between them. Height is measured from the
-/// altitude seen on the ground just before takeoff with the same kind of altitude, which cancels QNH and geoid errors.
+/// mean altitude on the ground just before takeoff, with the same kind of altitude throughout the flight, which cancels
+/// QNH and geoid errors. Pressure altitude is used when there is one: GPS altitude wanders far more.
 class FlightDetector {
  public:
   FlightDetector() = default;
@@ -103,12 +125,8 @@ class FlightDetector {
   int32_t current_height_ft_{0};
 
   // Altitudes while slow on the ground
-  bool ground_geometric_valid_{false};
-  float ground_geometric_m_{0.0f};
-  uint32_t ground_geometric_ms_{0};
-  bool ground_pressure_valid_{false};
-  float ground_pressure_m_{0.0f};
-  uint32_t ground_pressure_ms_{0};
+  GroundAltitudes ground_geometric_;
+  GroundAltitudes ground_pressure_;
 
   // Last three heights; a median rejects a single bad fix
   float heights_[3]{};

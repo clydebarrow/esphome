@@ -124,6 +124,9 @@ class TugUi {
   void refresh_splash_();
   void load_logo_();
   void open_picker_(PickerMode mode, TowField field);
+  /// The picker's list: the recent names that match what has been typed.
+  void fill_picker_();
+  void add_name_row_(const std::string &name);
   void accept_(const std::string &value);
   void open_tow_(uint32_t id);
   void refresh_next_();
@@ -140,6 +143,12 @@ class TugUi {
   TugUiWidgets w_{};
   PickerMode mode_{PickerMode::PICKER_MODE_NEXT};
   TowField field_{TowField::TOW_FIELD_GLIDER};
+  std::vector<std::string> picker_names_;
+  // The text the picker opened with: the list is filtered only once the pilot types something else
+  std::string picker_initial_;
+  std::string picker_filter_;
+  // A name whose delete button has been pressed once
+  std::string delete_armed_;
   uint32_t tow_id_{0};
   bool discard_armed_{false};
   uint8_t refuel_armed_ticks_{0};

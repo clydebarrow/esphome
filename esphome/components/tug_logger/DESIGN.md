@@ -30,13 +30,17 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 | `tows-pending.jsonl`, `tows-sending.jsonl` | Confirmed tows to send: the exact bytes that are signed and posted |
 | `tows-sent.jsonl`, `tows-failed.jsonl`, `tows-discarded.jsonl` | What was sent, refused (any 4xx but 401), or marked as not a tow |
 | `recent.json` | Recent gliders and pilots for the picker |
+| `flights/*.csv` | A record of each flight, named by its takeoff in UTC: the last minute on the ground, then a line a second until landing, with speed, both altitudes, and the height worked out. For checking a tow's figures |
 
 ## Decisions
 
-- **Height** is measured from the altitude on the ground just before takeoff, with the same kind of altitude
-  throughout: geometric if fresh, otherwise pressure. The field elevation is only used with no recent ground altitude,
-  and that tow is marked approximate. A median of three samples rejects a single bad fix, which delays the peak by one
-  sample.
+- **Height** is measured from the mean altitude over the last 30 s on the ground before takeoff, with the same kind of
+  altitude throughout: pressure if there is one, otherwise GPS. GPS altitude was first until 9 November 2026, when tows
+  read 300 to 700 ft low against glider traces and pilots' notes: GPS altitude wanders by a couple of hundred feet on
+  the ground, and the reference was one reading. Pressure altitude held steady there, and the change in air pressure
+  over a tow is small. The field elevation is only used with no recent ground altitude, and that tow is marked
+  approximate, as is one with more than 60 s without data in flight; the Worker shows such heights with "≈". A median
+  of three samples rejects a single bad fix, which delays the peak by one sample.
 - **Takeoff** is above 40 kt for 5 s, **landing** below 15 kt for 30 s; times are when the speed was first crossed.
   These thresholds are untested in a real tug.
 - **The status bar counts** the tows and the tug's flight time for the local date, and flight time since the Refuelled

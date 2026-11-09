@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <deque>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -46,9 +47,14 @@ enum class FirmwareState : uint8_t {
 struct FirmwareOffer {
   std::string url;
   std::string md5;
-  std::string uploaded_at;
+  /// UTC seconds; 0 if not known.
+  time_t built{0};
+  time_t uploaded{0};
   std::string message;
 };
+
+/// A time as the device shows it: in its own time zone, to the minute.
+std::string local_time_text(time_t epoch);
 
 /// Detects flights from a SkyEcho or an NMEA GPS, keeps tows on the SD card for the pilot to review, and uploads the
 /// confirmed ones. A tow is uploaded only while the network in use is not a SkyEcho, which has no internet.
@@ -163,6 +169,11 @@ class TugLogger : public Component
   void check_network_();
   void check_power_();
   time_t epoch_();
+  // A record of each flight on the card, to check its figures against
+  std::string log_line_(const PositionSample &sample) const;
+  void log_sample_(const PositionSample &sample, FlightEvent event);
+  void start_flight_log_(const char *why);
+  void flush_flight_log_();
 
   time::RealTimeClock *time_{nullptr};
   binary_sensor::BinarySensor *external_power_{nullptr};
@@ -223,6 +234,12 @@ class TugLogger : public Component
   std::atomic<bool> firmware_check_requested_{false};
   std::mutex firmware_lock_;
   FirmwareOffer firmware_offer_;
+
+  // The last minute on the ground, which goes at the start of a flight's record
+  std::deque<std::string> ground_lines_;
+  std::string flight_log_;
+  bool flight_logging_{false};
+  uint32_t last_log_flush_ms_{0};
 
   LazyCallbackManager<void()> takeoff_callback_;
   LazyCallbackManager<void()> landed_callback_;

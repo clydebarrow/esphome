@@ -19,16 +19,10 @@ FlightEvent FlightDetector::update(const PositionSample &sample) {
   } else {
     // The reference follows the aircraft on the ground, and stops as it accelerates for takeoff
     if (sample.speed_valid && sample.ground_speed_mps < this->settings_.landing_speed_mps) {
-      if (sample.geometric_valid) {
-        this->ground_geometric_valid_ = true;
-        this->ground_geometric_m_ = sample.geometric_m;
-        this->ground_geometric_ms_ = sample.now_ms;
-      }
-      if (sample.pressure_valid) {
-        this->ground_pressure_valid_ = true;
-        this->ground_pressure_m_ = sample.pressure_m;
-        this->ground_pressure_ms_ = sample.now_ms;
-      }
+      if (sample.geometric_valid)
+        this->ground_geometric_.add(sample.now_ms, sample.geometric_m);
+      if (sample.pressure_valid)
+        this->ground_pressure_.add(sample.now_ms, sample.pressure_m);
     }
   }
 
@@ -76,21 +70,21 @@ void FlightDetector::start_flight_(const PositionSample &sample) {
   } else if (sample.epoch != 0) {
     this->flight_.launch = sample.epoch - time_t((sample.now_ms - this->launch_ms_) / 1000);
   }
-  // Ages are measured from the start of the run: the reference stops updating there
+  // Ages are measured from the start of the run: the reference stops updating there. Pressure altitude first: it
+  // holds steady on the ground, where GPS altitude wanders
   const uint32_t max_age = this->settings_.max_reference_age_ms;
-  if (this->ground_geometric_valid_ && this->launch_ms_ - this->ground_geometric_ms_ <= max_age) {
-    this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
-    this->flight_.reference_m = this->ground_geometric_m_;
-    this->flight_.has_reference = true;
-  } else if (this->ground_pressure_valid_ && this->launch_ms_ - this->ground_pressure_ms_ <= max_age) {
+  const uint32_t window = this->settings_.reference_window_ms;
+  if (this->ground_pressure_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
     this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
-    this->flight_.reference_m = this->ground_pressure_m_;
+    this->flight_.has_reference = true;
+  } else if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
+    this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
     this->flight_.has_reference = true;
   } else {
     this->flight_.approximate = true;
   }
-  this->ground_geometric_valid_ = false;
-  this->ground_pressure_valid_ = false;
+  this->ground_geometric_.clear();
+  this->ground_pressure_.clear();
   this->track_flight_(sample);
   this->flight_.elapsed_s = (sample.now_ms - this->launch_ms_) / 1000;
 }
@@ -111,10 +105,10 @@ bool FlightDetector::altitude_for_(const PositionSample &sample, float &altitude
 void FlightDetector::track_flight_(const PositionSample &sample) {
   // With no reference, the first altitude seen in flight decides the kind, and heights use the field elevation
   if (this->flight_.kind == AltitudeKind::ALTITUDE_KIND_NONE) {
-    if (sample.geometric_valid) {
-      this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
-    } else if (sample.pressure_valid) {
+    if (sample.pressure_valid) {
       this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
+    } else if (sample.geometric_valid) {
+      this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
     } else {
       return;
     }
@@ -131,6 +125,33 @@ void FlightDetector::track_flight_(const PositionSample &sample) {
     this->flight_.max_height_ft = this->current_height_ft_;
     this->flight_.climb_s = (sample.now_ms - this->launch_ms_) / 1000;
   }
+}
+
+void GroundAltitudes::add(uint32_t now_ms, float altitude_m) {
+  this->altitudes_[this->next_] = altitude_m;
+  this->times_[this->next_] = now_ms;
+  this->next_ = (this->next_ + 1) % SIZE;
+  if (this->count_ != SIZE)
+    this->count_++;
+}
+
+bool GroundAltitudes::mean(uint32_t now_ms, uint32_t window_ms, uint32_t max_age_ms, float &mean_m) const {
+  if (this->count_ == 0)
+    return false;
+  const uint32_t newest = this->times_[(this->next_ + SIZE - 1) % SIZE];
+  if (now_ms - newest > max_age_ms)
+    return false;
+  float sum = 0.0f;
+  unsigned used = 0;
+  for (uint8_t i = 1; i <= this->count_; i++) {
+    const uint8_t index = (this->next_ + SIZE - i) % SIZE;
+    if (newest - this->times_[index] >= window_ms)
+      break;
+    sum += this->altitudes_[index];
+    used++;
+  }
+  mean_m = sum / float(used);
+  return true;
 }
 
 float FlightDetector::median_height_(float height_ft) {

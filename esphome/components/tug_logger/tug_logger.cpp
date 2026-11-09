@@ -28,6 +28,9 @@ static constexpr uint32_t NETWORK_CHECK_MS = 5000;
 static constexpr uint32_t RESUME_WAIT_MS = 120000;
 static constexpr uint32_t NMEA_MAX_AGE_MS = 5000;
 static constexpr uint32_t POSITION_LOG_MS = 15000;
+// The flight record: how much of the time on the ground goes before a takeoff, and how often it is written
+static constexpr size_t GROUND_LINES = 60;
+static constexpr uint32_t FLIGHT_LOG_FLUSH_MS = 10000;
 
 void TugLogger::setup() {
   this->detector_ = FlightDetector(this->settings_);
@@ -47,6 +50,87 @@ void TugLogger::dump_config() {
 void TugLogger::on_safe_shutdown() {
   if (this->store_ready_ && this->detector_.is_flying())
     this->save_flight_();
+  this->flush_flight_log_();
+}
+
+std::string TugLogger::log_line_(const PositionSample &sample) const {
+  char line[128];
+  int length = snprintf(line, sizeof(line), "%.1f,%lld,%u,", sample.now_ms / 1000.0f, (long long) sample.epoch,
+                        unsigned(this->source_));
+  auto add = [&](bool valid, float value) {
+    length += valid ? snprintf(line + length, sizeof(line) - length, "%.0f,", value)
+                    : snprintf(line + length, sizeof(line) - length, ",");
+  };
+  add(sample.speed_valid, sample.ground_speed_mps / KNOTS_TO_MPS);
+  add(sample.pressure_valid, sample.pressure_m / METERS_PER_FOOT);
+  add(sample.geometric_valid, sample.geometric_m / METERS_PER_FOOT);
+  const bool flying = this->detector_.is_flying();
+  add(flying, float(this->detector_.current_height_ft()));
+  if (flying) {
+    snprintf(line + length, sizeof(line) - length, "%" PRId32 "\n", this->detector_.flight().max_height_ft);
+  } else {
+    snprintf(line + length, sizeof(line) - length, "\n");
+  }
+  return line;
+}
+
+void TugLogger::start_flight_log_(const char *why) {
+  const FlightSnapshot &flight = this->detector_.flight();
+  if (!this->store_ready_ || !this->store_.start_flight_log(flight.launch, millis())) {
+    ESP_LOGW(TAG, "The flight record could not be started");
+    return;
+  }
+  this->flight_logging_ = true;
+  const char *kind = flight.kind == AltitudeKind::ALTITUDE_KIND_PRESSURE    ? "pressure"
+                     : flight.kind == AltitudeKind::ALTITUDE_KIND_GEOMETRIC ? "GPS"
+                                                                            : "none yet";
+  char header[256];
+  snprintf(header, sizeof(header),
+           "# %s. Heights from %s altitude, reference %s%.0f ft%s; field elevation %.0f ft\n"
+           "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet\n"
+           "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft\n",
+           why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
+           flight.has_reference ? flight.reference_m / METERS_PER_FOOT : this->settings_.field_elevation_ft,
+           flight.approximate ? ", approximate" : "", this->settings_.field_elevation_ft);
+  this->flight_log_ = header;
+  for (const std::string &line : this->ground_lines_)
+    this->flight_log_ += line;
+  this->ground_lines_.clear();
+  this->flush_flight_log_();
+}
+
+void TugLogger::flush_flight_log_() {
+  this->last_log_flush_ms_ = millis();
+  if (!this->flight_logging_ || this->flight_log_.empty())
+    return;
+  if (!this->store_.append_flight_log(this->flight_log_)) {
+    ESP_LOGW(TAG, "The flight record could not be written");
+  }
+  this->flight_log_.clear();
+}
+
+void TugLogger::log_sample_(const PositionSample &sample, FlightEvent event) {
+  std::string line = this->log_line_(sample);
+  if (event == FlightEvent::FLIGHT_EVENT_TAKEOFF)
+    this->start_flight_log_("Takeoff");
+  if (this->detector_.is_flying() || event == FlightEvent::FLIGHT_EVENT_LANDED) {
+    this->flight_log_ += line;
+    if (event == FlightEvent::FLIGHT_EVENT_LANDED) {
+      const FlightSnapshot &flight = this->detector_.flight();
+      char summary[128];
+      snprintf(summary, sizeof(summary), "# Landed: %" PRIu32 " s, highest %" PRId32 " ft at %" PRIu32 " s%s\n",
+               flight.elapsed_s, flight.max_height_ft, flight.climb_s, flight.approximate ? ", approximate" : "");
+      this->flight_log_ += summary;
+      this->flush_flight_log_();
+      this->flight_logging_ = false;
+    } else if (millis() - this->last_log_flush_ms_ >= FLIGHT_LOG_FLUSH_MS) {
+      this->flush_flight_log_();
+    }
+    return;
+  }
+  this->ground_lines_.push_back(std::move(line));
+  if (this->ground_lines_.size() > GROUND_LINES)
+    this->ground_lines_.pop_front();
 }
 
 void TugLogger::loop() {
@@ -277,13 +361,16 @@ void TugLogger::tick_() {
       this->flight_details_ = this->saved_details_;
       this->has_saved_flight_ = false;
       ESP_LOGI(TAG, "Carrying on the flight");
+      this->start_flight_log_("Carried on after a restart");
       this->takeoff_callback_.call();
     } else {
       this->close_saved_flight_();
     }
   }
 
-  switch (this->detector_.update(sample)) {
+  const FlightEvent event = this->detector_.update(sample);
+  this->log_sample_(sample, event);
+  switch (event) {
     case FlightEvent::FLIGHT_EVENT_TAKEOFF:
       this->on_takeoff_();
       break;

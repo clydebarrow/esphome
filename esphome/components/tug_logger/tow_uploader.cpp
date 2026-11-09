@@ -15,7 +15,9 @@
 
 #include "esphome/components/json/json_util.h"
 #include "esphome/components/network/util.h"
+#include "esphome/core/application.h"
 #include "esphome/core/log.h"
+#include "esphome/core/time.h"
 
 #include "tug_logger.h"
 
@@ -144,6 +146,8 @@ void TugLogger::upload_step() {
     this->last_upload_ms_ = 0;
 }
 
+std::string local_time_text(time_t epoch) { return ESPTime::from_epoch_local(epoch).strftime("%Y-%m-%d %H:%M"); }
+
 void TugLogger::request_firmware_check() {
   // Without a tug file the upload task never starts
   if (!this->provisioned_) {
@@ -184,6 +188,7 @@ void TugLogger::firmware_step() {
     const std::string body = json::build_json([&](JsonObject root) {
       root["project"] = app->project_name;
       root["elf_sha256"] = elf_sha256;
+      root["build_time"] = (int64_t) App.get_build_time();
     });
     Answer answer{};
     esp_err_t err;
@@ -195,7 +200,8 @@ void TugLogger::firmware_step() {
         update = root["update"] | false;
         offer.url = root["url"] | "";
         offer.md5 = root["md5"] | "";
-        offer.uploaded_at = root["uploaded_at"] | "";
+        offer.built = root["built"] | (int64_t) 0;
+        offer.uploaded = root["uploaded"] | (int64_t) 0;
         return true;
       });
       if (!update) {
@@ -206,11 +212,14 @@ void TugLogger::firmware_step() {
         offer.message = "The server's answer was not understood";
       } else {
         state = FirmwareState::FIRMWARE_STATE_AVAILABLE;
-        // "2026-11-07T06:12:34.567Z" is shown as "2026-11-07 06:12 UTC"
-        const std::string when = offer.uploaded_at.substr(0, 16);
-        offer.message =
-            "New firmware, uploaded " +
-            (when.size() == 16 ? when.substr(0, 10) + " " + when.substr(11) + " UTC" : std::string("recently"));
+        // In this device's time zone, like the time of the running build
+        if (offer.built != 0) {
+          offer.message = "New firmware, built " + local_time_text(offer.built);
+        } else if (offer.uploaded != 0) {
+          offer.message = "New firmware, uploaded " + local_time_text(offer.uploaded);
+        } else {
+          offer.message = "New firmware";
+        }
       }
     } else if (status != 0) {
       ESP_LOGW(TAG, "Firmware check refused: HTTP %d. Server: %s", status, answer.text);

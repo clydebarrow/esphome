@@ -134,9 +134,17 @@ class TowStore {
   std::vector<std::string> recent_gliders();
   std::vector<std::string> recent_pilots();
   void remember(const TowDetails &details);
+  /// Takes a name off the list of recent gliders or pilots.
+  void forget_name(bool glider, const std::string &name);
 
   /// Sends each queued tow with post. Tows to try again go back in the queue, refused ones to the failed file.
   void process_queue(const std::function<UploadResult(const std::string &body)> &post);
+
+  /// Starts a file in tug/flights/ for the record of one flight, named by its start (UTC), or by the uptime when the
+  /// clock is not set.
+  bool start_flight_log(time_t start, uint32_t uptime_ms);
+  /// Adds lines, each ending in a newline, to that file.
+  bool append_flight_log(const std::string &text);
   size_t queued_count();
   size_t failed_count();
 
@@ -152,6 +160,7 @@ class TowStore {
 
   std::string root_;
   std::string dir_;
+  std::string flight_log_path_;
   std::mutex lock_;
   std::vector<TowRecord> review_;
   uint32_t next_id_{1};

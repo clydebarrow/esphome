@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cctype>
 #include <cerrno>
+#include <cinttypes>
+#include <ctime>
 #include <cstdio>
 #include <cstring>
 #include <dirent.h>
@@ -123,6 +125,7 @@ std::string tow_to_upload_json(const TowRecord &record, const std::string &tug_r
     root["max_height_ft"] = std::max<int32_t>(record.max_height_ft, 0);
     root["climb_seconds"] = record.climb_s;
     root["duration"] = record.duration_s;
+    root["height_approximate"] = record.approximate;
   });
 }
 
@@ -244,6 +247,35 @@ bool TowStore::read_with_fallback_(const char *name, std::string &content) {
     return false;
   rename(temp.c_str(), path.c_str());
   return true;
+}
+
+bool TowStore::start_flight_log(time_t start, uint32_t uptime_ms) {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  const std::string dir = this->dir_ + "/flights";
+  if (mkdir(dir.c_str(), 0775) != 0 && errno != EEXIST)
+    return false;
+  char name[32];
+  if (start != 0) {
+    struct tm utc;
+    gmtime_r(&start, &utc);
+    strftime(name, sizeof(name), "%Y%m%d-%H%M%S", &utc);
+  } else {
+    snprintf(name, sizeof(name), "no-clock-%" PRIu32, uptime_ms);
+  }
+  this->flight_log_path_ = dir + "/" + name + ".csv";
+  return true;
+}
+
+bool TowStore::append_flight_log(const std::string &text) {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  if (this->flight_log_path_.empty())
+    return false;
+  FILE *file = fopen(this->flight_log_path_.c_str(), "ab");
+  if (file == nullptr)
+    return false;
+  const bool written = fwrite(text.data(), 1, text.size(), file) == text.size() && fflush(file) == 0;
+  fclose(file);
+  return written;
 }
 
 bool TowStore::append_line_(const char *name, const std::string &line) {
@@ -483,6 +515,14 @@ void TowStore::remember(const TowDetails &details) {
   remember_name(this->recent_pilots_, details.glider_pilot_2);
   remember_name(this->recent_pilots_, details.glider_pilot_1);
   remember_name(this->recent_pilots_, details.tug_pilot);
+  this->save_recent_();
+}
+
+void TowStore::forget_name(bool glider, const std::string &name) {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  auto &list = glider ? this->recent_gliders_ : this->recent_pilots_;
+  auto same = [&name](const std::string &other) { return strcasecmp(other.c_str(), name.c_str()) == 0; };
+  list.erase(std::remove_if(list.begin(), list.end(), same), list.end());
   this->save_recent_();
 }
 

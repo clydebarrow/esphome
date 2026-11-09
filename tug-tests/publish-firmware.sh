@@ -43,9 +43,13 @@ for name in "$@"; do
     echo "$name: no $image after the build" >&2
     exit 1
   fi
-  echo "== $name: publishing $(du -h "$image" | cut -f1 | tr -d ' ')"
+  # When the build was made: devices are only offered a newer build than their own
+  build_time="$(python -c 'import json, sys; print(json.load(open(sys.argv[1]))["build_time"])' \
+    "tug-tests/.esphome/build/$name/build_info.json")"
+  echo "== $name: publishing $(du -h "$image" | cut -f1 | tr -d ' '), built $(date -r "$build_time" '+%Y-%m-%d %H:%M')"
   answer="$(curl --silent --show-error --fail-with-body \
     -H "Authorization: Bearer $TUG_FIRMWARE_TOKEN" \
+    -H "X-Build-Time: $build_time" \
     -H "Content-Type: application/octet-stream" \
     --data-binary "@$image" "$WORKER/api/firmware")" || {
     echo "$name: the upload failed: $answer" >&2

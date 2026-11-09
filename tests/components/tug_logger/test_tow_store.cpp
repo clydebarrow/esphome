@@ -54,6 +54,20 @@ class TowStoreTest : public ::testing::Test {
   std::unique_ptr<TowStore> store;
 };
 
+TEST(TugTowRecord, UploadBodyMarksAnApproximateHeight) {
+  TowRecord record;
+  record.launch = LAUNCH;
+  record.approximate = true;
+  record.details = {"WGQ", "Alex", "", "Sam"};
+  bool checked = false;
+  ASSERT_TRUE(json::parse_json(tow_to_upload_json(record, "VH-TUG"), [&](JsonObject root) -> bool {
+    EXPECT_TRUE(root["height_approximate"].as<bool>());
+    checked = true;
+    return true;
+  }));
+  EXPECT_TRUE(checked);
+}
+
 TEST(TugTowRecord, UploadBodyHasTheFieldsTheServerRequires) {
   TowRecord record;
   record.launch = LAUNCH;
@@ -72,6 +86,7 @@ TEST(TugTowRecord, UploadBodyHasTheFieldsTheServerRequires) {
     EXPECT_EQ(root["max_height_ft"].as<int>(), 2000);
     EXPECT_EQ(root["climb_seconds"].as<int>(), 420);
     EXPECT_EQ(root["duration"].as<int>(), 840);
+    EXPECT_FALSE(root["height_approximate"].as<bool>());
     checked = true;
     return true;
   }));
@@ -411,6 +426,27 @@ TEST(GliderFromCallsign, LeavesOtherCallsignsAlone) {
 TEST(GliderFromCallsign, IsEmptyForABlankCallsign) {
   EXPECT_EQ(glider_from_callsign(""), "");
   EXPECT_EQ(glider_from_callsign("        "), "");
+}
+
+TEST_F(TowStoreTest, KeepsAFlightRecordPerFlight) {
+  ASSERT_TRUE(this->store->start_flight_log(LAUNCH, 5000));
+  ASSERT_TRUE(this->store->append_flight_log("header\n"));
+  ASSERT_TRUE(this->store->append_flight_log("line 1\n"));
+  EXPECT_EQ(read_all(this->file("flights/20261101-085901.csv")), "header\nline 1\n");
+  // Before the clock is set, named by the uptime
+  ASSERT_TRUE(this->store->start_flight_log(0, 123456));
+  ASSERT_TRUE(this->store->append_flight_log("line\n"));
+  EXPECT_EQ(read_all(this->file("flights/no-clock-123456.csv")), "line\n");
+}
+
+TEST_F(TowStoreTest, ForgetsANameAndKeepsItForgotten) {
+  TowDetails details{"WGQ", "Dan", "Dan P", "Sam"};
+  this->store->remember(details);
+  this->store->forget_name(false, "dan");
+  this->store->forget_name(true, "WGQ");
+  this->reopen();
+  EXPECT_EQ(this->store->recent_pilots(), (std::vector<std::string>{"Sam", "Dan P"}));
+  EXPECT_TRUE(this->store->recent_gliders().empty());
 }
 
 }  // namespace esphome::tug_logger::testing
