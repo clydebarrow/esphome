@@ -25,4 +25,5 @@ usb_uart:
 xcsoar:
   uarts:
     - uart_id: gps_uart
-      name: GPS
+      # The port, as XCSoar's device list shows it
+      name: USB-A
