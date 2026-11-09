@@ -137,6 +137,7 @@ static std::string record_to_json(const TowRecord &record) {
     root["climb"] = record.climb_s;
     root["height"] = record.max_height_ft;
     root["approximate"] = record.approximate;
+    root["entered"] = record.height_entered;
     root["glider"] = record.details.glider_registration;
     root["pilot1"] = record.details.glider_pilot_1;
     root["pilot2"] = record.details.glider_pilot_2;
@@ -161,6 +162,7 @@ static bool record_from_json(const std::string &line, TowRecord &record) {
     record.climb_s = root["climb"] | 0u;
     record.max_height_ft = root["height"] | 0;
     record.approximate = root["approximate"] | false;
+    record.height_entered = root["entered"] | false;
     details_from_json(root, record.details);
     return true;
   });
@@ -403,6 +405,20 @@ bool TowStore::add_review(TowRecord record) {
   record.id = this->next_id_++;
   this->review_.push_back(std::move(record));
   return this->save_review_();
+}
+
+bool TowStore::update_height(uint32_t id, int32_t height_ft) {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  for (TowRecord &record : this->review_) {
+    if (record.id == id) {
+      record.max_height_ft = height_ft;
+      // The pilot's figure is not the tug's estimate
+      record.approximate = false;
+      record.height_entered = true;
+      return this->save_review_();
+    }
+  }
+  return false;
 }
 
 bool TowStore::update_details(uint32_t id, const TowDetails &details) {

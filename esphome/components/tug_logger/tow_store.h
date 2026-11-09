@@ -58,6 +58,8 @@ struct TowRecord {
   uint32_t climb_s{0};
   int32_t max_height_ft{0};
   bool approximate{false};
+  /// The pilot entered the height in review, in place of the measured one.
+  bool height_entered{false};
   TowDetails details;
 };
 
@@ -120,6 +122,8 @@ class TowStore {
   std::vector<TowRecord> review_list();
   bool add_review(TowRecord record);
   bool update_details(uint32_t id, const TowDetails &details);
+  /// Puts the release height the pilot gives in place of the measured one.
+  bool update_height(uint32_t id, int32_t height_ft);
   ConfirmResult confirm(uint32_t id, const std::string &tug_registration);
   /// Takes a tow off the list, as not a tow. It is kept in a file of its own.
   bool discard(uint32_t id);

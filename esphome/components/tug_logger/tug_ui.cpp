@@ -26,6 +26,8 @@ static constexpr uint32_t COLOR_WARNING = 0xB02020;
 static constexpr uint8_t WIFI_LIST_REFRESH_TICKS = 2;
 // The most of a network's name that the status bar shows
 static constexpr size_t STATUS_SSID_LENGTH = 16;
+// The most a pilot can enter as a release height
+static constexpr long MAX_ENTERED_HEIGHT_FT = 20000;
 // How long the Refuelled button waits for its second press
 static constexpr uint8_t REFUEL_ARMED_TICKS = 5;
 // How long the Shut down button waits for its second press
@@ -246,6 +248,9 @@ void TugUi::refresh_splash_() {
     this->splash_loaded_ = true;
     lv_label_set_text(this->w_.splash_name, this->logger_->provisioning().organisation.c_str());
     this->load_logo_();
+    // The logo alone; the organisation's name only stands in for a missing logo
+    if (this->logo_ != nullptr)
+      lv_obj_add_flag(this->w_.splash_name, LV_OBJ_FLAG_HIDDEN);
     this->splash_ticks_ = SPLASH_SHOW_TICKS;
   }
   if (this->splash_ticks_ != 0 && --this->splash_ticks_ != 0 && !this->logger_->is_flying())
@@ -312,6 +317,21 @@ void TugUi::load_logo_() {
 
 void TugUi::edit_next(TowField field) { this->open_picker_(PickerMode::PICKER_MODE_NEXT, field); }
 void TugUi::edit_tow(TowField field) { this->open_picker_(PickerMode::PICKER_MODE_TOW, field); }
+
+void TugUi::edit_tow_height() {
+  TowRecord record;
+  if (!this->current_tow_(record))
+    return;
+  this->mode_ = PickerMode::PICKER_MODE_HEIGHT;
+  this->picker_names_.clear();
+  this->picker_initial_.clear();
+  this->picker_filter_.clear();
+  lv_obj_clean(this->w_.picker_list);
+  lv_label_set_text(this->w_.picker_title, "Release height, feet above the airfield");
+  lv_textarea_set_text(this->w_.picker_text, Text("%d", int(record.max_height_ft)).text);
+  lv_keyboard_set_mode(this->w_.picker_keyboard, LV_KEYBOARD_MODE_NUMBER);
+  this->show_(this->w_.picker_page);
+}
 
 void TugUi::open_picker_(PickerMode mode, TowField field) {
   this->mode_ = mode;
@@ -405,7 +425,7 @@ void TugUi::add_name_row_(const std::string &name) {
 }
 
 void TugUi::picker_text_changed() {
-  if (this->mode_ == PickerMode::PICKER_MODE_WIFI_PASSWORD)
+  if (this->mode_ == PickerMode::PICKER_MODE_WIFI_PASSWORD || this->mode_ == PickerMode::PICKER_MODE_HEIGHT)
     return;
   // Filtered once the pilot types: the name the picker opened with shows the whole list
   const char *typed = lv_textarea_get_text(this->w_.picker_text);
@@ -434,7 +454,7 @@ void TugUi::picker_text_changed() {
 void TugUi::picker_done() { this->accept_(lv_textarea_get_text(this->w_.picker_text)); }
 
 void TugUi::picker_cancel() {
-  if (this->mode_ == PickerMode::PICKER_MODE_TOW) {
+  if (this->mode_ == PickerMode::PICKER_MODE_TOW || this->mode_ == PickerMode::PICKER_MODE_HEIGHT) {
     this->open_tow_(this->tow_id_);
   } else if (this->mode_ == PickerMode::PICKER_MODE_WIFI_PASSWORD) {
     this->show_(this->w_.settings_page);
@@ -460,6 +480,18 @@ void TugUi::accept_(const std::string &entered) {
     lv_textarea_set_text(this->w_.picker_text, "");
     this->show_settings();
     this->wifi_list_refresh_ticks_ = WIFI_LIST_REFRESH_TICKS;
+    return;
+  }
+  if (this->mode_ == PickerMode::PICKER_MODE_HEIGHT) {
+    const std::string text = trimmed(entered);
+    char *end = nullptr;
+    const long height = strtol(text.c_str(), &end, 10);
+    const bool valid = !text.empty() && *end == 0 && height >= 0 && height <= MAX_ENTERED_HEIGHT_FT;
+    if (valid)
+      this->logger_->store().update_height(this->tow_id_, int32_t(height));
+    this->open_tow_(this->tow_id_);
+    if (!valid)
+      lv_label_set_text(this->w_.tow_message, "Enter the release height in whole feet");
     return;
   }
   std::string value = trimmed(entered);
@@ -495,7 +527,7 @@ bool TugUi::current_tow_(TowRecord &record) {
 void TugUi::show_review() {
   lv_obj_clean(this->w_.review_list);
   for (const TowRecord &record : this->logger_->store().review_list()) {
-    const std::string when = record.launch != 0 ? format_utc(record.launch).substr(11, 5) + " UTC" : "time unknown";
+    const std::string when = record.launch != 0 ? local_time_text(record.launch).substr(11, 5) : "time unknown";
     const std::string glider =
         record.details.glider_registration.empty() ? "no glider" : record.details.glider_registration;
     const uint32_t id = record.id;
@@ -521,12 +553,16 @@ void TugUi::refresh_tow_() {
   TowRecord record;
   if (!this->current_tow_(record))
     return;
-  const std::string when = record.launch != 0 ? format_utc(record.launch) : "time unknown";
-  lv_label_set_text(this->w_.tow_info, Text("%s\nHeight %d ft%s   Climb %u:%02u   Flight %u:%02u", when.c_str(),
-                                            int(record.max_height_ft), record.approximate ? " (approximate)" : "",
+  const std::string when = record.launch != 0 ? local_time_text(record.launch) : "time unknown";
+  lv_label_set_text(this->w_.tow_info, Text("%s\nClimb %u:%02u   Flight %u:%02u", when.c_str(),
                                             unsigned(record.climb_s / 60), unsigned(record.climb_s % 60),
                                             unsigned(record.duration_s / 60), unsigned(record.duration_s % 60))
                                            .text);
+  lv_label_set_text(this->w_.tow_height, Text("%d ft%s", int(record.max_height_ft),
+                                              record.height_entered ? " (entered)"
+                                              : record.approximate  ? " (approx)"
+                                                                    : "")
+                                             .text);
   for (size_t i = 0; i != TOW_FIELD_COUNT; i++)
     lv_label_set_text(this->w_.tow_fields[i], field_text(record.details, TowField(i)));
 }

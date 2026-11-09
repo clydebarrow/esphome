@@ -66,6 +66,7 @@ struct TugUiWidgets {
   lv_obj_t *wifi_password_button;
   lv_obj_t *wifi_forget_button;
   lv_obj_t *firmware_label;
+  lv_obj_t *tow_height;
   lv_obj_t *picker_keyboard;
   lv_obj_t *theme_label;
 #ifdef USE_TUG_LOGGER_SKYECHO
@@ -83,6 +84,8 @@ class TugUi {
   void edit_next(TowField field);
   /// Edits a field of the tow open on the tow page.
   void edit_tow(TowField field);
+  /// Edits the release height of the tow open on the tow page.
+  void edit_tow_height();
   /// Accepts what is in the picker's text box.
   void picker_done();
   void picker_cancel();
@@ -118,6 +121,7 @@ class TugUi {
     PICKER_MODE_NEXT,
     PICKER_MODE_TOW,
     PICKER_MODE_WIFI_PASSWORD,
+    PICKER_MODE_HEIGHT,
   };
 
   void show_(lvgl::LvPageType *page);

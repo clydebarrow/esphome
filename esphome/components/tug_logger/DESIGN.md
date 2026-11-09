@@ -41,6 +41,9 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   over a tow is small. The field elevation is only used with no recent ground altitude, and that tow is marked
   approximate, as is one with more than 60 s without data in flight; the Worker shows such heights with "≈". A median
   of three samples rejects a single bad fix, which delays the peak by one sample.
+- **Release height** can be changed in review, from the tug pilot's own reading. That replaces the measured height,
+  which is no longer approximate; the measured one is still in the flight's record in `flights/`. Times on the
+  screens are in the device's time zone.
 - **Takeoff** is above 40 kt for 5 s, **landing** below 15 kt for 30 s; times are when the speed was first crossed.
   These thresholds are untested in a real tug.
 - **The status bar counts** the tows and the tug's flight time for the local date, and flight time since the Refuelled
@@ -85,8 +88,8 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 - `tug-common.yaml` holds the screens and settings. A board's file gives `display_width`, `display_height` (as the
   screens are seen) and `ui_rotation`; sizes and fonts are those for 800x1280 times `scale`, the smaller of the two
   ratios. Each board also gives `time` id `rtc` and `shutdown_script`, which the Shut down button in Settings runs.
-- **Splash:** the first page, white in either theme, with `logo.png` from the card's root (optional) above the
-  organisation from the tug's file. It shows for 5 s from when the card has been read, or 12 s without a card.
+- **Splash:** the first page, white in either theme, with `logo.png` from the card's root alone, or the organisation
+  from the tug's file if there is no logo. It shows for 5 s from when the card has been read, or 12 s without a card.
 - **JC1060P470 shutdown:** it has no power control, so it sleeps with the C6 and backlight off until the reset button
   is pressed, or external power is cycled with no battery fitted. On battery the board stays powered: on an early board
   (no Ethernet) the side button reaches no P4 GPIO and the charger ignores its presses, so only removing the battery

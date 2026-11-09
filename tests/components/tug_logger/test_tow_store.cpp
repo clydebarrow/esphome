@@ -449,4 +449,18 @@ TEST_F(TowStoreTest, ForgetsANameAndKeepsItForgotten) {
   EXPECT_TRUE(this->store->recent_gliders().empty());
 }
 
+TEST_F(TowStoreTest, ThePilotsReleaseHeightReplacesTheMeasuredOne) {
+  TowRecord record = tow();
+  record.approximate = true;
+  ASSERT_TRUE(this->store->add_review(record));
+  const uint32_t id = this->store->review_list().front().id;
+  ASSERT_TRUE(this->store->update_height(id, 1900));
+  this->reopen();
+  const TowRecord stored = this->store->review_list().front();
+  EXPECT_EQ(stored.max_height_ft, 1900);
+  EXPECT_FALSE(stored.approximate);
+  EXPECT_TRUE(stored.height_entered);
+  EXPECT_FALSE(this->store->update_height(id + 100, 1000));
+}
+
 }  // namespace esphome::tug_logger::testing

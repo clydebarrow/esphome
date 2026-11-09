@@ -55,6 +55,7 @@ esphome:
           w.wifi_password_button = id(wifi_password_button);
           w.wifi_forget_button = id(wifi_forget_button);
           w.firmware_label = id(firmware_label);
+          w.tow_height = id(tow_height);
           w.picker_keyboard = id(picker_keyboard)->obj;
           w.theme_label = id(theme_label);
           w.traffic = id(traffic);
@@ -496,7 +497,7 @@ lvgl:
             align: top_left
             y: "${(130 * scale) | round | int}"
             width: 100%
-            height: "${(440 * scale) | round | int}"
+            height: "${(560 * scale) | round | int}"
             border_width: 0
             bg_opa: transp
             pad_all: "${(0 * scale) | round | int}"
@@ -537,6 +538,14 @@ lvgl:
                   widgets:
                     - label: {align: left_mid, text_font: bold_40, text: Tug pilot}
                     - label: {id: tow_tug_pilot, align: right_mid, width: "${(530 * scale) | round | int}", long_mode: dot, text_align: right, text_font: bold_40, text: ""}
+              - button:
+                  styles: action_button
+                  width: 100%
+                  on_click:
+                    - lambda: id(ui).edit_tow_height();
+                  widgets:
+                    - label: {align: left_mid, text_font: bold_40, text: Release}
+                    - label: {id: tow_height, align: right_mid, width: "${(530 * scale) | round | int}", long_mode: dot, text_align: right, text_font: bold_40, text: ""}
         - label:
             id: tow_message
             align: bottom_left
