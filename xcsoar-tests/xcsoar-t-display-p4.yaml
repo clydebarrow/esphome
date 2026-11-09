@@ -46,10 +46,12 @@ globals:
     type: bool
     initial_value: "false"
 
+# Only the characters of the message above
 font:
   - file: ../tests/components/lvgl/roboto.ttf
     id: message_font
     size: 48
+    glyphs: " CSXadehoprst"
 
 xcsoar:
   id: xcsoar_app

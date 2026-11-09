@@ -1,0 +1,7 @@
+# xcsoar-tab5-v1.yaml built with the XCSoar branch the other Tab5 flight configs use
+
+packages:
+  v1: !include xcsoar-tab5-v1.yaml
+
+substitutions:
+  xcsoar_path: ../../xcsoar-src-flarm
