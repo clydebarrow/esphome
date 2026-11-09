@@ -355,4 +355,40 @@ TEST(SdSpi, UncachedWritesStillReachCard) {
   ASSERT_EQ(sd.sync(), StorageError::STORAGE_ERROR_NONE);
 }
 
+TEST(SdSpi, ReadIsRetriedAfterAnError) {
+  FakeCard card({});
+  TestSdSpi sd(&card);
+  sd.start();
+  std::vector<uint8_t> in(SECTOR);
+  fill(card.data, 3);
+  card.failing_reads = 2;
+  ASSERT_EQ(sd.read(4, 0, in.data(), SECTOR), StorageError::STORAGE_ERROR_NONE);
+  EXPECT_EQ(memcmp(card.data.data() + 4 * SECTOR, in.data(), SECTOR), 0);
+  EXPECT_TRUE(sd.has_media());
+}
+
+TEST(SdSpi, ReadFailsAfterThreeAttempts) {
+  FakeCard card({});
+  TestSdSpi sd(&card);
+  sd.start();
+  std::vector<uint8_t> in(SECTOR);
+  card.failing_reads = 3;
+  EXPECT_EQ(sd.read(4, 0, in.data(), SECTOR), StorageError::STORAGE_ERROR_IO);
+  // An error that is not a timeout keeps the card
+  EXPECT_TRUE(sd.has_media());
+  EXPECT_EQ(sd.read(4, 0, in.data(), SECTOR), StorageError::STORAGE_ERROR_NONE);
+}
+
+TEST(SdSpi, WriteIsRetriedAfterAnError) {
+  FakeCard card({});
+  TestSdSpi sd(&card);
+  sd.start();
+  std::vector<uint8_t> out(4 * SECTOR);
+  fill(out, 42);
+  card.failing_writes = 2;
+  // Without a write cache it goes to the card at once
+  ASSERT_EQ(sd.program(30, 0, out.data(), out.size()), StorageError::STORAGE_ERROR_NONE);
+  EXPECT_EQ(memcmp(card.data.data() + 30 * SECTOR, out.data(), out.size()), 0);
+}
+
 }  // namespace esphome::sd_spi::testing

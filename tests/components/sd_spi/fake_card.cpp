@@ -141,11 +141,18 @@ void FakeCard::command_(uint8_t cmd, uint32_t arg) {
       return;
     }
     case 17:
-      this->out_.push_back(this->r1_());
-      this->queue_block_(this->sector_(arg));
-      return;
     case 18:
       this->out_.push_back(this->r1_());
+      if (this->failing_reads != 0) {
+        this->failing_reads--;
+        this->out_.push_back(0xFF);
+        this->out_.push_back(0x01);  // error token: error
+        return;
+      }
+      if (cmd == 17) {
+        this->queue_block_(this->sector_(arg));
+        return;
+      }
       this->sector_pos_ = this->sector_(arg);
       this->queue_block_(this->sector_pos_++);
       this->mode_ = Mode::READ_MULTI;
@@ -180,6 +187,14 @@ void FakeCard::receive_write_(uint8_t in) {
   this->write_buf_.push_back(in);
   if (this->write_buf_.size() != SECTOR + 2)
     return;
+  if (this->failing_writes != 0) {
+    this->failing_writes--;
+    this->write_started_ = false;
+    this->out_.push_back(0xEB);  // data rejected: CRC error
+    if (this->mode_ == Mode::WRITE_SINGLE)
+      this->mode_ = Mode::COMMAND;
+    return;
+  }
   std::copy(this->write_buf_.begin(), this->write_buf_.begin() + SECTOR,
             this->data.begin() + this->sector_pos_ * SECTOR);
   this->sector_pos_++;

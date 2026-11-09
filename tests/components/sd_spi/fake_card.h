@@ -43,6 +43,10 @@ class FakeCard : public spi::SPIDelegate {
   bool present{true};
   uint32_t commands{0};
   uint32_t clocks_deselected{0};
+  // The next this many read commands answer with an error token instead of the data
+  uint32_t failing_reads{0};
+  // The next this many written blocks are refused with a CRC error and not stored
+  uint32_t failing_writes{0};
 
  protected:
   enum class Mode : uint8_t { COMMAND, WRITE_SINGLE, WRITE_MULTI, READ_MULTI };

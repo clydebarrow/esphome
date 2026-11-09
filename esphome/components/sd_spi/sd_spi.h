@@ -65,6 +65,10 @@ class SdSpi : public storage::BlockDevice,
   bool read_data_(uint8_t *buf, uint32_t len);
   bool write_data_(uint8_t token, const uint8_t *buf);
   template<typename F> storage::StorageError write_sectors_(uint32_t sector, uint32_t count, F block_at);
+  // One attempt, without the retries and the status of write_sectors_()
+  template<typename F> storage::StorageError write_sectors_once_(uint32_t sector, uint32_t count, F block_at);
+  // One attempt to read count sectors at a card address
+  storage::StorageError read_sectors_(uint32_t address, uint32_t count, uint8_t *dst);
   bool card_ready_();
   int find_cached_(uint32_t sector) const;
   void uncache_(uint32_t sector, uint32_t count);

@@ -22,8 +22,11 @@ static constexpr uint32_t SECTOR_SIZE = 512;
 static constexpr uint32_t SLOW_RATE = 400000;  // The card must be started at no more than 400 kHz
 static constexpr uint32_t CHECK_INTERVAL_MS = 1000;
 static constexpr uint32_t INIT_TIMEOUT_MS = 2000;
-static constexpr uint32_t READ_TIMEOUT_MS = 200;
-static constexpr uint32_t BUSY_TIMEOUT_MS = 500;
+// The SD specification allows 100 ms for read data and 500 ms of busy after a write; cards do take longer at times
+static constexpr uint32_t READ_TIMEOUT_MS = 300;
+static constexpr uint32_t BUSY_TIMEOUT_MS = 1000;
+// A transfer that fails is tried this often before the error goes to the file system
+static constexpr uint8_t MAX_ATTEMPTS = 3;
 static constexpr uint32_t BUSY_SPIN_US = 1000;  // How long a wait polls the card before it starts to sleep
 static constexpr uint8_t CMD0_RETRIES = 5;
 static constexpr uint8_t RESPONSE_POLLS = 10;
@@ -438,6 +441,22 @@ StorageError SdSpi::fail_(StorageError error) {
   return error;
 }
 
+StorageError SdSpi::read_sectors_(uint32_t address, uint32_t count, uint8_t *dst) {
+  this->select_();
+  const uint8_t r1 = this->command_(count == 1 ? CMD_READ_SINGLE : CMD_READ_MULTIPLE, address);
+  bool ok = r1 == R1_READY;
+  for (uint32_t i = 0; ok && i != count; i++)
+    ok = this->read_data_(dst + i * SECTOR_SIZE, SECTOR_SIZE);
+  if (r1 == R1_READY && count != 1) {
+    ok = this->command_(CMD_STOP_TRANSMISSION, 0) == R1_READY && ok;
+    ok = this->wait_ready_(BUSY_TIMEOUT_MS) && ok;
+  }
+  this->deselect_();
+  if (r1 == R1_NO_RESPONSE)
+    return StorageError::STORAGE_ERROR_TIMEOUT;
+  return ok ? StorageError::STORAGE_ERROR_NONE : StorageError::STORAGE_ERROR_IO;
+}
+
 StorageError SdSpi::device_read(uint32_t block, uint32_t offset, void *buf, uint32_t len) {
   const uint32_t sector = block + offset / SECTOR_SIZE;
   const uint32_t count = len / SECTOR_SIZE;
@@ -450,20 +469,15 @@ StorageError SdSpi::device_read(uint32_t block, uint32_t offset, void *buf, uint
       return StorageError::STORAGE_ERROR_NONE;
     }
   }
-  this->select_();
-  const uint8_t r1 = this->command_(count == 1 ? CMD_READ_SINGLE : CMD_READ_MULTIPLE, address);
-  bool ok = r1 == R1_READY;
-  for (uint32_t i = 0; ok && i != count; i++)
-    ok = this->read_data_(dst + i * SECTOR_SIZE, SECTOR_SIZE);
-  if (r1 == R1_READY && count != 1) {
-    ok = this->command_(CMD_STOP_TRANSMISSION, 0) == R1_READY && ok;
-    ok = this->wait_ready_(BUSY_TIMEOUT_MS) && ok;
+  StorageError err = StorageError::STORAGE_ERROR_NONE;
+  for (uint8_t attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    err = this->read_sectors_(address, count, dst);
+    if (err == StorageError::STORAGE_ERROR_NONE)
+      break;
+    ESP_LOGW(TAG, "Reading %" PRIu32 " sectors at %" PRIu32 " failed (attempt %u)", count, sector, attempt);
   }
-  this->deselect_();
-  if (r1 == R1_NO_RESPONSE)
-    return this->fail_(StorageError::STORAGE_ERROR_TIMEOUT);
-  if (!ok)
-    return this->fail_(StorageError::STORAGE_ERROR_IO);
+  if (err != StorageError::STORAGE_ERROR_NONE)
+    return this->fail_(err);
   // Cached sectors are newer than the card's copies
   for (uint16_t i = 0; this->cache_used_ != 0 && i != this->cache_capacity_; i++) {
     const uint32_t cached = this->cache_sectors_[i];
@@ -476,6 +490,19 @@ StorageError SdSpi::device_read(uint32_t block, uint32_t offset, void *buf, uint
 
 // block_at(i) returns the data for sector + i. Returns while the card may still be programming the last block.
 template<typename F> StorageError SdSpi::write_sectors_(uint32_t sector, uint32_t count, F block_at) {
+  StorageError err = StorageError::STORAGE_ERROR_NONE;
+  for (uint8_t attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    err = this->write_sectors_once_(sector, count, block_at);
+    if (err == StorageError::STORAGE_ERROR_NONE) {
+      this->set_warning_(false);
+      return err;
+    }
+    ESP_LOGW(TAG, "Writing %" PRIu32 " sectors at %" PRIu32 " failed (attempt %u)", count, sector, attempt);
+  }
+  return this->fail_(err);
+}
+
+template<typename F> StorageError SdSpi::write_sectors_once_(uint32_t sector, uint32_t count, F block_at) {
   const uint32_t address = this->type_ == CardType::CARD_TYPE_SDHC ? sector : sector * SECTOR_SIZE;
   this->select_();
   bool ok;
@@ -496,11 +523,8 @@ template<typename F> StorageError SdSpi::write_sectors_(uint32_t sector, uint32_
   }
   this->deselect_();
   if (r1 == R1_NO_RESPONSE)
-    return this->fail_(StorageError::STORAGE_ERROR_TIMEOUT);
-  if (!ok)
-    return this->fail_(StorageError::STORAGE_ERROR_IO);
-  this->set_warning_(false);
-  return StorageError::STORAGE_ERROR_NONE;
+    return StorageError::STORAGE_ERROR_TIMEOUT;
+  return ok ? StorageError::STORAGE_ERROR_NONE : StorageError::STORAGE_ERROR_IO;
 }
 
 StorageError SdSpi::device_program(uint32_t block, uint32_t offset, const void *buf, uint32_t len) {
