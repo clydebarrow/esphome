@@ -11,6 +11,7 @@ substitutions:
 packages:
   board: !include tug-jc1060-board.yaml
   common: !include tug-common.yaml
+  network: !include tug-network.yaml
 
 esphome:
   name: tug-jc1060

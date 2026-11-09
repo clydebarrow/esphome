@@ -2,7 +2,7 @@
 
 #include "esphome/core/defines.h"
 
-#ifdef USE_ESP32
+#if defined(USE_ESP32) || defined(USE_HOST)
 
 namespace esphome::tug_logger {
 

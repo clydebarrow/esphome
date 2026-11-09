@@ -1,0 +1,85 @@
+# Wi-Fi and firmware updates, for every tug board's build; tug-host.yaml goes without them.
+
+# Saved networks are kept on the device; a SkyEcho comes first, and the others are used when it is off.
+# fast_connect would go back to the last network at each start instead.
+wifi:
+  fast_connect: false
+  # Out of range of every network is normal in a tug, so never restart for it
+  reboot_timeout: 0s
+
+wifi_networks:
+  id: wifi_networks_hub
+  skyecho_id: skyecho_hub
+
+tug_logger:
+  wifi_networks_id: wifi_networks_hub
+
+# Firmware updates from the Worker that takes the tows: Settings checks for one, and installs it on a second press
+http_request:
+  id: http_client
+  verify_ssl: true
+  timeout: 30s
+  watchdog_timeout: 30s
+
+# The main loop is held while an update installs, so each step redraws the screen itself
+ota:
+  - platform: http_request
+    id: ota_http
+    on_begin:
+      - lvgl.widget.show: ota_box
+      - lvgl.label.update:
+          id: ota_label
+          text: Installing the update
+      - lvgl.bar.update:
+          id: ota_bar
+          value: 0
+      - lambda: id(lvgl_id).loop();
+    on_progress:
+      - lvgl.bar.update:
+          id: ota_bar
+          value: !lambda return int(x);
+      - lvgl.label.update:
+          id: ota_label
+          text:
+            format: "Installing the update: %.0f%%"
+            args: [x]
+      - lambda: id(lvgl_id).loop();
+    on_end:
+      - lvgl.bar.update:
+          id: ota_bar
+          value: 100
+      - lvgl.label.update:
+          id: ota_label
+          text: Update installed. Restarting
+      - lambda: id(lvgl_id).loop();
+    on_error:
+      - lvgl.label.update:
+          id: ota_label
+          text:
+            format: "The update failed (error %u)"
+            args: [x]
+      - lambda: id(lvgl_id).loop();
+
+script:
+  - id: firmware_update_script
+    mode: single
+    then:
+      - lvgl.widget.show: ota_box
+      - lvgl.label.update:
+          id: ota_label
+          text: Starting the update
+      # Let the message show before the download holds the main loop
+      - delay: 200ms
+      # Saves a flight in progress, and unmounts the SD card. The device restarts after a good install
+      - lambda: App.run_safe_shutdown_hooks();
+      - ota.http_request.flash:
+          id: ota_http
+          url: !lambda return id(logger_id).firmware_offer().url;
+          md5: !lambda return id(logger_id).firmware_offer().md5;
+      # Still here, so the install failed. The card is unmounted, so start again
+      - lvgl.label.update:
+          id: ota_label
+          text: The update failed. Restarting
+      - lambda: id(ui).firmware_install_failed();
+      - delay: 5s
+      - lambda: App.safe_reboot();

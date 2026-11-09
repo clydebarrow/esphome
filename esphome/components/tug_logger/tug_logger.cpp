@@ -1,6 +1,6 @@
 #include "esphome/core/defines.h"
 
-#ifdef USE_ESP32
+#if defined(USE_ESP32) || defined(USE_HOST)
 
 #include "tug_logger.h"
 
@@ -12,6 +12,7 @@
 #include "esphome/components/network/util.h"
 #include "esphome/core/application.h"
 #include "esphome/core/log.h"
+#include "esphome/core/time.h"
 
 #include "tow_uploader.h"
 
@@ -46,6 +47,8 @@ void TugLogger::dump_config() {
                 this->settings_.takeoff_speed_mps, this->settings_.takeoff_confirm_ms,
                 this->settings_.landing_speed_mps, this->settings_.landing_confirm_ms, this->shutdown_window_ms_);
 }
+
+std::string local_time_text(time_t epoch) { return ESPTime::from_epoch_local(epoch).strftime("%Y-%m-%d %H:%M"); }
 
 void TugLogger::on_safe_shutdown() {
   if (this->store_ready_ && this->detector_.is_flying())
@@ -90,8 +93,8 @@ void TugLogger::start_flight_log_(const char *why) {
            "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet\n"
            "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft\n",
            why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
-           flight.has_reference ? flight.reference_m / METERS_PER_FOOT : this->settings_.field_elevation_ft,
-           flight.approximate ? ", approximate" : "", this->settings_.field_elevation_ft);
+           flight.has_reference ? flight.reference_m / METERS_PER_FOOT : this->provisioning_.field_elevation_ft,
+           flight.approximate ? ", approximate" : "", this->provisioning_.field_elevation_ft);
   this->flight_log_ = header;
   for (const std::string &line : this->ground_lines_)
     this->flight_log_ += line;

@@ -10,6 +10,7 @@ substitutions:
 packages:
   board: !include tug-d1001-board.yaml
   common: !include tug-common.yaml
+  network: !include tug-network.yaml
 
 esphome:
   name: tug-d1001

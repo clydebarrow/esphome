@@ -146,8 +146,6 @@ void TugLogger::upload_step() {
     this->last_upload_ms_ = 0;
 }
 
-std::string local_time_text(time_t epoch) { return ESPTime::from_epoch_local(epoch).strftime("%Y-%m-%d %H:%M"); }
-
 void TugLogger::request_firmware_check() {
   // Without a tug file the upload task never starts
   if (!this->provisioned_) {
@@ -255,6 +253,31 @@ void wake_tow_uploader() {
   if (uploader_handle != nullptr)
     xTaskNotifyGive(uploader_handle);
 }
+
+}  // namespace esphome::tug_logger
+
+#elif defined(USE_HOST)
+
+#include "tug_logger.h"
+
+namespace esphome::tug_logger {
+
+// A host build is for trying the screens: nothing is uploaded, and there are no firmware updates
+
+void TugLogger::upload_step() {}
+void TugLogger::firmware_step() {}
+
+void TugLogger::request_firmware_check() {
+  std::lock_guard<std::mutex> guard(this->firmware_lock_);
+  this->firmware_offer_ = {};
+  this->firmware_offer_.message = "No updates in a host build";
+  this->firmware_state_ = FirmwareState::FIRMWARE_STATE_FAILED;
+}
+
+void TugLogger::firmware_install_failed() { this->request_firmware_check(); }
+
+bool start_tow_uploader(TugLogger *logger) { return true; }
+void wake_tow_uploader() {}
 
 }  // namespace esphome::tug_logger
 

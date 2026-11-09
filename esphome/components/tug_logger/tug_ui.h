@@ -2,7 +2,7 @@
 
 #include "esphome/core/defines.h"
 
-#if defined(USE_LVGL) && defined(USE_ESP32)
+#if defined(USE_LVGL) && (defined(USE_ESP32) || defined(USE_HOST))
 
 #include <functional>
 #include <string>

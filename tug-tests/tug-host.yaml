@@ -1,0 +1,60 @@
+# The tug logger's screens in a window on this computer, to try the UI: the mouse is the touchscreen. Nothing is
+# uploaded, there are no firmware updates, and no Wi-Fi list. host-card/ stands in for the SD card, with a tug file
+# for VH-HOST; add logo.png there for the splash. Run from the worktree, so the card path resolves:
+#   PYTHONPATH=$PWD python -m esphome run tug-tests/tug-host.yaml
+# For a tow to review, fly the simulator at it from another terminal: python tug-tests/fly.py 127.0.0.1
+# The window is the 800x1280 layout at 75%.
+
+substitutions:
+  display_width: 600
+  display_height: 960
+  ui_rotation: 0
+
+packages:
+  common: !include tug-common.yaml
+
+esphome:
+  name: tug-host
+
+host:
+
+network:
+
+# Nothing to connect to here, and it would be offered to Home Assistant on the network
+api: !remove
+
+logger:
+  level: DEBUG
+  logs:
+    lvgl: INFO
+    component: INFO
+    scheduler: INFO
+    skyecho: INFO
+    traffic_mgr: INFO
+
+display:
+  - platform: sdl
+    id: sdl_display
+    dimensions:
+      width: ${display_width}
+      height: ${display_height}
+
+touchscreen:
+  - platform: sdl
+    id: touch
+
+time:
+  - platform: host
+    id: rtc
+
+tug_logger:
+  card_path: tug-tests/host-card
+
+script:
+  # The Settings buttons, which do nothing here but say so
+  - id: shutdown_script
+    then:
+      - logger.log: "Shut down: nothing to do in a host build"
+  - id: firmware_update_script
+    then:
+      - logger.log: "No firmware updates in a host build"

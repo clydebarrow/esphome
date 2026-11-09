@@ -8,7 +8,8 @@ from esphome.components import (
     time as time_,
 )
 import esphome.config_validation as cv
-from esphome.const import CONF_ID, CONF_TIME_ID
+from esphome.const import CONF_ID, CONF_TIME_ID, PLATFORM_ESP32, PLATFORM_HOST
+from esphome.core import CORE
 from esphome.types import ConfigType
 
 CODEOWNERS = ["@clydebarrow"]
@@ -100,7 +101,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_POWER_OFF): automation.validate_automation({}),
         }
     ).extend(cv.COMPONENT_SCHEMA),
-    cv.only_on_esp32,
+    # A host build shows the screens on the computer, with no uploads or firmware updates
+    cv.only_on([PLATFORM_ESP32, PLATFORM_HOST]),
     _validate_speeds,
 )
 
@@ -108,10 +110,11 @@ CONFIG_SCHEMA = cv.All(
 async def to_code(config: ConfigType) -> None:
     var = cg.new_Pvariable(config[CONF_ID], config[CONF_CARD_PATH])
     await cg.register_component(var, config)
-    esp32.request_http_client()
+    if CORE.is_esp32:
+        esp32.request_http_client()
+        esp32.require_certificate_bundle()
     # The splash screen's logo
     runtime_image.enable_format("PNG")
-    esp32.require_certificate_bundle()
 
     cg.add(var.set_time(await cg.get_variable(config[CONF_TIME_ID])))
     if (skyecho := config.get(CONF_SKYECHO_ID)) is not None:

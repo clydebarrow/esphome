@@ -15,11 +15,13 @@ KEY_NEEDS_IMAGES = "needs_images"
 
 
 def AUTO_LOAD(config):
-    # image/file are only needed when the LVGL traffic widget bundles its symbols.
+    # image is only needed when the LVGL traffic widget bundles its symbols.
     # image depends on display, so it must not be pulled in for display-less setups.
+    # The widget uses file's image helper at build time, but not the file component itself, whose entries
+    # need a filesystem: a host build has none.
     loads = ["socket", "uart"]
     if CORE.data.get(DOMAIN, {}).get(KEY_NEEDS_IMAGES):
-        loads += ["image", "file"]
+        loads += ["image"]
     return loads
 
 

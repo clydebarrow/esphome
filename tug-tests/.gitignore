@@ -1,3 +1,5 @@
 /.esphome/
 /secrets.yaml
 __pycache__
+# What the host build writes to its stand-in card
+/host-card/tug/

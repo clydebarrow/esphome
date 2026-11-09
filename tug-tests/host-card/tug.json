@@ -1,0 +1,7 @@
+{
+  "organisation": "Host test",
+  "tug": { "registration": "VH-HOST" },
+  "field_elevation_ft": 1500,
+  "flight_upload_url": "http://localhost/api/tows",
+  "flight_upload_key": "host-build-uploads-nothing"
+}
