@@ -264,6 +264,7 @@
 #define USE_PACKET_INTERFACE_BASIC_FRAGMENTATION
 #define USE_PACKET_INTERFACE_BASIC_SESSION
 #define USE_PACKET_INTERFACE_HDLC
+#define USE_PACKET_INTERFACE_LZSS
 #define USE_PACKET_INTERFACE_XXTEA
 #define USE_POWER_SUPPLY
 // Only defined by key-lookup preference backends; the slot-based platforms
