@@ -23,6 +23,9 @@ esp32:
   flash_size: 16MB
   framework:
     type: esp-idf
+    sdkconfig_options:
+      # The checks stay; their messages and file names would take about 100 kB of flash
+      CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT: y
 
 logger:
   hardware_uart: USB_SERIAL_JTAG
@@ -115,13 +118,16 @@ globals:
     type: bool
     initial_value: "false"
 
+# Only the characters of the messages above: the whole character set at these sizes takes about 200 kB of flash
 font:
   - file: ../tests/components/lvgl/roboto.ttf
     id: message_font
     size: 56
+    glyphs: " CPRSXabcdefghinoprstuvw"
   - file: ../tests/components/lvgl/roboto.ttf
     id: hint_font
     size: 32
+    glyphs: " CPRSXabcdefghinoprstuvw"
 
 touchscreen:
   - platform: st7123
