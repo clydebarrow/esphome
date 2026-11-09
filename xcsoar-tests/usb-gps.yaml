@@ -1,4 +1,5 @@
-# A GPS receiver (MediaTek, CDC ACM) in the Tab5's USB-A port, read by XCSoar with the Generic NMEA driver.
+# A GPS receiver with a CDC ACM serial port (MediaTek, u-blox, ...) in the Tab5's USB-A port, read by XCSoar with the
+# Generic NMEA driver.
 # USB 5V (pin 3 of the second I/O expander) powers the port.
 
 switch:
@@ -13,8 +14,9 @@ usb_host:
 usb_uart:
   - id: gps_usb
     type: cdc_acm
-    vid: 0x0E8D
-    pid: 0x3329
+    # Any CDC ACM device: 0 matches every vendor and product (MediaTek 0E8D:3329, u-blox 7 1546:01A7)
+    vid: 0
+    pid: 0
     channels:
       - id: gps_uart
         baud_rate: 115200
