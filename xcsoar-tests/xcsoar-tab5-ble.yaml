@@ -21,16 +21,6 @@ esp32_ble_tracker:
   scan_parameters:
     active: true
     continuous: false
-  on_ble_advertise:
-    - then:
-        - lambda: |-
-            // The first adverts of any device, to show the radio works without a serial device nearby
-            static uint32_t seen = 0;
-            if (seen++ < 10) {
-              char address[esp32_ble_tracker::ESPBTDevice::MAC_ADDRESS_PRETTY_BUFFER_SIZE];
-              ESP_LOGI("ble_scan", "Advert from %s '%s' RSSI %d", x.address_str_to(address), x.get_name().c_str(),
-                       x.get_rssi());
-            }
 
 ble_serial:
   id: ble_serial_hub
