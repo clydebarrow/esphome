@@ -26,6 +26,9 @@ esp32:
     sdkconfig_options:
       # The checks stay; their messages and file names would take about 100 kB of flash
       CONFIG_COMPILER_OPTIMIZATION_ASSERTIONS_SILENT: y
+      # The panel's DMA restarts each frame from an interrupt; without this it waits while flash is written (NVS),
+      # and the panel misses a frame: a white flash
+      CONFIG_LCD_DSI_ISR_CACHE_SAFE: y
 
 logger:
   hardware_uart: USB_SERIAL_JTAG
