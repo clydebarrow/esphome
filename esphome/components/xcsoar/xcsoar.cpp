@@ -11,6 +11,7 @@
 #include <esp_vfs_eventfd.h>
 
 #include <algorithm>
+#include <cinttypes>
 #include <numeric>
 #include <pthread.h>
 
@@ -29,6 +30,8 @@ static constexpr size_t MALLOC_INTERNAL_LIMIT = 0;
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
 // XCSoar's drawing threads (the UI and the map) can fill at the same time
 static constexpr uint32_t FILL_PENDING_MAX = 4;
+// A fill or blend takes about 1 ms; the PPA has been seen to never finish one, which stopped the map for good
+static constexpr uint32_t PPA_DRAW_TIMEOUT_MS = 500;
 // XCSoar's event loop wakes up through an eventfd
 static constexpr size_t EVENTFD_COUNT = 4;
 // XCSoar's directory below the data filesystem's vfs_path
@@ -74,10 +77,14 @@ void XCSoarComponent::setup() {
   // Without it XCSoar fills with the CPU
   ppa_config.oper_type = PPA_OPERATION_FILL;
   ppa_config.max_pending_trans_num = FILL_PENDING_MAX;
-  if (ppa_register_client(&ppa_config, &this->ppa_fill_client_) != ESP_OK)
+  ppa_event_callbacks_t draw_callbacks{};
+  draw_callbacks.on_trans_done = on_drawn_;
+  if (ppa_register_client(&ppa_config, &this->ppa_fill_client_) != ESP_OK ||
+      ppa_client_register_event_callbacks(this->ppa_fill_client_, &draw_callbacks) != ESP_OK)
     this->ppa_fill_client_ = nullptr;
   ppa_config.oper_type = PPA_OPERATION_BLEND;
-  if (ppa_register_client(&ppa_config, &this->ppa_blend_client_) != ESP_OK)
+  if (ppa_register_client(&ppa_config, &this->ppa_blend_client_) != ESP_OK ||
+      ppa_client_register_event_callbacks(this->ppa_blend_client_, &draw_callbacks) != ESP_OK)
     this->ppa_blend_client_ = nullptr;
 
   // XCSoar draws at the display's rotated size
@@ -428,9 +435,34 @@ void XCSoarComponent::frame_ready_(const void *pixels, unsigned pitch, const XCS
     self->conversion_done_(nullptr);
 }
 
+// The semaphore a fill or blend gives when it is finished: one for each drawing thread (the UI and the map), as
+// both may draw at once. It lives as long as the thread, so a late give after a timeout is harmless.
+static SemaphoreHandle_t thread_draw_semaphore() {
+  static thread_local StaticSemaphore_t buffer;
+  static thread_local SemaphoreHandle_t semaphore = xSemaphoreCreateBinaryStatic(&buffer);
+  return semaphore;
+}
+
+bool XCSoarComponent::on_drawn_(ppa_client_handle_t client, ppa_event_data_t *event, void *user_data) {
+  BaseType_t woken = pdFALSE;
+  xSemaphoreGiveFromISR(static_cast<SemaphoreHandle_t>(user_data), &woken);
+  return woken == pdTRUE;
+}
+
+bool XCSoarComponent::wait_drawn_(SemaphoreHandle_t done) noexcept {
+  if (xSemaphoreTake(done, pdMS_TO_TICKS(PPA_DRAW_TIMEOUT_MS)) == pdTRUE)
+    return true;
+  this->ppa_draw_failed_ = true;
+  ESP_LOGE(TAG, "PPA fill or blend not finished after %" PRIu32 " ms; XCSoar draws them itself from now on",
+           PPA_DRAW_TIMEOUT_MS);
+  return false;
+}
+
 bool XCSoarComponent::fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
                             void *ctx) noexcept {
   auto *self = static_cast<XCSoarComponent *>(ctx);
+  if (self->ppa_draw_failed_)
+    return false;
   const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
   const auto *data = static_cast<const uint8_t *>(buffer);
   self->locate_in_screen_(data, pitch, height, rect.x, rect.y);
@@ -446,9 +478,11 @@ bool XCSoarComponent::fill_(void *buffer, unsigned pitch, unsigned height, XCSoa
   fill.fill_block_w = rect.width;
   fill.fill_block_h = rect.height;
   fill.fill_argb_color.val = argb;
-  fill.mode = PPA_TRANS_MODE_BLOCKING;
+  const SemaphoreHandle_t done = thread_draw_semaphore();
+  fill.mode = PPA_TRANS_MODE_NON_BLOCKING;
+  fill.user_data = done;
   // The PPA needs a buffer aligned to the cache line; XCSoar fills any other itself
-  return ppa_do_fill(self->ppa_fill_client_, &fill) == ESP_OK;
+  return ppa_do_fill(self->ppa_fill_client_, &fill) == ESP_OK && self->wait_drawn_(done);
 }
 
 void XCSoarComponent::locate_in_screen_(const uint8_t *&buffer, unsigned pitch, unsigned &height, unsigned &x,
@@ -469,6 +503,8 @@ bool XCSoarComponent::blend_(void *dest, unsigned dest_pitch, unsigned dest_heig
                              const void *src, unsigned src_pitch, unsigned src_height, unsigned src_x, unsigned src_y,
                              unsigned alpha, bool white_transparent, void *ctx) noexcept {
   auto *self = static_cast<XCSoarComponent *>(ctx);
+  if (self->ppa_draw_failed_)
+    return false;
   const unsigned bytes_per_pixel = XCSoarEsp32::BytesPerPixel();
   const auto color_mode = bytes_per_pixel == 2 ? PPA_BLEND_COLOR_MODE_RGB565 : PPA_BLEND_COLOR_MODE_ARGB8888;
   const auto *dest_data = static_cast<const uint8_t *>(dest);
@@ -513,8 +549,10 @@ bool XCSoarComponent::blend_(void *dest, unsigned dest_pitch, unsigned dest_heig
     blend.fg_ck_rgb_low_thres.val = 0xF8FCF8;
     blend.fg_ck_rgb_high_thres.val = 0xFFFFFF;
   }
-  blend.mode = PPA_TRANS_MODE_BLOCKING;
-  return ppa_do_blend(self->ppa_blend_client_, &blend) == ESP_OK;
+  const SemaphoreHandle_t done = thread_draw_semaphore();
+  blend.mode = PPA_TRANS_MODE_NON_BLOCKING;
+  blend.user_data = done;
+  return ppa_do_blend(self->ppa_blend_client_, &blend) == ESP_OK && self->wait_drawn_(done);
 }
 
 void XCSoarComponent::traffic_alarm_(unsigned level, void *ctx) noexcept {
