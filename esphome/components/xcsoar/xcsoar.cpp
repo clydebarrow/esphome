@@ -30,7 +30,7 @@ static constexpr size_t MALLOC_INTERNAL_LIMIT = 0;
 static constexpr uint32_t FRAME_BUFFER_FREE_TIMEOUT_MS = 100;
 // XCSoar's drawing threads (the UI and the map) can fill at the same time
 static constexpr uint32_t FILL_PENDING_MAX = 4;
-// A fill or blend takes about 1 ms; the PPA has been seen to never finish one, which stopped the map for good
+// A fill or blend takes about 1 ms; the PPA can fail to finish one, and the drawing thread must not wait for good
 static constexpr uint32_t PPA_DRAW_TIMEOUT_MS = 500;
 // XCSoar's event loop wakes up through an eventfd
 static constexpr size_t EVENTFD_COUNT = 4;
@@ -210,7 +210,7 @@ void *XCSoarComponent::task_main_(void *param) {
   auto *self = static_cast<XCSoarComponent *>(param);
 #ifdef USE_FILESYSTEM_VFS
   if (self->data_fs_ != nullptr) {
-    // A slow setup elsewhere (esp32_ble without co-processor support took 5 s) holds up the card's start too
+    // A slow setup elsewhere, such as esp32_ble without co-processor support (5 s), holds up the card's start too
     while (!App.is_setup_complete())
       delay(SETUP_POLL_MS);
     if (!self->data_fs_->get_vfs()->wait_ready(DATA_READY_TIMEOUT_MS)) {
