@@ -14,15 +14,7 @@ esphome:
   name: xcsoar-tab5
   # The RX8130 keeps the time while the Tab5 is off; XCSoar dates GDL90 fixes and the club flights from it
   on_boot:
-    - then:
-        - rx8130.read_time: rtc
-    # Either side of the display's setup (priority 600), for the backlight's on_state log
-    - priority: 700
-      then:
-        - lambda: ESP_LOGI("backlight", "Display setup starts at %" PRIu32 " ms", millis());
-    - priority: 590
-      then:
-        - lambda: ESP_LOGI("backlight", "Display setup done at %" PRIu32 " ms", millis());
+    - rx8130.read_time: rtc
 
 esp32:
   variant: esp32p4
@@ -96,7 +88,6 @@ output:
 
 light:
   - platform: monochromatic
-    id: backlight
     output: backlight_pwm
     name: Backlight
     initial_state:
@@ -108,12 +99,6 @@ light:
     write_on_setup: true
     # Straight after its output
     setup_priority: 1299
-    # When the backlight comes on during startup, against the display's setup
-    on_state:
-      - lambda: |-
-          ESP_LOGI("backlight", "Set %s, brightness %.2f, at %" PRIu32 " ms",
-                   id(backlight).remote_values.is_on() ? "on" : "off",
-                   id(backlight).remote_values.get_brightness(), millis());
 
 display:
   - platform: mipi_dsi
