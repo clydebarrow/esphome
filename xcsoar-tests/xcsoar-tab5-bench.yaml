@@ -1,0 +1,69 @@
+# xcsoar-tab5-v1-flarm.yaml for the bench V1, with the API actions the bench tests use; the flight configs leave
+# them out.
+
+packages:
+  v1: !include xcsoar-tab5-v1-flarm.yaml
+
+esphome:
+  includes:
+    - debug_helpers.h
+
+esp32:
+  framework:
+    sdkconfig_options:
+      # For dump_tasks() in debug_helpers.h
+      CONFIG_FREERTOS_USE_TRACE_FACILITY: y
+
+api:
+  actions:
+    # For put_file.py: writes base64 data to a file under /sdcard/XCSoar, from the start when append is false
+    - action: write_file
+      variables:
+        path: string
+        data: string
+        append: bool
+      then:
+        - lambda: |-
+            if (path.find("..") != std::string::npos) {
+              ESP_LOGW("write_file", "Refused %s", path.c_str());
+              return;
+            }
+            std::string full = "/sdcard/XCSoar/" + path;
+            std::vector<uint8_t> buf(data.size() * 3 / 4 + 3);
+            size_t len = base64_decode(data, buf.data(), buf.size());
+            FILE *file = fopen(full.c_str(), append ? "ab" : "wb");
+            if (file == nullptr) {
+              ESP_LOGW("write_file", "Can't open %s", full.c_str());
+              return;
+            }
+            size_t written = fwrite(buf.data(), 1, len, file);
+            fclose(file);
+            if (written != len)
+              ESP_LOGW("write_file", "Short write to %s", full.c_str());
+
+    # Logs each task's state and stack, to find a thread that is stuck
+    - action: dump_tasks
+      then:
+        - lambda: dump_tasks();
+
+    # Two taps at x,y 200 ms apart, which the API's own timing cannot spread out
+    - action: double_tap
+      variables:
+        x: int
+        y: int
+      then:
+        - lambda: |-
+            touchscreen::TouchPoint tp{};
+            tp.x = x;
+            tp.y = y;
+            id(xcsoar_app)->touch(tp);
+        - delay: 60ms
+        - lambda: id(xcsoar_app)->release();
+        - delay: 140ms
+        - lambda: |-
+            touchscreen::TouchPoint tp{};
+            tp.x = x;
+            tp.y = y;
+            id(xcsoar_app)->touch(tp);
+        - delay: 60ms
+        - lambda: id(xcsoar_app)->release();
