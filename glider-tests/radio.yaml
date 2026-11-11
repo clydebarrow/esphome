@@ -1,0 +1,10 @@
+# LoRa settings shared by the glider unit and the clubhouse receiver: both must match, or neither hears the other.
+# SF7 at 250 kHz keeps a position report to about 30 ms on air, so a fleet can share the channel; range tests may
+# show that SF8 is needed.
+substitutions:
+  lora_frequency: 917MHz
+  lora_spreading_factor: "7"
+  lora_bandwidth: 250_0kHz
+  lora_preamble_size: "8"
+  # Addresses: the clubhouse is 0x0001, each glider has its own
+  clubhouse_address: "0x0001"

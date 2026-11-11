@@ -1,0 +1,104 @@
+# Bench clubhouse receiver on a Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262).
+# - Logs every position report it hears, with the sender's address and the signal.
+# - Logs each flight summary from a known glider and acknowledges it. Nothing is uploaded yet.
+packages:
+  radio: !include radio.yaml
+
+esphome:
+  name: glider-receiver
+  includes:
+    - glider_packets.h
+  on_boot:
+    then:
+      - lambda: |-
+          // One stack for each glider; the registration would come from provisioning
+          id(glider_wgq)->top()->add_packet_interface_listener(
+              [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+                uint8_t buf[64];
+                size_t len = data.copy_to(buf, sizeof(buf));
+                glider::Summary summary;
+                if (!summary.decode(buf, len)) {
+                  ESP_LOGW("receiver", "WGQ: unexpected packet of %zu bytes", len);
+                  return;
+                }
+                ESP_LOGI("receiver",
+                         "WGQ summary: takeoff %u at %.6f,%.6f %dm, landing %u at %.6f,%.6f %dm, "
+                         "rssi %.0f snr %.1f",
+                         (unsigned) summary.takeoff, summary.takeoff_lat, summary.takeoff_lon, summary.takeoff_alt_m,
+                         (unsigned) summary.landing, summary.landing_lat, summary.landing_lon, summary.landing_alt_m,
+                         meta.rssi, meta.snr);
+                // Here the receiver would queue the flight for the Worker, and acknowledge it once stored
+                glider::Ack ack{summary.takeoff};
+                uint8_t out[glider::Ack::SIZE];
+                ack.encode(out);
+                bool ok = id(glider_wgq)->top()->send_to_interface(packet_interface::PacketBuffer(out, sizeof(out)),
+                                                                  {});
+                ESP_LOGI("receiver", "WGQ acknowledgement for %u sent: %s", (unsigned) summary.takeoff,
+                         ok ? "ok" : "refused");
+              });
+          id(broadcasts)->top()->add_packet_interface_listener(
+              [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+                uint8_t buf[64];
+                size_t len = data.copy_to(buf, sizeof(buf));
+                glider::Position pos;
+                if (!pos.decode(buf, len)) {
+                  ESP_LOGW("receiver", "Broadcast of %zu bytes from 0x%04X is not a position", len,
+                           meta.source_address);
+                  return;
+                }
+                if (pos.fix) {
+                  ESP_LOGI("receiver",
+                           "Position from 0x%04X: %.6f,%.6f %dm %.1fkm/h %.0f deg, %u sats, bat %.2fV, "
+                           "time %u, rssi %.0f snr %.1f",
+                           meta.source_address, pos.lat, pos.lon, pos.alt_m, pos.speed_kmh, pos.course_deg,
+                           pos.satellites, pos.battery_v, (unsigned) pos.time, meta.rssi, meta.snr);
+                } else {
+                  ESP_LOGI("receiver", "Position from 0x%04X: no fix, %u sats, bat %.2fV, rssi %.0f snr %.1f",
+                           meta.source_address, pos.satellites, pos.battery_v, meta.rssi, meta.snr);
+                }
+              });
+
+esp32:
+  board: heltec_wifi_lora_32_V3
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0
+  level: DEBUG
+
+spi:
+  clk_pin: GPIO9
+  mosi_pin: GPIO10
+  miso_pin: GPIO11
+
+sx126x:
+  id: radio
+  cs_pin: GPIO8
+  rst_pin: GPIO12
+  busy_pin: GPIO13
+  dio1_pin: GPIO14
+  hw_version: sx1262
+  rf_switch: true
+  tcxo_voltage: 1_8V
+  tcxo_delay: 5ms
+  pa_power: 22
+  frequency: ${lora_frequency}
+  modulation: LORA
+  spreading_factor: ${lora_spreading_factor}
+  bandwidth: ${lora_bandwidth}
+  preamble_size: ${lora_preamble_size}
+  crc_enable: true
+
+packet_interface:
+  - platform: sx126x
+    id: lora
+    addressing:
+      address: ${clubhouse_address}
+      peers:
+        - id: glider_wgq
+          destination: 0x0002
+          encryption:
+            key: !secret glider_wgq_key
+        - id: broadcasts
+          destination: broadcast

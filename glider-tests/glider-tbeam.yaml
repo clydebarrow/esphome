@@ -1,0 +1,225 @@
+# Bench glider unit on a LilyGO T-Beam (ESP32, SX1276, GPS, AXP192 or AXP2101 power chip).
+# - Broadcasts a position report every 5 s, unencrypted, to every listener.
+# - The middle button (GPIO38) makes a fake flight summary from the current fix and clock. It is kept in flash and
+#   sent to the clubhouse, encrypted, every 10 s until the clubhouse acknowledges it.
+substitutions:
+  glider_address: "0x0002"
+
+packages:
+  radio: !include radio.yaml
+
+esphome:
+  name: glider-tbeam
+  includes:
+    - glider_packets.h
+  on_boot:
+    then:
+      # Power the GPS: LDO3 on the AXP192 (T-Beam 1.0, 1.1), ALDO3 on the AXP2101 (1.2)
+      - lambda: |-
+          auto *bus = id(pmu_bus);
+          auto reg = [bus](uint8_t r) {
+            uint8_t v = 0;
+            bus->write_readv(0x34, &r, 1, &v, 1);
+            return v;
+          };
+          auto set = [bus](uint8_t r, uint8_t v) {
+            uint8_t b[2] = {r, v};
+            bus->write(0x34, b, 2);
+          };
+          uint8_t chip = reg(0x03);
+          if (chip == 0x03) {
+            set(0x28, (reg(0x28) & 0xF0) | 0x0F);  // LDO3 3.3 V
+            set(0x12, reg(0x12) | 0x08);           // LDO3 on
+            set(0x82, reg(0x82) | 0x80);           // battery voltage ADC on
+            id(pmu_type) = 1;
+          } else if (chip == 0x4A) {
+            set(0x94, 28);                         // ALDO3 3.3 V
+            set(0x90, reg(0x90) | 0x04);           // ALDO3 on
+            set(0x30, reg(0x30) | 0x01);           // battery voltage ADC on
+            set(0x68, reg(0x68) | 0x01);           // battery detection on
+            id(pmu_type) = 2;
+          }
+          ESP_LOGI("glider", "Power chip id 0x%02X", chip);
+      # Acknowledgements arrive on the clubhouse stack
+      - lambda: |-
+          id(to_clubhouse)->top()->add_packet_interface_listener(
+              [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+                uint8_t buf[32];
+                size_t len = data.copy_to(buf, sizeof(buf));
+                glider::Ack ack;
+                if (!ack.decode(buf, len)) {
+                  ESP_LOGW("glider", "Unexpected packet of %zu bytes from the clubhouse", len);
+                  return;
+                }
+                glider::Summary pending;
+                bool have = pending.decode(id(pending_summary).data(), glider::Summary::SIZE);
+                if (have && pending.takeoff == ack.takeoff) {
+                  id(pending_summary).fill(0);
+                  global_preferences->sync();
+                  ESP_LOGI("glider", "Summary for takeoff %u acknowledged, rssi %.0f snr %.1f; queue empty",
+                           (unsigned) ack.takeoff, meta.rssi, meta.snr);
+                } else {
+                  ESP_LOGI("glider", "Acknowledgement for takeoff %u, which is not pending", (unsigned) ack.takeoff);
+                }
+              });
+          id(broadcasts)->top()->add_packet_interface_listener(
+              [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+                ESP_LOGD("glider", "Broadcast of %zu bytes from 0x%04X", data.size(), meta.source_address);
+              });
+          glider::Summary pending;
+          if (pending.decode(id(pending_summary).data(), glider::Summary::SIZE))
+            ESP_LOGI("glider", "Summary for takeoff %u still pending from before the restart",
+                     (unsigned) pending.takeoff);
+
+esp32:
+  board: ttgo-t-beam
+  framework:
+    type: esp-idf
+
+logger:
+  level: DEBUG
+
+preferences:
+  # The pending summary is also saved at once with sync(); this covers anything else
+  flash_write_interval: 10s
+
+globals:
+  - id: pmu_type
+    type: uint8_t
+    initial_value: "0"
+  # The summary waiting for an acknowledgement, as sent; all zeros when there is none
+  - id: pending_summary
+    type: std::array<uint8_t, 29>  # glider::Summary::SIZE, which globals are declared before
+    restore_value: true
+  - id: position_seq
+    type: uint32_t
+    initial_value: "0"
+
+i2c:
+  id: pmu_bus
+  sda: GPIO21
+  scl: GPIO22
+
+uart:
+  id: gps_uart
+  rx_pin: GPIO34
+  tx_pin: GPIO12
+  baud_rate: 9600
+
+gps:
+  id: gps_gps
+  uart_id: gps_uart
+  update_interval: 60s
+
+time:
+  - platform: gps
+    id: gps_time
+    gps_id: gps_gps
+
+spi:
+  clk_pin: GPIO5
+  mosi_pin: GPIO27
+  miso_pin: GPIO19
+
+sx127x:
+  cs_pin: GPIO18
+  rst_pin: GPIO23
+  dio0_pin: GPIO26
+  pa_pin: BOOST
+  pa_power: 17
+  frequency: ${lora_frequency}
+  modulation: LORA
+  spreading_factor: ${lora_spreading_factor}
+  bandwidth: ${lora_bandwidth}
+  preamble_size: ${lora_preamble_size}
+  crc_enable: true
+
+packet_interface:
+  - platform: sx127x
+    id: lora
+    addressing:
+      address: ${glider_address}
+      peers:
+        # Flight summaries and their acknowledgements. No rolling code: a replayed summary is a duplicate the server
+        # already ignores, and a replayed acknowledgement names a flight that was already acknowledged
+        - id: to_clubhouse
+          destination: ${clubhouse_address}
+          encryption:
+            key: !secret glider_wgq_key
+        # Position reports, readable by anyone
+        - id: broadcasts
+          destination: broadcast
+
+binary_sensor:
+  - platform: gpio
+    name: Fake flight
+    pin:
+      number: GPIO38
+      inverted: true
+    filters:
+      - delayed_on: 30ms
+    on_press:
+      - lambda: |-
+          auto &gps = id(gps_gps).get_tiny_gps();
+          auto now = id(gps_time).now();
+          glider::Summary summary;
+          // With no clock yet, make up a time that still differs on each press
+          summary.landing = now.is_valid() ? now.timestamp : 1800000000 + esphome::millis() / 1000;
+          summary.takeoff = summary.landing - 3600;
+          if (gps.location.isValid()) {
+            summary.takeoff_lat = summary.landing_lat = gps.location.lat();
+            summary.takeoff_lon = summary.landing_lon = gps.location.lng();
+            summary.takeoff_alt_m = summary.landing_alt_m = gps.altitude.meters();
+          }
+          summary.encode(id(pending_summary).data());
+          global_preferences->sync();
+          ESP_LOGI("glider", "Fake flight %u to %u queued%s", (unsigned) summary.takeoff, (unsigned) summary.landing,
+                   gps.location.isValid() ? "" : " (no fix, so no position)");
+          id(send_summary).execute();
+
+script:
+  - id: send_summary
+    then:
+      - lambda: |-
+          glider::Summary pending;
+          if (!pending.decode(id(pending_summary).data(), glider::Summary::SIZE))
+            return;
+          bool ok = id(to_clubhouse)->top()->send_to_interface(
+              packet_interface::PacketBuffer(id(pending_summary).data(), glider::Summary::SIZE), {});
+          ESP_LOGI("glider", "Summary for takeoff %u sent: %s", (unsigned) pending.takeoff, ok ? "ok" : "refused");
+
+interval:
+  - interval: 10s
+    then:
+      - script.execute: send_summary
+  - interval: 5s
+    then:
+      - lambda: |-
+          auto *bus = id(pmu_bus);
+          auto reg = [bus](uint8_t r) {
+            uint8_t v = 0;
+            bus->write_readv(0x34, &r, 1, &v, 1);
+            return v;
+          };
+          glider::Position pos;
+          if (id(pmu_type) == 1)
+            pos.battery_v = ((reg(0x78) << 4) | (reg(0x79) & 0x0F)) * 1.1f / 1000.0f;
+          else if (id(pmu_type) == 2 && (reg(0x00) & 0x08))  // battery present
+            pos.battery_v = (((reg(0x34) & 0x3F) << 8) | reg(0x35)) / 1000.0f;
+          auto &gps = id(gps_gps).get_tiny_gps();
+          auto now = id(gps_time).now();
+          pos.fix = gps.location.isValid() && gps.location.age() < 10000;
+          pos.time = now.is_valid() ? now.timestamp : 0;
+          pos.satellites = gps.satellites.value();
+          if (pos.fix) {
+            pos.lat = gps.location.lat();
+            pos.lon = gps.location.lng();
+            pos.alt_m = gps.altitude.meters();
+            pos.speed_kmh = gps.speed.kmph();
+            pos.course_deg = gps.course.deg();
+          }
+          uint8_t buf[glider::Position::SIZE];
+          size_t len = pos.encode(buf);
+          bool ok = id(broadcasts)->top()->send_to_interface(packet_interface::PacketBuffer(buf, len), {});
+          ESP_LOGD("glider", "Position %u sent: %s, fix %d, %u satellites", (unsigned) ++id(position_seq),
+                   ok ? "ok" : "refused", pos.fix, pos.satellites);
