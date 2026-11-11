@@ -143,6 +143,10 @@ class XCSoarComponent : public Component
   static void volume_(unsigned percent, bool preview, void *ctx) noexcept;
   static bool fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
                     void *ctx) noexcept;
+  /// A fill or blend is finished; called from the PPA's interrupt with the drawing thread's semaphore.
+  static bool on_drawn_(ppa_client_handle_t client, ppa_event_data_t *event, void *user_data);
+  /// Wait for the fill or blend just started; false, and no more of them, if the PPA does not finish it.
+  bool wait_drawn_(SemaphoreHandle_t done) noexcept;
   static bool blend_(void *dest, unsigned dest_pitch, unsigned dest_height, XCSoarEsp32::Rect rect, const void *src,
                      unsigned src_pitch, unsigned src_height, unsigned src_x, unsigned src_y, unsigned alpha,
                      bool white_transparent, void *ctx) noexcept;
@@ -155,6 +159,8 @@ class XCSoarComponent : public Component
   // Fills large rectangles of XCSoar's canvases for its drawing threads
   ppa_client_handle_t ppa_fill_client_{nullptr};
   ppa_client_handle_t ppa_blend_client_{nullptr};
+  // Set when a fill or blend did not finish: XCSoar then does them with the CPU
+  std::atomic<bool> ppa_draw_failed_{false};
   // XCSoar's screen buffer, from the last frame: its windows' canvases point into it, unaligned
   std::atomic<const uint8_t *> screen_pixels_{nullptr};
   std::atomic<unsigned> screen_pitch_{0};
