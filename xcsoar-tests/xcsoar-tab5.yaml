@@ -14,7 +14,15 @@ esphome:
   name: xcsoar-tab5
   # The RX8130 keeps the time while the Tab5 is off; XCSoar dates GDL90 fixes and the club flights from it
   on_boot:
-    - rx8130.read_time: rtc
+    - then:
+        - rx8130.read_time: rtc
+    # Either side of the display's setup (priority 600), for the backlight's on_state log
+    - priority: 700
+      then:
+        - lambda: ESP_LOGI("backlight", "Display setup starts at %" PRIu32 " ms", millis());
+    - priority: 590
+      then:
+        - lambda: ESP_LOGI("backlight", "Display setup done at %" PRIu32 " ms", millis());
 
 esp32:
   variant: esp32p4
@@ -79,6 +87,8 @@ output:
     pin: GPIO22
     id: backlight_pwm
     frequency: 1000Hz
+    # Before everything else (the highest built-in priority is 1200), so the backlight comes on at once
+    setup_priority: 1300
   # A pulse switches the Tab5 off, as a double press of the side button does; the button starts it again
   - platform: gpio
     id: power_off
@@ -86,9 +96,24 @@ output:
 
 light:
   - platform: monochromatic
+    id: backlight
     output: backlight_pwm
     name: Backlight
-    restore_mode: ALWAYS_ON
+    initial_state:
+      state: on
+      brightness: 100%
+    # The start-up state is set with the default transition; any fade waits for loop(), after the display's setup
+    default_transition_length: 0s
+    # Light it before the display's 3 s setup, not once every component is set up
+    write_on_setup: true
+    # Straight after its output
+    setup_priority: 1299
+    # When the backlight comes on during startup, against the display's setup
+    on_state:
+      - lambda: |-
+          ESP_LOGI("backlight", "Set %s, brightness %.2f, at %" PRIu32 " ms",
+                   id(backlight).remote_values.is_on() ? "on" : "off",
+                   id(backlight).remote_values.get_brightness(), millis());
 
 display:
   - platform: mipi_dsi
