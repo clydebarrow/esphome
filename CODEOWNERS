@@ -93,6 +93,7 @@ esphome/components/ble_nus/* @tomaszduda23
 esphome/components/bluetooth_connection/* @bdraco @jesserockz
 esphome/components/bluetooth_proxy/* @bdraco @jesserockz
 esphome/components/bm8563/* @abmantis
+esphome/components/bms_charger/* @clydebarrow
 esphome/components/bme280_base/* @esphome/core
 esphome/components/bme280_spi/* @apbodrov
 esphome/components/bme680_bsec/* @trvrnrth
@@ -122,6 +123,7 @@ esphome/components/bytebuffer/* @clydebarrow
 esphome/components/camera/* @bdraco @DT-art1
 esphome/components/camera_encoder/* @DT-art1
 esphome/components/canbus/* @danielschramm @mvturnho
+esphome/components/canbus_bms/* @clydebarrow
 esphome/components/cap1188/* @mreditor97
 esphome/components/captive_portal/* @esphome/core
 esphome/components/cc1101/* @gabest11 @lygris
