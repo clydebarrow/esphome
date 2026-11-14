@@ -131,10 +131,10 @@ ByteBuffer pylon_alarms(uint32_t alarms, uint32_t warnings) {
   if (alarms & canbus_bms::FLAG_HIGH_CURRENT_CHARGE)
     byte |= 0x01;
   data.put(byte);
-  data.put(0x01);
-  data.put('P');
-  data.put('N');
-  data.put(0x00);
+  data.put_uint8(0x01);
+  data.put_uint8('P');
+  data.put_uint8('N');
+  data.put_uint8(0x00);
   return data;
 }
 
@@ -147,11 +147,11 @@ void BmsChargerComponent::play(const std::vector<uint8_t> &data, const uint32_t 
 static float max_current(std::vector<float> &currents, const number::Number *limit) {
   if (currents.empty())
     return 0.0f;
-  float min = *std::min(begin(currents), end(currents)) * currents.size();
+  float min = *std::min_element(begin(currents), end(currents)) * currents.size();
   float value = std::accumulate(currents.begin(), currents.end(), 0.0f) / currents.size();
-  value = std::max(min, value);
+  value = clamp_at_least(value, min);
   if (limit != nullptr)
-    value = std::min(value, limit->state);
+    value = clamp_at_most(value, limit->state);
   return value;
 }
 
@@ -288,9 +288,9 @@ void BmsChargerComponent::update() {
   if (this->counter_ % LIMITS_INTERVAL == 2 && !max_voltages.empty()) {
     // max voltage is the highest reported. TODO is this the best choice? Using the lowest may compromise balancing.
     auto buffer = ByteBuffer(8);
-    float max_voltage = *std::max(begin(max_voltages), end(max_voltages));
+    float max_voltage = *std::max_element(begin(max_voltages), end(max_voltages));
     if (this->max_charge_voltage_number_ != nullptr)
-      max_voltage = std::max(max_voltage, this->max_charge_voltage_number_->state);
+      max_voltage = clamp_at_most(max_voltage, this->max_charge_voltage_number_->state);
     buffer.put_uint16(max_voltage * 10.0f);
 
     // max charge current is the lowest value times the number of batteries.
@@ -300,17 +300,15 @@ void BmsChargerComponent::update() {
     if (!this->charge_points_.empty()) {
       auto chg = this->last_charge_ / 100.0f;
       size_t i = 0;
-      for (; i != this->charge_points_.size() - 1; i++) {
-        if (chg > this->charge_points_[i].first && chg <= this->charge_points_[i + 1].first)
-          break;
-      }
+      while (i + 1 < this->charge_points_.size() && chg > this->charge_points_[i + 1].first)
+        i++;
       auto lower = this->charge_points_[i];
-      auto upper = lower;
-      if (i != this->charge_points_.size()) {
-        upper = this->charge_points_[i + 1];
+      float x = lower.second;
+      if (i + 1 < this->charge_points_.size() && chg > lower.first) {
+        auto upper = this->charge_points_[i + 1];
+        x = lower.second + (chg - lower.first) * (upper.second - lower.second) / (upper.first - lower.first);
       }
-      auto x = lower.second + (chg - lower.first) * (upper.second - lower.second) / (upper.first - lower.first);
-      max_charge = std::min(max_charge, x);
+      max_charge = clamp_at_most(max_charge, x);
       ESP_LOGD(TAG, "charge point %zu, x = %f, max_charge = %f", i, x, max_charge);
     }
     buffer.put_uint16(max_charge * 10.0);
@@ -320,7 +318,7 @@ void BmsChargerComponent::update() {
     buffer.put_uint16(max_discharge * 10.0);
 
     float min_voltage;
-    buffer.put_uint16((min_voltage = *std::max(begin(min_voltages), end(min_voltages))) * 10.0f);
+    buffer.put_uint16((min_voltage = *std::max_element(begin(min_voltages), end(min_voltages))) * 10.0f);
 
     this->canbus_->send_data(LIMITS_MSG, false, false, buffer.get_data());
     if (this->debug_) {
