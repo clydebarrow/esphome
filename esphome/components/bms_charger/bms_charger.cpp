@@ -2,6 +2,7 @@
 #include "esphome/core/hal.h"
 #include "esphome/core/log.h"
 
+#include <cinttypes>
 #include <cmath>
 #include <numeric>
 
@@ -41,7 +42,7 @@ void update_list(std::vector<float> &list, float value) {
 
 void log_msg(const char *text, uint32_t id, const std::vector<uint8_t> &data) {
   char buffer[format_hex_pretty_size(8)];
-  ESP_LOGD(TAG, "%s 0x%X: %s", text, id, format_hex_pretty_to(buffer, data));
+  ESP_LOGD(TAG, "%s 0x%" PRIX32 ": %s", text, id, format_hex_pretty_to(buffer, data));
 }
 
 uint8_t flag_bit(uint32_t pos, bool set) {
@@ -236,7 +237,7 @@ void BmsChargerComponent::update() {
       }
     }
     if (this->debug_) {
-      ESP_LOGI(TAG, "alarms = 0x%04X, warnings=0x%04X", alarms, warnings);
+      ESP_LOGI(TAG, "alarms = 0x%04" PRIX32 ", warnings=0x%04" PRIX32, alarms, warnings);
     }
   }
 
@@ -262,7 +263,7 @@ void BmsChargerComponent::update() {
       data.push_back(0);
       this->canbus_->send_data(REQUEST_MSG, false, false, data);
       if (this->debug_) {
-        ESP_LOGI(TAG, "requests = 0x%04X", requests);
+        ESP_LOGI(TAG, "requests = 0x%04" PRIX32, requests);
         log_msg("Requests", REQUEST_MSG, data);
       }
     }
