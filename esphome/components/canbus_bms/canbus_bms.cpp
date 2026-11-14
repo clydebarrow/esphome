@@ -1,8 +1,9 @@
 #include "canbus_bms.h"
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
-#include <sstream>
 #include <cmath>
+#include <cinttypes>
+#include <sstream>
 
 namespace esphome {
 namespace canbus_bms {
@@ -55,8 +56,8 @@ static int decode_value(std::vector<uint8_t> data, size_t offset, size_t length)
 void CanbusBmsComponent::dump_config() {
   ESP_LOGCONFIG(TAG, "CANBus BMS:");
   ESP_LOGCONFIG(TAG, "  Name: %s", this->name_);
-  ESP_LOGCONFIG(TAG, "  Throttle: %dms", this->throttle_);
-  ESP_LOGCONFIG(TAG, "  Timeout: %dms", this->timeout_);
+  ESP_LOGCONFIG(TAG, "  Throttle: %" PRIu32 "ms", this->throttle_);
+  ESP_LOGCONFIG(TAG, "  Timeout: %" PRIu32 "ms", this->timeout_);
   ESP_LOGCONFIG(TAG, "  Sensors: %zu", this->sensors_.size());
   for (SensorDesc *sensor : this->sensors_) {
     ESP_LOGCONFIG(TAG, "    %s: 0x%X: %d", sensor->key_, sensor->msg_id_, sensor->offset_);
@@ -121,7 +122,7 @@ void CanbusBmsComponent::update_alarms_() {
 void CanbusBmsComponent::play(const std::vector<uint8_t> &data, const uint32_t &can_id, const bool &) {
   bool handled = false;
   if (this->debug_) {
-    ESP_LOGI(TAG, "%s: Received id 0x%02X, len %zu", this->name_, can_id, data.size());
+    ESP_LOGI(TAG, "%s: Received id 0x%02" PRIX32 ", len %zu", this->name_, can_id, data.size());
   }
 
   // extract alarm and warning flags if this message contains them
@@ -172,7 +173,7 @@ void CanbusBmsComponent::play(const std::vector<uint8_t> &data, const uint32_t &
     }
   }
   if (!handled && (this->debug_ || this->received_ids_.count((int) can_id) == 0)) {
-    ESP_LOGW(TAG, "%s: Received unhandled id 0x%02X, len %zu", this->name_, can_id, data.size());
+    ESP_LOGW(TAG, "%s: Received unhandled id 0x%02" PRIX32 ", len %zu", this->name_, can_id, data.size());
     this->received_ids_.insert((int) can_id);
   }
 }
