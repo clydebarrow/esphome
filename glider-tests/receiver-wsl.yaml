@@ -1,6 +1,14 @@
 # Bench clubhouse receiver on a Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262).
 # - Logs every position report it hears, with the sender's address and the signal.
-# - Logs each flight summary from a known glider and acknowledges it. Nothing is uploaded yet.
+# - Posts each flight summary from a known glider (the T-Beam, and the CubeCell in flight-upload/htcc-ab02s) to the
+#   flight-upload Worker, and acknowledges it to the glider once the Worker has answered (see receiver_upload.h).
+# - Posts the positions of known gliders to the Worker every 3 s, for the live map.
+substitutions:
+  # The Worker. For bench tests against `npx wrangler dev --ip 0.0.0.0` on a computer, use http://<its address>:8787
+  worker_url: https://wgc-flights.control-j.com
+  club_name: Warwick Gliding Club
+  gateway_key: !secret gateway_key
+
 packages:
   radio: !include radio.yaml
 
@@ -8,34 +16,56 @@ esphome:
   name: glider-receiver
   includes:
     - glider_packets.h
+    - receiver_upload.h
   on_boot:
     then:
       - lambda: |-
-          // One stack for each glider; the registration would come from provisioning
-          id(glider_wgq)->top()->add_packet_interface_listener(
-              [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
-                uint8_t buf[64];
-                size_t len = data.copy_to(buf, sizeof(buf));
-                glider::Summary summary;
-                if (!summary.decode(buf, len)) {
-                  ESP_LOGW("receiver", "WGQ: unexpected packet of %zu bytes", len);
-                  return;
-                }
-                ESP_LOGI("receiver",
-                         "WGQ summary: takeoff %u at %.6f,%.6f %dm, landing %u at %.6f,%.6f %dm, "
-                         "rssi %.0f snr %.1f",
-                         (unsigned) summary.takeoff, summary.takeoff_lat, summary.takeoff_lon, summary.takeoff_alt_m,
-                         (unsigned) summary.landing, summary.landing_lat, summary.landing_lon, summary.landing_alt_m,
-                         meta.rssi, meta.snr);
-                // Here the receiver would queue the flight for the Worker, and acknowledge it once stored
-                glider::Ack ack{summary.takeoff};
-                uint8_t out[glider::Ack::SIZE];
-                ack.encode(out);
-                bool ok = id(glider_wgq)->top()->send_to_interface(packet_interface::PacketBuffer(out, sizeof(out)),
-                                                                  {});
-                ESP_LOGI("receiver", "WGQ acknowledgement for %u sent: %s", (unsigned) summary.takeoff,
-                         ok ? "ok" : "refused");
-              });
+          // One stack for each glider; the registration and type would come from provisioning
+          auto add_glider = [](packet_interface::PacketInterface *top, uint16_t address, const char *name,
+                               const char *registration, const char *type) {
+            size_t index = receiver::gliders.size();
+            receiver::gliders.push_back({address, name, registration, type, [top](uint32_t takeoff) {
+                                           uint8_t out[glider::Ack::SIZE];
+                                           glider::Ack{takeoff}.encode(out);
+                                           return top->send_to_interface(
+                                               packet_interface::PacketBuffer(out, sizeof(out)), {});
+                                         }});
+            top->add_packet_interface_listener(
+                [index](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+                  const auto &glider = receiver::gliders[index];
+                  uint8_t buf[64];
+                  size_t len = data.copy_to(buf, sizeof(buf));
+                  glider::Summary summary;
+                  if (!summary.decode(buf, len)) {
+                    ESP_LOGW("receiver", "%s: unexpected packet of %zu bytes", glider.name, len);
+                    return;
+                  }
+                  ESP_LOGI("receiver",
+                           "%s summary: takeoff %u at %.6f,%.6f %dm, landing %u at %.6f,%.6f %dm, "
+                           "rssi %.0f snr %.1f",
+                           glider.name, (unsigned) summary.takeoff, summary.takeoff_lat, summary.takeoff_lon,
+                           summary.takeoff_alt_m, (unsigned) summary.landing, summary.landing_lat,
+                           summary.landing_lon, summary.landing_alt_m, meta.rssi, meta.snr);
+                  if (receiver::upload.busy) {
+                    ESP_LOGI("receiver", "%s: an upload is running; the glider will send it again", glider.name);
+                    return;
+                  }
+                  if (!wifi::global_wifi_component->is_connected()) {
+                    ESP_LOGW("receiver", "%s: no Wi-Fi, so not uploaded or acknowledged", glider.name);
+                    return;
+                  }
+                  auto &upload = receiver::upload;
+                  upload.busy = true;
+                  upload.glider = index;
+                  upload.takeoff = summary.takeoff;
+                  upload.body = receiver::flight_json("${club_name}", glider, summary);
+                  upload.signature = receiver::sign(id(gateway_key), upload.body);
+                  ESP_LOGD("receiver", "Posting %s", upload.body.c_str());
+                  id(upload_flight).execute();
+                });
+          };
+          add_glider(id(glider_wgq)->top(), 0x0002, "WGQ", "WGQ", "PW6");
+          add_glider(id(glider_htcc)->top(), 0x0003, "HTCC", "TEST", "CubeCell bench unit");
           id(broadcasts)->top()->add_packet_interface_listener(
               [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
                 uint8_t buf[64];
@@ -56,6 +86,9 @@ esphome:
                   ESP_LOGI("receiver", "Position from 0x%04X: no fix, %u sats, bat %.2fV, rssi %.0f snr %.1f",
                            meta.source_address, pos.satellites, pos.battery_v, meta.rssi, meta.snr);
                 }
+                // Only gliders the receiver knows go on the map, under their registration
+                if (const auto *glider = receiver::find_glider(meta.source_address))
+                  receiver::queue_position(receiver::position_json(*glider, pos, meta.rssi, meta.snr));
               });
 
 esp32:
@@ -100,5 +133,101 @@ packet_interface:
           destination: 0x0002
           encryption:
             key: !secret glider_wgq_key
+        # The CubeCell unit in htcc-ab02s of the flight-upload repo
+        - id: glider_htcc
+          destination: 0x0003
+          encryption:
+            key: !secret glider_htcc_key
         - id: broadcasts
           destination: broadcast
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+http_request:
+  # Checks the Worker's certificate against the built-in CA bundle; plain http to wrangler dev ignores this
+  verify_ssl: true
+  timeout: 5s
+
+globals:
+  # The secret of the receiver's device key in the Worker; it may post for any glider
+  - id: gateway_key
+    type: std::string
+    initial_value: '"${gateway_key}"'
+
+interval:
+  # Positions for the live map, in one post every few seconds rather than one for each packet
+  - interval: 3s
+    then:
+      - lambda: |-
+          auto &positions = receiver::positions;
+          if (positions.busy || positions.waiting.empty() || !wifi::global_wifi_component->is_connected())
+            return;
+          positions.busy = true;
+          positions.body = receiver::take_positions();
+          positions.signature = receiver::sign(id(gateway_key), positions.body);
+          id(upload_positions).execute();
+
+script:
+  - id: upload_positions
+    then:
+      - http_request.post:
+          url: ${worker_url}/api/positions
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return receiver::positions.signature.c_str();
+          body: !lambda return receiver::positions.body;
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code == 200) {
+                    ESP_LOGD("receiver", "Positions posted: %s", body.c_str());
+                  } else {
+                    ESP_LOGW("receiver", "Worker answered %d for positions: %s", response->status_code,
+                             body.c_str());
+                  }
+                  receiver::positions.busy = false;
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGW("receiver", "Posting positions failed; they are dropped");
+                  receiver::positions.busy = false;
+  - id: upload_flight
+    then:
+      - http_request.post:
+          url: ${worker_url}/api/flights
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return receiver::upload.signature.c_str();
+          body: !lambda return receiver::upload.body;
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  auto &upload = receiver::upload;
+                  const auto &glider = receiver::gliders[upload.glider];
+                  int status = response->status_code;
+                  if (receiver::settled(status)) {
+                    if (status >= 400) {
+                      ESP_LOGE("receiver", "%s: Worker refused takeoff %u for good (%d): %s", glider.name,
+                               (unsigned) upload.takeoff, status, body.c_str());
+                    } else {
+                      ESP_LOGI("receiver", "%s: Worker stored takeoff %u (%d): %s", glider.name,
+                               (unsigned) upload.takeoff, status, body.c_str());
+                    }
+                    bool ok = glider.ack(upload.takeoff);
+                    ESP_LOGI("receiver", "%s acknowledgement for %u sent: %s", glider.name, (unsigned) upload.takeoff,
+                             ok ? "ok" : "refused");
+                  } else {
+                    ESP_LOGW("receiver", "%s: Worker answered %d for takeoff %u, not acknowledged: %s", glider.name,
+                             status, (unsigned) upload.takeoff, body.c_str());
+                  }
+                  upload.busy = false;
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGW("receiver", "%s: upload of takeoff %u failed, not acknowledged",
+                           receiver::gliders[receiver::upload.glider].name, (unsigned) receiver::upload.takeoff);
+                  receiver::upload.busy = false;
