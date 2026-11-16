@@ -2,7 +2,9 @@
 #ifdef USE_API
 #include <cerrno>
 #include <cinttypes>
+#include <cstring>
 #include "api_connection.h"
+#include "api_connection_buffer.h"
 #include "esphome/components/network/util.h"
 #include "esphome/core/application.h"
 #include "esphome/core/defines.h"
@@ -520,13 +522,13 @@ void APIServer::send_serial_proxy_identity(const SerialProxyIdentity &msg) {
 
 #ifdef USE_IR_RF
 void APIServer::send_infrared_rf_receive_event([[maybe_unused]] uint32_t device_id, uint32_t key,
-                                               const std::vector<int32_t> *timings) {
+                                               std::span<const int32_t> timings) {
   InfraredRFReceiveEvent resp{};
 #ifdef USE_DEVICES
   resp.device_id = device_id;
 #endif
   resp.key = key;
-  resp.timings = timings;
+  resp.timings = &timings;
 
   for (auto &c : this->active_clients())
     c->send_infrared_rf_receive_event(resp);
@@ -597,6 +599,7 @@ void APIServer::add_state_subscription_(const char *entity_id, const char *attri
       .attribute = attribute,
       .callback = std::move(f),
       .once = once,
+      .entity_id_len = static_cast<uint16_t>(strlen(entity_id)),
       // entity_id_dynamic_storage and attribute_dynamic_storage remain nullptr (no heap allocation)
   });
 }
@@ -608,6 +611,7 @@ void APIServer::add_state_subscription_(std::string entity_id, optional<std::str
   // Allocate heap storage for the strings
   sub.entity_id_dynamic_storage = std::make_unique<std::string>(std::move(entity_id));
   sub.entity_id = sub.entity_id_dynamic_storage->c_str();
+  sub.entity_id_len = static_cast<uint16_t>(sub.entity_id_dynamic_storage->size());
 
   if (attribute.has_value()) {
     sub.attribute_dynamic_storage = std::make_unique<std::string>(std::move(attribute.value()));
@@ -666,6 +670,15 @@ void APIServer::get_home_assistant_state(std::string entity_id, optional<std::st
 const std::vector<APIServer::HomeAssistantStateSubscription> &APIServer::get_state_subs() const {
   return this->state_subs_;
 }
+
+#ifdef USE_API_WIZARD_LINKED_INPUTS
+void APIServer::update_state_subscription_entity_id(const char *entity_id) {
+  for (auto &it : this->state_subs_) {
+    if (it.entity_id == entity_id)
+      it.entity_id_len = static_cast<uint16_t>(strlen(entity_id));
+  }
+}
+#endif
 #endif
 
 #ifdef USE_API_NOISE
@@ -794,6 +807,31 @@ void APIServer::on_camera_image(const std::shared_ptr<camera::CameraImage> &imag
 }
 #endif
 
+// Kept out of api_connection.cpp so GCC inlines its send path as before
+void APIConnection::send_shutdown_disconnect_() {
+#ifndef USE_DEEP_SLEEP
+  // Queued states first: Home Assistant mishandles states after DisconnectRequest (#22610).
+  // Not with deep sleep: its entities stay available, and the disconnect must not wait on a slow link
+  this->flags_.state_subscription = false;
+  this->destroy_active_iterator_();
+  // process_batch_ first flushes any overflow without blocking; stop once the queue stops shrinking
+  for (size_t left = this->deferred_batch_.size(); left != 0;) {
+    this->process_batch_();
+    const size_t now_left = this->deferred_batch_.size();
+    if (now_left >= left)
+      break;
+    left = now_left;
+  }
+#endif
+  DisconnectRequest req;
+  if (!this->send_message(req)) {
+    // tx buffer full: first in the queue, so a slow link still delivers it before the teardown timeout.
+    // Due at once: teardown does not advance the cached loop time the batch_delay gate reads
+    this->schedule_message_front_(nullptr, DisconnectRequest::MESSAGE_TYPE, DisconnectRequest::ESTIMATED_SIZE);
+    this->make_batch_due_now_();
+  }
+}
+
 void APIServer::on_shutdown() {
   this->shutting_down_ = true;
 
@@ -806,15 +844,8 @@ void APIServer::on_shutdown() {
   // Change batch delay to 5ms for quick flushing during shutdown
   this->batch_delay_ = 5;
 
-  // Send disconnect requests to all connected clients
-  for (auto &c : this->active_clients()) {
-    DisconnectRequest req;
-    if (!c->send_message(req)) {
-      // If we can't send the disconnect request directly (tx_buffer full),
-      // schedule it at the front of the batch so it will be sent with priority
-      c->schedule_message_front_(nullptr, DisconnectRequest::MESSAGE_TYPE, DisconnectRequest::ESTIMATED_SIZE);
-    }
-  }
+  for (auto &c : this->active_clients())
+    c->send_shutdown_disconnect_();
 }
 
 bool APIServer::teardown() {
