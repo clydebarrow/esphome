@@ -12,6 +12,9 @@ namespace relay_fix {
 /// The relay's address on the link; the display has a peer for it
 static constexpr uint16_t RELAY_ADDRESS = 0x00FE;
 static constexpr uint8_t TYPE = 'G';
+/// From the display to the relay's address: a packet of this one byte asks the relay to turn its Wi-Fi on for 5
+/// minutes and check for firmware (tug-relay-tracker.yaml). tug-relay-common.yaml takes it off the link.
+static constexpr uint8_t WIFI_REQUEST = 'W';
 
 enum Flags : uint8_t {
   FLAG_LOCATION = 1,

@@ -30,6 +30,9 @@ static constexpr uint32_t ALARM_FLASH_MS = 500;
 static constexpr const char *APPROACH_TIME_FORMAT = "%.0f s";
 // The longest time to the closest approach that is shown; the threat look-ahead.
 static constexpr float MAX_APPROACH_TIME = 120.0f;
+// The time is shown only when the predicted miss distance is within this, in meters (1 NM); a closest approach
+// further away is no threat, and its time just distracts.
+static constexpr float MAX_APPROACH_DISTANCE = 1852.0f;
 
 // The width of a line of text when each of its digits may be any digit: the font's
 // digits are not all the same width.
@@ -348,8 +351,9 @@ void TrafficWidget::update_info_(const gdl90PositionReport_t *report, const Thre
   this->units_.format_distance(range, sizeof(range), hypotf(delta_north, delta_east));
   char buf[80];
   int len = snprintf(buf, sizeof(buf), "%.*s\n%s\n%s", callsign_len, report->callsign, altitude, range);
-  // While closing, add how soon the closest approach is predicted.
-  if (assessment.approach_time > 0.0f && len > 0 && static_cast<size_t>(len) + 1 < sizeof(buf)) {
+  // While closing to within MAX_APPROACH_DISTANCE, add how soon the closest approach is predicted.
+  if (assessment.approach_time > 0.0f && assessment.approach_distance <= MAX_APPROACH_DISTANCE && len > 0 &&
+      static_cast<size_t>(len) + 1 < sizeof(buf)) {
     buf[len++] = '\n';
     snprintf(buf + len, sizeof(buf) - len, APPROACH_TIME_FORMAT, assessment.approach_time);
   }

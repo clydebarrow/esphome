@@ -7,6 +7,8 @@
 # - LoRa to the tug: only packets addressed to the tug, so the gliders' positions stay off the link. The tug's address
 #   is in its tug file, so the relay learns it from the source of the tug's packets; until the tug has sent one,
 #   nothing goes to it.
+# - Packets from the tug to the relay's own address (0x00FE) are for the relay, not LoRa: a 'W' asks for Wi-Fi
+#   (relay_fix.h), which a relay with Wi-Fi acts on and the others ignore.
 substitutions:
   # Must match the clubhouse receiver's radio (glider-tests/radio.yaml in the glider-lora worktree)
   lora_frequency: 917MHz
@@ -19,6 +21,10 @@ globals:
   - id: tug_address
     type: uint16_t
     initial_value: "0"
+  # Set when the tug asks for the relay's Wi-Fi; a relay that has Wi-Fi turns it on and clears this
+  - id: wifi_requested
+    type: bool
+    initial_value: "false"
 
 esphome:
   name: tug-relay
@@ -27,12 +33,23 @@ esphome:
         id(tug_link)->top()->add_packet_interface_listener(
             [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
               // The addressing header is the destination, then the source, little endian
-              uint8_t header[4];
-              if (data.copy_to(header, sizeof(header)) == sizeof(header)) {
+              uint8_t header[5];
+              size_t got = data.copy_to(header, sizeof(header));
+              if (got >= 4) {
                 uint16_t source = header[2] | (header[3] << 8);
                 if (source != id(tug_address)) {
                   ESP_LOGI("relay", "The tug's address is 0x%04X", source);
                   id(tug_address) = source;
+                }
+                // To the relay itself (relay_fix::RELAY_ADDRESS), not for LoRa
+                if ((header[0] | (header[1] << 8)) == 0x00FE) {
+                  if (got == 5 && data.size() == 5 && header[4] == 'W') {
+                    ESP_LOGI("relay", "The tug asks for Wi-Fi");
+                    id(wifi_requested) = true;
+                  } else {
+                    ESP_LOGW("relay", "Unexpected packet of %zu bytes for the relay", data.size());
+                  }
+                  return;
                 }
               }
               if (id(lora)->top()->send_to_interface(data, {})) {

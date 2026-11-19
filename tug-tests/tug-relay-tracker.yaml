@@ -14,6 +14,8 @@
 # Wi-Fi's current peaks. In that time it asks the Worker for newer firmware, and installs it if there is some: publish
 # the .ota.bin in the Worker's Admin. Wi-Fi stays on past 5 minutes while an install is running, or while something is
 # connected to the API (for logs). To update it with `esphome upload`, power it up and send within the 5 minutes.
+# The tug's display can open another 5 minutes at any time ('W', relay_fix.h): it asks when its own firmware check is
+# asked for, and from its Relay Wi-Fi button.
 substitutions:
   display_tx_pin: GPIO5
   display_rx_pin: GPIO4
@@ -43,6 +45,10 @@ http_request:
   timeout: 10s
 
 globals:
+  # When the Wi-Fi window started: at boot, or when the tug last asked
+  - id: wifi_window_start
+    type: uint32_t
+    initial_value: "0"
   # The secret of the relay's device key in the Worker: one made in Admin for no glider or tug
   - id: firmware_key
     type: std::string
@@ -169,7 +175,7 @@ interval:
       - script.execute: check_firmware
       - lambda: |-
           auto *wifi = wifi::global_wifi_component;
-          if (wifi->is_disabled() || App.get_loop_component_start_time() < 5 * 60 * 1000)
+          if (wifi->is_disabled() || App.get_loop_component_start_time() - id(wifi_window_start) < 5 * 60 * 1000)
             return;
           if (relay_firmware::check.busy) {
             ESP_LOGI("firmware", "Keeping Wi-Fi on while the firmware is checked or installed");
@@ -181,6 +187,29 @@ interval:
           }
           ESP_LOGI("firmware", "Turning Wi-Fi off until the next start");
           wifi->disable();
+  # The tug asked for Wi-Fi: a new 5-minute window, with a firmware check
+  - interval: 1s
+    then:
+      - if:
+          condition:
+            lambda: return id(wifi_requested);
+          then:
+            - lambda: |-
+                id(wifi_requested) = false;
+                id(wifi_window_start) = App.get_loop_component_start_time();
+                auto *wifi = wifi::global_wifi_component;
+                if (wifi->is_disabled()) {
+                  ESP_LOGI("firmware", "Turning Wi-Fi on for 5 minutes, as the tug asked");
+                  wifi->enable();
+                } else {
+                  ESP_LOGI("firmware", "Wi-Fi is on; 5 more minutes, as the tug asked");
+                }
+            # Connecting runs the check; with Wi-Fi already connected, check now
+            - if:
+                condition:
+                  wifi.connected:
+                then:
+                  - script.execute: check_firmware
   - interval: 1s
     then:
       - lambda: |-

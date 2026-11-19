@@ -262,6 +262,7 @@ void TugLogger::flight_log_step() {
 }
 
 void TugLogger::request_firmware_check() {
+  this->firmware_check_callback_.call();
   // Without a tug file the upload task never starts
   if (!this->provisioned_) {
     std::lock_guard<std::mutex> guard(this->firmware_lock_);
@@ -385,6 +386,7 @@ void TugLogger::firmware_step() {}
 void TugLogger::flight_log_step() {}
 
 void TugLogger::request_firmware_check() {
+  this->firmware_check_callback_.call();
   std::lock_guard<std::mutex> guard(this->firmware_lock_);
   this->firmware_offer_ = {};
   this->firmware_offer_.message = "No updates in a host build";

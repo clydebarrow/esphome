@@ -133,6 +133,10 @@ class TugLogger : public Component
   template<typename F> void add_on_power_off_callback(F &&callback) {
     this->power_off_callback_.add(std::forward<F>(callback));
   }
+  /// Called on the main loop each time a firmware check is asked for
+  template<typename F> void add_on_firmware_check_callback(F &&callback) {
+    this->firmware_check_callback_.add(std::forward<F>(callback));
+  }
 
   // For the user interface; all on the main loop
   TowStore &store() { return this->store_; }
@@ -305,6 +309,7 @@ class TugLogger : public Component
   LazyCallbackManager<void()> takeoff_callback_;
   LazyCallbackManager<void()> landed_callback_;
   LazyCallbackManager<void()> power_off_callback_;
+  LazyCallbackManager<void()> firmware_check_callback_;
 };
 
 }  // namespace esphome::tug_logger

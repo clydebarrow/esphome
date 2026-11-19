@@ -11,7 +11,8 @@
 #
 # A Heltec Wireless Tracker (tug-relay-tracker.yaml) is wired the same way, and also sends its GNSS fix once a second
 # over the link, from the relay's own address (relay_fix.h). It is the backup to the SkyEcho for takeoff, landing and
-# heights, and sets the clock when nothing else has.
+# heights, and sets the clock when nothing else has. The display can ask it to turn its Wi-Fi on (relay_wifi), as it
+# does when a firmware check is asked for on the settings screen.
 substitutions:
   tug_address: "0x0010"
   clubhouse_address: "0x0001"
@@ -127,3 +128,23 @@ tug_logger:
   # The tug's LoRa address and key are in its tug file, from the dashboard
   lora_addressing_id: tug_addressing
   lora_encryption_id: to_clubhouse_key
+  # Checking for firmware from the settings screen opens the relay's Wi-Fi too, so it checks for its own
+  on_firmware_check:
+    - script.execute: relay_wifi
+
+script:
+  # Asks the relay to turn its Wi-Fi on for 5 minutes and check for firmware (relay_fix.h); a relay without Wi-Fi
+  # ignores it. Sent from the relay's peer, so it goes to the relay's address and never over LoRa.
+  - id: relay_wifi
+    then:
+      - lambda: |-
+          const uint8_t request = relay_fix::WIFI_REQUEST;
+          bool ok = id(relay_gps)->top()->send_to_interface(packet_interface::PacketBuffer(&request, 1), {});
+          ESP_LOGI("relay_gps", "Asked the relay for Wi-Fi: %s", ok ? "sent" : "refused");
+
+button:
+  - platform: template
+    name: Relay Wi-Fi
+    icon: mdi:wifi
+    on_press:
+      - script.execute: relay_wifi

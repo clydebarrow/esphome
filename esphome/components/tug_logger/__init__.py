@@ -23,6 +23,7 @@ CONF_EXTERNAL_POWER_ID = "external_power_id"
 CONF_GPS_ID = "gps_id"
 CONF_LANDING_CONFIRM = "landing_confirm"
 CONF_LANDING_SPEED = "landing_speed"
+CONF_ON_FIRMWARE_CHECK = "on_firmware_check"
 CONF_ON_LANDED = "on_landed"
 CONF_ON_POWER_OFF = "on_power_off"
 CONF_ON_TAKEOFF = "on_takeoff"
@@ -120,6 +121,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_ON_TAKEOFF): automation.validate_automation({}),
             cv.Optional(CONF_ON_LANDED): automation.validate_automation({}),
             cv.Optional(CONF_ON_POWER_OFF): automation.validate_automation({}),
+            # When a firmware check is asked for, as from the settings screen: a tug relay can check too
+            cv.Optional(CONF_ON_FIRMWARE_CHECK): automation.validate_automation({}),
         }
     ).extend(cv.COMPONENT_SCHEMA),
     # A host build shows the screens on the computer, with no uploads or firmware updates
@@ -179,6 +182,7 @@ async def to_code(config: ConfigType) -> None:
         (CONF_ON_TAKEOFF, "add_on_takeoff_callback"),
         (CONF_ON_LANDED, "add_on_landed_callback"),
         (CONF_ON_POWER_OFF, "add_on_power_off_callback"),
+        (CONF_ON_FIRMWARE_CHECK, "add_on_firmware_check_callback"),
     ):
         for conf in config.get(key, []):
             await automation.build_callback_automation(var, method, [], conf)
