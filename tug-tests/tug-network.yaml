@@ -4,6 +4,9 @@
 # fast_connect would go back to the last network at each start instead.
 wifi:
   fast_connect: false
+  # The club's and other known networks, below the SkyEcho and the networks saved on the device. With none at all
+  # the wifi component never scans, so the Settings list would stay empty until a network is saved.
+  networks: !include ../../../my-devices/wifi-networks.yaml
   # Out of range of every network is normal in a tug, so never restart for it
   reboot_timeout: 0s
 

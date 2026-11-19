@@ -85,6 +85,16 @@ _LOGGER = logging.getLogger(__name__)
 
 AUTO_LOAD = ["network"]
 DOMAIN = "wifi"
+RUNTIME_NETWORKS_KEY = "wifi_runtime_networks"
+
+
+def request_runtime_networks(count: int) -> None:
+    """For a component that adds networks at run time: room in the list for this many beyond the configured ones.
+
+    Call during validation, since the list's size is fixed when the wifi component's code is generated.
+    """
+    CORE.data[RUNTIME_NETWORKS_KEY] = CORE.data.get(RUNTIME_NETWORKS_KEY, 0) + count
+
 
 NO_WIFI_VARIANTS = [
     const.VARIANT_ESP32H2,
@@ -872,8 +882,11 @@ async def to_code(config):
         return manual_ip_entries.index(entry)
 
     networks = config.get(CONF_NETWORKS, [])
+    runtime_networks = CORE.data.get(RUNTIME_NETWORKS_KEY, 0)
     # set_sta() stores one network at run time even when none is configured
-    cg.add_define("WIFI_NETWORK_COUNT", max(1, len(networks)))
+    cg.add_define("WIFI_NETWORK_COUNT", max(1, len(networks) + runtime_networks))
+    if runtime_networks:
+        cg.add_define("USE_WIFI_MULTI_SSID")
     if networks:
         if len(networks) > 1:
             # The ESP32 scan can filter one SSID in the driver; with several the whole list is kept

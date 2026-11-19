@@ -138,36 +138,37 @@ TEST(TugFlightDetector, StaleGroundAltitudeIsNotUsed) {
   EXPECT_TRUE(flight.detector.flight().approximate);
 }
 
-TEST(TugFlightDetector, PrefersPressureAltitude) {
+TEST(TugFlightDetector, PrefersGpsAltitude) {
   Flight flight;
-  // GPS wanders on the ground while pressure altitude holds, as seen on a glider's SkyEcho
+  // GPS wanders on the ground, about a mean of 1650 ft. In flight the cabin's pressure altitude reads low, as it
+  // does at speed, so the two disagree; the height comes from GPS
   for (int i = 0; i != 30; i++)
     flight.step(0, i % 2 ? 1800 : 1500, 900);
-  flight.run(10, 60, 1500, 900);
-  flight.run(5, 70, 3400, 2800);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
+  flight.run(10, 60, 1650, 900);
+  flight.run(5, 70, 3550, 2600);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1900);
   EXPECT_FALSE(flight.detector.flight().approximate);
 }
 
 TEST(TugFlightDetector, NeverMixesAltitudeKinds) {
   Flight flight;
-  // Both on the ground, then only GPS altitude, reading far higher because of the geoid
+  // Both on the ground, then only pressure altitude, which reads far lower: it is not used
   flight.run(30, 0, 1500, 900);
   flight.run(10, 60, 1500, 900);
   flight.run(5, 70, 2500, 1900);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
-  flight.run(20, 70, 9000, -1);
+  flight.run(20, 70, -1, 9000);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
 }
 
-TEST(TugFlightDetector, FallsBackToGpsAltitude) {
+TEST(TugFlightDetector, FallsBackToPressureAltitude) {
   Flight flight;
-  flight.run(30, 0, 1500);
-  flight.run(10, 60, 1500);
-  flight.run(5, 70, 2500);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
+  flight.run(30, 0, -1, 1500);
+  flight.run(10, 60, -1, 1500);
+  flight.run(5, 70, -1, 2500);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
   EXPECT_FALSE(flight.detector.flight().approximate);
 }

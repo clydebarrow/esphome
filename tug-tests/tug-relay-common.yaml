@@ -1,0 +1,94 @@
+# A LoRa relay for the tug logger, on a Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262) in the tug. The tug's display
+# can't have LoRa of its own, so it sends over a link to this relay, which passes each packet on as it is, both ways.
+# The relay has no layers or keys: the addressing, encryption and fragmentation are between the tug and the clubhouse
+# receiver. The link to the tug, with the id tug_link, is in tug-relay-wsl.yaml (Bluetooth) or
+# tug-relay-wsl-uart.yaml (wired).
+# - Tug to LoRa: every packet from the tug.
+# - LoRa to the tug: only packets addressed to the tug, so the gliders' positions stay off the link. The tug's address
+#   is in its tug file, so the relay learns it from the source of the tug's packets; until the tug has sent one,
+#   nothing goes to it.
+substitutions:
+  # Must match the clubhouse receiver's radio (glider-tests/radio.yaml in the glider-lora worktree)
+  lora_frequency: 917MHz
+  lora_spreading_factor: "7"
+  lora_bandwidth: 250_0kHz
+  lora_preamble_size: "8"
+
+globals:
+  # The tug's LoRa address, from the source of its packets; 0 until it has sent one
+  - id: tug_address
+    type: uint16_t
+    initial_value: "0"
+
+esphome:
+  name: tug-relay
+  on_boot:
+    - lambda: |-
+        id(tug_link)->top()->add_packet_interface_listener(
+            [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+              // The addressing header is the destination, then the source, little endian
+              uint8_t header[4];
+              if (data.copy_to(header, sizeof(header)) == sizeof(header)) {
+                uint16_t source = header[2] | (header[3] << 8);
+                if (source != id(tug_address)) {
+                  ESP_LOGI("relay", "The tug's address is 0x%04X", source);
+                  id(tug_address) = source;
+                }
+              }
+              if (id(lora)->top()->send_to_interface(data, {})) {
+                ESP_LOGD("relay", "To LoRa: %zu bytes", data.size());
+              } else {
+                ESP_LOGW("relay", "LoRa refused a packet of %zu bytes", data.size());
+              }
+            });
+        id(lora)->top()->add_packet_interface_listener(
+            [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+              // The addressing header starts with the destination, little endian
+              uint8_t header[2];
+              if (id(tug_address) == 0 || data.copy_to(header, sizeof(header)) != sizeof(header) ||
+                  (header[0] | (header[1] << 8)) != id(tug_address))
+                return;
+              if (id(tug_link)->top()->send_to_interface(data, {})) {
+                ESP_LOGD("relay", "To the tug: %zu bytes, rssi %.0f snr %.1f", data.size(), meta.rssi, meta.snr);
+              } else {
+                ESP_LOGW("relay", "The tug is not connected; dropped %zu bytes", data.size());
+              }
+            });
+
+esp32:
+  board: heltec_wifi_lora_32_V3
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0
+  level: DEBUG
+
+spi:
+  clk_pin: GPIO9
+  mosi_pin: GPIO10
+  miso_pin: GPIO11
+
+sx126x:
+  id: radio
+  cs_pin: GPIO8
+  rst_pin: GPIO12
+  busy_pin: GPIO13
+  dio1_pin: GPIO14
+  hw_version: sx1262
+  rf_switch: true
+  tcxo_voltage: 1_8V
+  tcxo_delay: 5ms
+  pa_power: 22
+  frequency: ${lora_frequency}
+  modulation: LORA
+  spreading_factor: ${lora_spreading_factor}
+  bandwidth: ${lora_bandwidth}
+  preamble_size: ${lora_preamble_size}
+  crc_enable: true
+
+# Carries whole LoRa packets, at most 255 bytes, with the tug's headers already on them; so does the link to the tug
+packet_interface:
+  - platform: sx126x
+    id: lora
+    max_packet_size: 255

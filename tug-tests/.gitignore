@@ -3,3 +3,6 @@
 __pycache__
 # What the host build writes to its stand-in card
 /host-card/tug/
+
+# Provisioning files from the dashboard, which hold keys
+/relay*.yaml

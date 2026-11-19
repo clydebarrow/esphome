@@ -192,3 +192,13 @@ climate:
       - ble_server.characteristic.set_value:
           id: test_notify_characteristic
           value: !lambda "return std::vector<uint8_t>{0, 1, 2};"
+
+packet_interface:
+  - platform: esp32_ble_server
+    id: ble_server_link
+    encryption: Johnny Cash
+  - platform: esp32_ble_server
+    id: ble_server_link_custom
+    max_packet_size: 100
+    service_uuid: "1b2c3d4e-0000-1000-8000-00805f9b34fb"
+    characteristic_uuid: "1b2c3d4f-0000-1000-8000-00805f9b34fb"

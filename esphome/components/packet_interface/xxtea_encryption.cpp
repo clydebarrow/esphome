@@ -30,6 +30,28 @@ XxteaEncryption::XxteaEncryption(PacketInterface *lower, bool rolling_code, uint
 
 void XxteaEncryption::set_key(std::initializer_list<uint32_t> key) {
   std::copy_n(key.begin(), std::min(key.size(), this->key_.size()), this->key_.begin());
+  this->has_key_ = true;
+}
+
+void XxteaEncryption::set_key(const uint8_t *key) {
+  for (size_t i = 0; i != this->key_.size(); i++)
+    this->key_[i] = get_uint32(key + 4 * i);
+  this->has_key_ = true;
+  this->no_key_warned_ = false;
+}
+
+void XxteaEncryption::clear_key() {
+  this->key_.fill(0);
+  this->has_key_ = false;
+}
+
+// Once until a key is set, as every packet would log it
+static bool warn_no_key(bool &warned, const char *name) {
+  if (!warned) {
+    warned = true;
+    ESP_LOGW(TAG, "%s: No key set yet, so packets are neither sent nor accepted", name);
+  }
+  return false;
 }
 
 void XxteaEncryption::setup() {
@@ -51,8 +73,10 @@ void XxteaEncryption::dump_config() {
   ESP_LOGCONFIG(TAG,
                 "XXTEA Encryption on '%s':\n"
                 "  Max Packet Size: %zu\n"
-                "  Rolling Code: %s",
-                this->name_, this->max_packet_size_, YESNO(this->rolling_code_));
+                "  Rolling Code: %s\n"
+                "  Key: %s",
+                this->name_, this->max_packet_size_, YESNO(this->rolling_code_),
+                this->has_key_ ? LOG_STR_LITERAL("set") : LOG_STR_LITERAL("not yet set"));
   if (this->rolling_code_) {
     ESP_LOGCONFIG(TAG, "  Boot Number: %" PRIu32, this->boot_);
   }
@@ -74,6 +98,8 @@ bool XxteaEncryption::send_to_interface(const PacketBuffer &data, const PacketMe
 bool XxteaEncryption::send_(const PacketBuffer &data, const PacketMetaData &meta_data) {
   if (this->tx_buffer_ == nullptr)
     return false;
+  if (!this->has_key_)
+    return warn_no_key(this->no_key_warned_, this->name_);
   size_t size = data.size();
   if (size > this->max_packet_size_) {
     ESP_LOGW(TAG, "%s: Packet of %zu bytes is larger than %zu", this->name_, size, this->max_packet_size_);
@@ -113,6 +139,10 @@ bool XxteaEncryption::accept_counter_(uint32_t boot, uint32_t counter) {
 }
 
 void XxteaEncryption::receive_(const PacketBuffer &data, const PacketMetaData &meta_data) {
+  if (!this->has_key_) {
+    warn_no_key(this->no_key_warned_, this->name_);
+    return;
+  }
   size_t length = data.size();
   const size_t trailer = trailer_size(this->rolling_code_);
   if (length % 4 != 0 || length < std::max(MIN_LENGTH, trailer) || length > this->lower_->get_max_packet_size()) {

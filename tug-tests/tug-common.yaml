@@ -9,60 +9,63 @@
 substitutions:
   scale: ${[display_width / 800, display_height / 1280] | min}
   timezone: Australia/Brisbane
-  # Where the SkyEcho serves its time; the bench build sets this for gdl90_simulator.py
+  # Where the SkyEcho serves its websocket, for the time and the satellites; the bench build sets this for
+  # gdl90_simulator.py
   skyecho_time_port: "80"
 
 esphome:
   on_boot:
-    priority: -100
-    then:
-      - lambda: |-
-          tug_logger::TugUiWidgets w{};
-          w.lvgl = id(lvgl_id);
-          w.splash_box = id(splash_box);
-          w.splash_name = id(splash_name);
-          w.shutdown_label = id(shutdown_label);
-          w.row_height = ${(72 * scale) | round | int};
-          w.ground_page = id(ground_page);
-          w.picker_page = id(picker_page);
-          w.review_page = id(review_page);
-          w.tow_page = id(tow_page);
-          w.settings_page = id(settings_page);
-          w.status = id(status_label);
-          w.status_time = id(status_time);
-          w.refuel_label = id(refuel_label);
-          w.next_fields[0] = id(next_glider);
-          w.next_fields[1] = id(next_pilot1);
-          w.next_fields[2] = id(next_pilot2);
-          w.next_fields[3] = id(next_tug_pilot);
-          w.review_count = id(review_count);
-          w.flight_height = id(flight_height);
-          w.flight_elapsed = id(flight_elapsed);
-          w.flight_info = id(flight_info);
-          w.picker_title = id(picker_title);
-          w.picker_text = id(picker_text);
-          w.picker_list = id(picker_list);
-          w.review_list = id(review_list);
-          w.tow_info = id(tow_info);
-          w.tow_fields[0] = id(tow_glider);
-          w.tow_fields[1] = id(tow_pilot1);
-          w.tow_fields[2] = id(tow_pilot2);
-          w.tow_fields[3] = id(tow_tug_pilot);
-          w.tow_message = id(tow_message);
-          w.discard_label = id(discard_label);
-          w.settings_info = id(settings_info);
-          w.wifi_list = id(wifi_list);
-          w.wifi_dialog = id(wifi_dialog);
-          w.wifi_dialog_title = id(wifi_dialog_title);
-          w.wifi_password_button = id(wifi_password_button);
-          w.wifi_forget_button = id(wifi_forget_button);
-          w.firmware_label = id(firmware_label);
-          w.tow_height = id(tow_height);
-          w.picker_keyboard = id(picker_keyboard)->obj;
-          w.theme_label = id(theme_label);
-          w.traffic = id(traffic);
-          id(ui).bind(id(logger_id), w);
-          id(ui).set_dark_mode(id(dark_mode));
+    # A list, so that a board file can add its own steps without replacing these
+    - priority: -100
+      then:
+        - lambda: |-
+            tug_logger::TugUiWidgets w{};
+            w.lvgl = id(lvgl_id);
+            w.splash_box = id(splash_box);
+            w.splash_name = id(splash_name);
+            w.shutdown_label = id(shutdown_label);
+            w.row_height = ${(72 * scale) | round | int};
+            w.ground_page = id(ground_page);
+            w.picker_page = id(picker_page);
+            w.review_page = id(review_page);
+            w.tow_page = id(tow_page);
+            w.settings_page = id(settings_page);
+            w.status = id(status_label);
+            w.status_time = id(status_time);
+            w.refuel_label = id(refuel_label);
+            w.next_fields[0] = id(next_glider);
+            w.next_fields[1] = id(next_pilot1);
+            w.next_fields[2] = id(next_pilot2);
+            w.next_fields[3] = id(next_tug_pilot);
+            w.review_count = id(review_count);
+            w.flight_height = id(flight_height);
+            w.flight_elapsed = id(flight_elapsed);
+            w.flight_info = id(flight_info);
+            w.picker_title = id(picker_title);
+            w.picker_text = id(picker_text);
+            w.picker_list = id(picker_list);
+            w.review_list = id(review_list);
+            w.tow_info = id(tow_info);
+            w.tow_fields[0] = id(tow_glider);
+            w.tow_fields[1] = id(tow_pilot1);
+            w.tow_fields[2] = id(tow_pilot2);
+            w.tow_fields[3] = id(tow_tug_pilot);
+            w.tow_message = id(tow_message);
+            w.discard_label = id(discard_label);
+            w.settings_info = id(settings_info);
+            w.wifi_list = id(wifi_list);
+            w.wifi_dialog = id(wifi_dialog);
+            w.wifi_dialog_title = id(wifi_dialog_title);
+            w.wifi_password_button = id(wifi_password_button);
+            w.wifi_forget_button = id(wifi_forget_button);
+            w.firmware_label = id(firmware_label);
+            w.resend_button = id(resend_button);
+            w.tow_height = id(tow_height);
+            w.picker_keyboard = id(picker_keyboard)->obj;
+            w.theme_label = id(theme_label);
+            w.traffic = id(traffic);
+            id(ui).bind(id(logger_id), w);
+            id(ui).set_dark_mode(id(dark_mode));
 
 font:
   - file: {type: gfonts, family: Montserrat, weight: 700}
@@ -94,6 +97,8 @@ api:
 
 skyecho:
   id: skyecho_hub
+  # The SkyEcho's websocket, for the satellites its GPS is using; the same port as the time below
+  status_port: ${skyecho_time_port}
 
 tug_logger:
   id: logger_id
@@ -511,6 +516,18 @@ lvgl:
             align: top_left
             width: 100%
             text: ""
+        # Shown only while there are refused tows
+        - button:
+            id: resend_button
+            styles: action_button
+            align: bottom_mid
+            y: "${(-300 * scale) | round | int}"
+            width: 100%
+            hidden: true
+            on_click:
+              - lambda: id(ui).resend_refused();
+            widgets:
+              - label: {align: center, text: Send refused tows again}
         - button:
             styles: action_button
             align: bottom_left
@@ -567,10 +584,10 @@ lvgl:
             id: wifi_list
             text_font: bold_28
             align: top_mid
-            # Below the six lines of settings_info
+            # Below the six lines of settings_info, and above the slot for the resend button
             y: "${(280 * scale) | round | int}"
             width: 100%
-            height: "${(550 * scale) | round | int}"
+            height: "${(450 * scale) | round | int}"
             pad_all: "${(6 * scale) | round | int}"
         # Last, so that it covers the rest of the page, and leaves with the page
         - obj:

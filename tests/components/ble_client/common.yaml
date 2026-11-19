@@ -114,3 +114,10 @@ text_sensor:
       - logger.log:
           format: "Text notify %s"
           args: [x.c_str()]
+
+packet_interface:
+  - platform: ble_client
+    id: ble_client_link
+    ble_client_id: test_blec
+    encryption: Johnny Cash
+    reliability:

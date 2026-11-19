@@ -14,10 +14,11 @@ packages:
 
 esphome:
   name: tug-d1001
+  # A list, added to tug-common.yaml's
   on_boot:
-    priority: -100
-    then:
-      - lambda: id(rtc).read_time();
+    - priority: -100
+      then:
+        - lambda: id(rtc).read_time();
 
 time:
   - id: !extend skyecho_time

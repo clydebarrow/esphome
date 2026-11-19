@@ -485,7 +485,7 @@ class WiFiComponent final : public Component {
   void add_sta(const WiFiAP &ap);
   void clear_sta();
   /// The configured networks, in the order they are tried.
-  const FixedVector<WiFiAP> &get_sta_list() const { return this->sta_; }
+  const StaticVector<WiFiAP, WIFI_NETWORK_COUNT> &get_sta_list() const { return this->sta_; }
 
 #ifdef USE_WIFI_AP
   /** Setup an Access Point that should be created if no connection to a station can be made.

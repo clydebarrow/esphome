@@ -55,6 +55,10 @@ void SkyEcho::dump_config() {
 }
 
 void SkyEcho::loop() {
+  if (this->status_port_ != 0 && network::is_connected()) {
+    this->status_socket_.set_port(this->status_port_);
+    this->status_socket_.loop(this->source_address_);
+  }
   // Process GDL90 UDP data
   uint8_t buf[1024];
   if (network::is_connected()) {

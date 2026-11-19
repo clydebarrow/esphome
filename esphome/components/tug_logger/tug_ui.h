@@ -66,6 +66,7 @@ struct TugUiWidgets {
   lv_obj_t *wifi_password_button;
   lv_obj_t *wifi_forget_button;
   lv_obj_t *firmware_label;
+  lv_obj_t *resend_button;
   lv_obj_t *tow_height;
   lv_obj_t *picker_keyboard;
   lv_obj_t *theme_label;
@@ -108,6 +109,8 @@ class TugUi {
   void back_to_ground();
   /// Asks for a second press before the time since refuelling goes back to zero.
   void mark_refuelled();
+  /// Sends the refused tows again.
+  void resend_refused();
   /// True on the second press in time: the board's configuration then shuts down.
   bool confirm_shutdown();
   /// Called as the picker's text changes.

@@ -16,6 +16,11 @@
 
 #include "tow_uploader.h"
 
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+#include "esphome/components/packet_interface/basic_addressing.h"
+#include "esphome/components/packet_interface/xxtea_encryption.h"
+#endif
+
 namespace esphome::tug_logger {
 
 ESPHOME_LOG_TAG(TAG, "tug_logger");
@@ -29,12 +34,19 @@ static constexpr uint32_t NETWORK_CHECK_MS = 5000;
 static constexpr uint32_t RESUME_WAIT_MS = 120000;
 static constexpr uint32_t NMEA_MAX_AGE_MS = 5000;
 static constexpr uint32_t POSITION_LOG_MS = 15000;
+// Position reports for the live map, as often as a glider tracker sends them
+static constexpr uint32_t POSITION_FLYING_MS = 5000;
+static constexpr uint32_t POSITION_GROUND_MS = 30000;
 // The flight record: how much of the time on the ground goes before a takeoff, and how often it is written
 static constexpr size_t GROUND_LINES = 60;
 static constexpr uint32_t FLIGHT_LOG_FLUSH_MS = 10000;
 
 void TugLogger::setup() {
   this->detector_ = FlightDetector(this->settings_);
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  if (this->tow_link_ != nullptr)
+    this->tow_link_->setup();
+#endif
   this->last_activity_ms_ = millis();
 }
 
@@ -126,6 +138,7 @@ void TugLogger::log_sample_(const PositionSample &sample, FlightEvent event) {
       this->flight_log_ += summary;
       this->flush_flight_log_();
       this->flight_logging_ = false;
+      this->store_.end_flight_log();
     } else if (millis() - this->last_log_flush_ms_ >= FLIGHT_LOG_FLUSH_MS) {
       this->flush_flight_log_();
     }
@@ -137,6 +150,10 @@ void TugLogger::log_sample_(const PositionSample &sample, FlightEvent event) {
 }
 
 void TugLogger::loop() {
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  if (this->tow_link_ != nullptr)
+    this->tow_link_->loop();
+#endif
   const uint32_t now = millis();
   if (now - this->last_tick_ms_ < TICK_MS)
     return;
@@ -180,6 +197,17 @@ void TugLogger::discard(const TowRecord &record) {
   }
 }
 
+void TugLogger::resend_failed_tows() {
+  if (!this->store_ready_)
+    return;
+  const size_t count = this->store_.resend_failed();
+  ESP_LOGI(TAG, "%zu refused tows queued again", count);
+  this->failed_ = this->store_.failed_count();
+  this->queued_ = this->store_.queued_count();
+  this->last_upload_ms_ = 0;
+  wake_tow_uploader();
+}
+
 void TugLogger::mark_refuelled() {
   this->totals_.fuel_s = 0;
   this->store_.save_totals(this->totals_);
@@ -197,6 +225,25 @@ ConfirmResult TugLogger::confirm(uint32_t id) {
   return result;
 }
 
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+// The LoRa address and key are the tug's own, from the dashboard, so they come from the tug file rather than the build
+void TugLogger::apply_lora_provisioning_() {
+  if (this->lora_addressing_ == nullptr || this->lora_encryption_ == nullptr)
+    return;
+  uint8_t key[32];
+  const auto &p = this->provisioning_;
+  if (!this->provisioned_ || p.lora_address == 0 || p.lora_address == 0xFFFF ||
+      !parse_hex(p.lora_key, key, sizeof(key))) {
+    ESP_LOGW(TAG, "The tug file has no LoRa address and key, so tows don't go over LoRa; make a new one in the "
+                  "dashboard");
+    return;
+  }
+  this->lora_addressing_->set_address(p.lora_address);
+  this->lora_encryption_->set_key(key);
+  ESP_LOGI(TAG, "LoRa address 0x%04X", p.lora_address);
+}
+#endif
+
 bool TugLogger::start_store_() {
   if (!this->store_.begin())
     return false;
@@ -209,6 +256,9 @@ bool TugLogger::start_store_() {
   } else {
     ESP_LOGW(TAG, "No usable tug.json or tug-*.json in the root of the SD card");
   }
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  this->apply_lora_provisioning_();
+#endif
   if (this->upload_url_ != nullptr)
     this->provisioning_.upload_url = this->upload_url_;
   if (this->upload_key_ != nullptr)
@@ -252,27 +302,48 @@ PositionSample TugLogger::read_position_() {
   sample.now_ms = millis();
   sample.epoch = this->epoch_();
   this->source_ = GpsSource::GPS_SOURCE_NONE;
-#ifdef USE_TUG_LOGGER_SKYECHO
-  if (this->skyecho_ != nullptr) {
-    skyecho::OwnshipT ownship;
-    if (this->skyecho_->get_ownship_position(&ownship)) {
-      this->source_ = GpsSource::GPS_SOURCE_SKYECHO;
-      sample.speed_valid = ownship.report.isGroundSpeedValid;
-      sample.ground_speed_mps = ownship.report.groundSpeed;
-      sample.pressure_valid = ownship.report.isAltitudeValid;
-      sample.pressure_m = ownship.report.altitude;
-      sample.geometric_valid = this->skyecho_->get_ownship_geo_altitude(&sample.geometric_m);
-      return sample;
-    }
-  }
-#endif
-#ifdef USE_TUG_LOGGER_GPS
-  if (this->nmea_ms_ != 0 && sample.now_ms - this->nmea_ms_ < NMEA_MAX_AGE_MS) {
+  this->location_ = Location{};
+  // The NMEA fix (the relay's own GNSS) comes first while it is fresh: a dedicated receiver with a clear view gives a
+  // better position and GPS altitude than the SkyEcho in the cabin, which stands in when there is none
+  const bool nmea = this->nmea_ms_ != 0 && sample.now_ms - this->nmea_ms_ < NMEA_MAX_AGE_MS;
+  if (nmea) {
     this->source_ = GpsSource::GPS_SOURCE_NMEA;
     sample.speed_valid = this->nmea_speed_valid_;
     sample.ground_speed_mps = this->nmea_speed_mps_;
     sample.geometric_valid = this->nmea_altitude_valid_;
     sample.geometric_m = this->nmea_altitude_m_;
+    this->location_.valid = this->nmea_lat_ != 0.0 || this->nmea_lon_ != 0.0;
+    this->location_.lat = this->nmea_lat_;
+    this->location_.lon = this->nmea_lon_;
+    this->location_.course_valid = this->nmea_course_valid_;
+    this->location_.course_deg = this->nmea_course_deg_;
+    this->location_.satellites = this->nmea_satellites_;
+  }
+#ifdef USE_TUG_LOGGER_SKYECHO
+  if (this->skyecho_ != nullptr) {
+    skyecho::OwnshipT ownship;
+    if (this->skyecho_->get_ownship_position(&ownship)) {
+      const auto &report = ownship.report;
+      // Its pressure altitude is kept either way: only the SkyEcho has one, and the flight log records it beside the
+      // GPS altitude
+      sample.pressure_valid = report.isAltitudeValid;
+      sample.pressure_m = report.altitude;
+      if (!nmea) {
+        this->source_ = GpsSource::GPS_SOURCE_SKYECHO;
+        sample.speed_valid = report.isGroundSpeedValid;
+        sample.ground_speed_mps = report.groundSpeed;
+        sample.geometric_valid = this->skyecho_->get_ownship_geo_altitude(&sample.geometric_m);
+        // A report with no position has zero latitude and longitude
+        this->location_.valid = report.latitude != 0.0f || report.longitude != 0.0f;
+        this->location_.lat = report.latitude;
+        this->location_.lon = report.longitude;
+        this->location_.course_valid = report.isTrackValid;
+        this->location_.course_deg = report.track;
+        this->skyecho_->get_gps_satellites(&this->location_.satellites);
+      }
+      // Only the SkyEcho reports a vertical speed
+      this->location_.climb_mps = report.isVerticalSpeedValid ? report.verticalSpeed : 0.0f;
+    }
   }
 #endif
   return sample;
@@ -282,11 +353,62 @@ PositionSample TugLogger::read_position_() {
 void TugLogger::on_update(TinyGPSPlus &tiny_gps) {
   if (!tiny_gps.location.isValid())
     return;
+  this->set_backup_fix(tiny_gps.speed.isValid(), tiny_gps.speed.mps(), tiny_gps.altitude.isValid(),
+                       tiny_gps.altitude.meters());
+  this->set_backup_location(
+      tiny_gps.location.lat(), tiny_gps.location.lng(), tiny_gps.course.isValid(), tiny_gps.course.deg(),
+      tiny_gps.satellites.isValid() ? uint8_t(std::min<uint32_t>(255, tiny_gps.satellites.value())) : 0);
+}
+#endif
+
+void TugLogger::set_backup_fix(bool speed_valid, float speed_mps, bool altitude_valid, float altitude_m) {
   this->nmea_ms_ = millis();
-  this->nmea_speed_valid_ = tiny_gps.speed.isValid();
-  this->nmea_speed_mps_ = tiny_gps.speed.mps();
-  this->nmea_altitude_valid_ = tiny_gps.altitude.isValid();
-  this->nmea_altitude_m_ = tiny_gps.altitude.meters();
+  this->nmea_speed_valid_ = speed_valid;
+  this->nmea_speed_mps_ = speed_mps;
+  this->nmea_altitude_valid_ = altitude_valid;
+  this->nmea_altitude_m_ = altitude_m;
+}
+
+void TugLogger::set_backup_location(double lat, double lon, bool course_valid, float course_deg, uint8_t satellites) {
+  this->nmea_lat_ = lat;
+  this->nmea_lon_ = lon;
+  this->nmea_course_valid_ = course_valid;
+  this->nmea_course_deg_ = course_deg;
+  this->nmea_satellites_ = satellites;
+}
+
+#ifdef USE_TUG_LOGGER_POSITION_LINK
+// Like a glider tracker's: every 5 s while flying, every 30 s on the ground, and with no fix as well, so the map
+// shows the tug is there
+void TugLogger::send_position_(const PositionSample &sample) {
+  if (this->position_link_ == nullptr)
+    return;
+  const bool flying = this->detector_.is_flying();
+  const uint32_t interval = flying ? POSITION_FLYING_MS : POSITION_GROUND_MS;
+  if (this->position_sent_ && sample.now_ms - this->last_position_sent_ms_ < interval)
+    return;
+  this->position_sent_ = true;
+  this->last_position_sent_ms_ = sample.now_ms;
+  const Location &where = this->location_;
+  PositionReport report;
+  report.fix = where.valid;
+  report.flying = flying;
+  report.time = sample.epoch > 0 ? uint32_t(sample.epoch) : 0;
+  if (where.valid) {
+    report.lat = where.lat;
+    report.lon = where.lon;
+    report.alt_m = sample.geometric_valid ? int16_t(std::lround(sample.geometric_m)) : 0;
+    report.speed_kmh = sample.speed_valid ? sample.ground_speed_mps * 3.6f : 0.0f;
+    report.course_deg = where.course_valid ? where.course_deg : 0.0f;
+    report.climb_cms = int16_t(std::lround(where.climb_mps * 100.0f));
+  }
+  report.satellites = where.satellites;
+  report.battery_v = this->battery_voltage();
+  uint8_t packet[PositionReport::SIZE];
+  report.encode(packet);
+  const bool ok = this->position_link_->send_to_interface(packet_interface::PacketBuffer(packet, sizeof(packet)), {});
+  ESP_LOGV(TAG, "Position report sent: %s, fix %s", ok ? LOG_STR_LITERAL("ok") : LOG_STR_LITERAL("refused"),
+           YESNO(where.valid));
 }
 #endif
 
@@ -342,6 +464,9 @@ void TugLogger::tick_() {
   }
 
   const PositionSample sample = this->read_position_();
+#ifdef USE_TUG_LOGGER_POSITION_LINK
+  this->send_position_(sample);
+#endif
   if (now - this->last_position_log_ms_ >= POSITION_LOG_MS) {
     this->last_position_log_ms_ = now;
     ESP_LOGD(TAG, "Position: source %u, speed %.1f m/s (%s), GPS altitude %.0f m (%s), pressure altitude %.0f m (%s)",

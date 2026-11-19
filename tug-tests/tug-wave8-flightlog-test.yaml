@@ -1,0 +1,33 @@
+# Bench test of the flight record upload: tug-wave8-lora.yaml, with a sample record written to the SD card at boot if
+# it isn't there. It goes to the Worker once the display is on a network with internet. Flash tug-wave8-lora.yaml back
+# afterwards.
+packages:
+  tug: !include tug-wave8-lora.yaml
+
+esphome:
+  on_boot:
+    - priority: -200
+      then:
+        - delay: 10s
+        - lambda: |-
+            const char *path = "/sdcard/tug/flights/20261118-090000.csv";
+            FILE *existing = fopen(path, "rb");
+            if (existing != nullptr) {
+              fclose(existing);
+              ESP_LOGI("test", "Sample flight record already on the card");
+              return;
+            }
+            mkdir("/sdcard/tug/flights", 0775);
+            FILE *file = fopen(path, "wb");
+            if (file == nullptr) {
+              ESP_LOGW("test", "Could not write the sample flight record");
+              return;
+            }
+            fputs("# Takeoff. Heights from pressure altitude, reference 40 ft; field elevation 40 ft\n"
+                  "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet\n"
+                  "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft\n"
+                  "100.0,1795078800,1,45,50,60,10,10\n"
+                  "101.0,1795078801,1,52,75,80,35,35\n"
+                  "# Landed: 840 s, highest 2050 ft at 420 s\n", file);
+            fclose(file);
+            ESP_LOGI("test", "Sample flight record written");

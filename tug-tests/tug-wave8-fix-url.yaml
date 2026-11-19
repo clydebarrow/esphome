@@ -1,0 +1,70 @@
+# One-off: points the tug file on the SD card at the Worker's custom domain in place of the workers.dev address it was
+# made with before 16 November 2026. Only the host in flight_upload_url changes; the key is untouched and not logged.
+# Restarts once after the change; flash tug-wave8-lora.yaml back afterwards.
+substitutions:
+  old_host: flight-upload.clyde-beb.workers.dev
+  new_host: wgc-flights.control-j.com
+
+packages:
+  tug: !include tug-wave8-lora.yaml
+
+esphome:
+  on_boot:
+    - priority: -200
+      then:
+        - delay: 10s
+        - lambda: |-
+            // The tug file: tug.json, or the one tug-*.json at the top of the card, as the logger finds it
+            std::string path = "/sdcard/tug.json";
+            if (access(path.c_str(), F_OK) != 0) {
+              path.clear();
+              if (DIR *dir = opendir("/sdcard")) {
+                while (struct dirent *entry = readdir(dir)) {
+                  const char *name = entry->d_name;
+                  const size_t length = strlen(name);
+                  if (length > 9 && strncasecmp(name, "tug-", 4) == 0 && strcasecmp(name + length - 5, ".json") == 0)
+                    path = std::string("/sdcard/") + name;
+                }
+                closedir(dir);
+              }
+            }
+            if (path.empty()) {
+              ESP_LOGW("fix_url", "No tug file found");
+              return;
+            }
+            FILE *in = fopen(path.c_str(), "rb");
+            if (in == nullptr) {
+              ESP_LOGW("fix_url", "Could not open %s", path.c_str());
+              return;
+            }
+            std::string content;
+            char buffer[512];
+            size_t count;
+            while ((count = fread(buffer, 1, sizeof(buffer), in)) != 0)
+              content.append(buffer, count);
+            fclose(in);
+            const std::string old_host = "${old_host}", new_host = "${new_host}";
+            const size_t at = content.find(old_host);
+            if (at == std::string::npos) {
+              ESP_LOGI("fix_url", "%s already has no %s; nothing to do", path.c_str(), old_host.c_str());
+              return;
+            }
+            content.replace(at, old_host.size(), new_host);
+            // FAT won't rename over a file: write a copy, then swap it in
+            const std::string temp = path + ".tmp";
+            FILE *out = fopen(temp.c_str(), "wb");
+            if (out == nullptr || fwrite(content.data(), 1, content.size(), out) != content.size() || fflush(out) != 0 ||
+                fsync(fileno(out)) != 0) {
+              if (out != nullptr)
+                fclose(out);
+              ESP_LOGW("fix_url", "Could not write %s", temp.c_str());
+              return;
+            }
+            fclose(out);
+            if (remove(path.c_str()) != 0 || rename(temp.c_str(), path.c_str()) != 0) {
+              ESP_LOGW("fix_url", "Could not replace %s; the new copy is %s", path.c_str(), temp.c_str());
+              return;
+            }
+            ESP_LOGI("fix_url", "%s now sends to %s instead of %s; restarting", path.c_str(), new_host.c_str(),
+                     old_host.c_str());
+            App.safe_reboot();

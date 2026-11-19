@@ -31,6 +31,10 @@ CONF_SKYECHO_ID = "skyecho_id"
 CONF_TAKEOFF_CONFIRM = "takeoff_confirm"
 CONF_TAKEOFF_SPEED = "takeoff_speed"
 CONF_UPLOAD_KEY = "upload_key"
+CONF_UPLOAD_LINK_ID = "upload_link_id"
+CONF_POSITION_LINK_ID = "position_link_id"
+CONF_LORA_ADDRESSING_ID = "lora_addressing_id"
+CONF_LORA_ENCRYPTION_ID = "lora_encryption_id"
 CONF_UPLOAD_URL = "upload_url"
 CONF_WIFI_NETWORKS_ID = "wifi_networks_id"
 
@@ -44,6 +48,10 @@ GPS = cg.esphome_ns.namespace("gps").class_("GPS", cg.PollingComponent)
 WifiNetworks = cg.esphome_ns.namespace("wifi_networks").class_(
     "WifiNetworks", cg.Component
 )
+packet_interface_ns = cg.esphome_ns.namespace("packet_interface")
+PacketInterface = packet_interface_ns.class_("PacketInterface")
+BasicAddressing = packet_interface_ns.class_("BasicAddressing", cg.Component)
+XxteaEncryption = packet_interface_ns.class_("XxteaEncryption", PacketInterface)
 
 
 async def gps_listener_registration(hub: cg.MockObj, var: cg.MockObj) -> None:
@@ -96,6 +104,19 @@ CONFIG_SCHEMA = cv.All(
             # For testing against another server: used instead of the values in the tug's file on the card
             cv.Optional(CONF_UPLOAD_URL): cv.string_strict,
             cv.Optional(CONF_UPLOAD_KEY): cv.string_strict,
+            # Tows go over this packet interface, to a receiver that posts them, while there is no internet. Its stack
+            # needs a fragmentation layer: see tow_link.h
+            cv.Optional(CONF_UPLOAD_LINK_ID): cv.use_id(PacketInterface),
+            # The tug's position is broadcast over this packet interface for the live map, as a glider tracker's is
+            cv.Optional(CONF_POSITION_LINK_ID): cv.use_id(PacketInterface),
+            # The upload link's addressing and its key_at_runtime encryption, given the tug's LoRa address and key
+            # from the tug file
+            cv.Inclusive(CONF_LORA_ADDRESSING_ID, "lora_layers"): cv.use_id(
+                BasicAddressing
+            ),
+            cv.Inclusive(CONF_LORA_ENCRYPTION_ID, "lora_layers"): cv.use_id(
+                XxteaEncryption
+            ),
             cv.Optional(CONF_ON_TAKEOFF): automation.validate_automation({}),
             cv.Optional(CONF_ON_LANDED): automation.validate_automation({}),
             cv.Optional(CONF_ON_POWER_OFF): automation.validate_automation({}),
@@ -141,6 +162,19 @@ async def to_code(config: ConfigType) -> None:
         cg.add(var.set_upload_url(url))
     if (upload_key := config.get(CONF_UPLOAD_KEY)) is not None:
         cg.add(var.set_upload_key(upload_key))
+    if (position_link := config.get(CONF_POSITION_LINK_ID)) is not None:
+        cg.add_define("USE_TUG_LOGGER_POSITION_LINK")
+        cg.add(var.set_position_link(await cg.get_variable(position_link)))
+    if (link := config.get(CONF_UPLOAD_LINK_ID)) is not None:
+        cg.add_define("USE_TUG_LOGGER_UPLOAD_LINK")
+        cg.add(var.set_upload_link(await cg.get_variable(link)))
+        if CONF_LORA_ADDRESSING_ID in config:
+            cg.add(
+                var.set_lora_layers(
+                    await cg.get_variable(config[CONF_LORA_ADDRESSING_ID]),
+                    await cg.get_variable(config[CONF_LORA_ENCRYPTION_ID]),
+                )
+            )
     for key, method in (
         (CONF_ON_TAKEOFF, "add_on_takeoff_callback"),
         (CONF_ON_LANDED, "add_on_landed_callback"),

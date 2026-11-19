@@ -6,6 +6,7 @@
 #include "esphome/components/uart/uart.h"
 #include "flarm.h"
 #include "gdl90.h"
+#include "status_socket.h"
 #include "threat.h"
 #include "traffic_manager.h"
 #include <algorithm>
@@ -108,6 +109,12 @@ class SkyEcho : public PollingComponent {
 
   /// The IPv4 address the GDL90 data last came from, in network byte order; 0 before any has arrived.
   uint32_t get_source_address() const { return this->source_address_; }
+  /// The port of the SkyEcho's status websocket; 0 leaves it unused
+  void set_status_port(uint16_t port) { this->status_port_ = port; }
+  /// How many satellites the SkyEcho's GPS is using, from its status websocket; false if none has arrived lately
+  bool get_gps_satellites(uint8_t *satellites) const {
+    return this->status_port_ != 0 && this->status_socket_.get_satellites(satellites);
+  }
 
   /**
    * Set callback for traffic updates
@@ -157,6 +164,8 @@ class SkyEcho : public PollingComponent {
   std::unique_ptr<socket::Socket> socket_{};
   std::unique_ptr<socket::Socket> ping_socket_{};
   uint32_t source_address_{0};
+  uint16_t status_port_{0};
+  StatusSocket status_socket_;
 
   // Ownship data
   gdl90Heartbeat_t heartbeat_{};

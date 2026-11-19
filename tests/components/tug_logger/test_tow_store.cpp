@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include "esphome/components/json/json_util.h"
+#include "esphome/components/tug_logger/position_packet.h"
 #include "esphome/components/tug_logger/tow_store.h"
 
 namespace esphome::tug_logger::testing {
@@ -109,6 +110,8 @@ TEST(TugTowRecord, ClassifiesServerAnswers) {
   EXPECT_EQ(classify_status(400), UploadResult::UPLOAD_RESULT_REFUSED);
   EXPECT_EQ(classify_status(409), UploadResult::UPLOAD_RESULT_REFUSED);
   EXPECT_EQ(classify_status(413), UploadResult::UPLOAD_RESULT_REFUSED);
+  // A wrong or moved address, not a bad tow
+  EXPECT_EQ(classify_status(404), UploadResult::UPLOAD_RESULT_RETRY);
   EXPECT_EQ(classify_status(401), UploadResult::UPLOAD_RESULT_RETRY);
   EXPECT_EQ(classify_status(500), UploadResult::UPLOAD_RESULT_RETRY);
   EXPECT_EQ(classify_status(0), UploadResult::UPLOAD_RESULT_RETRY);
@@ -126,6 +129,19 @@ TEST(TugTowRecord, ParsesTheFileTheWorkerGives) {
   EXPECT_FLOAT_EQ(settings.field_elevation_ft, 1500.0f);
   EXPECT_EQ(settings.upload_url, "https://x.workers.dev/api/tows");
   EXPECT_EQ(settings.upload_key, "secret");
+  // A file made before the dashboard gave LoRa keys has none
+  EXPECT_EQ(settings.lora_address, 0);
+  EXPECT_TRUE(settings.lora_key.empty());
+}
+
+TEST(TugTowRecord, ReadsTheLoraAddressAndKey) {
+  Provisioning settings;
+  ASSERT_TRUE(parse_provisioning(
+      R"({"tug":{"registration":"VH-TUG"},"flight_upload_url":"https://x/api/tows","flight_upload_key":"k",)"
+      R"("lora":{"address":16,"key":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"}})",
+      settings));
+  EXPECT_EQ(settings.lora_address, 0x0010);
+  EXPECT_EQ(settings.lora_key, "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
 }
 
 TEST(TugTowRecord, RefusesAnIncompleteProvisioningFile) {
@@ -439,6 +455,67 @@ TEST_F(TowStoreTest, KeepsAFlightRecordPerFlight) {
   EXPECT_EQ(read_all(this->file("flights/no-clock-123456.csv")), "line\n");
 }
 
+TEST_F(TowStoreTest, SendsEachFinishedFlightRecordOnceUnlessItGrows) {
+  ASSERT_TRUE(this->store->start_flight_log(LAUNCH, 5000));
+  ASSERT_TRUE(this->store->append_flight_log("header\n"));
+  // The record being written is not sent
+  EXPECT_TRUE(this->store->unsent_flight_logs().empty());
+  this->store->end_flight_log();
+  ASSERT_TRUE(this->store->start_flight_log(0, 123456));
+  ASSERT_TRUE(this->store->append_flight_log("line\n"));
+  this->store->end_flight_log();
+
+  auto unsent = this->store->unsent_flight_logs();
+  ASSERT_EQ(unsent.size(), 2u);
+  EXPECT_EQ(unsent[0].name, "20261101-085901");
+  EXPECT_EQ(unsent[0].size, 7u);
+  EXPECT_EQ(unsent[1].name, "no-clock-123456");
+  std::string csv;
+  ASSERT_TRUE(this->store->read_flight_log(unsent[0].name, csv, 1024));
+  EXPECT_EQ(csv, "header\n");
+
+  ASSERT_TRUE(this->store->mark_flight_log_sent(unsent[0]));
+  ASSERT_TRUE(this->store->mark_flight_log_sent(unsent[1]));
+  this->reopen();
+  EXPECT_TRUE(this->store->unsent_flight_logs().empty());
+
+  // Carried on after a restart in flight: the same file grows, and goes again
+  ASSERT_TRUE(this->store->start_flight_log(LAUNCH, 9000));
+  ASSERT_TRUE(this->store->append_flight_log("line 2\n"));
+  this->store->end_flight_log();
+  unsent = this->store->unsent_flight_logs();
+  ASSERT_EQ(unsent.size(), 1u);
+  EXPECT_EQ(unsent[0].name, "20261101-085901");
+  EXPECT_EQ(unsent[0].size, 14u);
+}
+
+TEST_F(TowStoreTest, SendsRefusedTowsAgain) {
+  write_all(this->file("tows-failed.jsonl"), "{\"a\":1}\n{\"b\":2}\n");
+  EXPECT_EQ(this->store->failed_count(), 2u);
+  EXPECT_EQ(this->store->resend_failed(), 2u);
+  EXPECT_EQ(this->store->failed_count(), 0u);
+  EXPECT_EQ(this->store->queued_count(), 2u);
+  std::vector<std::string> sent;
+  this->store->process_queue([&sent](const std::string &body) {
+    sent.push_back(body);
+    return UploadResult::UPLOAD_RESULT_SENT;
+  });
+  EXPECT_EQ(sent, (std::vector<std::string>{"{\"a\":1}", "{\"b\":2}"}));
+  EXPECT_EQ(this->store->resend_failed(), 0u);
+}
+
+TEST(FlightLogBody, EscapesTheRecordAsJson) {
+  EXPECT_EQ(flight_log_body("20261101-085901", "# a \"b\" c\\d\n1,2\r\n"),
+            "{\"name\":\"20261101-085901\",\"csv\":\"# a \\\"b\\\" c\\\\d\\n1,2 \\n\"}");
+  // It parses, and gives the text back
+  std::string csv;
+  ASSERT_TRUE(json::parse_json(flight_log_body("x", "a\"\\\nb\n"), [&csv](JsonObject root) {
+    csv = root["csv"].as<std::string>();
+    return true;
+  }));
+  EXPECT_EQ(csv, "a\"\\\nb\n");
+}
+
 TEST_F(TowStoreTest, ForgetsANameAndKeepsItForgotten) {
   TowDetails details{"WGQ", "Dan", "Dan P", "Sam"};
   this->store->remember(details);
@@ -461,6 +538,42 @@ TEST_F(TowStoreTest, ThePilotsReleaseHeightReplacesTheMeasuredOne) {
   EXPECT_FALSE(stored.approximate);
   EXPECT_TRUE(stored.height_entered);
   EXPECT_FALSE(this->store->update_height(id + 100, 1000));
+}
+
+// The same bytes as a glider tracker's position (glider_packets.h), which the receiver decodes for both
+TEST(TugPositionReport, EncodesAsAGliderTrackerDoes) {
+  PositionReport report;
+  report.fix = true;
+  report.flying = true;
+  report.time = 0x12345678;
+  report.lat = -31.4210270;
+  report.lon = 152.7573110;
+  report.alt_m = 457;
+  report.speed_kmh = 120.4f;
+  report.course_deg = 271.3f;
+  report.climb_cms = -150;
+  report.satellites = 11;
+  uint8_t p[PositionReport::SIZE];
+  ASSERT_EQ(report.encode(p), 24u);
+  auto get16 = [&](size_t at) { return uint16_t(p[at] | (p[at + 1] << 8)); };
+  auto get32 = [&](size_t at) {
+    return uint32_t(p[at]) | (uint32_t(p[at + 1]) << 8) | (uint32_t(p[at + 2]) << 16) | (uint32_t(p[at + 3]) << 24);
+  };
+  EXPECT_EQ(p[0], 'P');
+  EXPECT_EQ(p[1], 3);
+  EXPECT_EQ(get32(2), 0x12345678u);
+  EXPECT_EQ(int32_t(get32(6)), -314210270);
+  EXPECT_EQ(int32_t(get32(10)), 1527573110);
+  EXPECT_EQ(int16_t(get16(14)), 457);
+  EXPECT_EQ(get16(16), 1204);
+  EXPECT_EQ(get16(18), 2713);
+  EXPECT_EQ(int16_t(get16(20)), -150);
+  EXPECT_EQ(p[22], 11);
+  // No battery reading
+  EXPECT_EQ(p[23], 0);
+  report.battery_v = 3.92f;
+  report.encode(p);
+  EXPECT_EQ(p[23], 196);
 }
 
 }  // namespace esphome::tug_logger::testing

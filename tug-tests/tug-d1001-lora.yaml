@@ -1,0 +1,45 @@
+# tug-d1001.yaml, with tows also sent over LoRa while there is no internet, as on the SkyEcho's Wi-Fi: over Bluetooth
+# to the relay in the tug (tug-relay-wsl.yaml), which passes them to the clubhouse receiver (glider-tests/
+# receiver-wsl.yaml in the glider-lora worktree). The receiver posts each tow to the Worker with this tug's own
+# signature and answers with the Worker's status; a tow leaves the queue only once that answer says it is stored.
+substitutions:
+  relay_mac: F4:12:FA:82:61:5E
+  tug_address: "0x0010"
+  clubhouse_address: "0x0001"
+
+packages:
+  tug: !include tug-d1001.yaml
+
+esp32_ble:
+
+esp32_ble_tracker:
+  scan_parameters:
+    active: false
+
+ble_client:
+  - mac_address: ${relay_mac}
+    id: relay
+
+packet_interface:
+  - platform: ble_client
+    id: tow_link
+    ble_client_id: relay
+    # The relay passes each packet to LoRa as it is, so none may be larger than a LoRa packet
+    max_packet_size: 255
+    addressing:
+      id: tug_addressing
+      # Until the tug file gives this tug's own address, with its key (tug_logger: lora_addressing_id)
+      address: ${tug_address}
+      destination: ${clubhouse_address}
+    encryption:
+      id: tow_link_key
+      key_at_runtime: true
+    # A tow is about 300 bytes
+    fragmentation:
+      max_packet_size: 512
+
+tug_logger:
+  upload_link_id: tow_link
+  # The tug's LoRa address and key are in its tug file, from the dashboard
+  lora_addressing_id: tug_addressing
+  lora_encryption_id: tow_link_key

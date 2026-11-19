@@ -28,6 +28,8 @@ ESPHOME_LOG_TAG(TAG, "tug_logger.upload");
 static constexpr uint32_t CHECK_INTERVAL_MS = 15000;
 static constexpr uint32_t RETRY_INTERVAL_MS = 60000;
 static constexpr uint32_t HTTP_TIMEOUT_MS = 15000;
+// Over LoRa: the tow's fragments, the receiver's post to the Worker, and the answer back
+static constexpr uint32_t LINK_ANSWER_TIMEOUT_MS = 20000;
 // TLS needs more than a plain HTTP request; the stack is in PSRAM
 static constexpr uint32_t TASK_STACK_SIZE = 12288;
 static constexpr UBaseType_t TASK_PRIORITY = 1;
@@ -37,11 +39,15 @@ static constexpr size_t SIGNATURE_SIZE = 8 + 2 * SHA256_SIZE;
 static constexpr size_t MAX_ANSWER = 512;
 static TaskHandle_t uploader_handle = nullptr;
 
+static bool hmac(const std::string &key, const std::string &body, uint8_t *mac) {
+  return mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), reinterpret_cast<const uint8_t *>(key.data()),
+                         key.size(), reinterpret_cast<const uint8_t *>(body.data()), body.size(), mac) == 0;
+}
+
 // "sha256=" and the HMAC-SHA256 of the body in hex, as the server checks in X-Signature
 static bool sign(const std::string &key, const std::string &body, char *signature) {
   uint8_t mac[SHA256_SIZE];
-  if (mbedtls_md_hmac(mbedtls_md_info_from_type(MBEDTLS_MD_SHA256), reinterpret_cast<const uint8_t *>(key.data()),
-                      key.size(), reinterpret_cast<const uint8_t *>(body.data()), body.size(), mac) != 0)
+  if (!hmac(key, body, mac))
     return false;
   size_t pos = snprintf(signature, SIGNATURE_SIZE, "sha256=");
   for (uint8_t b : mac)
@@ -115,20 +121,68 @@ static UploadResult post_tow(const Provisioning &settings, const std::string &bo
   return result;
 }
 
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+// Sends a tow over the link, for the receiver to post. A tow the link can't take, or whose answer doesn't come, is
+// tried again later; the Worker's status is treated as if the tug had posted the tow itself.
+static UploadResult post_tow_link(TowLink &link, const Provisioning &settings, const std::string &body,
+                                  bool &link_down) {
+  uint8_t mac[SHA256_SIZE];
+  if (!hmac(settings.upload_key, body, mac)) {
+    ESP_LOGW(TAG, "Signing failed");
+    return UploadResult::UPLOAD_RESULT_RETRY;
+  }
+  int status = 0;
+  switch (link.post(body, mac, LINK_ANSWER_TIMEOUT_MS, status)) {
+    case TowLink::Outcome::OUTCOME_NOT_SENT:
+      ESP_LOGD(TAG, "The link can't send now");
+      link_down = true;
+      return UploadResult::UPLOAD_RESULT_RETRY;
+    case TowLink::Outcome::OUTCOME_NO_ANSWER:
+      ESP_LOGW(TAG, "No answer over the link");
+      link_down = true;
+      return UploadResult::UPLOAD_RESULT_RETRY;
+    case TowLink::Outcome::OUTCOME_ANSWERED:
+      break;
+  }
+  const UploadResult result = classify_status(status);
+  if (status == 0) {
+    ESP_LOGW(TAG, "The receiver could not reach the server; trying again later");
+  } else if (result == UploadResult::UPLOAD_RESULT_REFUSED) {
+    ESP_LOGW(TAG, "Upload over the link refused: HTTP %d; the tow is kept and not sent again", status);
+  } else if (result == UploadResult::UPLOAD_RESULT_RETRY) {
+    ESP_LOGW(TAG, "Upload over the link refused: HTTP %d; trying again later", status);
+  }
+  return result;
+}
+#endif
+
 void TugLogger::upload_step() {
   this->queued_ = this->store_.queued_count();
   this->failed_ = this->store_.failed_count();
   const uint32_t now = millis();
-  if (this->queued_ == 0 || !network::is_connected() || this->on_skyecho_network_ ||
+  auto has_internet = [this] { return network::is_connected() && !this->on_skyecho_network_; };
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  const bool has_link = this->tow_link_ != nullptr;
+#else
+  const bool has_link = false;
+#endif
+  if (this->queued_ == 0 || !(has_internet() || has_link) ||
       (this->last_upload_ms_ != 0 && now - this->last_upload_ms_ < RETRY_INTERVAL_MS))
     return;
   this->last_upload_ms_ = now;
   unsigned sent = 0, kept = 0, refused = 0;
+  // Once the link fails, the rest of the queue waits for the next try rather than for an answer each
+  bool link_down = false;
   this->store_.process_queue([&](const std::string &body) {
-    // A switch of network in the middle of the queue: the rest wait
-    const UploadResult result = network::is_connected() && !this->on_skyecho_network_
-                                    ? post_tow(this->provisioning_, body)
-                                    : UploadResult::UPLOAD_RESULT_RETRY;
+    // The internet first; a switch of network in the middle of the queue moves the rest to the link
+    UploadResult result = UploadResult::UPLOAD_RESULT_RETRY;
+    if (has_internet()) {
+      result = post_tow(this->provisioning_, body);
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+    } else if (has_link && !link_down) {
+      result = post_tow_link(*this->tow_link_, this->provisioning_, body, link_down);
+#endif
+    }
     if (result == UploadResult::UPLOAD_RESULT_SENT) {
       sent++;
     } else if (result == UploadResult::UPLOAD_RESULT_REFUSED) {
@@ -144,6 +198,67 @@ void TugLogger::upload_step() {
   // Everything went: the next tow need not wait for the retry time
   if (kept == 0)
     this->last_upload_ms_ = 0;
+}
+
+// A flight record is about 150 kB an hour; the Worker takes up to 4 MB
+static constexpr size_t MAX_FLIGHT_LOG = 4 * 1024 * 1024 - 1024;
+// Records sent each time round, so a backlog doesn't hold up the tows and the firmware check
+static constexpr unsigned FLIGHT_LOGS_PER_STEP = 4;
+
+void TugLogger::flight_log_step() {
+  const uint32_t now = millis();
+  // Over the internet only: a record is far too big for the LoRa link
+  if (!network::is_connected() || this->on_skyecho_network_ ||
+      (this->last_flight_log_ms_ != 0 && now - this->last_flight_log_ms_ < RETRY_INTERVAL_MS))
+    return;
+  const std::string &upload_url = this->provisioning_.upload_url;
+  const size_t slash = upload_url.rfind('/');
+  if (slash == std::string::npos)
+    return;
+  const std::string url = upload_url.substr(0, slash) + "/flight-logs";
+  unsigned sent = 0;
+  for (const FlightLogFile &file : this->store_.unsent_flight_logs()) {
+    if (sent == FLIGHT_LOGS_PER_STEP)
+      return;
+    if (file.size > MAX_FLIGHT_LOG) {
+      ESP_LOGW(TAG, "Flight record %s is too big to send (%zu bytes)", file.name.c_str(), file.size);
+      this->store_.mark_flight_log_sent(file);
+      continue;
+    }
+    std::string csv;
+    if (!this->store_.read_flight_log(file.name, csv, MAX_FLIGHT_LOG)) {
+      ESP_LOGW(TAG, "Flight record %s could not be read", file.name.c_str());
+      this->last_flight_log_ms_ = now;
+      return;
+    }
+    // Only what was read is marked sent: a record still growing goes again
+    const FlightLogFile read{file.name, csv.size()};
+    Answer answer{};
+    esp_err_t err;
+    const int status = post_signed(this->provisioning_, url, flight_log_body(file.name, csv), answer, err);
+    switch (classify_status(status)) {
+      case UploadResult::UPLOAD_RESULT_SENT:
+        ESP_LOGI(TAG, "Flight record %s sent (%zu bytes)", file.name.c_str(), read.size);
+        this->store_.mark_flight_log_sent(read);
+        sent++;
+        break;
+      case UploadResult::UPLOAD_RESULT_REFUSED:
+        // Sending it again would get the same answer
+        ESP_LOGW(TAG, "Flight record %s refused: HTTP %d. Server: %s", file.name.c_str(), status, answer.text);
+        this->store_.mark_flight_log_sent(read);
+        break;
+      case UploadResult::UPLOAD_RESULT_RETRY:
+        if (status >= 400) {
+          ESP_LOGW(TAG, "Flight record %s not taken: HTTP %d; trying again later. Server: %s", file.name.c_str(),
+                   status, answer.text);
+        } else {
+          ESP_LOGW(TAG, "Flight record %s not sent: %s; trying again later", file.name.c_str(), esp_err_to_name(err));
+        }
+        this->last_flight_log_ms_ = now;
+        return;
+    }
+  }
+  this->last_flight_log_ms_ = 0;
 }
 
 void TugLogger::request_firmware_check() {
@@ -240,6 +355,7 @@ static void uploader_task(void *param) {
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CHECK_INTERVAL_MS));
     logger->firmware_step();
     logger->upload_step();
+    logger->flight_log_step();
   }
 }
 
@@ -266,6 +382,7 @@ namespace esphome::tug_logger {
 
 void TugLogger::upload_step() {}
 void TugLogger::firmware_step() {}
+void TugLogger::flight_log_step() {}
 
 void TugLogger::request_firmware_check() {
   std::lock_guard<std::mutex> guard(this->firmware_lock_);

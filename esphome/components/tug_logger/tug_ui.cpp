@@ -603,6 +603,11 @@ void TugUi::discard_tow() {
   this->show_review();
 }
 
+void TugUi::resend_refused() {
+  this->logger_->resend_failed_tows();
+  this->refresh_settings_();
+}
+
 void TugUi::mark_refuelled() {
   if (this->refuel_armed_ticks_ == 0) {
     this->refuel_armed_ticks_ = REFUEL_ARMED_TICKS;
@@ -658,7 +663,13 @@ void TugUi::refresh_settings_() {
   } else {
     info = "No tug.json on the SD card";
   }
-  info += Text("\nQueued %zu, refused %zu", this->logger_->queued_count(), this->logger_->failed_count()).text;
+  const size_t refused = this->logger_->failed_count();
+  info += Text("\nQueued %zu, refused %zu", this->logger_->queued_count(), refused).text;
+  if (refused != 0) {
+    lv_obj_remove_flag(this->w_.resend_button, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(this->w_.resend_button, LV_OBJ_FLAG_HIDDEN);
+  }
   const std::string wifi = this->wifi_text_();
   info += "\n" + wifi;
   info += "\nFirmware built " + local_time_text(App.get_build_time());

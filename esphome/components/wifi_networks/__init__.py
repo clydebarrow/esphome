@@ -35,6 +35,8 @@ def _final_validate(config: ConfigType) -> ConfigType:
     fast_connect = fv.full_config.get()[wifi.DOMAIN].get(CONF_FAST_CONNECT, {})
     if fast_connect.get(CONF_ENABLED):
         raise cv.Invalid(f"{DOMAIN} needs 'fast_connect: false' in the wifi block")
+    # The saved networks go in the wifi component's list with the configured ones
+    wifi.request_runtime_networks(config[CONF_MAX_NETWORKS])
     return config
 
 

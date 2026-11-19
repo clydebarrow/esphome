@@ -70,15 +70,16 @@ void FlightDetector::start_flight_(const PositionSample &sample) {
   } else if (sample.epoch != 0) {
     this->flight_.launch = sample.epoch - time_t((sample.now_ms - this->launch_ms_) / 1000);
   }
-  // Ages are measured from the start of the run: the reference stops updating there. Pressure altitude first: it
-  // holds steady on the ground, where GPS altitude wanders
+  // Ages are measured from the start of the run: the reference stops updating there. GPS altitude first: the
+  // SkyEcho's pressure altitude is the cabin's, which changes with speed and so misreads the height at release. The
+  // reference is a mean over the window, which smooths GPS altitude's wander on the ground.
   const uint32_t max_age = this->settings_.max_reference_age_ms;
   const uint32_t window = this->settings_.reference_window_ms;
-  if (this->ground_pressure_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
-    this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
-    this->flight_.has_reference = true;
-  } else if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
+  if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
     this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
+    this->flight_.has_reference = true;
+  } else if (this->ground_pressure_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
+    this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
     this->flight_.has_reference = true;
   } else {
     this->flight_.approximate = true;
@@ -105,10 +106,10 @@ bool FlightDetector::altitude_for_(const PositionSample &sample, float &altitude
 void FlightDetector::track_flight_(const PositionSample &sample) {
   // With no reference, the first altitude seen in flight decides the kind, and heights use the field elevation
   if (this->flight_.kind == AltitudeKind::ALTITUDE_KIND_NONE) {
-    if (sample.pressure_valid) {
-      this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
-    } else if (sample.geometric_valid) {
+    if (sample.geometric_valid) {
       this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
+    } else if (sample.pressure_valid) {
+      this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
     } else {
       return;
     }

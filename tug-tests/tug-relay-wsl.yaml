@@ -1,0 +1,14 @@
+# The tug's LoRa relay (tug-relay-common.yaml), linked to the tug's display over Bluetooth, for a display with no
+# header to wire to, such as the D1001 (tug-d1001-lora.yaml).
+packages:
+  relay: !include tug-relay-common.yaml
+
+esp32_ble:
+
+esp32_ble_server:
+  manufacturer: ESPHome
+
+packet_interface:
+  - platform: esp32_ble_server
+    id: tug_link
+    max_packet_size: 255

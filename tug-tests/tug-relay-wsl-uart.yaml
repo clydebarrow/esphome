@@ -1,0 +1,34 @@
+# The tug's LoRa relay (tug-relay-common.yaml), wired to the tug's display by a UART, as behind the Waveshare 8"
+# (tug-wave8-lora.yaml). Power it from the display's 3V3, and cross TX and RX. The relay's own USB port stays the log.
+substitutions:
+  display_tx_pin: GPIO47
+  display_rx_pin: GPIO48
+
+packages:
+  relay: !include tug-relay-common.yaml
+
+uart:
+  - id: display_uart
+    tx_pin: ${display_tx_pin}
+    rx_pin: ${display_rx_pin}
+    baud_rate: 115200
+    # A whole LoRa packet, escaped, with room to spare
+    rx_buffer_size: 1024
+
+# Updates and logs over Wi-Fi, so the USB port need not be plugged in while it is wired to the display. Out of range of
+# Wi-Fi is normal in a tug, so neither restarts for it.
+wifi:
+  networks: !include ../../../my-devices/wifi-networks.yaml
+  reboot_timeout: 0s
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+packet_interface:
+  - platform: uart
+    id: tug_link
+    uart_id: display_uart
+    max_packet_size: 255

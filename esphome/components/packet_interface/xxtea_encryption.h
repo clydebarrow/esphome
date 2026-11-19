@@ -49,7 +49,14 @@ class XxteaEncryption : public PacketInterface {
   // One encrypted packet per packet, so a fragmentation layer above sees the link's room
   size_t get_send_capacity() const override { return this->lower_->get_send_capacity(); }
 
+  /// The key as 32-bit words, as code generation derives it
   void set_key(std::initializer_list<uint32_t> key);
+  /// The key as 32 bytes, each group of four a little-endian word, as given in hex; for a key set at run time, as a
+  /// tug does from its provisioning file. Until a key is set, nothing is sent or accepted.
+  void set_key(const uint8_t *key);
+  /// Forgets the key, so nothing is sent or accepted until another is set
+  void clear_key();
+  bool has_key() const { return this->has_key_; }
 
  protected:
   bool send_(const PacketBuffer &data, const PacketMetaData &meta_data);
@@ -68,6 +75,8 @@ class XxteaEncryption : public PacketInterface {
   uint32_t counter_{0};
   uint32_t peer_boot_{0};
   uint32_t peer_counter_{0};
+  bool has_key_{false};
+  bool no_key_warned_{false};
   uint32_t echo_boot_{0};  // highest boot number heard from the peer
   bool peer_seen_{false};
   bool old_boot_warned_{false};

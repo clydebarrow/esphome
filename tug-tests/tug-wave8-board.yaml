@@ -1,0 +1,129 @@
+# The Waveshare ESP32-P4-WIFI6-Touch-LCD-8 (the 8" kit of the ESP32-P4-WIFI6-Touch-LCD-X): display, touch, backlight,
+# SD card, battery voltage and Wi-Fi through its ESP32-C6. From Waveshare's schematic for the 7/8/10.1" boards.
+# Flash and logs through the USB TO UART port (a CH343). There is no clock chip.
+# The 40-pin header's 5V pins come only from the USB-C ports, through ideal diodes; the battery feeds only VCC_SYS, and
+# the header's 3V3 pins (from a TPS63020 buck-boost on VCC_SYS). So anything on the header that must run on the battery
+# takes 3V3. Header GPIOs not used on the board: 2, 3, 4, 5, 21, 22, 28 to 32, 46 to 52. GPIO7 and 8 are the touch I2C
+# bus, 37 and 38 the console UART, 34 and 35 strapping pins.
+
+esp32:
+  variant: esp32p4
+  # A production chip (ROM esp32p4-eco7); an engineering sample build loops in the bootloader on it
+  engineering_sample: false
+  flash_size: 32MB
+  cpu_frequency: 360MHz
+  framework:
+    type: esp-idf
+    advanced:
+      enable_idf_experimental_features: true
+      execute_from_psram: true
+
+logger:
+  hardware_uart: UART0
+
+psram:
+  speed: 200MHz
+
+preferences:
+  flash_write_interval: 1min
+
+esp_ldo:
+  - id: ldo_dsi
+    channel: 3
+    voltage: 2.5V
+  # The SD card's pull-ups, and GPIO39 to GPIO44, are powered by LDO channel 4
+  - id: ldo_sd
+    channel: 4
+    voltage: passthrough
+
+esp32_hosted:
+  variant: ESP32C6
+  reset_pin: GPIO54
+  cmd_pin: GPIO19
+  clk_pin: GPIO18
+  d0_pin: GPIO14
+  d1_pin: GPIO15
+  d2_pin: GPIO16
+  d3_pin: GPIO17
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+# Touch, and the audio codec, which is not used
+i2c:
+  - id: main_i2c
+    sda: GPIO7
+    scl: GPIO8
+    frequency: 400kHz
+    scan: true
+
+display:
+  - platform: mipi_dsi
+    id: panel
+    model: WAVESHARE-8-DSI-TOUCH-A
+    reset_pin: GPIO27
+
+touchscreen:
+  - platform: gt911
+    id: touch
+    i2c_id: main_i2c
+    reset_pin: GPIO23
+    interrupt_pin: GPIO33
+
+# High is brightest: the PWM pulls down a voltage fed into the LED driver's feedback. The driver is always enabled, so
+# the panel is never quite dark.
+output:
+  - platform: ledc
+    id: backlight_output
+    pin: GPIO26
+
+light:
+  - platform: monochromatic
+    output: backlight_output
+    id: backlight
+    name: Backlight
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+    gamma_correct: 1.0
+
+switch:
+  # The card's power switch (Q1) has a pull-down on its gate, so it is on unless GPIO45 is fitted (R9) and driven high
+  - platform: gpio
+    id: sd_power
+    pin:
+      number: GPIO45
+      inverted: true
+    restore_mode: ALWAYS_ON
+    setup_priority: 900
+
+spi:
+  - id: sd_spi_bus
+    clk_pin: GPIO43
+    mosi_pin: GPIO44
+    miso_pin: GPIO39
+
+storage:
+  - platform: sd_spi
+    id: sd_card
+    spi_id: sd_spi_bus
+    cs_pin: GPIO42
+
+filesystem:
+  - platform: fatfs
+    id: sd_fs
+    storage_id: sd_card
+    vfs_path: /sdcard
+
+sensor:
+  - platform: adc
+    id: vbat
+    name: Battery voltage
+    pin: GPIO20
+    attenuation: auto
+    update_interval: 30s
+    filters:
+      # R92 200k over R93 100k
+      - multiply: 3.0

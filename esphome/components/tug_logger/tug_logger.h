@@ -15,6 +15,11 @@
 #include "esphome/core/helpers.h"
 
 #include "flight_detector.h"
+#include "position_packet.h"
+#include "tow_link.h"
+#ifdef USE_TUG_LOGGER_POSITION_LINK
+#include "esphome/components/packet_interface/packet_interface.h"
+#endif
 #include "tow_store.h"
 
 #ifdef USE_TUG_LOGGER_SKYECHO
@@ -25,6 +30,13 @@
 #endif
 #ifdef USE_TUG_LOGGER_WIFI_NETWORKS
 #include "esphome/components/wifi_networks/wifi_networks.h"
+#endif
+
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+namespace esphome::packet_interface {
+class BasicAddressing;
+class XxteaEncryption;
+}  // namespace esphome::packet_interface
 #endif
 
 namespace esphome::tug_logger {
@@ -86,12 +98,30 @@ class TugLogger : public Component
 #ifdef USE_TUG_LOGGER_GPS
   void on_update(TinyGPSPlus &tiny_gps) override;
 #endif
+  /// A fix from a GPS other than the SkyEcho: an NMEA receiver, or the LoRa relay's own GNSS. Used while the SkyEcho
+  /// gives none. Call it only with a valid location.
+  void set_backup_fix(bool speed_valid, float speed_mps, bool altitude_valid, float altitude_m);
+  /// Where the backup GPS fix is, for the position reports, with set_backup_fix
+  void set_backup_location(double lat, double lon, bool course_valid, float course_deg, uint8_t satellites);
+#ifdef USE_TUG_LOGGER_POSITION_LINK
+  /// The tug's position is broadcast over this link for the live map, as a glider tracker's is
+  void set_position_link(packet_interface::PacketInterface *link) { this->position_link_ = link; }
+#endif
   void set_takeoff_speed(float speed) { this->settings_.takeoff_speed_mps = speed; }
   void set_takeoff_confirm(uint32_t ms) { this->settings_.takeoff_confirm_ms = ms; }
   void set_landing_speed(float speed) { this->settings_.landing_speed_mps = speed; }
   void set_landing_confirm(uint32_t ms) { this->settings_.landing_confirm_ms = ms; }
   void set_shutdown_window(uint32_t ms) { this->shutdown_window_ms_ = ms; }
   void set_upload_url(const char *url) { this->upload_url_ = url; }
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  /// Tows go over this link, to a receiver that posts them, while there is no internet
+  void set_upload_link(packet_interface::PacketInterface *link) { this->tow_link_ = std::make_unique<TowLink>(link); }
+  /// The link's addressing and encryption, given the address and key from the tug file at start-up
+  void set_lora_layers(packet_interface::BasicAddressing *addressing, packet_interface::XxteaEncryption *encryption) {
+    this->lora_addressing_ = addressing;
+    this->lora_encryption_ = encryption;
+  }
+#endif
   void set_upload_key(const char *key) { this->upload_key_ = key; }
 
   template<typename F> void add_on_takeoff_callback(F &&callback) {
@@ -135,6 +165,8 @@ class TugLogger : public Component
   uint32_t flight_today_s() const { return this->totals_.flight_s + this->current_flight_s_(); }
   uint32_t since_refuel_s() const { return this->totals_.fuel_s + this->current_flight_s_(); }
   void mark_refuelled();
+  /// Queues the refused tows again, and starts sending them.
+  void resend_failed_tows();
 
   /// Stays up while the screen is in use on battery.
   void note_activity() { this->last_activity_ms_ = millis(); }
@@ -143,6 +175,8 @@ class TugLogger : public Component
   void upload_step();
   /// Run by the upload task: answers a request_firmware_check().
   void firmware_step();
+  /// Run by the upload task: sends flight records to the Worker while there is internet.
+  void flight_log_step();
 
   /// Asks the server, from the upload task, whether there is firmware for this device other than what it runs.
   void request_firmware_check();
@@ -184,13 +218,33 @@ class TugLogger : public Component
 #ifdef USE_TUG_LOGGER_WIFI_NETWORKS
   wifi_networks::WifiNetworks *wifi_networks_{nullptr};
 #endif
-#ifdef USE_TUG_LOGGER_GPS
+  // The latest backup fix
   uint32_t nmea_ms_{0};
   float nmea_speed_mps_{0.0f};
   float nmea_altitude_m_{0.0f};
+  double nmea_lat_{0.0};
+  double nmea_lon_{0.0};
+  bool nmea_course_valid_{false};
+  float nmea_course_deg_{0.0f};
+  uint8_t nmea_satellites_{0};
+  /// Where the tug is, from whichever source the latest sample came from
+  struct Location {
+    bool valid{false};
+    double lat{0.0};
+    double lon{0.0};
+    bool course_valid{false};
+    float course_deg{0.0f};
+    float climb_mps{0.0f};
+    uint8_t satellites{0};
+  } location_;
+#ifdef USE_TUG_LOGGER_POSITION_LINK
+  void send_position_(const PositionSample &sample);
+  packet_interface::PacketInterface *position_link_{nullptr};
+  uint32_t last_position_sent_ms_{0};
+  bool position_sent_{false};
+#endif
   bool nmea_speed_valid_{false};
   bool nmea_altitude_valid_{false};
-#endif
 
   DetectorSettings settings_{};
   FlightDetector detector_{};
@@ -229,6 +283,13 @@ class TugLogger : public Component
   std::atomic<size_t> failed_{0};
   std::atomic<bool> on_skyecho_network_{false};
   uint32_t last_upload_ms_{0};
+  uint32_t last_flight_log_ms_{0};
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  void apply_lora_provisioning_();
+  std::unique_ptr<TowLink> tow_link_;
+  packet_interface::BasicAddressing *lora_addressing_{nullptr};
+  packet_interface::XxteaEncryption *lora_encryption_{nullptr};
+#endif
 
   std::atomic<FirmwareState> firmware_state_{FirmwareState::FIRMWARE_STATE_IDLE};
   std::atomic<bool> firmware_check_requested_{false};

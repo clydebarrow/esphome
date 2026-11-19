@@ -19,7 +19,7 @@ def AUTO_LOAD(config):
     # image depends on display, so it must not be pulled in for display-less setups.
     # The widget uses file's image helper at build time, but not the file component itself, whose entries
     # need a filesystem: a host build has none.
-    loads = ["socket", "uart"]
+    loads = ["json", "socket", "uart"]
     if CORE.data.get(DOMAIN, {}).get(KEY_NEEDS_IMAGES):
         loads += ["image"]
     return loads
@@ -29,6 +29,7 @@ CONF_ALARM_ALTITUDE = "alarm_altitude"
 CONF_ALARM_DISTANCE = "alarm_distance"
 CONF_ALARM_TIME = "alarm_time"
 CONF_FLARM_UART = "flarm_uart"
+CONF_STATUS_PORT = "status_port"
 CONF_GLIDER_ALARM_ALTITUDE = "glider_alarm_altitude"
 CONF_MAX_ALTITUDE_DIFFERENCE = "max_altitude_difference"
 CONF_MAX_DISTANCE = "max_distance"
@@ -85,6 +86,9 @@ CONFIG_SCHEMA = cv.All(
         {
             cv.GenerateID(): cv.declare_id(SkyEchoComponent),
             cv.Optional(CONF_FLARM_UART): cv.use_id(uart.UARTComponent),
+            # The SkyEcho's status websocket, for what GDL90 doesn't report, such as the satellites its GPS uses.
+            # The simulator (gdlsim) serves it on 7070.
+            cv.Optional(CONF_STATUS_PORT): cv.port,
             # Collision prediction: close proximity, and how long before reaching it the alarm is raised.
             cv.Optional(CONF_ALARM_DISTANCE, default="0.5nm"): positive_length,
             cv.Optional(CONF_ALARM_ALTITUDE, default="500ft"): positive_length,
@@ -119,6 +123,8 @@ async def to_code(config):
         uart_component = await cg.get_variable(flarm_uart_config)
         cg.add(var.set_flarm_uart(uart_component))
 
+    if (status_port := config.get(CONF_STATUS_PORT)) is not None:
+        cg.add(var.set_status_port(status_port))
     cg.add(var.set_alarm_distance(config[CONF_ALARM_DISTANCE]))
     cg.add(var.set_alarm_altitude(config[CONF_ALARM_ALTITUDE]))
     cg.add(var.set_glider_alarm_altitude(config[CONF_GLIDER_ALARM_ALTITUDE]))

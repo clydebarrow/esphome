@@ -90,6 +90,9 @@ static constexpr const char *SENDING_FILE = "tows-sending.jsonl";
 static constexpr const char *FAILED_FILE = "tows-failed.jsonl";
 static constexpr const char *SENT_FILE = "tows-sent.jsonl";
 static constexpr const char *DISCARDED_FILE = "tows-discarded.jsonl";
+static constexpr const char *FLIGHT_LOGS_SENT_FILE = "flight-logs-sent.txt";
+static constexpr const char *FLIGHTS_DIR = "flights";
+static constexpr const char *CSV_SUFFIX = ".csv";
 static constexpr const char *TEMP_SUFFIX = ".tmp";
 // The server takes up to 4 KB, and refuses more for good
 static constexpr size_t MAX_LINE = 4096;
@@ -100,7 +103,9 @@ static constexpr size_t MAX_PROVISIONING = 4096;
 UploadResult classify_status(int status) {
   if (status >= 200 && status < 300)
     return UploadResult::UPLOAD_RESULT_SENT;
-  if (status >= 400 && status < 500 && status != 401)
+  // 401 is a key the server doesn't know yet, and 404 an address that is wrong or moved: neither says anything about
+  // the tow, so it is tried again
+  if (status >= 400 && status < 500 && status != 401 && status != 404)
     return UploadResult::UPLOAD_RESULT_REFUSED;
   return UploadResult::UPLOAD_RESULT_RETRY;
 }
@@ -176,6 +181,8 @@ bool parse_provisioning(const std::string &text, Provisioning &out) {
     out.field_elevation_ft = root["field_elevation_ft"] | 0.0f;
     out.upload_url = root["flight_upload_url"] | "";
     out.upload_key = root["flight_upload_key"] | "";
+    out.lora_address = root["lora"]["address"] | 0;
+    out.lora_key = root["lora"]["key"] | "";
     valid = !out.tug_registration.empty() && !out.upload_url.empty() && !out.upload_key.empty();
     return true;
   });
@@ -253,7 +260,7 @@ bool TowStore::read_with_fallback_(const char *name, std::string &content) {
 
 bool TowStore::start_flight_log(time_t start, uint32_t uptime_ms) {
   std::lock_guard<std::mutex> guard(this->lock_);
-  const std::string dir = this->dir_ + "/flights";
+  const std::string dir = this->dir_ + "/" + FLIGHTS_DIR;
   if (mkdir(dir.c_str(), 0775) != 0 && errno != EEXIST)
     return false;
   char name[32];
@@ -264,8 +271,99 @@ bool TowStore::start_flight_log(time_t start, uint32_t uptime_ms) {
   } else {
     snprintf(name, sizeof(name), "no-clock-%" PRIu32, uptime_ms);
   }
-  this->flight_log_path_ = dir + "/" + name + ".csv";
+  this->flight_log_path_ = dir + "/" + name + CSV_SUFFIX;
+  this->flight_log_open_ = true;
   return true;
+}
+
+void TowStore::end_flight_log() {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  this->flight_log_open_ = false;
+}
+
+std::string flight_log_body(const std::string &name, const std::string &csv) {
+  std::string body;
+  body.reserve(csv.size() + csv.size() / 16 + name.size() + 32);
+  body += "{\"name\":\"";
+  body += name;
+  body += "\",\"csv\":\"";
+  for (char c : csv) {
+    switch (c) {
+      case '"':
+        body += "\\\"";
+        break;
+      case '\\':
+        body += "\\\\";
+        break;
+      case '\n':
+        body += "\\n";
+        break;
+      default:
+        // The file is the logger's own ASCII; anything else is a damaged card
+        body += static_cast<unsigned char>(c) >= ' ' && c != 0x7F ? c : ' ';
+    }
+  }
+  body += "\"}";
+  return body;
+}
+
+std::vector<FlightLogFile> TowStore::unsent_flight_logs() {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  // The size each record had when it was sent; a later line wins
+  std::vector<FlightLogFile> sent;
+  std::string content;
+  if (read_file(this->path_(FLIGHT_LOGS_SENT_FILE), content, MAX_FILE)) {
+    for (const std::string &line : split_lines(content)) {
+      const size_t space = line.rfind(' ');
+      if (space == std::string::npos)
+        continue;
+      sent.push_back({line.substr(0, space), size_t(strtoul(line.c_str() + space + 1, nullptr, 10))});
+    }
+  }
+  std::vector<FlightLogFile> unsent;
+  const std::string dir = this->dir_ + "/" + FLIGHTS_DIR;
+  DIR *listing = opendir(dir.c_str());
+  if (listing == nullptr)
+    return unsent;
+  const size_t suffix = strlen(CSV_SUFFIX);
+  while (struct dirent *entry = readdir(listing)) {
+    const std::string file = entry->d_name;
+    if (file.size() <= suffix || file.compare(file.size() - suffix, suffix, CSV_SUFFIX) != 0)
+      continue;
+    const std::string path = dir + "/" + file;
+    if (this->flight_log_open_ && path == this->flight_log_path_)
+      continue;
+    struct stat info;
+    if (stat(path.c_str(), &info) != 0 || info.st_size == 0)
+      continue;
+    const std::string name = file.substr(0, file.size() - suffix);
+    size_t sent_size = 0;
+    bool was_sent = false;
+    for (const auto &item : sent) {
+      if (item.name == name) {
+        sent_size = item.size;
+        was_sent = true;
+      }
+    }
+    if (!was_sent || size_t(info.st_size) > sent_size)
+      unsent.push_back({name, size_t(info.st_size)});
+  }
+  closedir(listing);
+  std::sort(unsent.begin(), unsent.end(),
+            [](const FlightLogFile &a, const FlightLogFile &b) { return a.name < b.name; });
+  return unsent;
+}
+
+bool TowStore::read_flight_log(const std::string &name, std::string &content, size_t max_size) {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  return read_file(this->dir_ + "/" + FLIGHTS_DIR + "/" + name + CSV_SUFFIX, content, max_size);
+}
+
+bool TowStore::mark_flight_log_sent(const FlightLogFile &file) {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  char size[24];
+  snprintf(size, sizeof(size), " %zu", file.size);
+  return this->append_line_(FLIGHT_LOGS_SENT_FILE, file.name + size);
 }
 
 bool TowStore::append_flight_log(const std::string &text) {
@@ -606,6 +704,22 @@ void TowStore::process_queue(const std::function<UploadResult(const std::string 
 size_t TowStore::queued_count() {
   std::lock_guard<std::mutex> guard(this->lock_);
   return this->count_lines_(PENDING_FILE) + this->count_lines_(SENDING_FILE);
+}
+
+size_t TowStore::resend_failed() {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  std::string content;
+  if (!read_file(this->path_(FAILED_FILE), content))
+    return 0;
+  size_t count = 0;
+  for (const std::string &line : split_lines(content)) {
+    if (!this->append_line_(PENDING_FILE, line))
+      return count;
+    count++;
+  }
+  // A restart before this sends some twice; the server answers a repeat of a stored tow as a duplicate
+  remove(this->path_(FAILED_FILE).c_str());
+  return count;
 }
 
 size_t TowStore::failed_count() {

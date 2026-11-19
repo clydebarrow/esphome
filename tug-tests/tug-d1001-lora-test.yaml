@@ -1,0 +1,40 @@
+# Bench test of tug-d1001-lora.yaml. Wi-Fi is off, so a tow can only go over the link, and a made-up tow for VH-TEST
+# (glider TEST, launched 2026-11-17 08:00 UTC) is put in the upload queue on the card at each start. The first upload
+# stores it; later ones are answered as duplicates, which also leave the queue. The card needs the VH-TEST tug file.
+packages:
+  tug: !include tug-d1001-lora.yaml
+
+esphome:
+  name: tug-d1001-lora-test
+
+# Not on_boot: that would replace the on_boot of the included configs, which build the screens
+interval:
+  - interval: 5s
+    then:
+      - lambda: |-
+          // Once, 5 s after the start: the card is mounted by then, and the upload task's first look at the queue is
+          // 15 s after the start
+          static bool queued = false;
+          if (queued)
+            return;
+          queued = true;
+          tug_logger::TowRecord tow;
+          tow.launch = 1794902400;
+          tow.duration_s = 900;
+          tow.climb_s = 480;
+          tow.max_height_ft = 2000;
+          tow.details.glider_registration = "TEST";
+          tow.details.glider_pilot_1 = "Bench Test";
+          tow.details.tug_pilot = "Bench Tug";
+          const std::string line = tug_logger::tow_to_upload_json(tow, "VH-TEST");
+          FILE *file = fopen("/sdcard/tug/tows-pending.jsonl", "ab");
+          if (file == nullptr) {
+            ESP_LOGE("test", "Could not open the queue on the card");
+          } else {
+            fprintf(file, "%s\n", line.c_str());
+            fclose(file);
+            ESP_LOGI("test", "Queued a test tow of %zu bytes", line.size());
+          }
+
+wifi:
+  enable_on_boot: false

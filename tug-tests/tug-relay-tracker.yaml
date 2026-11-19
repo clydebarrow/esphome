@@ -1,0 +1,244 @@
+# The tug's LoRa relay on a Heltec Wireless Tracker V1.1 (HTIT-Tracker: ESP32-S3, SX1262, UC6580 GNSS), wired to the
+# tug's display by a UART as tug-relay-wsl-uart.yaml is. Its GNSS is a backup to the SkyEcho: once a second the relay
+# sends the display its fix over the same link (relay_fix.h), from its own address, never over LoRa. The tracker's
+# own screen is not used.
+#
+# Wiring, to the display's 40-pin header (tug-wave8-lora.yaml):
+# - Tracker 3V3 to the display's 3V3, GND to GND
+# - Tracker GPIO4 (RX) to the display's GPIO21 (TX), tracker GPIO5 (TX) to the display's GPIO22 (RX)
+# Both on the tracker's right-hand header, beside GPIO6 and 7.
+#
+# The radio, SPI and LoRa pins are the same as the Wireless Stick Lite V3's (tug-relay-common.yaml).
+#
+# Wi-Fi is on for the first 5 minutes after it starts, and then off, to save power and keep the 3V3 line free of
+# Wi-Fi's current peaks. In that time it asks the Worker for newer firmware, and installs it if there is some: publish
+# the .ota.bin in the Worker's Admin. Wi-Fi stays on past 5 minutes while an install is running, or while something is
+# connected to the API (for logs). To update it with `esphome upload`, power it up and send within the 5 minutes.
+substitutions:
+  display_tx_pin: GPIO5
+  display_rx_pin: GPIO4
+
+# The relay's key for firmware updates, and the Worker's address: in the Worker's Admin, add a tug relay and save its
+# file here as relay.yaml. It holds the key, so it is not committed.
+packages:
+  relay: !include tug-relay-wsl-uart.yaml
+  relay_key: !include relay.yaml
+
+esphome:
+  name: tug-relay-tracker
+  includes:
+    - relay_fix.h
+    - relay_firmware.h
+
+wifi:
+  on_connect:
+    - script.execute: check_firmware
+
+ota:
+  - platform: http_request
+    id: ota_http
+
+http_request:
+  verify_ssl: true
+  timeout: 10s
+
+globals:
+  # The secret of the relay's device key in the Worker: one made in Admin for no glider or tug
+  - id: firmware_key
+    type: std::string
+    initial_value: '"${relay_firmware_key}"'
+  # Set once the Worker has answered a check, so it isn't asked again until the next start
+  - id: firmware_checked
+    type: bool
+    initial_value: "false"
+
+script:
+  - id: check_firmware
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: |-
+              return id(firmware_checked) || relay_firmware::check.busy ||
+                     !wifi::global_wifi_component->is_connected();
+          then:
+            - script.stop: check_firmware
+      - lambda: |-
+          auto &check = relay_firmware::check;
+          check.busy = true;
+          check.body = relay_firmware::check_json(App.get_build_time());
+          check.signature = relay_firmware::sign(id(firmware_key), check.body);
+      - http_request.post:
+          url: ${worker_url}/api/firmware/check
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return relay_firmware::check.signature.c_str();
+          body: !lambda return relay_firmware::check.body;
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  auto &check = relay_firmware::check;
+                  check.url.clear();
+                  if (response->status_code != 200) {
+                    ESP_LOGW("firmware", "Worker answered %d to the firmware check: %s", response->status_code,
+                             body.c_str());
+                  } else {
+                    id(firmware_checked) = true;
+                    auto doc = json::parse_json(body);
+                    if (doc["update"].as<bool>()) {
+                      check.url = doc["url"].as<std::string>();
+                      check.md5 = doc["md5"].as<std::string>();
+                    } else {
+                      ESP_LOGI("firmware", "Firmware is up to date");
+                    }
+                  }
+                  if (check.url.empty())
+                    check.busy = false;
+              - if:
+                  condition:
+                    lambda: return !relay_firmware::check.url.empty();
+                  then:
+                    - script.execute: install_firmware
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGW("firmware", "The firmware check failed");
+                  relay_firmware::check.busy = false;
+  - id: install_firmware
+    then:
+      - logger.log: "Installing new firmware from the Worker"
+      - ota.http_request.flash:
+          id: ota_http
+          url: !lambda return relay_firmware::check.url;
+          md5: !lambda return relay_firmware::check.md5;
+      # Still here, so the install failed; it is tried again at the next start
+      - logger.log:
+          level: WARN
+          format: "The firmware install failed"
+      - lambda: relay_firmware::check.busy = false;
+
+# The USB port is the ESP32-S3's own, not a UART bridge as on the Wireless Stick Lite
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+# Vext powers the GNSS, its LNA and the screen; high is on (V1.1)
+switch:
+  - platform: gpio
+    id: vext
+    pin: GPIO3
+    restore_mode: ALWAYS_ON
+    setup_priority: 900
+  # The GNSS reset, active low: held high
+  - platform: gpio
+    id: gnss_reset
+    pin: GPIO35
+    restore_mode: ALWAYS_ON
+    setup_priority: 900
+
+uart:
+  - id: gnss_uart
+    rx_pin: GPIO33
+    tx_pin: GPIO34
+    baud_rate: 115200
+    rx_buffer_size: 1024
+
+gps:
+  id: gnss
+  uart_id: gnss_uart
+  update_interval: 10s
+  satellites:
+    id: gnss_satellites
+    name: GNSS satellites
+
+time:
+  - platform: gps
+    id: gnss_time
+    gps_id: gnss
+
+# The board's LED: on while the GNSS has a fix
+output:
+  - platform: gpio
+    id: board_led
+    pin: GPIO18
+
+interval:
+  # The Wi-Fi window: a check again each minute if the last one failed, and Wi-Fi off once 5 minutes are up
+  - interval: 1min
+    then:
+      - script.execute: check_firmware
+      - lambda: |-
+          auto *wifi = wifi::global_wifi_component;
+          if (wifi->is_disabled() || App.get_loop_component_start_time() < 5 * 60 * 1000)
+            return;
+          if (relay_firmware::check.busy) {
+            ESP_LOGI("firmware", "Keeping Wi-Fi on while the firmware is checked or installed");
+            return;
+          }
+          if (api::global_api_server->is_connected()) {
+            ESP_LOGI("firmware", "Keeping Wi-Fi on while the API is connected");
+            return;
+          }
+          ESP_LOGI("firmware", "Turning Wi-Fi off until the next start");
+          wifi->disable();
+  - interval: 1s
+    then:
+      - lambda: |-
+          auto &tiny = id(gnss).get_tiny_gps();
+          relay_fix::Fix fix;
+          const bool located = tiny.location.isValid() && tiny.location.age() < 3000;
+          if (located) {
+            fix.flags |= relay_fix::FLAG_LOCATION;
+            fix.lat_e7 = int32_t(lround(tiny.location.lat() * 1e7));
+            fix.lon_e7 = int32_t(lround(tiny.location.lng() * 1e7));
+            if (tiny.speed.isValid() && tiny.speed.age() < 3000) {
+              fix.flags |= relay_fix::FLAG_SPEED;
+              fix.speed_cms = uint16_t(std::min(65535.0, std::max(0.0, tiny.speed.mps() * 100.0)));
+            }
+            if (tiny.course.isValid() && tiny.course.age() < 3000) {
+              fix.flags |= relay_fix::FLAG_COURSE;
+              fix.course_cdeg = uint16_t(lround(tiny.course.deg() * 100.0)) % 36000;
+            }
+            if (tiny.altitude.isValid() && tiny.altitude.age() < 3000) {
+              fix.flags |= relay_fix::FLAG_ALTITUDE;
+              fix.altitude_cm = int32_t(lround(tiny.altitude.meters() * 100.0));
+            }
+          }
+          // The clock is set from the GNSS; only a time from a fix is sent
+          const ESPTime now = id(gnss_time).utcnow();
+          if (located && now.is_valid()) {
+            fix.flags |= relay_fix::FLAG_TIME;
+            fix.time = uint32_t(now.timestamp);
+          }
+          fix.satellites = tiny.satellites.isValid() ? uint8_t(std::min<uint32_t>(255, tiny.satellites.value())) : 0;
+          if (located) {
+            id(board_led).turn_on();
+          } else {
+            id(board_led).turn_off();
+          }
+          // Addressed as basic_addressing does: destination, then source, little endian. To the tug's address once
+          // it has been learned from the tug's own packets (it comes from its tug file), and to broadcast before then;
+          // the tug takes either from the relay's address. Never sent over LoRa.
+          uint8_t packet[4 + relay_fix::Fix::SIZE];
+          const uint16_t tug = id(tug_address) != 0 ? id(tug_address) : 0xFFFF;
+          packet[0] = uint8_t(tug);
+          packet[1] = uint8_t(tug >> 8);
+          packet[2] = uint8_t(relay_fix::RELAY_ADDRESS);
+          packet[3] = uint8_t(relay_fix::RELAY_ADDRESS >> 8);
+          fix.encode(packet + 4);
+          id(tug_link)->top()->send_to_interface(packet_interface::PacketBuffer(packet, sizeof(packet)), {});
+  # A summary in the log every half minute
+  - interval: 30s
+    then:
+      - lambda: |-
+          auto &tiny = id(gnss).get_tiny_gps();
+          if (tiny.location.isValid() && tiny.location.age() < 3000) {
+            ESP_LOGI("gnss", "Fix: %.6f,%.6f %.0fm %.1fkm/h, %u satellites", tiny.location.lat(),
+                     tiny.location.lng(), tiny.altitude.meters(), tiny.speed.kmph(),
+                     tiny.satellites.isValid() ? unsigned(tiny.satellites.value()) : 0u);
+          } else {
+            ESP_LOGI("gnss", "No fix: %u satellites; %u characters, %u sentences with fixes, %u checksum failures",
+                     tiny.satellites.isValid() ? unsigned(tiny.satellites.value()) : 0u,
+                     unsigned(tiny.charsProcessed()), unsigned(tiny.sentencesWithFix()),
+                     unsigned(tiny.failedChecksum()));
+          }

@@ -1,0 +1,45 @@
+# One-off: installs ESP-Hosted 3.1.0 on the Waveshare 8"'s ESP32-C6, to match the esp_hosted version ESPHome's host
+# side uses. The image is built into this firmware and installed over SDIO at the first start that finds another
+# version, so no network is needed. Flash it over USB, watch the log for the install, then flash the logger back.
+# The C6 shipped with a version whose major number differs ("major version mismatch" in the log), so Wi-Fi can't start.
+
+packages:
+  board: !include tug-wave8-board.yaml
+
+esphome:
+  name: tug-c6-update
+  on_boot:
+    - priority: -100
+      then:
+        - delay: 5s
+        - if:
+            condition:
+              lambda: return id(c6_update).update_info.current_version != "3.1.0";
+            then:
+              - logger.log:
+                  format: "Coprocessor runs %s, installing 3.1.0"
+                  args: [id(c6_update).update_info.current_version.c_str()]
+              - update.perform:
+                  id: c6_update
+                  force_update: true
+            else:
+              - logger.log: "Coprocessor already runs 3.1.0"
+
+update:
+  - platform: esp32_hosted
+    id: c6_update
+    type: embedded
+    url: https://esphome.github.io/esp-hosted-firmware/v3.1.0/network_adapter_esp32c6.bin
+    sha256: ea8d6ac5bacdf69a70ade4f466918ac996a6af5cad244d481d3ed4ebfb5a0079
+
+# The board's api needs a network component; Wi-Fi itself stays off, as it can't start until the C6 is updated
+wifi:
+  enable_on_boot: false
+  networks: !include ../../../my-devices/wifi-networks.yaml
+
+# The C6 shipped with an older major version of ESP-Hosted, which doesn't answer the version query in the update's
+# setup; the query waits out its own timeout, longer than the default 5 s task watchdog
+esp32:
+  framework:
+    sdkconfig_options:
+      CONFIG_ESP_TASK_WDT_TIMEOUT_S: "60"

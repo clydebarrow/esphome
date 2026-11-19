@@ -35,6 +35,8 @@ class BasicAddressing : public Component {
 
   PacketInterface *get_link() const { return this->link_; }
   uint16_t get_address() const { return this->address_; }
+  /// Changes this device's address, as when it is read from a file at start-up rather than set in the configuration
+  void set_address(uint16_t address) { this->address_ = address; }
   void add_port(AddressingPort *port) { this->ports_.push_back(port); }
   /// Sends \p data to \p destination, which the port has checked.
   bool send(const PacketBuffer &data, const PacketMetaData &meta_data, uint16_t destination);
@@ -43,7 +45,7 @@ class BasicAddressing : public Component {
   void receive_(const PacketBuffer &data, const PacketMetaData &meta_data);
 
   PacketInterface *link_;
-  const uint16_t address_;
+  uint16_t address_;
   StaticVector<AddressingPort *, PACKET_INTERFACE_ADDRESSING_PORT_COUNT> ports_;
 };
 

@@ -178,16 +178,10 @@ void WifiNetworks::apply_(bool restart) {
     } else if (const wifi::WiFiAP *configured = this->find_configured_(this->pinned_); configured != nullptr) {
       ap = *configured;
     }
-    wifi->init_sta(1);
     wifi->add_sta(ap);
   } else {
-    // A saved network stands in for a configured one of the same name
-    size_t count = this->saved_.count;
-    for (const auto &ap : this->configured_) {
-      if (this->find_saved_(ap.get_ssid().c_str()) == nullptr)
-        count++;
-    }
-    wifi->init_sta(count);
+    // A saved network stands in for a configured one of the same name. The list has room for every saved and
+    // configured network (wifi.request_runtime_networks).
     // In order of priority, for the first attempt before any scan
     for (const bool skyecho : {true, false}) {
       for (uint8_t i = 0; i != this->saved_.count; i++) {

@@ -1,0 +1,55 @@
+# The tug logger on a Waveshare ESP32-P4-WIFI6-Touch-LCD-8, with GPS from a SkyEcho over Wi-Fi. Copy the tug's file and
+# logo.png to the root of the SD card. With no clock chip, the time comes from the SkyEcho or from the internet after
+# each start.
+# Flash and logs over the USB TO UART port: PYTHONPATH=$PWD python -m esphome run tug-tests/tug-wave8.yaml
+
+substitutions:
+  display_width: 800
+  display_height: 1280
+  # Turned 180 degrees to suit how the display is mounted
+  ui_rotation: 180
+
+packages:
+  board: !include tug-wave8-board.yaml
+  common: !include tug-common.yaml
+  network: !include tug-network.yaml
+
+esphome:
+  name: tug-wave8
+
+time:
+  - platform: sntp
+    id: rtc
+
+tug_logger:
+  battery_id: vbat
+
+deep_sleep:
+  id: sleeper
+
+# The Shut down button in Settings. The board has no power control of its own, so this sleeps with the C6 and the
+# backlight off, until the reset button is pressed or the power is removed.
+script:
+  - id: shutdown_script
+    mode: single
+    then:
+      - lvgl.label.update:
+          id: power_down_label
+          hidden: false
+          text: Shutting down
+      - delay: 500ms
+      - light.turn_off:
+          id: backlight
+          transition_length: 0s
+      # Hold the backlight low now, and the C6 in reset at the last moment: esp_hosted aborts if it sees the C6 go away
+      - lambda: |-
+          gpio_set_direction(GPIO_NUM_26, GPIO_MODE_OUTPUT);
+          gpio_set_level(GPIO_NUM_26, 0);
+          gpio_hold_en(GPIO_NUM_26);
+          esp_deep_sleep_register_hook(+[]() {
+            gpio_set_direction(GPIO_NUM_54, GPIO_MODE_OUTPUT);
+            gpio_set_level(GPIO_NUM_54, 0);
+            gpio_hold_en(GPIO_NUM_54);
+          });
+      # Also saves a flight in progress, and unmounts the SD card
+      - deep_sleep.enter: sleeper

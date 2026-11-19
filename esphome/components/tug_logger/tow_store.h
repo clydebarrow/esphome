@@ -28,6 +28,15 @@ std::string glider_from_callsign(const char *callsign);
 /// left as it was typed.
 std::string capital_case(const std::string &name);
 
+/// A flight record on the card to send: its name without .csv, and its size now.
+struct FlightLogFile {
+  std::string name;
+  size_t size{0};
+};
+
+/// The body that sends a flight record to the Worker: {"name": ..., "csv": ...}.
+std::string flight_log_body(const std::string &name, const std::string &csv);
+
 /// What the status bar counts. Flight time is the tug's, takeoff to landing.
 struct TowTotals {
   /// The local date as YYYYMMDD that tows and flight_s count, or 0 until the clock is known.
@@ -70,6 +79,10 @@ struct Provisioning {
   float field_elevation_ft{0.0f};
   std::string upload_url;
   std::string upload_key;
+  /// The tug's LoRa address and key (64 hex digits) for tows sent through a receiver; 0 and empty in a file made
+  /// before the dashboard gave them
+  uint16_t lora_address{0};
+  std::string lora_key;
 };
 
 enum class ConfirmResult : uint8_t {
@@ -149,8 +162,17 @@ class TowStore {
   bool start_flight_log(time_t start, uint32_t uptime_ms);
   /// Adds lines, each ending in a newline, to that file.
   bool append_flight_log(const std::string &text);
+  /// The flight is over: its record can be sent.
+  void end_flight_log();
+  /// Records in tug/flights/ not yet sent, or grown since they were sent, oldest first; never the one being written.
+  std::vector<FlightLogFile> unsent_flight_logs();
+  bool read_flight_log(const std::string &name, std::string &content, size_t max_size);
+  /// Notes that the record was sent at this size, so it goes again only if it grows.
+  bool mark_flight_log_sent(const FlightLogFile &file);
   size_t queued_count();
   size_t failed_count();
+  /// Puts the refused tows back in the queue, to be sent again. Returns how many.
+  size_t resend_failed();
 
  protected:
   std::string path_(const char *name) const;
@@ -165,6 +187,7 @@ class TowStore {
   std::string root_;
   std::string dir_;
   std::string flight_log_path_;
+  bool flight_log_open_{false};
   std::mutex lock_;
   std::vector<TowRecord> review_;
   uint32_t next_id_{1};
