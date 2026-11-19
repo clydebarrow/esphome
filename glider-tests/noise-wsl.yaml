@@ -1,0 +1,80 @@
+# Noise floor test on a spare Heltec Wireless Stick Lite V3, set up like the clubhouse receiver (same radio settings,
+# Wi-Fi on) but only listening. With a dummy load on the antenna it shows the radio's own floor, to compare with the
+# receiver's reading at the pole.
+packages:
+  radio: !include radio.yaml
+
+esphome:
+  name: noise-wsl
+
+esp32:
+  board: heltec_wifi_lora_32_V3
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0
+  level: DEBUG
+
+wifi:
+  networks: !include ../../../my-devices/wifi-networks.yaml
+
+# Logs and updates over Wi-Fi, for testing away from the computer on a battery
+api:
+  reboot_timeout: 0s
+  encryption: !include ../../../my-devices/api-encryption.yaml
+
+ota:
+  - platform: esphome
+
+spi:
+  clk_pin: GPIO9
+  mosi_pin: GPIO10
+  miso_pin: GPIO11
+
+sx126x:
+  id: radio
+  cs_pin: GPIO8
+  rst_pin: GPIO12
+  busy_pin: GPIO13
+  dio1_pin: GPIO14
+  hw_version: sx1262
+  rf_switch: true
+  tcxo_voltage: 1_8V
+  tcxo_delay: 5ms
+  pa_power: 20
+  frequency: ${lora_frequency}
+  modulation: LORA
+  spreading_factor: ${lora_spreading_factor}
+  bandwidth: ${lora_bandwidth}
+  preamble_size: ${lora_preamble_size}
+  crc_enable: true
+  on_packet:
+    then:
+      - lambda: ESP_LOGI("noise", "Packet of %u bytes, rssi %.0f snr %.1f", (unsigned) x.size(), rssi, snr);
+
+sensor:
+  - platform: template
+    id: noise_floor
+    name: Noise floor
+    unit_of_measurement: dBm
+    accuracy_decimals: 1
+    update_interval: never
+
+# The same sampling as the receiver: ten times a second between packets, the median of each 10 s
+interval:
+  - interval: 100ms
+    then:
+      - lambda: |-
+          static std::vector<float> samples;
+          if (id(radio).is_receiving())
+            return;
+          samples.push_back(id(radio).get_rssi_instant());
+          if (samples.size() < 100)
+            return;
+          std::sort(samples.begin(), samples.end());
+          float median = samples[samples.size() / 2];
+          ESP_LOGI("noise", "Noise floor %.1f dBm (lowest %.1f, highest %.1f)", median, samples.front(),
+                   samples.back());
+          id(noise_floor).publish_state(median);
+          samples.clear();

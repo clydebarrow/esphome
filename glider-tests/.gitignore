@@ -1,2 +1,5 @@
 secrets.yaml
 .esphome/
+# Provisioning files from the dashboard, which hold keys
+tracker*.yaml
+receiver-*.yaml

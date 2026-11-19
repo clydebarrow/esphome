@@ -415,6 +415,12 @@ bool SX126x::is_receiving() {
   return (encode_uint16(buf[0], buf[1]) & (IRQ_HEADER_VALID | IRQ_SYNCWORD_VALID)) != 0;
 }
 
+float SX126x::get_rssi_instant() {
+  uint8_t rssi;
+  this->read_opcode_(RADIO_GET_RSSIINST, &rssi, 1);
+  return (float) rssi / -2.0f;
+}
+
 void SX126x::run_image_cal() {
   // the following values were taken from section 9.2.1 table 9-2
   // in rev 2.1 of the datasheet

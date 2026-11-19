@@ -2,11 +2,13 @@
 # - Broadcasts a position report every 5 s, unencrypted, to every listener.
 # - The middle button (GPIO38) makes a fake flight summary from the current fix and clock. It is kept in flash and
 #   sent to the clubhouse, encrypted, every 10 s until the clubhouse acknowledges it.
-substitutions:
-  glider_address: "0x0002"
-
+#
+# The glider's address, registration and LoRa key come from the dashboard: in the Worker's Admin, add a tracker for
+# the glider (ESPHome) and save its file here as tracker.yaml. It holds the key, so it is not committed. The receiver
+# fetches the same key from the Worker, so nothing else needs changing.
 packages:
   radio: !include radio.yaml
+  tracker: !include tracker.yaml
 
 esphome:
   name: glider-tbeam
@@ -121,7 +123,20 @@ spi:
   mosi_pin: GPIO27
   miso_pin: GPIO19
 
+# Logs and updates over Wi-Fi, for tests away from the computer. Not for a glider unit in use: it is out of range of
+# Wi-Fi in flight, and Wi-Fi costs battery.
+wifi:
+  networks: !include ../../../my-devices/wifi-networks.yaml
+
+api:
+  reboot_timeout: 0s
+  encryption: !include ../../../my-devices/api-encryption.yaml
+
+ota:
+  - platform: esphome
+
 sx127x:
+  id: radio
   cs_pin: GPIO18
   rst_pin: GPIO23
   dio0_pin: GPIO26
@@ -145,7 +160,7 @@ packet_interface:
         - id: to_clubhouse
           destination: ${clubhouse_address}
           encryption:
-            key: !secret glider_wgq_key
+            key_hex: ${glider_key}
         # Position reports, readable by anyone
         - id: broadcasts
           destination: broadcast
@@ -188,7 +203,35 @@ script:
               packet_interface::PacketBuffer(id(pending_summary).data(), glider::Summary::SIZE), {});
           ESP_LOGI("glider", "Summary for takeoff %u sent: %s", (unsigned) pending.takeoff, ok ? "ok" : "refused");
 
+sensor:
+  - platform: template
+    id: noise_floor
+    name: Noise floor
+    unit_of_measurement: dBm
+    accuracy_decimals: 1
+    update_interval: never
+
 interval:
+  # The noise on the channel, as on the clubhouse receiver: the radio's power reading between packets, ten times a
+  # second, with the median of each 10 s logged
+  - interval: 100ms
+    then:
+      - lambda: |-
+          static std::vector<float> samples;
+          if (id(radio).is_receiving())
+            return;
+          float rssi = id(radio).get_rssi_instant();
+          if (std::isnan(rssi))
+            return;
+          samples.push_back(rssi);
+          if (samples.size() < 100)
+            return;
+          std::sort(samples.begin(), samples.end());
+          float median = samples[samples.size() / 2];
+          ESP_LOGI("noise", "Noise floor %.1f dBm (lowest %.1f, highest %.1f)", median, samples.front(),
+                   samples.back());
+          id(noise_floor).publish_state(median);
+          samples.clear();
   - interval: 10s
     then:
       - script.execute: send_summary

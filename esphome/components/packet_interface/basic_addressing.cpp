@@ -1,6 +1,10 @@
 #include "basic_addressing.h"
 #ifdef USE_PACKET_INTERFACE_BASIC_ADDRESSING
+#include <memory>
 #include "esphome/core/log.h"
+#ifdef USE_PACKET_INTERFACE_XXTEA
+#include "xxtea_encryption.h"
+#endif
 
 namespace esphome::packet_interface {
 
@@ -59,6 +63,8 @@ void BasicAddressing::receive_(const PacketBuffer &data, const PacketMetaData &m
   AddressingPort *source_port = nullptr;
   AddressingPort *broadcast_port = nullptr;
   for (auto *port : this->ports_) {
+    if (port->destination_ == NO_ADDRESS)
+      continue;
     if (port->destination_ == source) {
       source_port = port;
     } else if (port->destination_ == BROADCAST_ADDRESS) {
@@ -101,8 +107,83 @@ void AddressingPort::dump_config() {
                 this->name_, this->max_packet_size_);
   if (this->destination_ == BasicAddressing::BROADCAST_ADDRESS) {
     ESP_LOGCONFIG(TAG, "  Destination: broadcast");
+  } else if (this->destination_ == BasicAddressing::NO_ADDRESS) {
+    ESP_LOGCONFIG(TAG, "  Destination: none yet");
   } else {
     ESP_LOGCONFIG(TAG, "  Destination: 0x%04X", this->destination_);
+  }
+}
+
+void PeerPool::add_slot(AddressingPort *port, XxteaEncryption *encryption) {
+  port->set_destination(BasicAddressing::NO_ADDRESS);
+  this->slots_.push_back({port, encryption});
+}
+
+int PeerPool::find(uint16_t address) const {
+  return address == BasicAddressing::NO_ADDRESS ? -1 : this->find_slot_(address);
+}
+
+int PeerPool::assign(uint16_t address, const uint8_t *key) {
+  if (address == BasicAddressing::NO_ADDRESS || address == BasicAddressing::BROADCAST_ADDRESS) {
+    ESP_LOGW(TAG, "%s: 0x%04X is not a device address", this->name_, address);
+    return -1;
+  }
+  int slot = this->find(address);
+  if (slot < 0)
+    slot = this->find_free_();
+  if (slot < 0) {
+    ESP_LOGW(TAG, "%s: All %zu slots are in use, so 0x%04X has none", this->name_, this->slots_.size(), address);
+    return -1;
+  }
+  auto &entry = this->slots_[slot];
+  if (entry.encryption != nullptr) {
+#ifdef USE_PACKET_INTERFACE_XXTEA
+    if (key == nullptr) {
+      ESP_LOGW(TAG, "%s: 0x%04X needs a key", this->name_, address);
+      return -1;
+    }
+    entry.encryption->set_key(key);
+#endif
+  }
+  entry.port->set_destination(address);
+  return slot;
+}
+
+int PeerPool::find_free_() const { return this->find_slot_(BasicAddressing::NO_ADDRESS); }
+
+int PeerPool::find_slot_(uint16_t destination) const {
+  for (size_t i = 0; i != this->slots_.size(); i++) {
+    if (this->slots_[i].port->get_destination() == destination)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
+void PeerPool::release(uint16_t address) {
+  int slot = this->find(address);
+  if (slot >= 0)
+    this->free_(this->slots_[slot]);
+}
+
+void PeerPool::clear() {
+  for (auto &slot : this->slots_)
+    this->free_(slot);
+}
+
+void PeerPool::free_(Slot &slot) {
+  slot.port->set_destination(BasicAddressing::NO_ADDRESS);
+#ifdef USE_PACKET_INTERFACE_XXTEA
+  if (slot.encryption != nullptr)
+    slot.encryption->clear_key();
+#endif
+}
+
+void PeerPool::add_listener(Listener listener) {
+  // Shared, so each slot's listener holds a pointer rather than a copy
+  auto shared = std::make_shared<Listener>(std::move(listener));
+  for (size_t i = 0; i != this->slots_.size(); i++) {
+    this->slots_[i].port->top()->add_packet_interface_listener(
+        [shared, i](const PacketBuffer &data, const PacketMetaData &meta_data) { (*shared)(i, data, meta_data); });
   }
 }
 

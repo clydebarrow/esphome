@@ -1,16 +1,18 @@
 # Bench clubhouse receiver on a Heltec Wireless Stick Lite V3 (ESP32-S3, SX1262).
 # - Logs every position report it hears, with the sender's address and the signal.
-# - Posts each flight summary from a known glider (the T-Beam, and the CubeCell in flight-upload/htcc-ab02s) to the
-#   flight-upload Worker, and acknowledges it to the glider once the Worker has answered (see receiver_upload.h).
+# - The gliders and tugs it serves, with their LoRa addresses and keys, come from the Worker's device list, which is
+#   made in the dashboard (fetch_devices); each gets a slot in the gliders or tugs pool.
+# - Posts each flight summary from a known glider to the flight-upload Worker, and acknowledges it to the glider once
+#   the Worker has answered (see receiver_upload.h).
 # - Posts the positions of known gliders to the Worker every 3 s, for the live map.
-substitutions:
-  # The Worker. For bench tests against `npx wrangler dev --ip 0.0.0.0` on a computer, use http://<its address>:8787
-  worker_url: https://wgc-flights.control-j.com
-  club_name: Warwick Gliding Club
-  gateway_key: !secret gateway_key
-
+# - Posts each tow from a known tug (tug_logger's upload link, through its relay) to the Worker with the tug's own
+#   signature, and answers the tug with the Worker's status.
+# The receiver's key, the Worker's address and the club's name come from the dashboard: in the Worker's Admin, add a
+# receiver and save its file here as receiver-ywck.yaml (or change the name below). It holds the key, so it is not
+# committed. For bench tests against `npx wrangler dev --ip 0.0.0.0`, set worker_url to http://<its address>:8787.
 packages:
   radio: !include radio.yaml
+  receiver: !include receiver-ywck.yaml
 
 esphome:
   name: glider-receiver
@@ -20,52 +22,94 @@ esphome:
   on_boot:
     then:
       - lambda: |-
-          // One stack for each glider; the registration and type would come from provisioning
-          auto add_glider = [](packet_interface::PacketInterface *top, uint16_t address, const char *name,
-                               const char *registration, const char *type) {
-            size_t index = receiver::gliders.size();
-            receiver::gliders.push_back({address, name, registration, type, [top](uint32_t takeoff) {
-                                           uint8_t out[glider::Ack::SIZE];
-                                           glider::Ack{takeoff}.encode(out);
-                                           return top->send_to_interface(
-                                               packet_interface::PacketBuffer(out, sizeof(out)), {});
-                                         }});
-            top->add_packet_interface_listener(
-                [index](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
-                  const auto &glider = receiver::gliders[index];
-                  uint8_t buf[64];
-                  size_t len = data.copy_to(buf, sizeof(buf));
-                  glider::Summary summary;
-                  if (!summary.decode(buf, len)) {
-                    ESP_LOGW("receiver", "%s: unexpected packet of %zu bytes", glider.name, len);
-                    return;
-                  }
-                  ESP_LOGI("receiver",
-                           "%s summary: takeoff %u at %.6f,%.6f %dm, landing %u at %.6f,%.6f %dm, "
-                           "rssi %.0f snr %.1f",
-                           glider.name, (unsigned) summary.takeoff, summary.takeoff_lat, summary.takeoff_lon,
-                           summary.takeoff_alt_m, (unsigned) summary.landing, summary.landing_lat,
-                           summary.landing_lon, summary.landing_alt_m, meta.rssi, meta.snr);
-                  if (receiver::upload.busy) {
-                    ESP_LOGI("receiver", "%s: an upload is running; the glider will send it again", glider.name);
-                    return;
-                  }
-                  if (!wifi::global_wifi_component->is_connected()) {
-                    ESP_LOGW("receiver", "%s: no Wi-Fi, so not uploaded or acknowledged", glider.name);
-                    return;
-                  }
-                  auto &upload = receiver::upload;
-                  upload.busy = true;
-                  upload.glider = index;
-                  upload.takeoff = summary.takeoff;
-                  upload.body = receiver::flight_json("${club_name}", glider, summary);
-                  upload.signature = receiver::sign(id(gateway_key), upload.body);
-                  ESP_LOGD("receiver", "Posting %s", upload.body.c_str());
-                  id(upload_flight).execute();
-                });
+          // A summary from a glider: post it, and acknowledge it once the Worker has answered
+          auto on_summary = [](const receiver::Glider &glider, const packet_interface::PacketBuffer &data,
+                               const packet_interface::PacketMetaData &meta) {
+            uint8_t buf[64];
+            size_t len = data.copy_to(buf, sizeof(buf));
+            glider::Summary summary;
+            if (!summary.decode(buf, len)) {
+              ESP_LOGW("receiver", "%s: unexpected packet of %zu bytes", glider.name.c_str(), len);
+              return;
+            }
+            ESP_LOGI("receiver",
+                     "%s summary: takeoff %u at %.6f,%.6f %dm, landing %u at %.6f,%.6f %dm, rssi %.0f snr %.1f",
+                     glider.name.c_str(), (unsigned) summary.takeoff, summary.takeoff_lat, summary.takeoff_lon,
+                     summary.takeoff_alt_m, (unsigned) summary.landing, summary.landing_lat, summary.landing_lon,
+                     summary.landing_alt_m, meta.rssi, meta.snr);
+            if (receiver::upload.busy) {
+              ESP_LOGI("receiver", "%s: an upload is running; the glider will send it again", glider.name.c_str());
+              return;
+            }
+            if (!wifi::global_wifi_component->is_connected()) {
+              ESP_LOGW("receiver", "%s: no Wi-Fi, so not uploaded or acknowledged", glider.name.c_str());
+              return;
+            }
+            auto &upload = receiver::upload;
+            upload.busy = true;
+            upload.glider = glider;
+            upload.takeoff = summary.takeoff;
+            upload.body = receiver::flight_json("${club_name}", glider, summary);
+            upload.signature = receiver::sign(id(receiver_key), upload.body);
+            ESP_LOGD("receiver", "Posting %s", upload.body.c_str());
+            id(upload_flight).execute();
           };
-          add_glider(id(glider_wgq)->top(), 0x0002, "WGQ", "WGQ", "PW6");
-          add_glider(id(glider_htcc)->top(), 0x0003, "HTCC", "TEST", "CubeCell bench unit");
+          // A tow from a tug: post it with the tug's own signature, and answer with the Worker's status
+          auto on_tow = [](const receiver::Tug &tug, const packet_interface::PacketBuffer &data,
+                           const packet_interface::PacketMetaData &meta) {
+            uint8_t buf[600];
+            size_t len = data.copy_to(buf, sizeof(buf));
+            receiver::TowUpload tow;
+            if (len != data.size() || !receiver::decode_tow(buf, len, tow)) {
+              ESP_LOGW("receiver", "%s: unexpected packet of %zu bytes", tug.name.c_str(), data.size());
+              return;
+            }
+            ESP_LOGI("receiver", "%s tow, %zu bytes, rssi %.0f snr %.1f: %s", tug.name.c_str(), tow.body.size(),
+                     meta.rssi, meta.snr, tow.body.c_str());
+            if (receiver::tow_upload.busy) {
+              ESP_LOGI("receiver", "%s: a tow upload is running; the tug will send it again", tug.name.c_str());
+              return;
+            }
+            tow.busy = true;
+            tow.tug = tug;
+            receiver::tow_upload = std::move(tow);
+            if (!wifi::global_wifi_component->is_connected()) {
+              ESP_LOGW("receiver", "%s: no Wi-Fi, so the tow is not posted", tug.name.c_str());
+              receiver::answer_tow(0);
+              receiver::tow_upload.busy = false;
+              return;
+            }
+            id(upload_tow).execute();
+          };
+          auto ack_on = [](packet_interface::PacketInterface *top) {
+            return [top](uint32_t takeoff) {
+              uint8_t out[glider::Ack::SIZE];
+              glider::Ack{takeoff}.encode(out);
+              return top->send_to_interface(packet_interface::PacketBuffer(out, sizeof(out)), {});
+            };
+          };
+          auto send_on = [](packet_interface::PacketInterface *top) {
+            return [top](const uint8_t *data, size_t len) {
+              return top->send_to_interface(packet_interface::PacketBuffer(data, len), {});
+            };
+          };
+
+          // The pools' slots, which the Worker's device list fills (fetch_devices)
+          receiver::pool_gliders.resize(id(gliders).size());
+          for (size_t slot = 0; slot != id(gliders).size(); slot++)
+            receiver::pool_gliders[slot].ack = ack_on(id(gliders).top(slot));
+          id(gliders).add_listener([on_summary](size_t slot, const packet_interface::PacketBuffer &data,
+                                                const packet_interface::PacketMetaData &meta) {
+            on_summary(receiver::pool_gliders[slot], data, meta);
+          });
+          receiver::pool_tugs.resize(id(tugs).size());
+          for (size_t slot = 0; slot != id(tugs).size(); slot++)
+            receiver::pool_tugs[slot].send = send_on(id(tugs).top(slot));
+          id(tugs).add_listener([on_tow](size_t slot, const packet_interface::PacketBuffer &data,
+                                         const packet_interface::PacketMetaData &meta) {
+            on_tow(receiver::pool_tugs[slot], data, meta);
+          });
+
           id(broadcasts)->top()->add_packet_interface_listener(
               [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
                 uint8_t buf[64];
@@ -86,9 +130,13 @@ esphome:
                   ESP_LOGI("receiver", "Position from 0x%04X: no fix, %u sats, bat %.2fV, rssi %.0f snr %.1f",
                            meta.source_address, pos.satellites, pos.battery_v, meta.rssi, meta.snr);
                 }
-                // Only gliders the receiver knows go on the map, under their registration
-                if (const auto *glider = receiver::find_glider(meta.source_address))
-                  receiver::queue_position(receiver::position_json(*glider, pos, meta.rssi, meta.snr));
+                // Only gliders and tugs the receiver knows go on the map, under their registration
+                if (const auto *glider = receiver::find_glider(meta.source_address)) {
+                  receiver::queue_position(
+                      receiver::position_json(glider->registration, false, pos, meta.rssi, meta.snr));
+                } else if (const auto *tug = receiver::find_tug(meta.source_address)) {
+                  receiver::queue_position(receiver::position_json(tug->name, true, pos, meta.rssi, meta.snr));
+                }
               });
 
 esp32:
@@ -115,7 +163,10 @@ sx126x:
   rf_switch: true
   tcxo_voltage: 1_8V
   tcxo_delay: 5ms
-  pa_power: 22
+  # The clubhouse antenna has 8 dB of gain. The class licence allows 1 W (30 dBm) EIRP in 915-928 MHz: 20 dBm plus
+  # 8 dBi is 28 dBm, which stays under it even if the gain is 8 dBd (10.2 dBi), before any cable loss. The gliders and
+  # tugs keep full power on their small antennas.
+  pa_power: 20
   frequency: ${lora_frequency}
   modulation: LORA
   spreading_factor: ${lora_spreading_factor}
@@ -129,21 +180,40 @@ packet_interface:
     addressing:
       address: ${clubhouse_address}
       peers:
-        - id: glider_wgq
-          destination: 0x0002
-          encryption:
-            key: !secret glider_wgq_key
-        # The CubeCell unit in htcc-ab02s of the flight-upload repo
-        - id: glider_htcc
-          destination: 0x0003
-          encryption:
-            key: !secret glider_htcc_key
         - id: broadcasts
           destination: broadcast
+      # Gliders and tugs from the Worker's device list; each slot gets its device's address and key at run time
+      peer_pools:
+        - id: gliders
+          size: 32
+          encryption:
+            key_at_runtime: true
+        - id: tugs
+          size: 8
+          encryption:
+            key_at_runtime: true
+          fragmentation:
+            max_packet_size: 512
 
 wifi:
-  ssid: !secret wifi_ssid
-  password: !secret wifi_password
+  networks: !include ../../../my-devices/wifi-networks.yaml
+  # Skipped until the clock is set; the first clock sync fetches it then
+  on_connect:
+    - script.execute: fetch_devices
+
+# Logs and updates over Wi-Fi, as the receiver is mounted on a pole. Nothing normally connects to the API, so it
+# doesn't restart for that; Wi-Fi's own reboot_timeout still restarts it if the network is lost.
+api:
+  reboot_timeout: 0s
+  # The key is encryption_key in my-devices/secrets.yaml
+  encryption: !include ../../../my-devices/api-encryption.yaml
+
+# On the local network with `esphome upload`, or from anywhere through the Worker: publish the .ota.bin in Admin, and
+# the receiver installs it at its next check (an hour after it starts and every hour, or the Check firmware button)
+ota:
+  - platform: esphome
+  - platform: http_request
+    id: ota_http
 
 http_request:
   # Checks the Worker's certificate against the built-in CA bundle; plain http to wrangler dev ignores this
@@ -151,12 +221,72 @@ http_request:
   timeout: 5s
 
 globals:
-  # The secret of the receiver's device key in the Worker; it may post for any glider
-  - id: gateway_key
+  # The secret of the receiver's device key in the Worker: it may post for any glider, and fetch the device list
+  - id: receiver_key
     type: std::string
-    initial_value: '"${gateway_key}"'
+    initial_value: '"${receiver_key}"'
+
+button:
+  - platform: template
+    name: Check firmware
+    on_press:
+      - script.execute: check_firmware
+  # Fetches the gliders and tugs from the Worker now, rather than at the next 15-minute fetch
+  - platform: template
+    name: Fetch device list
+    on_press:
+      - script.execute: fetch_devices
+
+# The board's LED (GPIO35): blinking while Wi-Fi is not connected, steady once it is
+output:
+  - platform: gpio
+    id: board_led
+    pin: GPIO35
+
+# The noise on the channel, to find interference at the pole: the radio's power reading between packets, sampled ten
+# times a second, with the median of each 10 s reported
+sensor:
+  - platform: template
+    id: noise_floor
+    name: Noise floor
+    unit_of_measurement: dBm
+    accuracy_decimals: 1
+    state_class: measurement
+    update_interval: never
 
 interval:
+  - interval: 15min
+    then:
+      - script.execute: fetch_devices
+  - interval: 100ms
+    then:
+      - lambda: |-
+          static std::vector<float> samples;
+          if (id(radio).is_receiving())
+            return;
+          samples.push_back(id(radio).get_rssi_instant());
+          if (samples.size() < 100)
+            return;
+          std::sort(samples.begin(), samples.end());
+          float median = samples[samples.size() / 2];
+          ESP_LOGI("noise", "Noise floor %.1f dBm (lowest %.1f, highest %.1f)", median, samples.front(),
+                   samples.back());
+          id(noise_floor).publish_state(median);
+          samples.clear();
+  - interval: 500ms
+    then:
+      - lambda: |-
+          static bool lit = false;
+          lit = wifi::global_wifi_component->is_connected() || !lit;
+          if (lit) {
+            id(board_led).turn_on();
+          } else {
+            id(board_led).turn_off();
+          }
+  - interval: 1h
+    startup_delay: 1h
+    then:
+      - script.execute: check_firmware
   # Positions for the live map, in one post every few seconds rather than one for each packet
   - interval: 3s
     then:
@@ -166,10 +296,161 @@ interval:
             return;
           positions.busy = true;
           positions.body = receiver::take_positions();
-          positions.signature = receiver::sign(id(gateway_key), positions.body);
+          positions.signature = receiver::sign(id(receiver_key), positions.body);
           id(upload_positions).execute();
 
+# The Worker refuses a device list request whose time is far out, so the first fetch waits for the clock. Later
+# syncs don't always fire on_time_sync, so the list is also fetched every 15 minutes and whenever Wi-Fi reconnects:
+# a device added in the dashboard is heard within 15 minutes, without a restart.
+time:
+  - platform: sntp
+    id: sntp_time
+    on_time_sync:
+      - script.execute: fetch_devices
+  # Home Assistant too, where it is connected: NTP may be blocked on the receiver's network
+  - platform: homeassistant
+    id: ha_time
+    on_time_sync:
+      - script.execute: fetch_devices
+
 script:
+  - id: fetch_devices
+    # Queued, so a fetch that set the clock can ask again once it ends
+    mode: queued
+    max_runs: 2
+    then:
+      - if:
+          condition:
+            lambda: |-
+              // Without the clock, the request is still sent: the Worker refuses it, and its answer sets the clock
+              return receiver::devices.busy || !wifi::global_wifi_component->is_connected();
+          then:
+            - script.stop: fetch_devices
+      - lambda: |-
+          auto &devices = receiver::devices;
+          devices.busy = true;
+          devices.body = receiver::devices_request_json();
+          devices.signature = receiver::sign(id(receiver_key), devices.body);
+      - http_request.post:
+          url: ${worker_url}/api/receiver/devices
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return receiver::devices.signature.c_str();
+          body: !lambda return receiver::devices.body;
+          capture_response: true
+          max_response_buffer_size: 16kB
+          collect_headers:
+            - date
+          on_response:
+            then:
+              - lambda: |-
+                  receiver::devices.busy = false;
+                  if (!receiver::clock_set()) {
+                    if (receiver::set_clock_from_http_date(response->get_response_header("date"))) {
+                      ESP_LOGI("receiver", "Clock set from the Worker's answer");
+                      receiver::devices.retry = response->status_code == 400;
+                    } else {
+                      ESP_LOGW("receiver", "The clock is not set, and the Worker's answer has no usable date");
+                    }
+                  }
+                  if (receiver::devices.retry)
+                    return;
+                  if (response->status_code != 200) {
+                    ESP_LOGW("receiver", "Worker answered %d for the device list: %s", response->status_code,
+                             body.c_str());
+                    return;
+                  }
+                  auto doc = json::parse_json(body);
+                  std::vector<std::string> notes;
+                  size_t glider_count = receiver::apply_device_list(
+                      *id(gliders), receiver::pool_gliders, doc["gliders"].as<JsonArray>(), "Glider",
+                      [](receiver::Glider &glider, JsonObject device) {
+                        glider.registration = device["registration"].as<std::string>();
+                        glider.type = device["type"].as<std::string>();
+                        glider.name = glider.registration;
+                      },
+                      notes);
+                  size_t tug_count = receiver::apply_device_list(
+                      *id(tugs), receiver::pool_tugs, doc["tugs"].as<JsonArray>(), "Tug",
+                      [](receiver::Tug &tug, JsonObject device) {
+                        tug.name = device["registration"].as<std::string>();
+                      },
+                      notes);
+                  for (const auto &note : notes)
+                    ESP_LOGI("receiver", "%s", note.c_str());
+                  ESP_LOGI("receiver", "Device list: %zu gliders, %zu tugs", glider_count, tug_count);
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGW("receiver", "Fetching the device list failed; it is tried again in 15 minutes");
+                  receiver::devices.busy = false;
+      - if:
+          condition:
+            lambda: return receiver::devices.retry;
+          then:
+            - lambda: receiver::devices.retry = false;
+            - script.execute: fetch_devices
+  - id: check_firmware
+    mode: single
+    then:
+      - if:
+          condition:
+            lambda: return receiver::firmware.busy || !wifi::global_wifi_component->is_connected();
+          then:
+            - script.stop: check_firmware
+      - lambda: |-
+          auto &firmware = receiver::firmware;
+          firmware.busy = true;
+          firmware.body = receiver::firmware_check_json(App.get_build_time());
+          firmware.signature = receiver::sign(id(receiver_key), firmware.body);
+      - http_request.post:
+          url: ${worker_url}/api/firmware/check
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return receiver::firmware.signature.c_str();
+          body: !lambda return receiver::firmware.body;
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  auto &firmware = receiver::firmware;
+                  firmware.url.clear();
+                  if (response->status_code != 200) {
+                    ESP_LOGW("receiver", "Worker answered %d to the firmware check: %s", response->status_code,
+                             body.c_str());
+                  } else {
+                    auto doc = json::parse_json(body);
+                    if (doc["update"].as<bool>()) {
+                      firmware.url = doc["url"].as<std::string>();
+                      firmware.md5 = doc["md5"].as<std::string>();
+                    } else {
+                      ESP_LOGI("receiver", "Firmware is up to date");
+                    }
+                  }
+                  if (firmware.url.empty())
+                    firmware.busy = false;
+              - if:
+                  condition:
+                    lambda: return !receiver::firmware.url.empty();
+                  then:
+                    - script.execute: install_firmware
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGW("receiver", "The firmware check failed");
+                  receiver::firmware.busy = false;
+  - id: install_firmware
+    then:
+      - logger.log: "Installing new firmware from the Worker"
+      - ota.http_request.flash:
+          id: ota_http
+          url: !lambda return receiver::firmware.url;
+          md5: !lambda return receiver::firmware.md5;
+      # Still here, so the install failed; the next check tries again
+      - logger.log:
+          level: WARN
+          format: "The firmware install failed"
+      - lambda: receiver::firmware.busy = false;
   - id: upload_positions
     then:
       - http_request.post:
@@ -207,21 +488,21 @@ script:
             then:
               - lambda: |-
                   auto &upload = receiver::upload;
-                  const auto &glider = receiver::gliders[upload.glider];
+                  const char *name = upload.glider.name.c_str();
                   int status = response->status_code;
                   if (receiver::settled(status)) {
                     if (status >= 400) {
-                      ESP_LOGE("receiver", "%s: Worker refused takeoff %u for good (%d): %s", glider.name,
+                      ESP_LOGE("receiver", "%s: Worker refused takeoff %u for good (%d): %s", name,
                                (unsigned) upload.takeoff, status, body.c_str());
                     } else {
-                      ESP_LOGI("receiver", "%s: Worker stored takeoff %u (%d): %s", glider.name,
+                      ESP_LOGI("receiver", "%s: Worker stored takeoff %u (%d): %s", name,
                                (unsigned) upload.takeoff, status, body.c_str());
                     }
-                    bool ok = glider.ack(upload.takeoff);
-                    ESP_LOGI("receiver", "%s acknowledgement for %u sent: %s", glider.name, (unsigned) upload.takeoff,
+                    bool ok = upload.glider.ack(upload.takeoff);
+                    ESP_LOGI("receiver", "%s acknowledgement for %u sent: %s", name, (unsigned) upload.takeoff,
                              ok ? "ok" : "refused");
                   } else {
-                    ESP_LOGW("receiver", "%s: Worker answered %d for takeoff %u, not acknowledged: %s", glider.name,
+                    ESP_LOGW("receiver", "%s: Worker answered %d for takeoff %u, not acknowledged: %s", name,
                              status, (unsigned) upload.takeoff, body.c_str());
                   }
                   upload.busy = false;
@@ -229,5 +510,30 @@ script:
             then:
               - lambda: |-
                   ESP_LOGW("receiver", "%s: upload of takeoff %u failed, not acknowledged",
-                           receiver::gliders[receiver::upload.glider].name, (unsigned) receiver::upload.takeoff);
+                           receiver::upload.glider.name.c_str(), (unsigned) receiver::upload.takeoff);
                   receiver::upload.busy = false;
+  - id: upload_tow
+    then:
+      - http_request.post:
+          url: ${worker_url}/api/tows
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return receiver::tow_upload.signature.c_str();
+          body: !lambda return receiver::tow_upload.body;
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  const char *name = receiver::tow_upload.tug.name.c_str();
+                  int status = response->status_code;
+                  ESP_LOGI("receiver", "%s: Worker answered %d for the tow: %s", name, status, body.c_str());
+                  bool ok = receiver::answer_tow(status);
+                  ESP_LOGI("receiver", "%s: answer sent: %s", name, ok ? "ok" : "refused");
+                  receiver::tow_upload.busy = false;
+          on_error:
+            then:
+              - lambda: |-
+                  const char *name = receiver::tow_upload.tug.name.c_str();
+                  ESP_LOGW("receiver", "%s: posting the tow failed; answering 0 so the tug tries again", name);
+                  receiver::answer_tow(0);
+                  receiver::tow_upload.busy = false;

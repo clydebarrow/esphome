@@ -286,4 +286,56 @@ TEST_F(XxteaEncryptionTest, NestedSendRefused) {
   EXPECT_EQ(b.received, (std::vector<Packet>{{1, 2, 3, 4, 5}}));
 }
 
+// The words of the test key {key_word, 2, ..., 8} as bytes, each word little endian
+static std::vector<uint8_t> key_bytes(uint32_t key_word) {
+  std::vector<uint8_t> bytes;
+  for (uint32_t word : {key_word, 2u, 3u, 4u, 5u, 6u, 7u, 8u}) {
+    for (int i = 0; i != 4; i++)
+      bytes.push_back(uint8_t(word >> (8 * i)));
+  }
+  return bytes;
+}
+
+TEST_F(XxteaEncryptionTest, KeyAsBytesMatchesKeyAsWords) {
+  Peer a(0x12345678, 64, false), b(0, 64, false);
+  b.encryption->set_key(key_bytes(0x12345678).data());
+  a.send({1, 2, 3});
+  a.deliver_to(b);
+  EXPECT_EQ(b.received, (std::vector<Packet>{{1, 2, 3}}));
+}
+
+TEST_F(XxteaEncryptionTest, WithoutKeyNothingSentOrAccepted) {
+  Peer a(0x12345678, 64, false);
+  MockLink link;
+  link.set_name("no_key");
+  XxteaEncryption no_key(&link, false);
+  std::vector<Packet> received;
+  no_key.add_packet_interface_listener(
+      [&](const PacketBuffer &data, const PacketMetaData &) { received.push_back(to_vector(data)); });
+  no_key.setup();
+  EXPECT_FALSE(no_key.has_key());
+  Packet data{1, 2, 3};
+  EXPECT_FALSE(no_key.send_to_interface(PacketBuffer(data), {}));
+  EXPECT_TRUE(link.sent.empty());
+  a.send({4, 5});
+  for (auto &packet : a.link.sent)
+    link.inject(packet);
+  EXPECT_TRUE(received.empty());
+  // Once the key is set, the same packet is accepted
+  no_key.set_key(key_bytes(0x12345678).data());
+  for (auto &packet : a.link.sent)
+    link.inject(packet);
+  EXPECT_EQ(received, (std::vector<Packet>{{4, 5}}));
+}
+
+TEST_F(XxteaEncryptionTest, ClearedKeyStopsTheLink) {
+  Peer a(0x12345678, 64, false), b(0x12345678, 64, false);
+  b.encryption->clear_key();
+  EXPECT_FALSE(b.encryption->has_key());
+  a.send({1});
+  a.deliver_to(b);
+  EXPECT_TRUE(b.received.empty());
+  EXPECT_FALSE(b.send({2}));
+}
+
 }  // namespace esphome::packet_interface::encryption_testing

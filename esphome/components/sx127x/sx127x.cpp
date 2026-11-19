@@ -371,6 +371,16 @@ bool SX127x::is_receiving() {
           (MODEM_STAT_SIGNAL_DETECTED | MODEM_STAT_SIGNAL_SYNCHRONIZED | MODEM_STAT_HEADER_VALID)) != 0;
 }
 
+float SX127x::get_rssi_instant() {
+  uint8_t mode = this->read_register_(REG_OP_MODE) & MODE_MASK;
+  if (mode != MODE_RX && mode != MODE_RX_SINGLE)
+    return NAN;
+  if (this->modulation_ != MOD_LORA)
+    return (float) this->read_register_(REG_RSSI_VALUE_FSK) / -2.0f;
+  int32_t offset = (this->frequency_ > 700000000) ? RSSI_OFFSET_HF : RSSI_OFFSET_LF;
+  return (float) this->read_register_(REG_RSSI_VALUE) - offset;
+}
+
 void SX127x::run_image_cal() {
   if (this->modulation_ == MOD_LORA) {
     this->set_mode_(MOD_FSK, MODE_SLEEP);

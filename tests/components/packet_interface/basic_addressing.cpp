@@ -5,6 +5,7 @@
 #include <vector>
 #include "esphome/components/packet_interface/basic_addressing.h"
 #include "esphome/components/packet_interface/hdlc_reliability.h"
+#include "esphome/components/packet_interface/xxtea_encryption.h"
 #include "esphome/core/application.h"
 
 namespace esphome::packet_interface::addressing_testing {
@@ -238,6 +239,156 @@ TEST_F(AddressingReliabilityTest, SeveralReliablePeersOnOneBus) {
   EXPECT_EQ(c_hub.received, std::vector<Packet>{{0x13}});
   EXPECT_EQ(hub_b.received, std::vector<Packet>{{0x21}});
   EXPECT_EQ(hub_c.received, std::vector<Packet>{{0x31}});
+}
+
+// A receiver with a broadcast port and a pool of slots, each with its own encryption layer if encrypted
+struct PoolDevice {
+  PoolDevice(uint16_t address, size_t slots, bool encrypted)
+      : addressing(&this->link, address), broadcast(&this->addressing, BROADCAST, false), pool("pool") {
+    this->link.set_name("bus");
+    for (size_t i = 0; i != slots; i++) {
+      this->ports.push_back(std::make_unique<AddressingPort>(&this->addressing, 0x0F00 + i, false));
+      XxteaEncryption *layer = nullptr;
+      if (encrypted) {
+        this->layers.push_back(std::make_unique<XxteaEncryption>(this->ports.back().get(), false));
+        layer = this->layers.back().get();
+      }
+      this->pool.add_slot(this->ports.back().get(), layer);
+    }
+    this->pool.add_listener([this](size_t slot, const PacketBuffer &data, const PacketMetaData &meta_data) {
+      this->received.push_back({slot, meta_data.source_address, to_vector(data)});
+    });
+    this->addressing.setup();
+    for (auto &layer : this->layers)
+      layer->setup();
+  }
+
+  struct Received {
+    size_t slot;
+    uint16_t source;
+    Packet data;
+    bool operator==(const Received &other) const {
+      return slot == other.slot && source == other.source && data == other.data;
+    }
+  };
+
+  MockLink link;
+  BasicAddressing addressing;
+  Port broadcast;
+  std::vector<std::unique_ptr<AddressingPort>> ports;
+  std::vector<std::unique_ptr<XxteaEncryption>> layers;
+  PeerPool pool;
+  std::vector<Received> received;
+};
+
+TEST(PeerPoolTest, SlotsStartWithNoDevice) {
+  PoolDevice hub(1, 2, false);
+  Device glider(2, 1);
+  glider.port().send({0x01});
+  for (auto &packet : glider.link.sent)
+    hub.link.inject(packet);
+  // The ports' destinations from construction are cleared, so the packet goes to the broadcast port
+  EXPECT_EQ(hub.pool.address(0), BasicAddressing::NO_ADDRESS);
+  EXPECT_EQ(hub.pool.find(2), -1);
+  EXPECT_TRUE(hub.received.empty());
+  EXPECT_EQ(hub.broadcast.received, std::vector<Packet>{{0x01}});
+}
+
+TEST(PeerPoolTest, AssignedSlotReceivesItsDevice) {
+  PoolDevice hub(1, 2, false);
+  Device a(0x0102, 1), b(0x0103, 1);
+  EXPECT_EQ(hub.pool.assign(0x0103, nullptr), 0);
+  EXPECT_EQ(hub.pool.assign(0x0102, nullptr), 1);
+  a.port().send({0xA0});
+  b.port().send({0xB0});
+  for (auto *device : {&a, &b}) {
+    for (auto &packet : device->link.sent)
+      hub.link.inject(packet);
+  }
+  EXPECT_EQ(hub.received, (std::vector<PoolDevice::Received>{{1, 0x0102, {0xA0}}, {0, 0x0103, {0xB0}}}));
+  EXPECT_TRUE(hub.broadcast.received.empty());
+  // Sending through a slot goes to its device
+  Packet reply{0xCC};
+  hub.pool.top(1)->send_to_interface(PacketBuffer(reply), {});
+  EXPECT_EQ(hub.link.sent, (std::vector<Packet>{{0x02, 0x01, 0x01, 0x00, 0xCC}}));
+}
+
+TEST(PeerPoolTest, UnknownDeviceGoesToBroadcastPort) {
+  PoolDevice hub(1, 1, false);
+  hub.pool.assign(0x0102, nullptr);
+  Device stranger(0x0200, 1);
+  stranger.port().send({0x55});
+  for (auto &packet : stranger.link.sent)
+    hub.link.inject(packet);
+  EXPECT_TRUE(hub.received.empty());
+  EXPECT_EQ(hub.broadcast.received, std::vector<Packet>{{0x55}});
+}
+
+TEST(PeerPoolTest, ReleaseAndReuse) {
+  PoolDevice hub(1, 2, false);
+  EXPECT_EQ(hub.pool.assign(0x0102, nullptr), 0);
+  EXPECT_EQ(hub.pool.assign(0x0103, nullptr), 1);
+  // Full, but a device with a slot keeps it
+  EXPECT_EQ(hub.pool.assign(0x0104, nullptr), -1);
+  EXPECT_EQ(hub.pool.assign(0x0102, nullptr), 0);
+  hub.pool.release(0x0102);
+  EXPECT_EQ(hub.pool.find(0x0102), -1);
+  EXPECT_EQ(hub.pool.assign(0x0104, nullptr), 0);
+  hub.pool.clear();
+  EXPECT_EQ(hub.pool.address(0), BasicAddressing::NO_ADDRESS);
+  EXPECT_EQ(hub.pool.address(1), BasicAddressing::NO_ADDRESS);
+  EXPECT_EQ(hub.pool.assign(BROADCAST, nullptr), -1);
+  EXPECT_EQ(hub.pool.assign(BasicAddressing::NO_ADDRESS, nullptr), -1);
+}
+
+// A device whose one port is encrypted with a key of the given byte
+struct EncryptedDevice {
+  EncryptedDevice(uint16_t address, uint8_t key_byte)
+      : addressing(&this->link, address), port(&this->addressing, 1, true), encryption(&this->port, false) {
+    this->link.set_name("bus");
+    uint8_t key[32];
+    std::fill(std::begin(key), std::end(key), key_byte);
+    this->encryption.set_key(key);
+    this->addressing.setup();
+    this->encryption.setup();
+  }
+  void send(const Packet &data) { this->encryption.send_to_interface(PacketBuffer(data), {}); }
+
+  MockLink link;
+  BasicAddressing addressing;
+  AddressingPort port;
+  XxteaEncryption encryption;
+};
+
+TEST(PeerPoolTest, EncryptedSlotNeedsAndUsesItsKey) {
+  PoolDevice hub(1, 1, true);
+  EncryptedDevice glider(0x0102, 0x11), impostor(0x0102, 0x22);
+  uint8_t key[32];
+  std::fill(std::begin(key), std::end(key), 0x11);
+  EXPECT_EQ(hub.pool.assign(0x0102, nullptr), -1);
+  EXPECT_EQ(hub.pool.assign(0x0102, key), 0);
+  glider.send({0x01});
+  impostor.send({0x02});
+  for (auto *device : {&glider, &impostor}) {
+    for (auto &packet : device->link.sent)
+      hub.link.inject(packet);
+  }
+  EXPECT_EQ(hub.received, (std::vector<PoolDevice::Received>{{0, 0x0102, {0x01}}}));
+  // Released, the slot forgets the key
+  hub.pool.release(0x0102);
+  EXPECT_FALSE(hub.layers[0]->has_key());
+}
+
+TEST(BasicAddressingTest, AddressSetAtRunTime) {
+  Device a(0x0010, 1), hub(1);
+  a.addressing.set_address(0x0020);
+  EXPECT_EQ(a.addressing.get_address(), 0x0020);
+  a.port().send({0x77});
+  EXPECT_EQ(a.link.sent, (std::vector<Packet>{{0x01, 0x00, 0x20, 0x00, 0x77}}));
+  // Packets to the new address are accepted, and to the old one dropped
+  a.link.inject({0x20, 0x00, 0x01, 0x00, 0x78});
+  a.link.inject({0x10, 0x00, 0x01, 0x00, 0x79});
+  EXPECT_EQ(a.port().received, std::vector<Packet>{{0x78}});
 }
 
 }  // namespace esphome::packet_interface::addressing_testing

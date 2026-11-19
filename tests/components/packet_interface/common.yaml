@@ -40,6 +40,22 @@ packet_interface:
           session:
         - id: packet_interface_bus
           destination: broadcast
+        - id: packet_interface_peer_hex
+          destination: 0x0004
+          encryption:
+            key_hex: 000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f
+        - id: packet_interface_peer_runtime
+          destination: 0x0005
+          encryption:
+            key_at_runtime: true
+      # Slots whose devices and keys the application sets at run time
+      peer_pools:
+        - id: packet_interface_pool
+          size: 3
+          encryption:
+            key_at_runtime: true
+          fragmentation:
+            max_packet_size: 512
   - platform: udp
     id: packet_interface_network
     udp_id: packet_interface_udp

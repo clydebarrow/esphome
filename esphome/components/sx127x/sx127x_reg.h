@@ -23,6 +23,8 @@ enum SX127xReg : uint8_t {
   // FSK/OOK registers
   REG_RX_CONFIG = 0x0D,
   REG_RSSI_THRESH = 0x10,
+  // RegRssiValue in FSK/OOK mode; 0x11 is REG_IRQ_FLAGS_MASK in LoRa mode
+  REG_RSSI_VALUE_FSK = 0x11,
   REG_RX_BW = 0x12,
   REG_AFC_BW = 0x13,
   REG_OOK_PEAK = 0x14,

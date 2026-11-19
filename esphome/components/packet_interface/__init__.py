@@ -73,7 +73,8 @@ def AUTO_LOAD(config: list[ConfigType] | None = None) -> list[str]:
     loads: set[str] = set()
     for interface in config:
         loads |= stack_auto_load(interface)
-        for peer in interface.get(CONF_ADDRESSING, {}).get(CONF_PEERS, []):
+        addressing = interface.get(CONF_ADDRESSING, {})
+        for peer in addressing.get(CONF_PEERS, []) + addressing.get("peer_pools", []):
             loads |= stack_auto_load(peer)
     return sorted(loads)
 
@@ -98,6 +99,12 @@ def _validate_layers(config: ConfigType) -> ConfigType:
                 check_packet_sizes(peer, size)
             except cv.Invalid as err:
                 err.prepend([CONF_ADDRESSING, CONF_PEERS, index])
+                raise
+        for index, pool in enumerate(addressing.get("peer_pools", [])):
+            try:
+                check_packet_sizes(pool, size)
+            except cv.Invalid as err:
+                err.prepend([CONF_ADDRESSING, "peer_pools", index])
                 raise
         return config
     addressing.setdefault(CONF_DESTINATION, BROADCAST_ADDRESS)

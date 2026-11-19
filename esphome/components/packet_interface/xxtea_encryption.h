@@ -23,6 +23,9 @@ namespace esphome::packet_interface {
  * With the rolling code, a packet is dropped as a replay unless it echoes this device's current boot number, and its
  * boot number and counter are higher than those of the last packet accepted from the peer. A boot number is never
  * reused, so the echo acts as a fresh challenge after every restart.
+ *
+ * The key can instead be set at run time, as when a receiver learns its peers' keys from a server. Until it is, the
+ * layer sends and accepts nothing.
  */
 class XxteaEncryption : public PacketInterface {
  public:
@@ -32,7 +35,13 @@ class XxteaEncryption : public PacketInterface {
   void dump_config() override;
   bool send_to_interface(const PacketBuffer &data, const PacketMetaData &meta_data) override;
 
+  /// The key as 32-bit words, as code generation derives it
   void set_key(std::initializer_list<uint32_t> key);
+  /// The key as 32 bytes, each group of four a little-endian word, as given in hex in the configuration
+  void set_key(const uint8_t *key);
+  /// Forgets the key, so nothing is sent or accepted until another is set
+  void clear_key();
+  bool has_key() const { return this->has_key_; }
 
  protected:
   bool send_(const PacketBuffer &data, const PacketMetaData &meta_data);
@@ -54,6 +63,8 @@ class XxteaEncryption : public PacketInterface {
   uint32_t peer_counter_{0};
   uint32_t echo_boot_{0};  // highest boot number heard from the peer
   bool peer_seen_{false};
+  bool has_key_{false};
+  bool no_key_warned_{false};
   bool old_boot_warned_{false};
   const bool rolling_code_;
 };
