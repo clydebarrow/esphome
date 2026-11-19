@@ -10,9 +10,11 @@
 namespace glider {
 
 enum PacketType : uint8_t {
-  POSITION = 'P',  // broadcast, unencrypted, while flying (on the bench, always)
-  SUMMARY = 'S',   // to the clubhouse, encrypted, until acknowledged
-  ACK = 'A',       // from the clubhouse, encrypted: the summary with this takeoff time is stored
+  POSITION = 'P',     // broadcast, unencrypted, while flying (on the bench, always)
+  SUMMARY = 'S',      // to the clubhouse, encrypted, until acknowledged
+  ACK = 'A',          // from the clubhouse, encrypted: the summary with this takeoff time is stored
+  TAKEOFF = 'T',      // to the clubhouse, encrypted, from takeoff until acknowledged or landed
+  TAKEOFF_ACK = 'K',  // from the clubhouse, encrypted: the takeoff with this time is stored
 };
 
 inline void put16(uint8_t *p, uint16_t v) {
@@ -106,19 +108,49 @@ struct Summary {
   }
 };
 
-/// An acknowledgement: 5 bytes.
+/// A takeoff as it happens, so the flight shows as in progress: 15 bytes. Identified by its takeoff time, the same as
+/// the flight's summary will carry, so sending it again is always safe.
+struct Takeoff {
+  static constexpr size_t SIZE = 15;
+  uint32_t takeoff{0};  // Unix time
+  double lat{0}, lon{0};
+  int16_t alt_m{0};
+
+  size_t encode(uint8_t *p) const {
+    p[0] = TAKEOFF;
+    put32(p + 1, takeoff);
+    put32(p + 5, static_cast<uint32_t>(static_cast<int32_t>(std::lround(lat * 1e7))));
+    put32(p + 9, static_cast<uint32_t>(static_cast<int32_t>(std::lround(lon * 1e7))));
+    put16(p + 13, static_cast<uint16_t>(alt_m));
+    return SIZE;
+  }
+  bool decode(const uint8_t *p, size_t len) {
+    if (len != SIZE || p[0] != TAKEOFF)
+      return false;
+    takeoff = get32(p + 1);
+    lat = static_cast<int32_t>(get32(p + 5)) / 1e7;
+    lon = static_cast<int32_t>(get32(p + 9)) / 1e7;
+    alt_m = static_cast<int16_t>(get16(p + 13));
+    return true;
+  }
+};
+
+/// An acknowledgement of a summary (ACK) or of a takeoff (TAKEOFF_ACK): 5 bytes. The two differ only in type, so the
+/// logger never takes a takeoff's answer for its summary's, which has the same takeoff time.
 struct Ack {
   static constexpr size_t SIZE = 5;
   uint32_t takeoff{0};
+  uint8_t type{ACK};
 
   size_t encode(uint8_t *p) const {
-    p[0] = ACK;
+    p[0] = type;
     put32(p + 1, takeoff);
     return SIZE;
   }
   bool decode(const uint8_t *p, size_t len) {
-    if (len != SIZE || p[0] != ACK)
+    if (len != SIZE || (p[0] != ACK && p[0] != TAKEOFF_ACK))
       return false;
+    type = p[0];
     takeoff = get32(p + 1);
     return true;
   }

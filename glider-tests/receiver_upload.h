@@ -3,7 +3,8 @@
 //
 // The receiver keeps no queue: each glider keeps its summary in flash and sends it every 10 s until acknowledged, so
 // the receiver posts each summary it hears and acknowledges it only once the Worker has answered. One upload runs at
-// a time; a summary heard meanwhile is ignored, and comes again.
+// a time; a summary heard meanwhile is ignored, and comes again. A takeoff report, which a glider sends from takeoff
+// until it is acknowledged, goes the same way to /api/takeoffs.
 //
 // Positions are collected as they are heard and posted in batches to /api/positions for the live map. A batch that
 // fails is dropped: a position is soon out of date anyway.
@@ -34,26 +35,30 @@
 
 namespace receiver {
 
-/// A glider the receiver has a stack for. ack sends the acknowledgement for a takeoff time on that stack.
+/// A glider the receiver has a stack for. ack sends the acknowledgement of a given type (glider::ACK for a summary,
+/// glider::TAKEOFF_ACK for a takeoff) for a takeoff time on that stack.
 struct Glider {
   uint16_t address{0};
   std::string name;
   std::string registration;
   std::string type;
-  std::function<bool(uint32_t)> ack;
+  std::function<bool(uint32_t, uint8_t)> ack;
 };
 
 /// The gliders from the Worker, one for each slot of the gliders pool (address 0 for a free slot)
 inline std::vector<Glider> pool_gliders;
 
-/// The upload in progress
+/// The upload in progress: a flight's summary (to /api/flights), or a takeoff as it happens (to /api/takeoffs)
 struct Upload {
   bool busy{false};
   /// A copy, as the slot may be given to another glider while the upload runs
   Glider glider;
   uint32_t takeoff{0};
+  /// Whether it is a takeoff, which is acknowledged with glider::TAKEOFF_ACK rather than glider::ACK
+  bool is_takeoff{false};
   std::string body;
   std::string signature;
+  const char *what() const { return this->is_takeoff ? "takeoff report" : "flight"; }
 };
 
 inline Upload upload;
@@ -166,6 +171,13 @@ inline std::string flight_json(const char *organisation, const Glider &glider, c
          ",\"registration\":" + json_string(glider.registration) + ",\"pilot\":\"\",\"takeoff\":\"" +
          iso_time(summary.takeoff) + "\",\"landing\":\"" + iso_time(summary.landing) + "\",\"duration\":" + duration +
          "}";
+}
+
+/// A takeoff as it happens: the flight's record so far, so the Worker can show the glider in the air
+inline std::string takeoff_json(const char *organisation, const Glider &glider, const glider::Takeoff &takeoff) {
+  return "{\"organisation\":" + json_string(organisation) + ",\"glider_type\":" + json_string(glider.type) +
+         ",\"registration\":" + json_string(glider.registration) + ",\"takeoff\":\"" + iso_time(takeoff.takeoff) +
+         "\"}";
 }
 
 /// One position for the live map. Fields the glider doesn't know without a fix are left out.

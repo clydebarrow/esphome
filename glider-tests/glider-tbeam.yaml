@@ -53,6 +53,9 @@ esphome:
                   ESP_LOGW("glider", "Unexpected packet of %zu bytes from the clubhouse", len);
                   return;
                 }
+                // This unit sends no takeoffs, so only a summary's acknowledgement matters
+                if (ack.type != glider::ACK)
+                  return;
                 glider::Summary pending;
                 bool have = pending.decode(id(pending_summary).data(), glider::Summary::SIZE);
                 if (have && pending.takeoff == ack.takeoff) {

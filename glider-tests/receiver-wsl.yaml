@@ -3,7 +3,8 @@
 # - The gliders and tugs it serves, with their LoRa addresses and keys, come from the Worker's device list, which is
 #   made in the dashboard (fetch_devices); each gets a slot in the gliders or tugs pool.
 # - Posts each flight summary from a known glider to the flight-upload Worker, and acknowledges it to the glider once
-#   the Worker has answered (see receiver_upload.h).
+#   the Worker has answered (see receiver_upload.h). A glider's takeoff report, sent as it takes off, is posted and
+#   acknowledged the same way, so the dashboard shows the flight in progress.
 # - Posts the positions of known gliders to the Worker every 3 s, for the live map.
 # - Posts each tow from a known tug (tug_logger's upload link, through its relay) to the Worker with the tug's own
 #   signature, and answers the tug with the Worker's status.
@@ -22,21 +23,34 @@ esphome:
   on_boot:
     then:
       - lambda: |-
-          // A summary from a glider: post it, and acknowledge it once the Worker has answered
+          // A flight's summary from a glider, or its takeoff as it happens: post it, and acknowledge it once the
+          // Worker has answered
           auto on_summary = [](const receiver::Glider &glider, const packet_interface::PacketBuffer &data,
                                const packet_interface::PacketMetaData &meta) {
             uint8_t buf[64];
             size_t len = data.copy_to(buf, sizeof(buf));
             glider::Summary summary;
-            if (!summary.decode(buf, len)) {
+            glider::Takeoff takeoff;
+            std::string body;
+            uint32_t takeoff_time;
+            bool is_takeoff = takeoff.decode(buf, len);
+            if (is_takeoff) {
+              ESP_LOGI("receiver", "%s takeoff: %u at %.6f,%.6f %dm, rssi %.0f snr %.1f", glider.name.c_str(),
+                       (unsigned) takeoff.takeoff, takeoff.lat, takeoff.lon, takeoff.alt_m, meta.rssi, meta.snr);
+              takeoff_time = takeoff.takeoff;
+              body = receiver::takeoff_json("${club_name}", glider, takeoff);
+            } else if (summary.decode(buf, len)) {
+              ESP_LOGI("receiver",
+                       "%s summary: takeoff %u at %.6f,%.6f %dm, landing %u at %.6f,%.6f %dm, rssi %.0f snr %.1f",
+                       glider.name.c_str(), (unsigned) summary.takeoff, summary.takeoff_lat, summary.takeoff_lon,
+                       summary.takeoff_alt_m, (unsigned) summary.landing, summary.landing_lat, summary.landing_lon,
+                       summary.landing_alt_m, meta.rssi, meta.snr);
+              takeoff_time = summary.takeoff;
+              body = receiver::flight_json("${club_name}", glider, summary);
+            } else {
               ESP_LOGW("receiver", "%s: unexpected packet of %zu bytes", glider.name.c_str(), len);
               return;
             }
-            ESP_LOGI("receiver",
-                     "%s summary: takeoff %u at %.6f,%.6f %dm, landing %u at %.6f,%.6f %dm, rssi %.0f snr %.1f",
-                     glider.name.c_str(), (unsigned) summary.takeoff, summary.takeoff_lat, summary.takeoff_lon,
-                     summary.takeoff_alt_m, (unsigned) summary.landing, summary.landing_lat, summary.landing_lon,
-                     summary.landing_alt_m, meta.rssi, meta.snr);
             if (receiver::upload.busy) {
               ESP_LOGI("receiver", "%s: an upload is running; the glider will send it again", glider.name.c_str());
               return;
@@ -48,8 +62,9 @@ esphome:
             auto &upload = receiver::upload;
             upload.busy = true;
             upload.glider = glider;
-            upload.takeoff = summary.takeoff;
-            upload.body = receiver::flight_json("${club_name}", glider, summary);
+            upload.takeoff = takeoff_time;
+            upload.is_takeoff = is_takeoff;
+            upload.body = std::move(body);
             upload.signature = receiver::sign(id(receiver_key), upload.body);
             ESP_LOGD("receiver", "Posting %s", upload.body.c_str());
             id(upload_flight).execute();
@@ -82,9 +97,9 @@ esphome:
             id(upload_tow).execute();
           };
           auto ack_on = [](packet_interface::PacketInterface *top) {
-            return [top](uint32_t takeoff) {
+            return [top](uint32_t takeoff, uint8_t type) {
               uint8_t out[glider::Ack::SIZE];
-              glider::Ack{takeoff}.encode(out);
+              glider::Ack{takeoff, type}.encode(out);
               return top->send_to_interface(packet_interface::PacketBuffer(out, sizeof(out)), {});
             };
           };
@@ -490,7 +505,8 @@ script:
   - id: upload_flight
     then:
       - http_request.post:
-          url: ${worker_url}/api/flights
+          url: !lambda |-
+            return std::string("${worker_url}") + (receiver::upload.is_takeoff ? "/api/takeoffs" : "/api/flights");
           request_headers:
             Content-Type: application/json
             X-Signature: !lambda return receiver::upload.signature.c_str();
@@ -501,28 +517,30 @@ script:
               - lambda: |-
                   auto &upload = receiver::upload;
                   const char *name = upload.glider.name.c_str();
+                  const char *what = upload.what();
                   int status = response->status_code;
                   if (receiver::settled(status)) {
                     if (status >= 400) {
-                      ESP_LOGE("receiver", "%s: Worker refused takeoff %u for good (%d): %s", name,
+                      ESP_LOGE("receiver", "%s: Worker refused the %s for takeoff %u for good (%d): %s", name, what,
                                (unsigned) upload.takeoff, status, body.c_str());
                     } else {
-                      ESP_LOGI("receiver", "%s: Worker stored takeoff %u (%d): %s", name,
+                      ESP_LOGI("receiver", "%s: Worker stored the %s for takeoff %u (%d): %s", name, what,
                                (unsigned) upload.takeoff, status, body.c_str());
                     }
-                    bool ok = upload.glider.ack(upload.takeoff);
-                    ESP_LOGI("receiver", "%s acknowledgement for %u sent: %s", name, (unsigned) upload.takeoff,
-                             ok ? "ok" : "refused");
+                    bool ok = upload.glider.ack(upload.takeoff, upload.is_takeoff ? glider::TAKEOFF_ACK : glider::ACK);
+                    ESP_LOGI("receiver", "%s acknowledgement of the %s for %u sent: %s", name, what,
+                             (unsigned) upload.takeoff, ok ? "ok" : "refused");
                   } else {
-                    ESP_LOGW("receiver", "%s: Worker answered %d for takeoff %u, not acknowledged: %s", name,
-                             status, (unsigned) upload.takeoff, body.c_str());
+                    ESP_LOGW("receiver", "%s: Worker answered %d for the %s for takeoff %u, not acknowledged: %s",
+                             name, status, what, (unsigned) upload.takeoff, body.c_str());
                   }
                   upload.busy = false;
           on_error:
             then:
               - lambda: |-
-                  ESP_LOGW("receiver", "%s: upload of takeoff %u failed, not acknowledged",
-                           receiver::upload.glider.name.c_str(), (unsigned) receiver::upload.takeoff);
+                  ESP_LOGW("receiver", "%s: upload of the %s for takeoff %u failed, not acknowledged",
+                           receiver::upload.glider.name.c_str(), receiver::upload.what(),
+                           (unsigned) receiver::upload.takeoff);
                   receiver::upload.busy = false;
   - id: upload_tow
     then:
