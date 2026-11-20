@@ -36,6 +36,12 @@ static constexpr float MAX_APPROACH_DISTANCE = 1852.0f;
 
 // The width of a line of text when each of its digits may be any digit: the font's
 // digits are not all the same width.
+// The ownship box's labels: its altitude, a pressure altitude from the SkyEcho or else a GPS height, and its ground
+// speed
+static constexpr const char *OWNSHIP_PRESSURE_ALTITUDE = "PAlt";
+static constexpr const char *OWNSHIP_GPS_ALTITUDE = "GAlt";
+static constexpr const char *OWNSHIP_GROUND_SPEED = "GS";
+
 static lv_coord_t widest_number_text(const char *text, const lv_font_t *font) {
   char buf[32];
   lv_coord_t widest = 0;
@@ -210,9 +216,14 @@ void TrafficWidget::fix_label_sizes_() {
   lv_obj_set_height(this->info_label_, size.y);
 
   width = 0;
-  this->units_.format_altitude(buf, sizeof(buf), 45000.0f * FEET);
-  width = std::max(width, widest_number_text(buf, font));
-  this->units_.format_speed(buf, sizeof(buf), 999.0f * 1852.0f / 3600.0f);
+  char number[16];
+  this->units_.format_altitude(number, sizeof(number), 45000.0f * FEET);
+  for (const char *label : {OWNSHIP_PRESSURE_ALTITUDE, OWNSHIP_GPS_ALTITUDE}) {
+    snprintf(buf, sizeof(buf), "%s %s", label, number);
+    width = std::max(width, widest_number_text(buf, font));
+  }
+  this->units_.format_speed(number, sizeof(number), 999.0f * 1852.0f / 3600.0f);
+  snprintf(buf, sizeof(buf), "%s %s", OWNSHIP_GROUND_SPEED, number);
   width = std::max(width, widest_number_text(buf, font));
   lv_obj_set_width(this->ownship_label_, width);
 }
@@ -263,8 +274,10 @@ void TrafficWidget::update_ownship_(const gdl90PositionReport_t *report) {
   char speed[16];
   this->units_.format_altitude(altitude, sizeof(altitude), report->altitude);
   this->units_.format_speed(speed, sizeof(speed), report->groundSpeed);
-  char buf[40];
-  snprintf(buf, sizeof(buf), "%s\n%s", altitude, speed);
+  char buf[48];
+  snprintf(buf, sizeof(buf), "%s %s\n%s %s",
+           this->parent_->has_pressure_altitude() ? OWNSHIP_PRESSURE_ALTITUDE : OWNSHIP_GPS_ALTITUDE, altitude,
+           OWNSHIP_GROUND_SPEED, speed);
   set_text_if_changed(this->ownship_label_, buf);
   set_hidden(this->ownship_box_, false);
 }

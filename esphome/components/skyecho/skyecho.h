@@ -140,6 +140,8 @@ class SkyEcho : public PollingComponent {
   /// the SkyEcho's pressure altitude while it has one, as the traffic reports give pressure altitudes; otherwise the
   /// SkyEcho's own report. False if neither is recent.
   bool get_traffic_ownship(OwnshipT *position) const;
+  /// True if the traffic ownship's altitude is the SkyEcho's pressure altitude, false if it is a GPS height
+  bool has_pressure_altitude() const { return this->is_gps_connected_() && this->ownship_.report.isAltitudeValid; }
 
   /// Add an aircraft heard on FLARM by another receiver, such as the tug's LoRa relay. It joins the SkyEcho's own
   /// traffic, as the same aircraft when the SkyEcho reports its address too. This aircraft's own FLARM is dropped.
