@@ -12,9 +12,26 @@ packages:
 
 esphome:
   name: xcsoar-tab5
-  # The RX8130 keeps the time while the Tab5 is off; XCSoar dates GDL90 fixes and the club flights from it
+  includes:
+    - tab5_power.h
   on_boot:
-    - rx8130.read_time: rtc
+    # Before the backlight is set up; after a timer wake it stays off
+    - priority: 1400
+      then:
+        - lambda: tab5_power::release_backlight();
+    # After the INA226 and the I/O expanders, before the display and XCSoar: after a timer wake, sleep again or
+    # switch off
+    - priority: 650
+      then:
+        - lambda: |-
+            const float current = tab5_power::read_start_current(id(battery_monitor), id(battery_current));
+            id(start_battery_current) = current;
+            ESP_LOGI("tab5_power", "Battery current at start %.3f A", current);
+            if (tab5_power::woken_by_timer())
+              tab5_power::sleep_or_switch_off(current, id(wifi_power), id(power_off));
+    # The RX8130 keeps the time while the Tab5 is off; XCSoar dates GDL90 fixes and the club flights from it
+    - then:
+        - rx8130.read_time: rtc
 
 esp32:
   variant: esp32p4
@@ -81,7 +98,7 @@ output:
     frequency: 1000Hz
     # Before everything else (the highest built-in priority is 1200), so the backlight comes on at once
     setup_priority: 1300
-  # A pulse switches the Tab5 off, as a double press of the side button does; the button starts it again
+  # Pulsed by tab5_power::sleep_or_switch_off()
   - platform: gpio
     id: power_off
     pin: {pi4ioe5v6408: pi4ioe2, number: 4}
@@ -93,6 +110,15 @@ switch:
     name: Charge enable
     pin: {pi4ioe5v6408: pi4ioe2, number: 7}
     restore_mode: ALWAYS_ON
+
+binary_sensor:
+  - platform: gpio
+    id: charging
+    name: Charging
+    pin:
+      pi4ioe5v6408: pi4ioe2
+      number: 6
+      mode: INPUT_PULLDOWN
 
 light:
   - platform: monochromatic
@@ -138,6 +164,9 @@ globals:
   - id: xcsoar_quit
     type: bool
     initial_value: "false"
+  - id: start_battery_current
+    type: float
+    initial_value: NAN
 
 # Only the characters of the messages above: the whole character set at these sizes takes about 200 kB of flash
 font:
@@ -163,7 +192,8 @@ touchscreen:
 
 xcsoar:
   id: xcsoar_app
-  # After Quit in XCSoar (its files are saved by then), unmount the SD card and switch off
+  # After Quit in XCSoar (its files are saved by then), unmount the SD card, then sleep while a supply is
+  # connected, or switch off
   on_stopped:
     - globals.set:
         id: xcsoar_stopped
@@ -177,14 +207,11 @@ xcsoar:
           lambda: return quit;
         then:
           - delay: 2s
-          - lambda: App.run_safe_shutdown_hooks();
-          - repeat:
-              count: 3
-              then:
-                - output.turn_on: power_off
-                - delay: 100ms
-                - output.turn_off: power_off
-                - delay: 100ms
+          - lambda: |-
+              App.run_safe_shutdown_hooks();
+              const float current = tab5_power::read_battery_current(id(battery_monitor), id(battery_current));
+              ESP_LOGI("tab5_power", "Battery current %.3f A", current);
+              tab5_power::sleep_or_switch_off(current, id(wifi_power), id(power_off));
   display_id: lcd
   touchscreen_id: touch
   filesystem_id: sd_fs
@@ -213,7 +240,10 @@ debug:
 
 sensor:
   - platform: ina226
+    id: battery_monitor
     i2c_id: sys_i2c
+    # Before the start-up check in on_boot
+    setup_priority: 700
     address: 0x41
     update_interval: 10s
     adc_averaging: 16
@@ -224,7 +254,15 @@ sensor:
       name: Battery voltage
     current:
       # Positive while discharging, negative while charging
+      id: battery_current
       name: Battery current
+  # Measured before the display and XCSoar are set up, as after a timer wake
+  - platform: template
+    name: Start-up battery current
+    unit_of_measurement: A
+    accuracy_decimals: 3
+    update_interval: 60s
+    lambda: return id(start_battery_current);
   - platform: debug
     # Not the largest PSRAM block: finding it walks the whole heap with interrupts off, which corrupts a frame
     psram:
