@@ -297,8 +297,10 @@ void TugLogger::firmware_step() {
     offer.message = "Connect to a Wi-Fi network with internet first";
   } else {
     const esp_app_desc_t *app = esp_app_get_description();
+    // The whole hash, as the Worker reads it from the image: esp_app_get_elf_sha256() gives only the first
+    // CONFIG_APP_RETRIEVE_LEN_ELF_SHA - 1 digits, 8 by default, which never match
     char elf_sha256[2 * SHA256_SIZE + 1];
-    esp_app_get_elf_sha256(elf_sha256, sizeof(elf_sha256));
+    format_hex_to(elf_sha256, app->app_elf_sha256, sizeof(app->app_elf_sha256));
     const std::string body = json::build_json([&](JsonObject root) {
       root["project"] = app->project_name;
       root["elf_sha256"] = elf_sha256;

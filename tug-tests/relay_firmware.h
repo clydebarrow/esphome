@@ -39,12 +39,15 @@ inline std::string sign(const std::string &secret, const std::string &body) {
 /// The check's body: this build's project (the device name), ELF hash and build time. The name has only letters,
 /// digits and hyphens, so it needs no escaping.
 inline std::string check_json(int64_t build_time) {
+  // The whole hash, as the Worker reads it from the image: esp_app_get_elf_sha256() gives only the first
+  // CONFIG_APP_RETRIEVE_LEN_ELF_SHA - 1 digits, 8 by default, which never match
+  const esp_app_desc_t *app = esp_app_get_description();
   char elf_sha256[65];
-  esp_app_get_elf_sha256(elf_sha256, sizeof(elf_sha256));
+  esphome::format_hex_to(elf_sha256, app->app_elf_sha256, sizeof(app->app_elf_sha256));
   char built[24];
   snprintf(built, sizeof(built), "%lld", (long long) build_time);
-  return std::string("{\"project\":\"") + esp_app_get_description()->project_name + "\",\"elf_sha256\":\"" +
-         elf_sha256 + "\",\"build_time\":" + built + "}";
+  return std::string("{\"project\":\"") + app->project_name + "\",\"elf_sha256\":\"" + elf_sha256 +
+         "\",\"build_time\":" + built + "}";
 }
 
 }  // namespace relay_firmware
