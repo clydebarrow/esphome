@@ -346,8 +346,10 @@ inline std::string devices_request_json() {
 
 /// The check's body: this build's project (the device name), ELF hash and build time, as tug_logger sends.
 inline std::string firmware_check_json(int64_t build_time) {
+  // The whole hash, as the Worker reads it from the image: esp_app_get_elf_sha256() gives only the first
+  // CONFIG_APP_RETRIEVE_LEN_ELF_SHA - 1 digits, 8 by default, which never match
   char elf_sha256[65];
-  esp_app_get_elf_sha256(elf_sha256, sizeof(elf_sha256));
+  esphome::format_hex_to(elf_sha256, esp_app_get_description()->app_elf_sha256, 32);
   char built[24];
   snprintf(built, sizeof(built), "%lld", (long long) build_time);
   return std::string("{\"project\":") + json_string(esp_app_get_description()->project_name) + ",\"elf_sha256\":\"" +
