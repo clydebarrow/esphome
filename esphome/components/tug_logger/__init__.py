@@ -94,9 +94,9 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(
                 CONF_TAKEOFF_CONFIRM, default="5s"
             ): cv.positive_time_period_milliseconds,
-            cv.Optional(CONF_LANDING_SPEED, default="15kt"): knots,
+            cv.Optional(CONF_LANDING_SPEED, default="30kt"): knots,
             cv.Optional(
-                CONF_LANDING_CONFIRM, default="30s"
+                CONF_LANDING_CONFIRM, default="10s"
             ): cv.positive_time_period_milliseconds,
             # How long the device stays up on battery when idle, to upload what is queued
             cv.Optional(

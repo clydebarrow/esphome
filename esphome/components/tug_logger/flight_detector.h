@@ -30,8 +30,8 @@ enum class AltitudeKind : uint8_t {
 struct DetectorSettings {
   float takeoff_speed_mps{40.0f * KNOTS_TO_MPS};
   uint32_t takeoff_confirm_ms{5000};
-  float landing_speed_mps{15.0f * KNOTS_TO_MPS};
-  uint32_t landing_confirm_ms{30000};
+  float landing_speed_mps{30.0f * KNOTS_TO_MPS};
+  uint32_t landing_confirm_ms{10000};
   /// Used only when there was no altitude on the ground before takeoff.
   float field_elevation_ft{0.0f};
   /// A ground altitude older than this is not used as the reference.

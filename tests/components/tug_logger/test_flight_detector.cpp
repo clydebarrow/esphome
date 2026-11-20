@@ -83,9 +83,23 @@ TEST(TugFlightDetector, TaxiingFastIsNotATakeoff) {
 TEST(TugFlightDetector, SlowingBrieflyInFlightIsNotALanding) {
   Flight flight;
   normal_flight(flight);
-  EXPECT_EQ(flight.run(29, 10, 2000), FlightEvent::FLIGHT_EVENT_NONE);
+  // Under the landing speed for just less than the confirmation time
+  EXPECT_EQ(flight.run(9, 25, 2000), FlightEvent::FLIGHT_EVENT_NONE);
   EXPECT_EQ(flight.run(5, 70, 2000), FlightEvent::FLIGHT_EVENT_NONE);
   EXPECT_TRUE(flight.detector.is_flying());
+}
+
+TEST(TugFlightDetector, LandsTenSecondsAfterSlowingBelowThirtyKnots) {
+  Flight flight;
+  normal_flight(flight);
+  // A landing roll as DGS logged it: touchdown at 55 kt, slowing 2 to 3 kt a second
+  for (float knots = 55; knots >= 31; knots -= 3)
+    ASSERT_EQ(flight.step(knots, 1500), FlightEvent::FLIGHT_EVENT_NONE);
+  const uint32_t slowed = flight.seconds;
+  ASSERT_EQ(flight.run(10, 20, 1500), FlightEvent::FLIGHT_EVENT_NONE);
+  ASSERT_EQ(flight.step(15, 1500), FlightEvent::FLIGHT_EVENT_LANDED);
+  // The flight ends when it first slowed below 30 kt, not when that was confirmed
+  EXPECT_EQ(flight.detector.flight().launch + flight.detector.flight().elapsed_s, START + slowed);
 }
 
 TEST(TugFlightDetector, QuickRelaunchMeasuresEachFlightOnItsOwn) {
