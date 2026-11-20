@@ -1,8 +1,11 @@
 # A glider's tracker on a Heltec Wireless Tracker (htit-tracker-board.yaml):
 # - Tracks for the club (glider_tracker): positions for the live map, its takeoff, and its flight summary after landing,
 #   to the clubhouse receiver (receiver-wsl.yaml in the glider-lora worktree) over LoRa.
-# - Hears FLARM on the same radio (flarm_receiver), receive only, while flying.
-# - Joins the glider's SkyEcho over Wi-Fi for ADS-B traffic and its pressure altitude.
+# - Hears FLARM on the same radio (flarm_receiver) while flying, and as an experiment sends its own position in the
+#   legacy FLARM protocol, as SoftRF does, in the slots when LoRa isn't holding the radio.
+# - Joins the glider's SkyEcho over Wi-Fi for ADS-B traffic and its pressure altitude: no name is configured, so the
+#   same firmware serves any glider. It joins the SkyEcho it remembers, or the strongest in range, and remembers the
+#   one whose traffic arrives on the ground (skyecho_wifi).
 # - Merges the two into one traffic list, and streams it with the GNSS fix as a FLARM's data port would, in NMEA
 #   (GPRMC, GPGGA, PGRMZ, PFLAU, PFLAA), over Bluetooth LE to a flight app such as XCSoar: the HM-10 and Nordic UART
 #   serial services both carry it.
@@ -10,8 +13,7 @@
 # The glider's address, registration and LoRa key come from the dashboard: in the Worker's Admin, add a tracker for
 # the glider (ESPHome) and save its file here as tracker.yaml. It holds the key, so it is not committed.
 substitutions:
-  skyecho_ssid: SkyEcho_MKJ
-  # "true" to hear FLARM on the ground too, for bench tests
+  # "true" to hear and send FLARM on the ground too, for bench tests
   flarm_on_ground: "false"
 
 packages:
@@ -47,10 +49,6 @@ esphome:
             });
 
 wifi:
-  # The SkyEcho's own network, open, first whenever it is in range
-  networks:
-    - ssid: ${skyecho_ssid}
-      priority: 20
   reboot_timeout: 0s
 
 api:
@@ -73,6 +71,11 @@ ble_serial:
 skyecho:
   id: skyecho_hub
 
+# Chooses the SkyEcho to join, ahead of the bench networks. In flight a SkyEcho whose signal stays below -75 dBm is
+# dropped, and the strongest in range joined.
+skyecho_wifi:
+  id: skyecho_join
+
 packet_interface:
   - platform: sx126x
     id: lora
@@ -90,12 +93,17 @@ packet_interface:
         - id: broadcasts
           destination: broadcast
 
-# Shares the LoRa radio, and takes the time and position from the GNSS
+# Shares the LoRa radio, and takes the time and position from the GNSS. Sends while it listens, as the radio is on
+# FLARM's channels only then.
 flarm_receiver:
   id: flarm
   sx126x_id: radio
   band: AU
   gps_id: gnss
+  transmit:
+    # The glider's ICAO address, from its Australian registration
+    registration: ${glider_registration}
+    aircraft_type: GLIDER
 
 glider_tracker:
   id: tracker
@@ -109,16 +117,22 @@ glider_tracker:
 binary_sensor:
   - id: !extend user_button
     on_click:
-      # A short press turns the screen on or off
+      # A short press lights the screen for a minute
       - min_length: 30ms
         max_length: 1s
         then:
-          - light.toggle: backlight
+          - lambda: id(screen_until) = esphome::millis() + 60000;
       # A long press, on the bench: a fake takeoff, or the landing of the fake flight
       - min_length: 3s
         max_length: 10s
         then:
           - lambda: id(tracker).fake_takeoff_or_landing();
+
+globals:
+  # The screen stays lit until then, in ms, after the button; 0 for not since the start
+  - id: screen_until
+    type: uint32_t
+    initial_value: "0"
 
 font:
   - file: {type: gfonts, family: Roboto Mono, weight: 500}
@@ -129,6 +143,9 @@ display:
   - id: !extend screen
     update_interval: 1s
     lambda: |-
+      // Not drawn while dark
+      if (!id(backlight).current_values.is_on())
+        return;
       auto &gps = id(gnss).get_tiny_gps();
       const bool fix = gps.location.isValid() && gps.location.age() < 3000;
       const int row = 13;
@@ -146,7 +163,7 @@ display:
                 unsigned(gps.satellites.isValid() ? gps.satellites.value() : 0));
       y += row;
       it.printf(0, y, id(small), Color::WHITE, "SkyEcho %s",
-                id(skyecho_hub).has_pressure_altitude() ? "on" : "off");
+                id(skyecho_join).has_skyecho() ? "on" : "off");
       y += row;
       it.printf(0, y, id(small), Color::WHITE, "BLE %s  FLARM %s", id(ble).is_connected() ? "app" : "-",
                 id(flarm).is_receiving_flarm() ? "rx" : "-");
@@ -171,6 +188,14 @@ interval:
             id(board_led).turn_on();
           } else {
             id(board_led).turn_off();
+          }
+          id(skyecho_join).set_flying(id(tracker).is_flying());
+          // The screen is lit while there is no fix, so the wait for one can be seen, and for a minute after the
+          // button; dark otherwise, as it warms the tracker
+          const bool lit = !fix || static_cast<int32_t>(id(screen_until) - esphome::millis()) > 0;
+          if (lit != id(backlight).current_values.is_on()) {
+            auto call = lit ? id(backlight).turn_on() : id(backlight).turn_off();
+            call.perform();
           }
           const float geoid = id(flarm).get_geoid_separation();
           // The traffic is placed from this GNSS, a better receiver than the SkyEcho's
@@ -228,6 +253,14 @@ interval:
           } else {
             memset(&own, 0, sizeof(own));
           }
+          // Transmitting while a packet has gone out in the last couple of seconds
+          static uint32_t sent_count = 0;
+          static uint32_t sent_ms = 0;
+          if (id(flarm).get_transmit_count() != sent_count) {
+            sent_count = id(flarm).get_transmit_count();
+            sent_ms = esphome::millis();
+          }
+          const bool transmitting = sent_count != 0 && esphome::millis() - sent_ms < 2000;
           skyecho::append_flarm_traffic(out, own.report, reports, count, id(skyecho_hub).get_threat_settings(),
-                                        skyecho::NmeaStatus{fix, id(tracker).is_flying(), false});
+                                        skyecho::NmeaStatus{fix, id(tracker).is_flying(), transmitting});
           id(ble).write(out);

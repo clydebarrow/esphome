@@ -171,15 +171,7 @@ def _final_validate(config: ConfigType) -> ConfigType:
     radio_path = full_config.get_path_for_id(config[CONF_SX126X_ID])[:-1]
     radio = full_config.get_config_for_path(radio_path)
     # A radio set up for LoRa is shared: the receiver applies its own FSK settings while it listens
-    if radio.get(CONF_MODULATION) == "LORA":
-        if CONF_TRANSMIT in config:
-            raise cv.Invalid(
-                f"'{CONF_TRANSMIT}' needs a radio of its own, set up for FSK, not one shared with LoRa",
-                path=[CONF_TRANSMIT],
-            )
-        radio_items = {}
-    else:
-        radio_items = RADIO_SETTINGS
+    radio_items = {} if radio.get(CONF_MODULATION) == "LORA" else RADIO_SETTINGS
     for key, value in radio_items.items():
         if radio.get(key) != value:
             raise cv.Invalid(

@@ -34,7 +34,7 @@ struct BandPlan {
 ///
 /// The radio may also be configured for LoRa, for another link. The receiver then shares it: it applies its own FSK
 /// profile only while set_listening(true) and not held for LoRa by hold_lora(), and gives the radio back to LoRa
-/// otherwise. It cannot transmit then.
+/// otherwise. A position to transmit is sent only while it has the profile, so a slot held for LoRa goes unsent.
 class FlarmReceiver : public Component,
                       public uart::UARTDevice,
 #ifdef USE_FLARM_RECEIVER_GPS

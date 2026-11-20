@@ -182,8 +182,14 @@ void FlarmReceiver::loop() {
     this->share_radio_();
   if (!this->shared_ || this->fsk_active_)
     this->hop_();
-  if (this->transmit_pending_)
-    this->send_position_();
+  // A shared radio sends only while it has the FSK profile; a slot that falls while LoRa holds it goes unsent
+  if (this->transmit_pending_) {
+    if (!this->shared_ || this->fsk_active_) {
+      this->send_position_();
+    } else {
+      this->transmit_pending_ = false;
+    }
+  }
   const uint32_t now = App.get_loop_component_start_time();
   if (now - this->last_traffic_ms_ >= TRAFFIC_INTERVAL_MS) {
     this->last_traffic_ms_ = now;
