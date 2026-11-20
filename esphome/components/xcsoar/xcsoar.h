@@ -22,6 +22,9 @@
 #ifdef USE_XCSOAR_SKYECHO
 #include "esphome/components/skyecho/skyecho.h"
 #endif
+#ifdef USE_XCSOAR_SUPPLY_VOLTAGE
+#include "esphome/components/sensor/sensor.h"
+#endif
 
 #ifdef USE_XCSOAR_BLE_SERIAL
 #include "esphome/components/ble_serial/ble_serial.h"
@@ -105,6 +108,12 @@ class XCSoarComponent : public Component
 #ifdef USE_XCSOAR_SKYECHO
   /// Pass the SkyEcho's GDL90 data to XCSoar, and the data of its FLARM UART if it has one, each read as a device.
   void set_skyecho(skyecho::SkyEcho *skyecho) { this->skyecho_ = skyecho; }
+#endif
+#ifdef USE_XCSOAR_SUPPLY_VOLTAGE
+  /// Pass the sensor's values to XCSoar as the supply voltage, in volts.
+  void set_supply_voltage(sensor::Sensor *voltage) {
+    voltage->add_on_state_callback([](float volts) { XCSoarEsp32::SetSupplyVoltage(volts); });
+  }
 #endif
 #ifdef XCSOAR_STREAM_COUNT
   /// Declare a stream XCSoar reads as a device, before setup(); name is also the port it shows.

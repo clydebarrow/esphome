@@ -9,7 +9,7 @@ from pathlib import Path
 
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components import display, psram, touchscreen, uart
+from esphome.components import display, psram, sensor, touchscreen, uart
 from esphome.components.const import BYTE_ORDER_LITTLE, CONF_BYTE_ORDER
 from esphome.components.esp32 import (
     VARIANT_ESP32P4,
@@ -60,6 +60,7 @@ CONF_ON_TRAFFIC_ALARM = "on_traffic_alarm"
 CONF_ON_VOLUME = "on_volume"
 CONF_BLE_SERIAL_ID = "ble_serial_id"
 CONF_SKYECHO_ID = "skyecho_id"
+CONF_SUPPLY_VOLTAGE_ID = "supply_voltage_id"
 CONF_WIFI_NETWORKS_ID = "wifi_networks_id"
 # The C library file and directory handles XCSoar can have open on its data filesystem
 VFS_MAX_FILES = 8
@@ -172,6 +173,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_BLE_SERIAL_ID): cv.use_id(BleSerial),
             cv.Optional(CONF_SKYECHO_ID): cv.use_id(SkyEcho),
             cv.Optional(CONF_WIFI_NETWORKS_ID): cv.use_id(WifiNetworks),
+            # Shown in the Battery InfoBox, unless a device reports a voltage
+            cv.Optional(CONF_SUPPLY_VOLTAGE_ID): cv.use_id(sensor.Sensor),
             cv.Optional(CONF_FILESYSTEM_ID): cv.use_id(Filesystem),
             cv.Optional(CONF_FONTS, default=[]): cv.ensure_list(FONT_SCHEMA),
             # Each UART is read by XCSoar as a device, e.g. a GPS with the Generic NMEA driver
@@ -275,6 +278,9 @@ async def to_code(config: ConfigType) -> None:
     await cg.add_variable(var.set_touchscreen, config.get(CONF_TOUCHSCREEN_ID))
     if await cg.add_variable(var.set_skyecho, config.get(CONF_SKYECHO_ID)) is not None:
         cg.add_define("USE_XCSOAR_SKYECHO")
+    if (voltage_id := config.get(CONF_SUPPLY_VOLTAGE_ID)) is not None:
+        cg.add(var.set_supply_voltage(await cg.get_variable(voltage_id)))
+        cg.add_define("USE_XCSOAR_SUPPLY_VOLTAGE")
     if (
         await cg.add_variable(var.set_wifi_networks, config.get(CONF_WIFI_NETWORKS_ID))
         is not None

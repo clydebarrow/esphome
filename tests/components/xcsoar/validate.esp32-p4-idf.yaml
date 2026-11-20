@@ -13,12 +13,18 @@ display:
 
 psram:
 
+sensor:
+  - platform: template
+    id: battery_voltage
+    lambda: return 3.9;
+
 xcsoar:
   display_id: xcsoar_display
   xcsoar_path: xcsoar_stub
   # The test scene needs no data filesystem
   demo: true
   frame_interval: 50ms
+  supply_voltage_id: battery_voltage
   fonts:
     - xcsoar_stub/test-font.ttf
     - file: xcsoar_stub/test-font.ttf
