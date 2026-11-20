@@ -33,6 +33,7 @@ static constexpr size_t TOW_FIELD_COUNT = 4;
 struct TugUiWidgets {
   lvgl::LvglComponent *lvgl;
   lvgl::LvPageType *ground_page;
+  lvgl::LvPageType *flight_page;
   lvgl::LvPageType *picker_page;
   lvgl::LvPageType *review_page;
   lvgl::LvPageType *tow_page;
@@ -107,6 +108,8 @@ class TugUi {
   /// Asks for a second press before the tow is taken off the list.
   void discard_tow();
   void back_to_ground();
+  /// The traffic, by its button on the ground page. A takeoff shows it too, and a landing goes back to the ground page.
+  void show_traffic();
   /// Asks for a second press before the time since refuelling goes back to zero.
   void mark_refuelled();
   /// Sends the refused tows again.

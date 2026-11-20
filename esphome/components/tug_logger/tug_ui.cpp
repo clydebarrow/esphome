@@ -146,8 +146,8 @@ void TugUi::set_dark_mode(bool dark) {
     this->w_.traffic->refresh_colors();
 #endif
   lv_color_t button_text = dark ? lv_color_black() : lv_color_white();
-  for (lvgl::LvPageType *page :
-       {this->w_.ground_page, this->w_.picker_page, this->w_.review_page, this->w_.tow_page, this->w_.settings_page})
+  for (lvgl::LvPageType *page : {this->w_.ground_page, this->w_.flight_page, this->w_.picker_page, this->w_.review_page,
+                                 this->w_.tow_page, this->w_.settings_page})
     lv_obj_tree_walk(page->obj, set_button_text, &button_text);
   lv_label_set_text(this->w_.theme_label, dark ? "Dark mode: on" : "Dark mode: off");
 }
@@ -634,6 +634,11 @@ bool TugUi::confirm_shutdown() {
 void TugUi::back_to_ground() {
   this->refresh();
   this->show_(this->w_.ground_page);
+}
+
+void TugUi::show_traffic() {
+  this->refresh();
+  this->show_(this->w_.flight_page);
 }
 
 std::string TugUi::wifi_text_() {

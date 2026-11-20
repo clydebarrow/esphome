@@ -26,6 +26,7 @@ esphome:
             w.shutdown_label = id(shutdown_label);
             w.row_height = ${(72 * scale) | round | int};
             w.ground_page = id(ground_page);
+            w.flight_page = id(flight_page);
             w.picker_page = id(picker_page);
             w.review_page = id(review_page);
             w.tow_page = id(tow_page);
@@ -271,7 +272,7 @@ lvgl:
               - label: {id: next_tug_pilot, align: right_mid, width: "${(530 * scale) | round | int}", long_mode: dot, text_align: right, text_font: bold_40, text: ""}
         - obj:
             width: 100%
-            height: "${(150 * scale) | round | int}"
+            height: size_content
             border_width: 0
             pad_all: "${(0 * scale) | round | int}"
             bg_opa: transp
@@ -301,8 +302,16 @@ lvgl:
                     - lambda: id(ui).show_settings();
                   widgets:
                     - label: {align: center, text: Settings}
+        # To the traffic, and back by its own button; a takeoff and a landing still change the page themselves
+        - button:
+            styles: action_button
+            width: 100%
+            on_click:
+              - lambda: id(ui).show_traffic();
+            widgets:
+              - label: {align: center, text: Traffic}
 
-    # Read only: nothing here needs a touch in flight
+    # Nothing here needs a touch in flight; the button only goes to the ground page and back
     - id: flight_page
       pad_top: "${(132 * scale) | round | int}"
       pad_all: "${(0 * scale) | round | int}"
@@ -319,9 +328,20 @@ lvgl:
             width: "${(790 * scale) | round | int}"
             height: "${(790 * scale) | round | int}"
             align: top_mid
+        - button:
+            styles: action_button
+            align: bottom_left
+            x: "${(16 * scale) | round | int}"
+            y: "${(-16 * scale) | round | int}"
+            width: "${(260 * scale) | round | int}"
+            on_click:
+              - lambda: id(ui).back_to_ground();
+            widgets:
+              - label: {align: center, text: Next tow}
         - obj:
-            align: bottom_mid
-            width: "${(780 * scale) | round | int}"
+            align: bottom_right
+            x: "${(-10 * scale) | round | int}"
+            width: "${(480 * scale) | round | int}"
             height: "${(350 * scale) | round | int}"
             border_width: 0
             bg_opa: transp
