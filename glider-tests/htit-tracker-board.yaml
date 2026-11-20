@@ -5,6 +5,8 @@
 
 esp32:
   board: heltec_wifi_lora_32_V3
+  # Plenty for this, and cooler than 240 MHz
+  cpu_frequency: 160MHz
   framework:
     type: esp-idf
 
@@ -79,6 +81,11 @@ time:
     gps_id: gnss
 
 sensor:
+  # The chip's own temperature, as the board runs warm
+  - platform: internal_temperature
+    id: chip_temperature
+    name: Chip temperature
+    update_interval: 30s
   # Through a divider of 390k and 100k
   - platform: adc
     id: battery

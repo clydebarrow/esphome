@@ -23,6 +23,8 @@ wifi:
 
 api:
   reboot_timeout: 0s
+  # The usual key, from secrets.yaml beside it
+  encryption: !include ../../../my-devices/api-encryption.yaml
 
 ota:
   - platform: esphome

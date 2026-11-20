@@ -171,6 +171,17 @@ script:
           format: "The firmware install failed"
       - lambda: relay_firmware::check.busy = false;
 
+# Plenty for relaying and FLARM, and cooler than 240 MHz
+esp32:
+  cpu_frequency: 160MHz
+
+# The chip's own temperature, read over the API, as the board runs warm
+sensor:
+  - platform: internal_temperature
+    id: chip_temperature
+    name: Chip temperature
+    update_interval: 30s
+
 # The USB port is the ESP32-S3's own, not a UART bridge as on the Wireless Stick Lite
 logger:
   hardware_uart: USB_SERIAL_JTAG
