@@ -1,0 +1,135 @@
+# The Heltec Wireless Tracker V1.1 (HTIT-Tracker): ESP32-S3 with no PSRAM, SX1262 LoRa radio, UC6580 GNSS, a 0.96"
+# 160x80 ST7735 screen, the USER button and a battery divider. Pins from Heltec's V1.1 schematic.
+#
+# Vext (GPIO3, high on) powers the GNSS, its LNA and the screen.
+
+esp32:
+  board: heltec_wifi_lora_32_V3
+  framework:
+    type: esp-idf
+
+# The USB port is the ESP32-S3's own
+logger:
+  hardware_uart: USB_SERIAL_JTAG
+
+switch:
+  - platform: gpio
+    id: vext
+    pin: GPIO3
+    restore_mode: ALWAYS_ON
+    setup_priority: 900
+  # The GNSS reset, active low: held high
+  - platform: gpio
+    id: gnss_reset
+    pin: GPIO35
+    restore_mode: ALWAYS_ON
+    setup_priority: 900
+  # Connects the battery divider to the ADC (V1.1: high on)
+  - platform: gpio
+    id: battery_adc_enable
+    pin: GPIO2
+    restore_mode: ALWAYS_ON
+
+spi:
+  - id: radio_spi
+    clk_pin: GPIO9
+    mosi_pin: GPIO10
+    miso_pin: GPIO11
+  - id: screen_spi
+    clk_pin: GPIO41
+    mosi_pin: GPIO42
+
+sx126x:
+  id: radio
+  spi_id: radio_spi
+  cs_pin: GPIO8
+  rst_pin: GPIO12
+  busy_pin: GPIO13
+  dio1_pin: GPIO14
+  hw_version: sx1262
+  rf_switch: true
+  tcxo_voltage: 1_8V
+  tcxo_delay: 5ms
+  pa_power: 22
+  frequency: ${lora_frequency}
+  modulation: LORA
+  spreading_factor: ${lora_spreading_factor}
+  bandwidth: ${lora_bandwidth}
+  preamble_size: ${lora_preamble_size}
+  crc_enable: true
+
+uart:
+  - id: gnss_uart
+    rx_pin: GPIO33
+    tx_pin: GPIO34
+    baud_rate: 115200
+    rx_buffer_size: 1024
+
+gps:
+  id: gnss
+  uart_id: gnss_uart
+  update_interval: 10s
+  satellites:
+    id: gnss_satellites
+    name: GNSS satellites
+
+time:
+  - platform: gps
+    id: gnss_time
+    gps_id: gnss
+
+sensor:
+  # Through a divider of 390k and 100k
+  - platform: adc
+    id: battery
+    name: Battery
+    pin: GPIO1
+    attenuation: 12db
+    update_interval: 10s
+    accuracy_decimals: 2
+    filters:
+      - multiply: 4.9
+
+output:
+  - platform: gpio
+    id: board_led
+    pin: GPIO18
+  - platform: ledc
+    id: backlight_pwm
+    pin: GPIO21
+
+light:
+  - platform: monochromatic
+    id: backlight
+    output: backlight_pwm
+    restore_mode: ALWAYS_ON
+    default_transition_length: 0s
+
+binary_sensor:
+  - platform: gpio
+    id: user_button
+    pin:
+      number: GPIO0
+      inverted: true
+      mode: INPUT_PULLUP
+
+display:
+  - platform: mipi_spi
+    id: screen
+    spi_id: screen_spi
+    model: ST7735
+    dimensions:
+      width: 80
+      height: 160
+      # In the controller's 132x162 memory
+      offset_width: 26
+      offset_height: 1
+      pad_width: 26
+      pad_height: 1
+    rotation: 90
+    invert_colors: true
+    color_order: BGR
+    cs_pin: GPIO38
+    dc_pin: GPIO40
+    reset_pin: GPIO39
+    data_rate: 40MHz

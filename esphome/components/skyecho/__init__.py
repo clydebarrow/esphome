@@ -1,6 +1,6 @@
 from esphome import automation
 import esphome.codegen as cg
-from esphome.components import uart
+from esphome.components import socket, uart
 import esphome.config_validation as cv
 from esphome.const import CONF_ID
 from esphome.core import CORE
@@ -123,6 +123,8 @@ async def to_code(config):
         uart_component = await cg.get_variable(flarm_uart_config)
         cg.add(var.set_flarm_uart(uart_component))
 
+    # The status websocket is always compiled, used or not
+    socket.require_tcp_client_link()
     if (status_port := config.get(CONF_STATUS_PORT)) is not None:
         cg.add(var.set_status_port(status_port))
     cg.add(var.set_alarm_distance(config[CONF_ALARM_DISTANCE]))

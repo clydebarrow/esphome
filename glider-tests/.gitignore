@@ -1,0 +1,5 @@
+/.esphome/
+/secrets.yaml
+__pycache__
+# Provisioning files from the dashboard, which hold keys
+/tracker*.yaml

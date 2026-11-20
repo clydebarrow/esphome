@@ -1,0 +1,233 @@
+# A glider's tracker on a Heltec Wireless Tracker (htit-tracker-board.yaml):
+# - Tracks for the club (glider_tracker): positions for the live map, its takeoff, and its flight summary after landing,
+#   to the clubhouse receiver (receiver-wsl.yaml in the glider-lora worktree) over LoRa.
+# - Hears FLARM on the same radio (flarm_receiver), receive only, while flying.
+# - Joins the glider's SkyEcho over Wi-Fi for ADS-B traffic and its pressure altitude.
+# - Merges the two into one traffic list, and streams it with the GNSS fix as a FLARM's data port would, in NMEA
+#   (GPRMC, GPGGA, PGRMZ, PFLAU, PFLAA), over Bluetooth LE to a flight app such as XCSoar: the HM-10 and Nordic UART
+#   serial services both carry it.
+#
+# The glider's address, registration and LoRa key come from the dashboard: in the Worker's Admin, add a tracker for
+# the glider (ESPHome) and save its file here as tracker.yaml. It holds the key, so it is not committed.
+substitutions:
+  skyecho_ssid: SkyEcho_MKJ
+  # "true" to hear FLARM on the ground too, for bench tests
+  flarm_on_ground: "false"
+
+packages:
+  board: !include htit-tracker-board.yaml
+  radio: !include radio.yaml
+  tracker: !include tracker.yaml
+  # Bench networks, for logs and updates; joined below the SkyEcho
+  bench_wifi:
+    wifi:
+      networks: !include ../../../my-devices/wifi-networks.yaml
+
+esphome:
+  name: glider-htit
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            // Each aircraft heard on FLARM, once a second, joins the SkyEcho's traffic
+            id(flarm).add_on_traffic_callback([](const flarm_receiver::LegacyTarget &target, float rssi) {
+              skyecho::FlarmTarget heard{};
+              heard.address = target.address;
+              heard.icao = target.address_type == 1;
+              heard.aircraft_type = target.aircraft_type;
+              heard.no_track = target.no_track;
+              heard.latitude = target.latitude;
+              heard.longitude = target.longitude;
+              // Back to the height above the ellipsoid that FLARM sent
+              heard.altitude_hae = target.altitude + id(flarm).get_geoid_separation();
+              heard.speed = target.speed;
+              heard.track = target.course;
+              heard.climb_rate = target.climb_rate;
+              id(skyecho_hub).add_flarm_target(heard);
+            });
+
+wifi:
+  # The SkyEcho's own network, open, first whenever it is in range
+  networks:
+    - ssid: ${skyecho_ssid}
+      priority: 20
+  reboot_timeout: 0s
+
+api:
+  reboot_timeout: 0s
+  encryption: !include ../../../my-devices/api-encryption.yaml
+
+ota:
+  - platform: esphome
+
+esp32_ble:
+  name: ${glider_registration} FLARM
+
+esp32_ble_server:
+
+ble_serial:
+  id: ble
+
+# The SkyEcho's GDL90 traffic and ownship report, which the FLARM targets join. The traffic is placed from this
+# tracker's GNSS, given below as the external fix.
+skyecho:
+  id: skyecho_hub
+
+packet_interface:
+  - platform: sx126x
+    id: lora
+    max_packet_size: 255
+    addressing:
+      address: ${glider_address}
+      peers:
+        # Flight reports and their acknowledgements. No rolling code: a replayed report is a duplicate the server
+        # already ignores, and a replayed acknowledgement names a flight that was already acknowledged
+        - id: to_clubhouse
+          destination: ${clubhouse_address}
+          encryption:
+            key_hex: ${glider_key}
+        # Position reports, readable by anyone
+        - id: broadcasts
+          destination: broadcast
+
+# Shares the LoRa radio, and takes the time and position from the GNSS
+flarm_receiver:
+  id: flarm
+  sx126x_id: radio
+  band: AU
+  gps_id: gnss
+
+glider_tracker:
+  id: tracker
+  gps_id: gnss
+  clubhouse_id: to_clubhouse
+  broadcast_id: broadcasts
+  battery_id: battery
+  flarm_receiver_id: flarm
+  flarm_on_ground: ${flarm_on_ground}
+
+binary_sensor:
+  - id: !extend user_button
+    on_click:
+      # A short press turns the screen on or off
+      - min_length: 30ms
+        max_length: 1s
+        then:
+          - light.toggle: backlight
+      # A long press, on the bench: a fake takeoff, or the landing of the fake flight
+      - min_length: 3s
+        max_length: 10s
+        then:
+          - lambda: id(tracker).fake_takeoff_or_landing();
+
+font:
+  - file: {type: gfonts, family: Roboto Mono, weight: 500}
+    id: small
+    size: 12
+
+display:
+  - id: !extend screen
+    update_interval: 1s
+    lambda: |-
+      auto &gps = id(gnss).get_tiny_gps();
+      const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+      const int row = 13;
+      int y = 0;
+      it.fill(Color::BLACK);
+      if (id(tracker).is_flying()) {
+        const uint32_t s = id(tracker).flight_seconds();
+        it.printf(0, y, id(small), Color(0x00FF00), "%s  FLYING %u:%02u", "${glider_registration}",
+                  unsigned(s / 3600), unsigned(s / 60 % 60));
+      } else {
+        it.printf(0, y, id(small), Color::WHITE, "%s  ground", "${glider_registration}");
+      }
+      y += row;
+      it.printf(0, y, id(small), fix ? Color::WHITE : Color(0xFF8000), "GPS %s, %u sats", fix ? "fix" : "no fix",
+                unsigned(gps.satellites.isValid() ? gps.satellites.value() : 0));
+      y += row;
+      it.printf(0, y, id(small), Color::WHITE, "SkyEcho %s",
+                id(skyecho_hub).has_pressure_altitude() ? "on" : "off");
+      y += row;
+      it.printf(0, y, id(small), Color::WHITE, "BLE %s  FLARM %s", id(ble).is_connected() ? "app" : "-",
+                id(flarm).is_receiving_flarm() ? "rx" : "-");
+      y += row;
+      static skyecho::TrafficT traffic[skyecho::MAX_TRAFFIC_TRACKED];
+      id(skyecho_hub).get_traffic(traffic, skyecho::MAX_TRAFFIC_TRACKED);
+      unsigned count = 0;
+      for (const auto &t : traffic)
+        count += t.active;
+      it.printf(0, y, id(small), Color::WHITE, "Traffic %u", count);
+      y += row;
+      it.printf(0, y, id(small), Color::WHITE, "Queued %u  %.2fV", unsigned(id(tracker).queued()),
+                id(battery).has_state() ? id(battery).state : 0.0f);
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          auto &gps = id(gnss).get_tiny_gps();
+          const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+          if (fix) {
+            id(board_led).turn_on();
+          } else {
+            id(board_led).turn_off();
+          }
+          const float geoid = id(flarm).get_geoid_separation();
+          // The traffic is placed from this GNSS, a better receiver than the SkyEcho's
+          if (fix) {
+            skyecho::SkyEcho::ExternalFix own{};
+            own.latitude = gps.location.lat();
+            own.longitude = gps.location.lng();
+            own.altitude_valid = gps.altitude.isValid();
+            own.altitude = gps.altitude.meters() + geoid;
+            own.speed_valid = gps.speed.isValid();
+            own.speed = gps.speed.mps();
+            own.track_valid = gps.course.isValid() && gps.speed.mps() > 1.0f;
+            own.track = gps.course.deg();
+            id(skyecho_hub).set_external_fix(own);
+          }
+          if (!id(ble).is_connected())
+            return;
+
+          // What a FLARM sends each second on its data port
+          skyecho::NmeaFix nmea{};
+          nmea.valid = fix;
+          nmea.latitude = gps.location.lat();
+          nmea.longitude = gps.location.lng();
+          nmea.altitude = gps.altitude.meters();
+          nmea.geoid_separation = geoid;
+          nmea.speed = gps.speed.mps();
+          nmea.course = gps.course.deg();
+          nmea.satellites = gps.satellites.isValid() ? gps.satellites.value() : 0;
+          nmea.hdop = gps.hdop.isValid() ? gps.hdop.hdop() : 99.9f;
+          nmea.time_valid = gps.time.isValid();
+          nmea.hour = gps.time.hour();
+          nmea.minute = gps.time.minute();
+          nmea.second = gps.time.second();
+          nmea.centisecond = gps.time.centisecond();
+          nmea.date_valid = gps.date.isValid() && gps.date.year() >= 2024;
+          nmea.year = gps.date.year();
+          nmea.month = gps.date.month();
+          nmea.day = gps.date.day();
+          std::string out;
+          skyecho::append_gps_sentences(out, nmea);
+
+          skyecho::OwnshipT own;
+          const bool placed = id(skyecho_hub).get_traffic_ownship(&own);
+          if (placed && id(skyecho_hub).has_pressure_altitude())
+            skyecho::append_pgrmz(out, own.report.altitude);
+          static skyecho::TrafficT traffic[skyecho::MAX_TRAFFIC_TRACKED];
+          static skyecho::gdl90PositionReport_t reports[skyecho::MAX_TRAFFIC_TRACKED];
+          size_t count = 0;
+          if (placed) {
+            id(skyecho_hub).get_traffic(traffic, skyecho::MAX_TRAFFIC_TRACKED);
+            for (const auto &t : traffic) {
+              if (t.active)
+                reports[count++] = t.report;
+            }
+          } else {
+            memset(&own, 0, sizeof(own));
+          }
+          skyecho::append_flarm_traffic(out, own.report, reports, count, id(skyecho_hub).get_threat_settings(),
+                                        skyecho::NmeaStatus{fix, id(tracker).is_flying(), false});
+          id(ble).write(out);

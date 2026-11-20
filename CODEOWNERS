@@ -90,6 +90,7 @@ esphome/components/ble_client/* @buxtronix @clydebarrow
 esphome/components/ble_device_base/* @Bl00d-B0b
 esphome/components/ble_midi/* @bogdanr
 esphome/components/ble_nus/* @tomaszduda23
+esphome/components/ble_serial/* @clydebarrow
 esphome/components/bluetooth_connection/* @bdraco @jesserockz
 esphome/components/bluetooth_proxy/* @bdraco @jesserockz
 esphome/components/bm8563/* @abmantis
@@ -253,6 +254,7 @@ esphome/components/fusb302b/* @remcom
 esphome/components/gcja5/* @gcormier
 esphome/components/gdk101/* @Szewcson
 esphome/components/gl_r01_i2c/* @pkejval
+esphome/components/glider_tracker/* @clydebarrow
 esphome/components/globals/* @esphome/core
 esphome/components/gp2y1010au0f/* @zry98
 esphome/components/gp8403/* @jesserockz @sebydocky
