@@ -82,6 +82,25 @@ RadioEffects SX126xRadio::change_mode(ModeCommand command, uint8_t arg) {
   return comm_report(ok);
 }
 
+RadioEffects SX126xRadio::retune(uint32_t frequency) {
+  ESPHOME_DEBUG_ASSERT(this->can_change_mode());
+  this->busy_ = true;
+  this->bus().begin();
+  this->commands_.standby(STDBY_XOSC);
+  this->commands_.set_frequency(frequency);
+  if (this->applied_.rx_start) {
+    this->commands_.receive();
+  } else {
+    this->commands_.sleep();
+  }
+  const bool ok = this->bus().ok();
+  if (ok) {
+    this->applied_.frequency = frequency;
+  }
+  this->commit_(ok ? RadioState::RADIO_STATE_IDLE : RadioState::RADIO_STATE_NEEDS_CONFIGURATION);
+  return comm_report(ok);
+}
+
 RadioEffects SX126xRadio::start_transmit(SX126xTransmitListener *listener, const uint8_t *data, size_t len,
                                          uint32_t timeout_ms) {
   RadioEffects effects;

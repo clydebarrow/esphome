@@ -11,8 +11,10 @@
 #
 # A Heltec Wireless Tracker (tug-relay-tracker.yaml) is wired the same way, and also sends its GNSS fix once a second
 # over the link, from the relay's own address (relay_fix.h). It is the backup to the SkyEcho for takeoff, landing and
-# heights, and sets the clock when nothing else has. The display can ask it to turn its Wi-Fi on (relay_wifi), as it
-# does when a firmware check is asked for on the settings screen.
+# heights, and sets the clock when nothing else has. The traffic is placed from its fix rather than the SkyEcho's while
+# it has one. It also sends the aircraft it hears on FLARM (relay_fix::Traffic), which join the SkyEcho's traffic. The
+# display can ask it to turn its Wi-Fi on (relay_wifi), as it does when a firmware check is asked for on the settings
+# screen.
 substitutions:
   tug_address: "0x0010"
   clubhouse_address: "0x0001"
@@ -35,6 +37,34 @@ esphome:
                                    const packet_interface::PacketMetaData &meta) {
                   if (meta.source_address != relay_fix::RELAY_ADDRESS)
                     return;
+                  // An aircraft the relay heard on FLARM, added to the SkyEcho's traffic
+                  uint8_t type;
+                  if (data.copy_to(&type, 1) == 1 && type == relay_fix::Traffic::TYPE) {
+                    uint8_t packet[relay_fix::Traffic::SIZE];
+                    relay_fix::Traffic traffic;
+                    if (data.size() != sizeof(packet) || data.copy_to(packet, sizeof(packet)) != sizeof(packet) ||
+                        !traffic.decode(packet, sizeof(packet))) {
+                      ESP_LOGW("relay_flarm", "Unexpected traffic packet of %zu bytes from the relay", data.size());
+                      return;
+                    }
+                    id(relay_traffic)++;
+                    skyecho::FlarmTarget target{};
+                    target.address = traffic.address;
+                    target.icao = traffic.address_type == 1;
+                    target.aircraft_type = traffic.aircraft_type;
+                    target.no_track = (traffic.flags & relay_fix::Traffic::FLAG_NO_TRACK) != 0;
+                    target.latitude = traffic.lat_e7 / 1e7f;
+                    target.longitude = traffic.lon_e7 / 1e7f;
+                    target.altitude_hae = traffic.altitude_cm / 100.0f;
+                    target.speed = traffic.speed_cms / 100.0f;
+                    target.track = traffic.course_cdeg / 100.0f;
+                    target.climb_rate = traffic.climb_cms / 100.0f;
+                    ESP_LOGD("relay_flarm", "%06X: %.5f,%.5f %.0fm %.0fm/s %.0fdeg, %ddBm", unsigned(target.address),
+                             target.latitude, target.longitude, target.altitude_hae, target.speed, target.track,
+                             traffic.rssi);
+                    id(skyecho_hub).add_flarm_target(target);
+                    return;
+                  }
                   uint8_t buffer[relay_fix::Fix::SIZE];
                   relay_fix::Fix fix;
                   const size_t length = data.size();
@@ -54,6 +84,17 @@ esphome:
                   id(logger_id).set_backup_location(fix.lat_e7 / 1e7, fix.lon_e7 / 1e7,
                                                     (fix.flags & relay_fix::FLAG_COURSE) != 0,
                                                     fix.course_cdeg / 100.0f, fix.satellites);
+                  // The traffic is placed from it, in preference to the SkyEcho's position
+                  skyecho::SkyEcho::ExternalFix own{};
+                  own.latitude = fix.lat_e7 / 1e7;
+                  own.longitude = fix.lon_e7 / 1e7;
+                  own.altitude_valid = (fix.flags & relay_fix::FLAG_ALTITUDE) != 0;
+                  own.altitude = fix.altitude_cm / 100.0f;
+                  own.speed_valid = (fix.flags & relay_fix::FLAG_SPEED) != 0;
+                  own.speed = fix.speed_cms / 100.0f;
+                  own.track_valid = (fix.flags & relay_fix::FLAG_COURSE) != 0;
+                  own.track = fix.course_cdeg / 100.0f;
+                  id(skyecho_hub).set_external_fix(own);
                   // The board has no clock chip: set the clock from the fix if it is unset or off by more than 2 s
                   if ((fix.flags & relay_fix::FLAG_TIME) != 0) {
                     const time_t now = ::time(nullptr);
@@ -78,13 +119,18 @@ globals:
   - id: relay_satellites
     type: uint8_t
     initial_value: "0"
+  - id: relay_traffic
+    type: uint32_t
+    initial_value: "0"
 
 interval:
   - interval: 30s
     then:
       - lambda: |-
-          ESP_LOGI("relay_gps", "From the relay in 30 s: %u packets, %u with a position, %u satellites",
-                   (unsigned) id(relay_packets), (unsigned) id(relay_fixes), (unsigned) id(relay_satellites));
+          ESP_LOGI("relay_gps", "From the relay in 30 s: %u packets, %u with a position, %u satellites, %u FLARM reports",
+                   (unsigned) id(relay_packets), (unsigned) id(relay_fixes), (unsigned) id(relay_satellites),
+                   (unsigned) id(relay_traffic));
+          id(relay_traffic) = 0;
           id(relay_packets) = 0;
           id(relay_fixes) = 0;
 

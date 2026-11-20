@@ -101,7 +101,7 @@ void SkyEcho::update() {
 void SkyEcho::assess_threats_() {
   Threat threat{};
   OwnshipT ownship;
-  if (this->get_ownship_position(&ownship)) {
+  if (this->get_traffic_ownship(&ownship)) {
     const uint32_t now = millis();
     extrapolate_report(ownship.report, std::min((now - ownship.timestampMs) / 1000.0f, MAX_EXTRAPOLATE_S));
     TrafficT traffic[MAX_TRAFFIC_TRACKED];
@@ -133,6 +133,55 @@ void SkyEcho::assess_threats_() {
 bool SkyEcho::get_ownship_position(OwnshipT *position) {
   *position = this->ownship_;
   return this->is_gps_connected_();
+}
+
+void SkyEcho::set_external_fix(const ExternalFix &fix) {
+  gdl90PositionReport_t report;
+  memset(&report, 0, sizeof(report));
+  report.latitude = static_cast<float>(fix.latitude);
+  report.longitude = static_cast<float>(fix.longitude);
+  report.altitude = fix.altitude;
+  report.isAltitudeValid = fix.altitude_valid;
+  report.groundSpeed = fix.speed_valid ? fix.speed : 0.0f;
+  report.isGroundSpeedValid = fix.speed_valid;
+  report.track = fix.track;
+  report.isTrackValid = fix.track_valid;
+  const uint32_t now = millis();
+  report.turnRate = this->external_recent_() ? estimate_turn_rate(this->external_.report, report,
+                                                                  (now - this->external_.timestampMs) / 1000.0f)
+                                             : 0.0f;
+  this->external_.report = report;
+  this->external_.timestampMs = now;
+  this->external_altitude_ = fix.altitude;
+  this->external_altitude_valid_ = fix.altitude_valid;
+}
+
+bool SkyEcho::get_traffic_ownship(OwnshipT *position) const {
+  const bool skyecho = this->is_gps_connected_();
+  if (!this->external_recent_()) {
+    *position = this->ownship_;
+    return skyecho;
+  }
+  *position = this->external_;
+  // The traffic reports' altitudes are pressure altitudes, so the ownship's must be too while the SkyEcho gives one
+  if (skyecho && this->ownship_.report.isAltitudeValid) {
+    position->report.altitude = this->ownship_.report.altitude;
+    position->report.isAltitudeValid = true;
+  }
+  // Only the SkyEcho reports a vertical speed
+  if (skyecho) {
+    position->report.verticalSpeed = this->ownship_.report.verticalSpeed;
+    position->report.isVerticalSpeedValid = this->ownship_.report.isVerticalSpeedValid;
+  }
+  return true;
+}
+
+bool SkyEcho::traffic_geo_altitude_(float *meters) const {
+  if (this->external_recent_() && this->external_altitude_valid_) {
+    *meters = this->external_altitude_;
+    return true;
+  }
+  return this->get_ownship_geo_altitude(meters);
 }
 
 bool SkyEcho::get_ownship_geo_altitude(float *meters) const {
@@ -372,10 +421,11 @@ void SkyEcho::update_traffic_(TrafficT *tp, const gdl90PositionReport_t *report,
 }
 
 void SkyEcho::process_traffic_(const gdl90PositionReport_t *report) {
-  if (!this->is_gps_connected_())
+  OwnshipT ownship;
+  if (!this->get_traffic_ownship(&ownship))
     return;
 
-  float distance = trafficDistance(&this->ownship_.report, report);
+  float distance = trafficDistance(&ownship.report, report);
 
   // Check if target is already in our list
   for (auto &i : this->traffic_) {
@@ -392,6 +442,35 @@ void SkyEcho::process_traffic_(const gdl90PositionReport_t *report) {
   if (!tp->active || tp->distance > distance) {
     this->update_traffic_(tp, report, distance);
   }
+}
+
+void SkyEcho::add_flarm_target(const FlarmTarget &target) {
+  OwnshipT ownship;
+  if (!this->get_traffic_ownship(&ownship))
+    return;
+  float geo_altitude = 0;
+  const bool has_geo = this->traffic_geo_altitude_(&geo_altitude);
+  gdl90PositionReport_t report = flarm_report(target, ownship.report, has_geo, geo_altitude);
+  uint32_t own;
+  const bool known = this->own_flarm_.get_own_address(&own);
+  if (this->own_flarm_.is_own(ownship.report, report, millis())) {
+    if (!known && this->own_flarm_.get_own_address(&own)) {
+      ESP_LOGI(TAG, "FLARM %06" PRIX32 " is this aircraft's own; it is ignored from now on", own);
+    }
+    return;
+  }
+  this->flarm_targets_++;
+  // The same aircraft as one the SkyEcho reports, by its address, keeps that entry's type and callsign, so that it
+  // stays one target
+  for (auto &i : this->traffic_) {
+    if (i.active && i.report.address == report.address) {
+      report.addressType = i.report.addressType;
+      if (i.report.callsign[0] != 0 && i.report.callsign[0] != ' ')
+        memcpy(report.callsign, i.report.callsign, sizeof(report.callsign));
+      break;
+    }
+  }
+  this->process_traffic_(&report);
 }
 
 size_t SkyEcho::get_active_traffic_count_() {

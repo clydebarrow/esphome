@@ -95,10 +95,7 @@ ConfigurationResult SX126xCommands::configure(const RadioProfile &profile, std::
   // calibrate image
   this->calibrate_image(profile.frequency);
 
-  // set frequency
-  uint64_t freq = ((uint64_t) profile.frequency << 25) / XTAL_FREQ;
-  put_be32(buf, static_cast<uint32_t>(freq));
-  this->write_opcode_(RADIO_SET_RFFREQUENCY, buf, 4);
+  this->set_frequency(profile.frequency);
 
   // configure pa
   int8_t pa_power = profile.pa_power;
@@ -214,6 +211,13 @@ void SX126xCommands::encode_packet_params(const RadioProfile &profile, AppliedPr
     buf[8] = (profile.whitening_enable) ? 0x01 : 0x00;
     applied.packet_params_size = 9;
   }
+}
+
+void SX126xCommands::set_frequency(uint32_t frequency) {
+  uint8_t buf[4];
+  const uint64_t freq = ((uint64_t) frequency << 25) / XTAL_FREQ;
+  put_be32(buf, static_cast<uint32_t>(freq));
+  this->write_opcode_(RADIO_SET_RFFREQUENCY, buf, 4);
 }
 
 void SX126xCommands::set_packet_length(AppliedProfile &applied, uint8_t length) {

@@ -9,6 +9,8 @@
 #   nothing goes to it.
 # - Packets from the tug to the relay's own address (0x00FE) are for the relay, not LoRa: a 'W' asks for Wi-Fi
 #   (relay_fix.h), which a relay with Wi-Fi acts on and the others ignore.
+# - A relay that also listens for FLARM on the same radio (tug-relay-tracker.yaml) takes the radio back for LoRa before
+#   each packet from the tug goes out (relay_radio.h).
 substitutions:
   # Must match the clubhouse receiver's radio (glider-tests/radio.yaml in the glider-lora worktree)
   lora_frequency: 917MHz
@@ -28,6 +30,8 @@ globals:
 
 esphome:
   name: tug-relay
+  includes:
+    - relay_radio.h
   on_boot:
     - lambda: |-
         id(tug_link)->top()->add_packet_interface_listener(
@@ -52,6 +56,9 @@ esphome:
                   return;
                 }
               }
+              // A radio shared with FLARM is taken back for LoRa first (relay_radio.h)
+              if (relay_radio::before_lora_send && got >= 2)
+                relay_radio::before_lora_send(header[0] | (header[1] << 8));
               if (id(lora)->top()->send_to_interface(data, {})) {
                 ESP_LOGD("relay", "To LoRa: %zu bytes", data.size());
               } else {

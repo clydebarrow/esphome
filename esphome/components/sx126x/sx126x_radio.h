@@ -112,6 +112,11 @@ class SX126xRadio {
   RadioEffects configure(const RadioProfile &requested, std::span<char, 16> version);
   // Requires can_change_mode(). Cold sleep and failed commands need configuration afterwards.
   RadioEffects change_mode(ModeCommand command, uint8_t arg);
+  // Requires can_change_mode(). Moves to another frequency in the band the image was calibrated for, without a reset,
+  // then receives or sleeps as the applied profile says.
+  RadioEffects retune(uint32_t frequency);
+  // The modulation of the applied profile.
+  uint8_t modulation() const { return this->applied_.modulation; }
   // Result SX126X_ERROR_NONE starts a send that finishes exactly once, through poll_transmit() or
   // cancel_transmit(). Any other result owes no completion.
   RadioEffects start_transmit(SX126xTransmitListener *listener, const uint8_t *data, size_t len, uint32_t timeout_ms);

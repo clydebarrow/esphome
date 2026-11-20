@@ -156,13 +156,13 @@ void TrafficWidget::build() {
     this->targets_.push_back(t);
   }
 
-  // Info boxes, created last so they sit above the targets. Bottom left: the ownship.
-  // Bottom right: an arrow pointing towards the most significant target, then its details.
-  this->ownship_box_ = this->create_box_(LV_ALIGN_BOTTOM_LEFT, INFO_MARGIN);
+  // Info boxes, created last so they sit above the targets. Bottom right: the ownship.
+  // Bottom left: an arrow pointing towards the most significant target, then its details.
+  this->ownship_box_ = this->create_box_(LV_ALIGN_BOTTOM_RIGHT, -INFO_MARGIN);
   this->ownship_label_ = lv_label_create(this->ownship_box_);
   // Keeps the units still as the digits change
   lv_obj_set_style_text_align(this->ownship_label_, LV_TEXT_ALIGN_RIGHT, 0);
-  this->info_box_ = this->create_box_(LV_ALIGN_BOTTOM_RIGHT, -INFO_MARGIN);
+  this->info_box_ = this->create_box_(LV_ALIGN_BOTTOM_LEFT, INFO_MARGIN);
 
   // The arrow is two text lines high, drawn in the text color.
   this->arrow_size_ =
@@ -420,7 +420,7 @@ void TrafficWidget::update() {
   }
 
   OwnshipT ownship;
-  bool pos_valid = this->parent_->get_ownship_position(&ownship);
+  bool pos_valid = this->parent_->get_traffic_ownship(&ownship);
   if (!pos_valid) {
     if (this->north_obj_ != nullptr) {
       set_hidden(this->north_obj_, true);

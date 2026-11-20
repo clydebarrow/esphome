@@ -5,6 +5,7 @@
 #include "esphome/components/socket/socket.h"
 #include "esphome/components/uart/uart.h"
 #include "flarm.h"
+#include "flarm_target.h"
 #include "gdl90.h"
 #include "status_socket.h"
 #include "threat.h"
@@ -121,6 +122,29 @@ class SkyEcho : public PollingComponent {
    */
   void set_traffic_callback(TrafficCallback callback) { this->traffic_manager_.set_callback(std::move(callback)); }
 
+  /// A GPS fix from another receiver, such as the tug relay's GNSS (relay_fix.h). While it is recent, the traffic and
+  /// threats are placed from it in place of the SkyEcho's own position, as it is a better receiver that updates more
+  /// often. Its altitude is above the WGS84 ellipsoid.
+  struct ExternalFix {
+    double latitude;
+    double longitude;
+    float altitude;  // meters above the ellipsoid
+    bool altitude_valid;
+    float speed;  // meters per second
+    bool speed_valid;
+    float track;  // degrees true
+    bool track_valid;
+  };
+  void set_external_fix(const ExternalFix &fix);
+  /// The ownship the traffic is placed from: the external fix's position, speed and track while it is recent, with
+  /// the SkyEcho's pressure altitude while it has one, as the traffic reports give pressure altitudes; otherwise the
+  /// SkyEcho's own report. False if neither is recent.
+  bool get_traffic_ownship(OwnshipT *position) const;
+
+  /// Add an aircraft heard on FLARM by another receiver, such as the tug's LoRa relay. It joins the SkyEcho's own
+  /// traffic, as the same aircraft when the SkyEcho reports its address too. This aircraft's own FLARM is dropped.
+  void add_flarm_target(const FlarmTarget &target);
+
   // Public accessor methods for text sensor
   bool get_ownship_position(OwnshipT *position);
   /// The GPS altitude in meters, from the ownship geometric altitude report; false if none has arrived lately.
@@ -186,6 +210,17 @@ class SkyEcho : public PollingComponent {
   uart::UARTComponent *flarm_uart_{nullptr};
   FlarmParser flarm_parser_{};
   TrafficManager traffic_manager_{};
+  OwnFlarmFilter own_flarm_{};
+  // The external fix as an ownship report, and its height above the ellipsoid
+  OwnshipT external_{};
+  float external_altitude_{0};
+  bool external_altitude_valid_{false};
+  bool external_recent_() const {
+    return this->external_.timestampMs != 0 && millis() - this->external_.timestampMs < MAX_POSITION_AGE_MS;
+  }
+  /// The ownship's height above the ellipsoid, for FLARM's heights: the external fix's, else the SkyEcho's
+  bool traffic_geo_altitude_(float *meters) const;
+  uint32_t flarm_targets_{0};  // added by add_flarm_target(), for the log
 
   // Collision prediction
   ThreatSettings threat_settings_{};

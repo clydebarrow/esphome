@@ -3,6 +3,12 @@
 # sends the display its fix over the same link (relay_fix.h), from its own address, never over LoRa. The tracker's
 # own screen is not used.
 #
+# While the tug flies, the relay also listens for FLARM on its LoRa radio (flarm_receiver), and sends the display each
+# aircraft it hears, once a second, over the same link (relay_fix::Traffic). It never transmits on FLARM. The radio is
+# shared: it goes back to LoRa for each packet the tug sends, and stays there for 5 s after one that may be answered
+# (anything but a broadcast, such as the tug's position). On the ground it stays on LoRa. Flying is the relay's own
+# GNSS speed: above 40 kt for 5 s, as the tug's logger takes off, until below 30 kt for 10 s.
+#
 # Wiring, to the display's 40-pin header (tug-wave8-lora.yaml):
 # - Tracker 3V3 to the display's 3V3, GND to GND
 # - Tracker GPIO4 (RX) to the display's GPIO21 (TX), tracker GPIO5 (TX) to the display's GPIO22 (RX)
@@ -17,6 +23,8 @@
 # The tug's display can open another 5 minutes at any time ('W', relay_fix.h): it asks when its own firmware check is
 # asked for, and from its Relay Wi-Fi button.
 substitutions:
+  # "true" listens for FLARM on the ground too, for a test on the bench: esphome -s flarm_on_ground true ...
+  flarm_on_ground: "false"
   display_tx_pin: GPIO5
   display_rx_pin: GPIO4
 
@@ -31,6 +39,37 @@ esphome:
   includes:
     - relay_fix.h
     - relay_firmware.h
+  on_boot:
+    - lambda: |-
+        // Back to LoRa before each packet the tug sends; held there a while for an answer, unless it was broadcast
+        relay_radio::before_lora_send = [](uint16_t destination) {
+          id(flarm).hold_lora(destination == relay_radio::BROADCAST ? 0 : 5000);
+        };
+        // Each aircraft heard on FLARM, once a second, to the display: addressed as the fix is
+        id(flarm).add_on_traffic_callback([](const flarm_receiver::LegacyTarget &target, float rssi) {
+          relay_fix::Traffic traffic;
+          traffic.address = target.address;
+          traffic.address_type = target.address_type;
+          traffic.aircraft_type = target.aircraft_type;
+          traffic.flags = (target.no_track ? relay_fix::Traffic::FLAG_NO_TRACK : 0) |
+                          (target.stealth ? relay_fix::Traffic::FLAG_STEALTH : 0);
+          traffic.lat_e7 = int32_t(lroundf(target.latitude * 1e7f));
+          traffic.lon_e7 = int32_t(lroundf(target.longitude * 1e7f));
+          // Back to the height above the ellipsoid that FLARM sent
+          traffic.altitude_cm = int32_t(lroundf((target.altitude + id(flarm).get_geoid_separation()) * 100.0f));
+          traffic.speed_cms = uint16_t(std::min(65535.0f, std::max(0.0f, target.speed * 100.0f)));
+          traffic.course_cdeg = uint16_t(lroundf(target.course * 100.0f)) % 36000;
+          traffic.climb_cms = int16_t(std::min(32767.0f, std::max(-32768.0f, target.climb_rate * 100.0f)));
+          traffic.rssi = int8_t(std::min(0.0f, std::max(-128.0f, rssi)));
+          uint8_t packet[4 + relay_fix::Traffic::SIZE];
+          const uint16_t tug = id(tug_address) != 0 ? id(tug_address) : 0xFFFF;
+          packet[0] = uint8_t(tug);
+          packet[1] = uint8_t(tug >> 8);
+          packet[2] = uint8_t(relay_fix::RELAY_ADDRESS);
+          packet[3] = uint8_t(relay_fix::RELAY_ADDRESS >> 8);
+          traffic.encode(packet + 4);
+          id(tug_link)->top()->send_to_interface(packet_interface::PacketBuffer(packet, sizeof(packet)), {});
+        });
 
 wifi:
   on_connect:
@@ -45,6 +84,14 @@ http_request:
   timeout: 10s
 
 globals:
+  # Flying, from the GNSS speed: FLARM is listened for only then
+  - id: flying
+    type: bool
+    initial_value: "false"
+  # Seconds the speed has been past the takeoff or landing speed, towards changing flying
+  - id: flying_change_s
+    type: uint8_t
+    initial_value: "0"
   # When the Wi-Fi window started: at boot, or when the tug last asked
   - id: wifi_window_start
     type: uint32_t
@@ -162,6 +209,14 @@ time:
     id: gnss_time
     gps_id: gnss
 
+# Shares the LoRa radio (tug-relay-common.yaml), and takes the time and position from the GNSS. It listens only while
+# flying (the interval below sets it).
+flarm_receiver:
+  id: flarm
+  sx126x_id: radio
+  band: AU
+  gps_id: gnss
+
 # The board's LED: on while the GNSS has a fix
 output:
   - platform: gpio
@@ -245,6 +300,20 @@ interval:
           } else {
             id(board_led).turn_off();
           }
+          // Flying: above 40 kt for 5 s, as the tug's logger takes off; landed: below 30 kt for 10 s
+          {
+            const float knots = (fix.flags & relay_fix::FLAG_SPEED) != 0 ? fix.speed_cms / 100.0f * 3600.0f / 1852.0f
+                                                                         : 0.0f;
+            const bool towards = id(flying) ? knots < 30.0f : knots > 40.0f;
+            id(flying_change_s) = towards ? id(flying_change_s) + 1 : 0;
+            if (id(flying_change_s) >= (id(flying) ? 10 : 5)) {
+              id(flying) = !id(flying);
+              id(flying_change_s) = 0;
+              ESP_LOGI("flarm", "%s: %s", id(flying) ? "Flying" : "Landed",
+                       id(flying) ? "listening for FLARM" : "LoRa only");
+            }
+            id(flarm).set_listening(id(flying) || ${flarm_on_ground});
+          }
           // Addressed as basic_addressing does: destination, then source, little endian. To the tug's address once
           // it has been learned from the tug's own packets (it comes from its tug file), and to broadcast before then;
           // the tug takes either from the relay's address. Never sent over LoRa.
@@ -260,6 +329,10 @@ interval:
   - interval: 30s
     then:
       - lambda: |-
+          if (id(flarm).is_listening()) {
+            ESP_LOGI("flarm", "%u FLARM packets so far; %s", unsigned(id(flarm).get_packet_count()),
+                     id(flarm).is_receiving_flarm() ? "listening" : "on LoRa");
+          }
           auto &tiny = id(gnss).get_tiny_gps();
           if (tiny.location.isValid() && tiny.location.age() < 3000) {
             ESP_LOGI("gnss", "Fix: %.6f,%.6f %.0fm %.1fkm/h, %u satellites", tiny.location.lat(),
