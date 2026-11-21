@@ -38,9 +38,18 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   altitude throughout: pressure if there is one, otherwise GPS. GPS altitude was first until 9 November 2026, when tows
   read 300 to 700 ft low against glider traces and pilots' notes: GPS altitude wanders by a couple of hundred feet on
   the ground, and the reference was one reading. Pressure altitude held steady there, and the change in air pressure
-  over a tow is small. The field elevation is only used with no recent ground altitude, and that tow is marked
+  over a tow is small. GPS came first again for a while, for fear the SkyEcho's cabin pressure misread at speed; the
+  three tows of 21 November 2026 showed otherwise. Pressure altitude matched the tug pilot's altimeter within 100 ft
+  on each, while the relay's GNSS read the climb 18% and 42% short. GPS altitude is taken from one receiver for a
+  whole flight, as the SkyEcho's reads about 300 ft above the relay's. The field elevation is only used with no recent ground altitude, and that tow is marked
   approximate, as is one with more than 60 s without data in flight; the Worker shows such heights with "≈". A median
   of three samples rejects a single bad fix, which delays the peak by one sample.
+- **Altitude MSL** is what the display shows and what a pilot enters: the height plus the field elevation, as a QNH
+  altimeter reads, and what tows are charged by. Heights above the field are kept and logged; an upload gives both.
+- **Launch field**: the Worker keeps a list of airfields, in the tug file and fetched hourly from `/api/airfields` while
+  there is internet (kept in `airfields.json`). On the ground the tug takes the nearest within 3 km, and a takeoff
+  uses its elevation, which each flight and tow keeps. Away from all of them the elevation is the GPS altitude on the
+  ground and the tow is approximate; with no list it is the home field's elevation from the tug file.
 - **Release height** can be changed in review, from the tug pilot's own reading. That replaces the measured height,
   which is no longer approximate; the measured one is still in the flight's record in `flights/`. Times on the
   screens are in the device's time zone.

@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "airfields.h"
 #include "flight_detector.h"
 
 namespace esphome::tug_logger {
@@ -65,7 +66,10 @@ struct TowRecord {
   bool launch_ms_valid{false};
   uint32_t duration_s{0};
   uint32_t climb_s{0};
+  /// Above the field it launched from
   int32_t max_height_ft{0};
+  /// That field's elevation: the height plus this is the altitude above mean sea level
+  float field_elevation_ft{0.0f};
   bool approximate{false};
   /// The pilot entered the height in review, in place of the measured one.
   bool height_entered{false};
@@ -76,7 +80,10 @@ struct TowRecord {
 struct Provisioning {
   std::string organisation;
   std::string tug_registration;
+  /// The home field, for a tow when there is no list of airfields
   float field_elevation_ft{0.0f};
+  /// Where the tug may launch, from the Worker; a takeoff takes the elevation of the one it is at
+  std::vector<Airfield> airfields;
   std::string upload_url;
   std::string upload_key;
   /// The tug's LoRa address and key (64 hex digits) for tows sent through a receiver; 0 and empty in a file made
@@ -106,7 +113,10 @@ enum class UploadResult : uint8_t {
 UploadResult classify_status(int status);
 
 /// The body of POST /api/tows.
+/// The body of POST /api/tows: the height above the field, and the altitude above mean sea level.
 std::string tow_to_upload_json(const TowRecord &record, const std::string &tug_registration);
+/// Reads the Worker's answer to POST /api/airfields, as the airfields file holds it, into out. False if not valid.
+bool parse_airfields(const std::string &text, Provisioning &out);
 /// Parses the provisioning file; false if it lacks the tug's registration, upload URL or key.
 bool parse_provisioning(const std::string &text, Provisioning &out);
 /// "2026-11-01T08:59:01Z"
@@ -125,6 +135,11 @@ class TowStore {
 
   /// Reads card_root/tug.json, or the only tug-*.json there. False if none, more than one, or it isn't valid.
   bool load_provisioning(Provisioning &out);
+  /// The Worker's airfields as last fetched, which replace those in the tug file. False if there are none yet.
+  bool load_airfields(Provisioning &out);
+  bool save_airfields(const std::string &text);
+  /// For records and a flight in progress saved before each had its field's elevation
+  void set_default_field_elevation_ft(float elevation_ft);
 
   // The flight in progress
   bool save_flight(const FlightSnapshot &snapshot, const TowDetails &details, time_t saved_at);
@@ -188,6 +203,7 @@ class TowStore {
   std::string dir_;
   std::string flight_log_path_;
   bool flight_log_open_{false};
+  float default_field_elevation_ft_{0.0f};
   std::mutex lock_;
   std::vector<TowRecord> review_;
   uint32_t next_id_{1};

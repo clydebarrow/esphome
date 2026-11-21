@@ -45,6 +45,7 @@ class TowStoreTest : public ::testing::Test {
     record.duration_s = 840;
     record.climb_s = 420;
     record.max_height_ft = 2000;
+    record.field_elevation_ft = 1500;
     record.details.glider_registration = glider;
     record.details.glider_pilot_1 = "Alex";
     record.details.tug_pilot = "Sam";
@@ -75,6 +76,7 @@ TEST(TugTowRecord, UploadBodyHasTheFieldsTheServerRequires) {
   record.duration_s = 840;
   record.climb_s = 420;
   record.max_height_ft = 2000;
+  record.field_elevation_ft = 1500;
   record.details = {"WGQ", "Alex", "Jo \"JJ\"", "Sam"};
   bool checked = false;
   ASSERT_TRUE(json::parse_json(tow_to_upload_json(record, "VH-TUG"), [&](JsonObject root) -> bool {
@@ -85,6 +87,7 @@ TEST(TugTowRecord, UploadBodyHasTheFieldsTheServerRequires) {
     EXPECT_STREQ(root["glider_pilot_2"], "Jo \"JJ\"");
     EXPECT_STREQ(root["launch"], "2026-11-01T08:59:01Z");
     EXPECT_EQ(root["max_height_ft"].as<int>(), 2000);
+    EXPECT_EQ(root["max_altitude_ft"].as<int>(), 3500);
     EXPECT_EQ(root["climb_seconds"].as<int>(), 420);
     EXPECT_EQ(root["duration"].as<int>(), 840);
     EXPECT_FALSE(root["height_approximate"].as<bool>());
@@ -134,6 +137,65 @@ TEST(TugTowRecord, ParsesTheFileTheWorkerGives) {
   EXPECT_TRUE(settings.lora_key.empty());
 }
 
+TEST(TugTowRecord, ReadsTheAirfieldsInTheFile) {
+  Provisioning settings;
+  ASSERT_TRUE(parse_provisioning(
+      R"({"tug":{"registration":"VH-TUG"},"field_elevation_ft":1500,"flight_upload_url":"u","flight_upload_key":"k",)"
+      R"("airfields":[{"name":"Home","lat":-28.2,"lon":152.03,"elevation_ft":1500},)"
+      R"({"name":"Away","lat":-27.4,"lon":151.7,"elevation_ft":1200},{"name":"Broken"}]})",
+      settings));
+  ASSERT_EQ(settings.airfields.size(), 2u);
+  EXPECT_EQ(settings.airfields[1].name, "Away");
+  EXPECT_NEAR(settings.airfields[1].lat, -27.4, 1e-5);
+  EXPECT_FLOAT_EQ(settings.airfields[1].elevation_ft, 1200.0f);
+}
+
+TEST(TugTowRecord, ReadsTheWorkersAirfields) {
+  Provisioning settings;
+  settings.field_elevation_ft = 100;
+  ASSERT_TRUE(parse_airfields(
+      R"({"field_elevation_ft":1500,"airfields":[{"name":"Home","lat":-28.2,"lon":152.03,"elevation_ft":1500}]})",
+      settings));
+  EXPECT_FLOAT_EQ(settings.field_elevation_ft, 1500.0f);
+  ASSERT_EQ(settings.airfields.size(), 1u);
+  EXPECT_FALSE(parse_airfields(R"({"error":"invalid_signature"})", settings));
+  EXPECT_EQ(settings.airfields.size(), 1u);
+}
+
+TEST(TugAirfields, TakesTheNearestWithinThreeKilometres) {
+  const std::vector<Airfield> airfields{{"Home", -28.2, 152.03, 1500}, {"Near", -28.21, 152.03, 1400}};
+  // About 330 m from Home and 780 m from Near
+  const Airfield *at = nearest_airfield(airfields, -28.203, 152.03);
+  ASSERT_NE(at, nullptr);
+  EXPECT_EQ(at->name, "Home");
+  // About 1.1 km east of Near
+  at = nearest_airfield(airfields, -28.21, 152.041);
+  ASSERT_NE(at, nullptr);
+  EXPECT_EQ(at->name, "Near");
+  // About 5.5 km away from both
+  EXPECT_EQ(nearest_airfield(airfields, -28.25, 152.03), nullptr);
+  EXPECT_EQ(nearest_airfield({}, -28.2, 152.03), nullptr);
+}
+
+TEST_F(TowStoreTest, KeepsTheFetchedAirfields) {
+  Provisioning settings;
+  EXPECT_FALSE(this->store->load_airfields(settings));
+  ASSERT_TRUE(this->store->save_airfields(
+      R"({"field_elevation_ft":1500,"airfields":[{"name":"Home","lat":-28.2,"lon":152.03,"elevation_ft":1500}]})"));
+  this->reopen();
+  ASSERT_TRUE(this->store->load_airfields(settings));
+  EXPECT_EQ(settings.airfields.size(), 1u);
+}
+
+TEST_F(TowStoreTest, AnOlderRecordTakesTheHomeFieldElevation) {
+  write_all(this->file("review.jsonl"), R"({"id":1,"launch":1793000000,"height":2000,"glider":"WGQ"})"
+                                        "\n");
+  this->reopen();
+  this->store->set_default_field_elevation_ft(1500);
+  ASSERT_EQ(this->store->review_list().size(), 1u);
+  EXPECT_FLOAT_EQ(this->store->review_list()[0].field_elevation_ft, 1500.0f);
+}
+
 TEST(TugTowRecord, ReadsTheLoraAddressAndKey) {
   Provisioning settings;
   ASSERT_TRUE(parse_provisioning(
@@ -173,6 +235,7 @@ TEST_F(TowStoreTest, ReviewListSurvivesARestart) {
   EXPECT_EQ(list[0].details.glider_registration, "WGQ");
   EXPECT_EQ(list[0].launch, LAUNCH);
   EXPECT_EQ(list[0].max_height_ft, 2000);
+  EXPECT_FLOAT_EQ(list[0].field_elevation_ft, 1500.0f);
   // A new tow must not reuse an id
   ASSERT_TRUE(this->store->add_review(tow("NEW")));
   list = this->store->review_list();

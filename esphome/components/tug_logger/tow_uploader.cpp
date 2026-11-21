@@ -351,6 +351,44 @@ void TugLogger::firmware_step() {
   this->firmware_state_ = state;
 }
 
+// Airfields change seldom; a failed fetch is tried again sooner
+static constexpr uint32_t AIRFIELDS_INTERVAL_MS = 60 * 60 * 1000;
+static constexpr uint32_t AIRFIELDS_RETRY_MS = 5 * 60 * 1000;
+
+void TugLogger::airfields_step() {
+  const uint32_t now = millis();
+  const uint32_t wait = this->airfields_tried_ ? AIRFIELDS_RETRY_MS : AIRFIELDS_INTERVAL_MS;
+  if (this->last_airfields_ms_ != 0 && now - this->last_airfields_ms_ < wait)
+    return;
+  // .../api/tows becomes .../api/airfields
+  const std::string &upload_url = this->provisioning_.upload_url;
+  const size_t slash = upload_url.rfind('/');
+  if (!this->provisioned_ || slash == std::string::npos || !network::is_connected() || this->on_skyecho_network_)
+    return;
+  this->last_airfields_ms_ = now == 0 ? 1 : now;
+  Answer answer{};
+  esp_err_t err;
+  const int status = post_signed(this->provisioning_, upload_url.substr(0, slash) + "/airfields", "{}", answer, err);
+  const std::string text(answer.text, answer.length);
+  Provisioning fetched;
+  if (status != 200 || !parse_airfields(text, fetched)) {
+    this->airfields_tried_ = true;
+    if (status != 0) {
+      ESP_LOGW(TAG, "Airfields not fetched: HTTP %d", status);
+    } else {
+      ESP_LOGW(TAG, "Airfields not fetched: %s", esp_err_to_name(err));
+    }
+    return;
+  }
+  this->airfields_tried_ = false;
+  if (!this->store_.save_airfields(text)) {
+    ESP_LOGW(TAG, "The airfields could not be saved");
+  }
+  std::lock_guard<std::mutex> guard(this->airfields_lock_);
+  this->fetched_ = std::move(fetched);
+  this->airfields_fetched_ = true;
+}
+
 static void uploader_task(void *param) {
   auto *logger = static_cast<TugLogger *>(param);
   while (true) {
@@ -359,6 +397,7 @@ static void uploader_task(void *param) {
     logger->firmware_step();
     logger->upload_step();
     logger->flight_log_step();
+    logger->airfields_step();
   }
 }
 
@@ -386,6 +425,7 @@ namespace esphome::tug_logger {
 void TugLogger::upload_step() {}
 void TugLogger::firmware_step() {}
 void TugLogger::flight_log_step() {}
+void TugLogger::airfields_step() {}
 
 void TugLogger::request_firmware_check() {
   this->firmware_check_callback_.call();

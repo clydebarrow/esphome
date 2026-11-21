@@ -99,14 +99,22 @@ void TugLogger::start_flight_log_(const char *why) {
   const char *kind = flight.kind == AltitudeKind::ALTITUDE_KIND_PRESSURE    ? "pressure"
                      : flight.kind == AltitudeKind::ALTITUDE_KIND_GEOMETRIC ? "GPS"
                                                                             : "none yet";
-  char header[256];
-  snprintf(header, sizeof(header),
-           "# %s. Heights from %s altitude, reference %s%.0f ft%s; field elevation %.0f ft\n"
-           "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet\n"
-           "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft\n",
-           why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
-           flight.has_reference ? flight.reference_m / METERS_PER_FOOT : this->provisioning_.field_elevation_ft,
-           flight.approximate ? ", approximate" : "", this->provisioning_.field_elevation_ft);
+  char field[96];
+  if (!this->launch_field_name_.empty()) {
+    snprintf(field, sizeof(field), "%s", this->launch_field_name_.c_str());
+  } else {
+    snprintf(field, sizeof(field), "%s",
+             this->provisioning_.airfields.empty() ? "home field" : "no airfield within 3 km, from GPS altitude");
+  }
+  char header[448];
+  snprintf(
+      header, sizeof(header),
+      "# %s. Heights from %s altitude, reference %s%.0f ft%s; field elevation %.0f ft, %s\n"
+      "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet; heights above the field\n"
+      "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft\n",
+      why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
+      flight.has_reference ? flight.reference_m / METERS_PER_FOOT : flight.field_elevation_ft,
+      flight.approximate ? ", approximate" : "", flight.field_elevation_ft, field);
   this->flight_log_ = header;
   for (const std::string &line : this->ground_lines_)
     this->flight_log_ += line;
@@ -133,8 +141,10 @@ void TugLogger::log_sample_(const PositionSample &sample, FlightEvent event) {
     if (event == FlightEvent::FLIGHT_EVENT_LANDED) {
       const FlightSnapshot &flight = this->detector_.flight();
       char summary[128];
-      snprintf(summary, sizeof(summary), "# Landed: %" PRIu32 " s, highest %" PRId32 " ft at %" PRIu32 " s%s\n",
-               flight.elapsed_s, flight.max_height_ft, flight.climb_s, flight.approximate ? ", approximate" : "");
+      snprintf(summary, sizeof(summary),
+               "# Landed: %" PRIu32 " s, highest %" PRId32 " ft at %" PRIu32 " s, altitude %" PRId32 " ft MSL%s\n",
+               flight.elapsed_s, flight.max_height_ft, flight.climb_s,
+               this->detector_.to_altitude_ft(flight.max_height_ft), flight.approximate ? ", approximate" : "");
       this->flight_log_ += summary;
       this->flush_flight_log_();
       this->flight_logging_ = false;
@@ -250,7 +260,12 @@ bool TugLogger::start_store_() {
   this->card_ok_ = true;
   this->provisioned_ = this->store_.load_provisioning(this->provisioning_);
   if (this->provisioned_) {
+    // The list last fetched from the Worker is newer than the tug file's
+    if (this->store_.load_airfields(this->provisioning_)) {
+      ESP_LOGI(TAG, "%zu airfields from the Worker", this->provisioning_.airfields.size());
+    }
     this->detector_.set_field_elevation_ft(this->provisioning_.field_elevation_ft);
+    this->store_.set_default_field_elevation_ft(this->provisioning_.field_elevation_ft);
     ESP_LOGI(TAG, "Tug %s, field elevation %.0f ft", this->provisioning_.tug_registration.c_str(),
              this->provisioning_.field_elevation_ft);
   } else {
@@ -288,6 +303,7 @@ void TugLogger::close_saved_flight_() {
   record.duration_s = this->saved_flight_.elapsed_s;
   record.climb_s = this->saved_flight_.climb_s;
   record.max_height_ft = this->saved_flight_.max_height_ft;
+  record.field_elevation_ft = this->saved_flight_.field_elevation_ft;
   record.approximate = true;
   record.details = this->saved_details_;
   this->record_flight_(record.duration_s);
@@ -311,6 +327,7 @@ PositionSample TugLogger::read_position_() {
     sample.speed_valid = this->nmea_speed_valid_;
     sample.ground_speed_mps = this->nmea_speed_mps_;
     sample.geometric_valid = this->nmea_altitude_valid_;
+    sample.geometric_source = uint8_t(GpsSource::GPS_SOURCE_NMEA);
     sample.geometric_m = this->nmea_altitude_m_;
     this->location_.valid = this->nmea_lat_ != 0.0 || this->nmea_lon_ != 0.0;
     this->location_.lat = this->nmea_lat_;
@@ -333,6 +350,7 @@ PositionSample TugLogger::read_position_() {
         sample.speed_valid = report.isGroundSpeedValid;
         sample.ground_speed_mps = report.groundSpeed;
         sample.geometric_valid = this->skyecho_->get_ownship_geo_altitude(&sample.geometric_m);
+        sample.geometric_source = uint8_t(GpsSource::GPS_SOURCE_SKYECHO);
         // A report with no position has zero latitude and longitude
         this->location_.valid = report.latitude != 0.0f || report.longitude != 0.0f;
         this->location_.lat = report.latitude;
@@ -412,6 +430,40 @@ void TugLogger::send_position_(const PositionSample &sample) {
 }
 #endif
 
+// While on the ground: the airfield the next takeoff will be from
+void TugLogger::choose_launch_field_() {
+  const std::vector<Airfield> &airfields = this->provisioning_.airfields;
+  if (airfields.empty()) {
+    this->launch_field_name_.clear();
+    this->detector_.set_launch_field(LaunchField::LAUNCH_FIELD_DEFAULT);
+    return;
+  }
+  const Airfield *airfield =
+      this->location_.valid ? nearest_airfield(airfields, this->location_.lat, this->location_.lon) : nullptr;
+  if (airfield == nullptr) {
+    this->launch_field_name_.clear();
+    this->detector_.set_launch_field(LaunchField::LAUNCH_FIELD_UNKNOWN);
+    return;
+  }
+  if (this->launch_field_name_ != airfield->name) {
+    this->launch_field_name_ = airfield->name;
+    ESP_LOGI(TAG, "At %s, elevation %.0f ft", airfield->name.c_str(), airfield->elevation_ft);
+  }
+  this->detector_.set_launch_field(LaunchField::LAUNCH_FIELD_KNOWN, airfield->elevation_ft);
+}
+
+void TugLogger::apply_fetched_airfields_() {
+  if (!this->airfields_fetched_.load())
+    return;
+  std::lock_guard<std::mutex> guard(this->airfields_lock_);
+  this->airfields_fetched_ = false;
+  this->provisioning_.airfields = std::move(this->fetched_.airfields);
+  this->provisioning_.field_elevation_ft = this->fetched_.field_elevation_ft;
+  this->detector_.set_field_elevation_ft(this->provisioning_.field_elevation_ft);
+  this->store_.set_default_field_elevation_ft(this->provisioning_.field_elevation_ft);
+  ESP_LOGI(TAG, "%zu airfields fetched", this->provisioning_.airfields.size());
+}
+
 void TugLogger::save_flight_() {
   this->last_save_ms_ = millis();
   if (!this->store_.save_flight(this->detector_.flight(), this->flight_details_, this->epoch_())) {
@@ -431,7 +483,8 @@ void TugLogger::on_takeoff_() {
 
 void TugLogger::on_landed_() {
   const FlightSnapshot &flight = this->detector_.flight();
-  ESP_LOGI(TAG, "Landed after %" PRIu32 " s, highest %" PRId32 " ft", flight.elapsed_s, flight.max_height_ft);
+  ESP_LOGI(TAG, "Landed after %" PRIu32 " s, highest %" PRId32 " ft MSL", flight.elapsed_s,
+           this->detector_.to_altitude_ft(flight.max_height_ft));
   TowRecord record;
   record.launch = flight.launch;
   record.launch_ms = this->detector_.launch_ms();
@@ -439,6 +492,7 @@ void TugLogger::on_landed_() {
   record.duration_s = flight.elapsed_s;
   record.climb_s = flight.climb_s;
   record.max_height_ft = flight.max_height_ft;
+  record.field_elevation_ft = flight.field_elevation_ft;
   record.approximate = flight.approximate;
   record.details = this->flight_details_;
   this->store_.remember(record.details);
@@ -496,6 +550,9 @@ void TugLogger::tick_() {
     }
   }
 
+  this->apply_fetched_airfields_();
+  if (!this->detector_.is_flying())
+    this->choose_launch_field_();
   const FlightEvent event = this->detector_.update(sample);
   this->log_sample_(sample, event);
   switch (event) {

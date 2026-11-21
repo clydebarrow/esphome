@@ -142,6 +142,8 @@ class TugLogger : public Component
   TowStore &store() { return this->store_; }
   bool is_flying() const { return this->detector_.is_flying(); }
   int32_t current_height_ft() const { return this->detector_.current_height_ft(); }
+  /// Altitude above mean sea level now, as a QNH altimeter reads; the tug pilots work in these
+  int32_t current_altitude_ft() const { return this->detector_.current_altitude_ft(); }
   uint32_t flight_elapsed_s() const { return this->detector_.flight().elapsed_s; }
   bool flight_data_lost() const { return this->is_flying() && this->source_ == GpsSource::GPS_SOURCE_NONE; }
   const TowDetails &flight_details() const { return this->flight_details_; }
@@ -181,6 +183,8 @@ class TugLogger : public Component
   void firmware_step();
   /// Run by the upload task: sends flight records to the Worker while there is internet.
   void flight_log_step();
+  /// Run by the upload task: fetches the airfields from the Worker, hourly while there is internet.
+  void airfields_step();
 
   /// Asks the server, from the upload task, whether there is firmware for this device other than what it runs.
   void request_firmware_check();
@@ -299,6 +303,17 @@ class TugLogger : public Component
   std::atomic<bool> firmware_check_requested_{false};
   std::mutex firmware_lock_;
   FirmwareOffer firmware_offer_;
+
+  void choose_launch_field_();
+  void apply_fetched_airfields_();
+  /// The airfield the tug is at, or empty if it is at none on the list
+  std::string launch_field_name_;
+  // The upload task's fetch, for the main loop to take up
+  std::mutex airfields_lock_;
+  Provisioning fetched_;
+  std::atomic<bool> airfields_fetched_{false};
+  uint32_t last_airfields_ms_{0};
+  bool airfields_tried_{false};
 
   // The last minute on the ground, which goes at the start of a flight's record
   std::deque<std::string> ground_lines_;

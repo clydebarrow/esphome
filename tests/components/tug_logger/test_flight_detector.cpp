@@ -21,6 +21,7 @@ class Flight {
     sample.ground_speed_mps = knots * KT;
     sample.geometric_valid = geometric_ft >= 0;
     sample.geometric_m = geometric_ft * FT;
+    sample.geometric_source = this->source;
     sample.pressure_valid = pressure_ft >= 0;
     sample.pressure_m = pressure_ft * FT;
     this->seconds++;
@@ -41,6 +42,8 @@ class Flight {
   FlightDetector detector;
   uint32_t seconds{1000};
   bool clock_set{true};
+  // The receiver the GPS altitude is from
+  uint8_t source{2};
 };
 
 // On the ground at 1500 ft for 30 s, then a takeoff run, flight, and landing: launch at second 1030
@@ -152,39 +155,103 @@ TEST(TugFlightDetector, StaleGroundAltitudeIsNotUsed) {
   EXPECT_TRUE(flight.detector.flight().approximate);
 }
 
-TEST(TugFlightDetector, PrefersGpsAltitude) {
+TEST(TugFlightDetector, PrefersPressureAltitude) {
   Flight flight;
-  // GPS wanders on the ground, about a mean of 1650 ft. In flight the cabin's pressure altitude reads low, as it
-  // does at speed, so the two disagree; the height comes from GPS
+  // As the relay's GNSS logged a tow: GPS reads the climb short, pressure altitude matches the altimeter
   for (int i = 0; i != 30; i++)
-    flight.step(0, i % 2 ? 1800 : 1500, 900);
-  flight.run(10, 60, 1650, 900);
-  flight.run(5, 70, 3550, 2600);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
-  EXPECT_EQ(flight.detector.flight().max_height_ft, 1900);
+    flight.step(0, i % 2 ? 1800 : 1500, 1275);
+  flight.run(10, 60, 1650, 1275);
+  flight.run(5, 70, 2600, 2875);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1600);
   EXPECT_FALSE(flight.detector.flight().approximate);
 }
 
 TEST(TugFlightDetector, NeverMixesAltitudeKinds) {
   Flight flight;
-  // Both on the ground, then only pressure altitude, which reads far lower: it is not used
+  // Both on the ground, then only GPS altitude, which reads far higher: it is not used
   flight.run(30, 0, 1500, 900);
   flight.run(10, 60, 1500, 900);
   flight.run(5, 70, 2500, 1900);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
-  flight.run(20, 70, -1, 9000);
+  flight.run(20, 70, 9000, -1);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
 }
 
-TEST(TugFlightDetector, FallsBackToPressureAltitude) {
+TEST(TugFlightDetector, FallsBackToGpsAltitude) {
   Flight flight;
-  flight.run(30, 0, -1, 1500);
-  flight.run(10, 60, -1, 1500);
-  flight.run(5, 70, -1, 2500);
-  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
+  flight.run(30, 0, 1500);
+  flight.run(10, 60, 1500);
+  flight.run(5, 70, 2500);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_GEOMETRIC);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
   EXPECT_FALSE(flight.detector.flight().approximate);
+}
+
+TEST(TugFlightDetector, KeepsToOneGpsReceiver) {
+  Flight flight;
+  flight.run(30, 0, 1680);
+  flight.run(10, 60, 1680);
+  flight.run(5, 70, 3600);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1920);
+  // The other receiver reads 320 ft higher: switching to it in the descent must not set a new highest
+  flight.source = 1;
+  flight.run(20, 100, 3755);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1920);
+  flight.source = 2;
+  flight.run(5, 100, 3000);
+  EXPECT_EQ(flight.detector.current_height_ft(), 1320);
+}
+
+TEST(TugFlightDetector, GroundReferenceIsFromOneGpsReceiver) {
+  Flight flight;
+  // Readings from another receiver before the last one are not part of the mean
+  flight.source = 1;
+  flight.run(20, 0, 2000);
+  flight.source = 2;
+  flight.run(10, 0, 1600);
+  flight.run(10, 60, 1600);
+  flight.run(5, 70, 3600);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 2000);
+}
+
+TEST(TugFlightDetector, GivesAltitudeAboveSeaLevel) {
+  DetectorSettings settings;
+  settings.field_elevation_ft = 1500;
+  Flight flight(settings);
+  // Pressure altitude on the ground is 225 ft below the field, as with a QNH of about 1021 hPa
+  flight.run(30, 0, -1, 1275);
+  flight.run(10, 60, -1, 1275);
+  flight.run(5, 70, -1, 2875);
+  EXPECT_EQ(flight.detector.current_altitude_ft(), 3100);
+  EXPECT_EQ(flight.detector.to_altitude_ft(flight.detector.flight().max_height_ft), 3100);
+}
+
+TEST(TugFlightDetector, TakesTheElevationOfTheAirfieldItLaunchesFrom) {
+  DetectorSettings settings;
+  settings.field_elevation_ft = 1500;
+  Flight flight(settings);
+  flight.detector.set_launch_field(LaunchField::LAUNCH_FIELD_KNOWN, 400);
+  flight.run(30, 0, 520, 300);
+  flight.run(10, 60, 520, 300);
+  flight.run(5, 70, 2500, 2300);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 2000);
+  EXPECT_EQ(flight.detector.current_altitude_ft(), 2400);
+  EXPECT_FALSE(flight.detector.flight().approximate);
+}
+
+TEST(TugFlightDetector, AwayFromTheAirfieldsUsesGpsOnTheGround) {
+  DetectorSettings settings;
+  settings.field_elevation_ft = 1500;
+  Flight flight(settings);
+  flight.detector.set_launch_field(LaunchField::LAUNCH_FIELD_UNKNOWN);
+  flight.run(30, 0, 820, 600);
+  flight.run(10, 60, 820, 600);
+  flight.run(5, 70, 2800, 2600);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 2000);
+  EXPECT_EQ(flight.detector.current_altitude_ft(), 2820);
+  EXPECT_TRUE(flight.detector.flight().approximate);
 }
 
 TEST(TugFlightDetector, ReferenceIsTheMeanOfTheLast30Seconds) {

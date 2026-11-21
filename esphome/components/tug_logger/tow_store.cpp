@@ -1,6 +1,7 @@
 #include "tow_store.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cctype>
 #include <cerrno>
 #include <cinttypes>
@@ -128,6 +129,8 @@ std::string tow_to_upload_json(const TowRecord &record, const std::string &tug_r
       root["glider_pilot_2"] = record.details.glider_pilot_2;
     root["launch"] = format_utc(record.launch);
     root["max_height_ft"] = std::max<int32_t>(record.max_height_ft, 0);
+    // What a QNH altimeter read, the figure tows are charged by
+    root["max_altitude_ft"] = record.max_height_ft + int32_t(std::lround(record.field_elevation_ft));
     root["climb_seconds"] = record.climb_s;
     root["duration"] = record.duration_s;
     root["height_approximate"] = record.approximate;
@@ -141,6 +144,9 @@ static std::string record_to_json(const TowRecord &record) {
     root["duration"] = record.duration_s;
     root["climb"] = record.climb_s;
     root["height"] = record.max_height_ft;
+    // Not known for a record from before, until the tug file is read
+    if (!std::isnan(record.field_elevation_ft))
+      root["field"] = record.field_elevation_ft;
     root["approximate"] = record.approximate;
     root["entered"] = record.height_entered;
     root["glider"] = record.details.glider_registration;
@@ -157,7 +163,8 @@ static void details_from_json(JsonObject root, TowDetails &details) {
   details.tug_pilot = root["tug_pilot"] | "";
 }
 
-static bool record_from_json(const std::string &line, TowRecord &record) {
+// A record from before each had its field's elevation gets NAN, until set_default_field_elevation_ft() fills it
+static bool record_from_json(const std::string &line, TowRecord &record, float default_field_ft) {
   return json::parse_json(line, [&](JsonObject root) -> bool {
     if (!root["id"].is<uint32_t>())
       return false;
@@ -166,11 +173,39 @@ static bool record_from_json(const std::string &line, TowRecord &record) {
     record.duration_s = root["duration"] | 0u;
     record.climb_s = root["climb"] | 0u;
     record.max_height_ft = root["height"] | 0;
+    record.field_elevation_ft = root["field"] | default_field_ft;
     record.approximate = root["approximate"] | false;
     record.height_entered = root["entered"] | false;
     details_from_json(root, record.details);
     return true;
   });
+}
+
+static void airfields_from_json(JsonArray list, std::vector<Airfield> &out) {
+  out.clear();
+  for (JsonObject item : list) {
+    Airfield airfield;
+    airfield.name = item["name"] | "";
+    airfield.lat = item["lat"] | 0.0;
+    airfield.lon = item["lon"] | 0.0;
+    airfield.elevation_ft = item["elevation_ft"] | 0.0f;
+    if (!item["lat"].is<double>() || !item["lon"].is<double>() || !item["elevation_ft"].is<float>())
+      continue;
+    out.push_back(std::move(airfield));
+  }
+}
+
+bool parse_airfields(const std::string &text, Provisioning &out) {
+  bool valid = false;
+  json::parse_json(text, [&](JsonObject root) -> bool {
+    if (!root["airfields"].is<JsonArray>() || !root["field_elevation_ft"].is<float>())
+      return false;
+    out.field_elevation_ft = root["field_elevation_ft"];
+    airfields_from_json(root["airfields"], out.airfields);
+    valid = true;
+    return true;
+  });
+  return valid;
 }
 
 bool parse_provisioning(const std::string &text, Provisioning &out) {
@@ -179,6 +214,7 @@ bool parse_provisioning(const std::string &text, Provisioning &out) {
     out.organisation = root["organisation"] | "";
     out.tug_registration = root["tug"]["registration"] | "";
     out.field_elevation_ft = root["field_elevation_ft"] | 0.0f;
+    airfields_from_json(root["airfields"], out.airfields);
     out.upload_url = root["flight_upload_url"] | "";
     out.upload_key = root["flight_upload_key"] | "";
     out.lora_address = root["lora"]["address"] | 0;
@@ -403,7 +439,7 @@ bool TowStore::begin() {
   if (this->read_with_fallback_(REVIEW_FILE, content)) {
     for (const std::string &line : split_lines(content)) {
       TowRecord record;
-      if (record_from_json(line, record)) {
+      if (record_from_json(line, record, NAN)) {
         this->review_.push_back(std::move(record));
         this->next_id_ = std::max(this->next_id_, this->review_.back().id + 1);
       }
@@ -436,6 +472,24 @@ bool TowStore::load_provisioning(Provisioning &out) {
   return read_file(path, content, MAX_PROVISIONING) && parse_provisioning(content, out);
 }
 
+static constexpr const char *AIRFIELDS_FILE = "airfields.json";
+
+void TowStore::set_default_field_elevation_ft(float elevation_ft) {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  this->default_field_elevation_ft_ = elevation_ft;
+  for (TowRecord &record : this->review_) {
+    if (std::isnan(record.field_elevation_ft))
+      record.field_elevation_ft = elevation_ft;
+  }
+}
+
+bool TowStore::load_airfields(Provisioning &out) {
+  std::string content;
+  return this->read_with_fallback_(AIRFIELDS_FILE, content) && parse_airfields(content, out);
+}
+
+bool TowStore::save_airfields(const std::string &text) { return this->write_atomic_(AIRFIELDS_FILE, text); }
+
 bool TowStore::save_flight(const FlightSnapshot &snapshot, const TowDetails &details, time_t saved_at) {
   const std::string text = json::build_json([&](JsonObject root) {
     root["launch"] = (int64_t) snapshot.launch;
@@ -446,6 +500,8 @@ bool TowStore::save_flight(const FlightSnapshot &snapshot, const TowDetails &det
     root["kind"] = (uint8_t) snapshot.kind;
     root["reference"] = snapshot.reference_m;
     root["has_reference"] = snapshot.has_reference;
+    root["source"] = snapshot.geometric_source;
+    root["field"] = snapshot.field_elevation_ft;
     root["saved_at"] = (int64_t) saved_at;
     root["glider"] = details.glider_registration;
     root["pilot1"] = details.glider_pilot_1;
@@ -472,6 +528,8 @@ bool TowStore::load_flight(FlightSnapshot &snapshot, TowDetails &details, time_t
     snapshot.kind = (AltitudeKind) (root["kind"] | (uint8_t) 0);
     snapshot.reference_m = root["reference"] | 0.0f;
     snapshot.has_reference = root["has_reference"] | false;
+    snapshot.geometric_source = root["source"] | (uint8_t) 0;
+    snapshot.field_elevation_ft = root["field"] | this->default_field_elevation_ft_;
     saved_at = (time_t) (root["saved_at"] | (int64_t) 0);
     details_from_json(root, details);
     return true;

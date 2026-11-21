@@ -27,7 +27,12 @@ static constexpr uint8_t WIFI_LIST_REFRESH_TICKS = 2;
 // The most of a network's name that the status bar shows
 static constexpr size_t STATUS_SSID_LENGTH = 16;
 // The most a pilot can enter as a release height
-static constexpr long MAX_ENTERED_HEIGHT_FT = 20000;
+static constexpr long MAX_ENTERED_ALTITUDE_FT = 20000;
+
+// What the altimeter read at release: the height above the field the tow launched from, plus its elevation
+static int32_t altitude_ft(const TowRecord &record) {
+  return record.max_height_ft + int32_t(std::lround(record.field_elevation_ft));
+}
 // How long the Refuelled button waits for its second press
 static constexpr uint8_t REFUEL_ARMED_TICKS = 5;
 // How long the Shut down button waits for its second press
@@ -228,7 +233,7 @@ void TugUi::refresh() {
   lv_label_set_text(this->w_.review_count, Text("To review: %zu", logger->review_count()).text);
   if (logger->is_flying()) {
     const uint32_t elapsed = logger->flight_elapsed_s();
-    lv_label_set_text(this->w_.flight_height, Text("%d ft", int(logger->current_height_ft())).text);
+    lv_label_set_text(this->w_.flight_height, Text("%d ft", int(logger->current_altitude_ft())).text);
     lv_label_set_text(this->w_.flight_elapsed, Text("%u:%02u", unsigned(elapsed / 60), unsigned(elapsed % 60)).text);
     const std::string &glider = logger->flight_details().glider_registration;
     lv_label_set_text(this->w_.flight_info, glider.empty() ? "" : glider.c_str());
@@ -327,8 +332,8 @@ void TugUi::edit_tow_height() {
   this->picker_initial_.clear();
   this->picker_filter_.clear();
   lv_obj_clean(this->w_.picker_list);
-  lv_label_set_text(this->w_.picker_title, "Release height, feet above the airfield");
-  lv_textarea_set_text(this->w_.picker_text, Text("%d", int(record.max_height_ft)).text);
+  lv_label_set_text(this->w_.picker_title, "Release altitude, feet MSL");
+  lv_textarea_set_text(this->w_.picker_text, Text("%d", int(altitude_ft(record))).text);
   lv_keyboard_set_mode(this->w_.picker_keyboard, LV_KEYBOARD_MODE_NUMBER);
   this->show_(this->w_.picker_page);
 }
@@ -485,13 +490,17 @@ void TugUi::accept_(const std::string &entered) {
   if (this->mode_ == PickerMode::PICKER_MODE_HEIGHT) {
     const std::string text = trimmed(entered);
     char *end = nullptr;
-    const long height = strtol(text.c_str(), &end, 10);
-    const bool valid = !text.empty() && *end == 0 && height >= 0 && height <= MAX_ENTERED_HEIGHT_FT;
+    // Entered as the altimeter read it, and kept as a height above the field
+    const long altitude = strtol(text.c_str(), &end, 10);
+    TowRecord record;
+    const bool found = this->current_tow_(record);
+    const int32_t height = int32_t(altitude) - int32_t(std::lround(record.field_elevation_ft));
+    const bool valid = found && !text.empty() && *end == 0 && height >= 0 && altitude <= MAX_ENTERED_ALTITUDE_FT;
     if (valid)
-      this->logger_->store().update_height(this->tow_id_, int32_t(height));
+      this->logger_->store().update_height(this->tow_id_, height);
     this->open_tow_(this->tow_id_);
     if (!valid)
-      lv_label_set_text(this->w_.tow_message, "Enter the release height in whole feet");
+      lv_label_set_text(this->w_.tow_message, "Enter the release altitude in whole feet MSL");
     return;
   }
   std::string value = trimmed(entered);
@@ -532,7 +541,7 @@ void TugUi::show_review() {
         record.details.glider_registration.empty() ? "no glider" : record.details.glider_registration;
     const uint32_t id = record.id;
     this->add_row_(this->w_.review_list,
-                   Text("%s   %s   %d ft%s   %u min", when.c_str(), glider.c_str(), int(record.max_height_ft),
+                   Text("%s   %s   %d ft%s   %u min", when.c_str(), glider.c_str(), int(altitude_ft(record)),
                         record.approximate ? " approx" : "", unsigned(record.duration_s / 60))
                        .text,
                    [this, id]() { this->open_tow_(id); });
@@ -558,7 +567,7 @@ void TugUi::refresh_tow_() {
                                             unsigned(record.climb_s / 60), unsigned(record.climb_s % 60),
                                             unsigned(record.duration_s / 60), unsigned(record.duration_s % 60))
                                            .text);
-  lv_label_set_text(this->w_.tow_height, Text("%d ft%s", int(record.max_height_ft),
+  lv_label_set_text(this->w_.tow_height, Text("%d ft MSL%s", int(altitude_ft(record)),
                                               record.height_entered ? " (entered)"
                                               : record.approximate  ? " (approx)"
                                                                     : "")

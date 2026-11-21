@@ -19,8 +19,13 @@ FlightEvent FlightDetector::update(const PositionSample &sample) {
   } else {
     // The reference follows the aircraft on the ground, and stops as it accelerates for takeoff
     if (sample.speed_valid && sample.ground_speed_mps < this->settings_.landing_speed_mps) {
-      if (sample.geometric_valid)
+      if (sample.geometric_valid) {
+        // A change of receiver starts the ground altitudes again, so the reference is from one
+        if (sample.geometric_source != this->ground_geometric_source_)
+          this->ground_geometric_.clear();
+        this->ground_geometric_source_ = sample.geometric_source;
         this->ground_geometric_.add(sample.now_ms, sample.geometric_m);
+      }
       if (sample.pressure_valid)
         this->ground_pressure_.add(sample.now_ms, sample.pressure_m);
     }
@@ -70,16 +75,27 @@ void FlightDetector::start_flight_(const PositionSample &sample) {
   } else if (sample.epoch != 0) {
     this->flight_.launch = sample.epoch - time_t((sample.now_ms - this->launch_ms_) / 1000);
   }
-  // Ages are measured from the start of the run: the reference stops updating there. GPS altitude first: the
-  // SkyEcho's pressure altitude is the cabin's, which changes with speed and so misreads the height at release. The
-  // reference is a mean over the window, which smooths GPS altitude's wander on the ground.
+  // Ages are measured from the start of the run: the reference stops updating there. Pressure altitude first: GPS
+  // altitude reads climbs short, by up to 40% from the relay's GNSS. The reference is a mean over the window, which
+  // smooths GPS altitude's wander on the ground.
   const uint32_t max_age = this->settings_.max_reference_age_ms;
   const uint32_t window = this->settings_.reference_window_ms;
-  if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
-    this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
-    this->flight_.has_reference = true;
-  } else if (this->ground_pressure_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
+  this->flight_.field_elevation_ft = this->settings_.field_elevation_ft;
+  if (this->launch_field_ == LaunchField::LAUNCH_FIELD_KNOWN) {
+    this->flight_.field_elevation_ft = this->launch_elevation_ft_;
+  } else if (this->launch_field_ == LaunchField::LAUNCH_FIELD_UNKNOWN) {
+    // GPS altitude is off by tens of feet, and more from a receiver that gives it above the ellipsoid
+    float ground_m;
+    if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, ground_m))
+      this->flight_.field_elevation_ft = ground_m / METERS_PER_FOOT;
+    this->flight_.approximate = true;
+  }
+  if (this->ground_pressure_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
     this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
+    this->flight_.has_reference = true;
+  } else if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
+    this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
+    this->flight_.geometric_source = this->ground_geometric_source_;
     this->flight_.has_reference = true;
   } else {
     this->flight_.approximate = true;
@@ -94,7 +110,9 @@ bool FlightDetector::altitude_for_(const PositionSample &sample, float &altitude
   switch (this->flight_.kind) {
     case AltitudeKind::ALTITUDE_KIND_GEOMETRIC:
       altitude_m = sample.geometric_m;
-      return sample.geometric_valid;
+      // A flight saved before the receiver was kept has none
+      return sample.geometric_valid &&
+             (this->flight_.geometric_source == 0 || sample.geometric_source == this->flight_.geometric_source);
     case AltitudeKind::ALTITUDE_KIND_PRESSURE:
       altitude_m = sample.pressure_m;
       return sample.pressure_valid;
@@ -106,10 +124,11 @@ bool FlightDetector::altitude_for_(const PositionSample &sample, float &altitude
 void FlightDetector::track_flight_(const PositionSample &sample) {
   // With no reference, the first altitude seen in flight decides the kind, and heights use the field elevation
   if (this->flight_.kind == AltitudeKind::ALTITUDE_KIND_NONE) {
-    if (sample.geometric_valid) {
-      this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
-    } else if (sample.pressure_valid) {
+    if (sample.pressure_valid) {
       this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
+    } else if (sample.geometric_valid) {
+      this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
+      this->flight_.geometric_source = sample.geometric_source;
     } else {
       return;
     }
@@ -119,7 +138,7 @@ void FlightDetector::track_flight_(const PositionSample &sample) {
     return;
   const float altitude_ft = altitude_m / METERS_PER_FOOT;
   const float zero_ft =
-      this->flight_.has_reference ? this->flight_.reference_m / METERS_PER_FOOT : this->settings_.field_elevation_ft;
+      this->flight_.has_reference ? this->flight_.reference_m / METERS_PER_FOOT : this->flight_.field_elevation_ft;
   const float height_ft = this->median_height_(altitude_ft - zero_ft);
   this->current_height_ft_ = int32_t(height_ft + (height_ft < 0 ? -0.5f : 0.5f));
   if (this->current_height_ft_ > this->flight_.max_height_ft) {
