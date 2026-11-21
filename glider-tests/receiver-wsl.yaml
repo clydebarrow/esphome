@@ -6,6 +6,8 @@
 #   the Worker has answered (see receiver_upload.h). A glider's takeoff report, sent as it takes off, is posted and
 #   acknowledged the same way, so the dashboard shows the flight in progress.
 # - Posts the positions of known gliders to the Worker every 3 s, for the live map.
+# - Posts its status every minute (receiver/status): its Wi-Fi network and signal, uptime, build, noise floor and
+#   the LoRa packets it heard in the last hour, for the Admin page.
 # - Posts each tow from a known tug (tug_logger's upload link, through its relay) to the Worker with the tug's own
 #   signature, and answers the tug with the Worker's status.
 # The receiver's key, the Worker's address and the club's name come from the dashboard: in the Worker's Admin, add a
@@ -27,6 +29,7 @@ esphome:
           // Worker has answered
           auto on_summary = [](const receiver::Glider &glider, const packet_interface::PacketBuffer &data,
                                const packet_interface::PacketMetaData &meta) {
+            receiver::heard.add(millis());
             uint8_t buf[64];
             size_t len = data.copy_to(buf, sizeof(buf));
             glider::Summary summary;
@@ -72,6 +75,7 @@ esphome:
           // A tow from a tug: post it with the tug's own signature, and answer with the Worker's status
           auto on_tow = [](const receiver::Tug &tug, const packet_interface::PacketBuffer &data,
                            const packet_interface::PacketMetaData &meta) {
+            receiver::heard.add(millis());
             uint8_t buf[600];
             size_t len = data.copy_to(buf, sizeof(buf));
             receiver::TowUpload tow;
@@ -127,6 +131,7 @@ esphome:
 
           id(broadcasts)->top()->add_packet_interface_listener(
               [](const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta) {
+                receiver::heard.add(millis());
                 uint8_t buf[64];
                 size_t len = data.copy_to(buf, sizeof(buf));
                 glider::Position pos;
@@ -314,6 +319,29 @@ interval:
     startup_delay: 1h
     then:
       - script.execute: check_firmware
+  # The status for the Admin page; the Worker refuses it until the clock is set, as for the device list
+  - interval: 1min
+    then:
+      - lambda: |-
+          auto &status = receiver::status;
+          auto *wifi = wifi::global_wifi_component;
+          if (status.busy || !wifi->is_connected() || !receiver::clock_set())
+            return;
+          char ssid[wifi::SSID_BUFFER_SIZE];
+          char ip[network::IP_ADDRESS_BUFFER_SIZE] = "";
+          for (const auto &address : wifi->wifi_sta_ip_addresses()) {
+            if (address.is_ip4()) {
+              address.str_to(ip);
+              break;
+            }
+          }
+          const uint32_t now = millis();
+          status.busy = true;
+          status.body = receiver::status_json(wifi->wifi_ssid_to(ssid), wifi->wifi_rssi(), ip, now / 1000,
+                                              App.get_build_time(), id(noise_floor).state,
+                                              receiver::heard.last_hour(now));
+          status.signature = receiver::sign(id(receiver_key), status.body);
+          id(send_status).execute();
   # Positions for the live map, in one post every few seconds rather than one for each packet
   - interval: 3s
     then:
@@ -502,6 +530,26 @@ script:
               - lambda: |-
                   ESP_LOGW("receiver", "Posting positions failed; they are dropped");
                   receiver::positions.busy = false;
+  - id: send_status
+    then:
+      - http_request.post:
+          url: ${worker_url}/api/receiver/status
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return receiver::status.signature.c_str();
+          body: !lambda return receiver::status.body;
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  if (response->status_code != 204)
+                    ESP_LOGW("receiver", "Worker answered %d for the status: %s", response->status_code, body.c_str());
+                  receiver::status.busy = false;
+          on_error:
+            then:
+              - lambda: |-
+                  ESP_LOGW("receiver", "Posting the status failed");
+                  receiver::status.busy = false;
   - id: upload_flight
     then:
       - http_request.post:

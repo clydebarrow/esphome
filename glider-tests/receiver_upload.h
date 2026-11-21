@@ -13,6 +13,9 @@
 // its LoRa address and key, at every clock sync (so soon after Wi-Fi connects, then every 15 minutes), and gives each
 // a slot in the gliders or tugs pool. Nothing is kept in flash: without Wi-Fi it could not post anything anyway.
 //
+// Status: every minute the receiver posts (POST /api/receiver/status) the network it is on, its signal, how long it
+// has run, its build, the noise floor, and how many LoRa packets it heard in the last hour, for the Admin page.
+//
 // Firmware: the receiver asks the Worker (POST /api/firmware/check, as a tug does) whether there is a build for it
 // other than the one it runs, and installs it over HTTP, so a receiver on a pole can be updated from anywhere.
 
@@ -354,6 +357,75 @@ inline std::string firmware_check_json(int64_t build_time) {
   snprintf(built, sizeof(built), "%lld", (long long) build_time);
   return std::string("{\"project\":") + json_string(esp_app_get_description()->project_name) + ",\"elf_sha256\":\"" +
          elf_sha256 + "\",\"build_time\":" + built + "}";
+}
+
+/// The packets heard, counted for each minute of uptime over the last hour, for the status report
+struct Heard {
+  static constexpr uint32_t MINUTES = 60;
+  uint16_t counts[MINUTES]{};
+  /// The minute of uptime the newest count is for
+  uint32_t minute{0};
+
+  /// Moves on to \p now_minute, clearing the counts of the minutes skipped
+  void advance(uint32_t now_minute) {
+    if (now_minute - this->minute >= MINUTES) {
+      memset(this->counts, 0, sizeof(this->counts));
+    } else {
+      while (this->minute != now_minute) {
+        this->minute++;
+        this->counts[this->minute % MINUTES] = 0;
+      }
+    }
+    this->minute = now_minute;
+  }
+  void add(uint32_t now_ms) {
+    this->advance(now_ms / 60000);
+    uint16_t &count = this->counts[this->minute % MINUTES];
+    if (count != UINT16_MAX)
+      count++;
+  }
+  /// The packets heard in this minute and the 59 before it
+  uint32_t last_hour(uint32_t now_ms) {
+    this->advance(now_ms / 60000);
+    uint32_t total = 0;
+    for (uint16_t count : this->counts)
+      total += count;
+    return total;
+  }
+};
+inline Heard heard;
+
+/// The status report in progress
+struct StatusReport {
+  bool busy{false};
+  std::string body;
+  std::string signature;
+};
+inline StatusReport status;
+
+template<typename Entry> size_t known_count(const std::vector<Entry> &entries) {
+  size_t count = 0;
+  for (const auto &entry : entries)
+    count += entry.address != 0;
+  return count;
+}
+
+/// What the Admin page shows of the receiver. The time is there so a captured report can't be sent again later.
+inline std::string status_json(const char *ssid, int rssi, const char *ip, uint32_t uptime_s, int64_t build_time,
+                               float noise_dbm, uint32_t heard_hour) {
+  // An SSID can hold any bytes; keep it printable for the JSON
+  std::string clean;
+  for (const char *p = ssid; *p != 0; p++)
+    clean += (*p >= ' ' && *p <= '~') ? *p : '?';
+  char buf[200];
+  int n = snprintf(buf, sizeof(buf),
+                   "{\"time\":%lld,\"rssi\":%d,\"uptime_s\":%u,\"build_time\":%lld,\"heard_hour\":%u,"
+                   "\"gliders\":%u,\"tugs\":%u",
+                   (long long) ::time(nullptr), rssi, (unsigned) uptime_s, (long long) build_time,
+                   (unsigned) heard_hour, (unsigned) known_count(pool_gliders), (unsigned) known_count(pool_tugs));
+  if (!std::isnan(noise_dbm))
+    snprintf(buf + n, sizeof(buf) - n, ",\"noise_dbm\":%.1f", noise_dbm);
+  return std::string(buf) + ",\"ssid\":" + json_string(clean) + ",\"ip\":" + json_string(ip) + "}";
 }
 
 }  // namespace receiver
