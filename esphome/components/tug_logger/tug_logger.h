@@ -53,6 +53,8 @@ enum class FirmwareState : uint8_t {
   FIRMWARE_STATE_CURRENT,
   FIRMWARE_STATE_AVAILABLE,
   FIRMWARE_STATE_FAILED,
+  /// The LoRa link says there is an update; installing it needs the internet
+  FIRMWARE_STATE_NEEDS_INTERNET,
 };
 
 /// What the server offered: a link that expires, and the image's MD5 for the OTA to check.
@@ -63,6 +65,18 @@ struct FirmwareOffer {
   time_t built{0};
   time_t uploaded{0};
   std::string message;
+};
+
+/// An update found by the tug's own checks, at power up and every few hours, for a notice to the operator.
+struct UpdateNotice {
+  bool available{false};
+  /// UTC seconds; 0 if not known.
+  time_t built{0};
+  time_t uploaded{0};
+  bool operator==(const UpdateNotice &other) const {
+    return this->available == other.available && this->built == other.built && this->uploaded == other.uploaded;
+  }
+  bool operator!=(const UpdateNotice &other) const { return !(*this == other); }
 };
 
 /// A time as the device shows it: in its own time zone, to the minute.
@@ -185,6 +199,14 @@ class TugLogger : public Component
   void flight_log_step();
   /// Run by the upload task: fetches the airfields from the Worker, hourly while there is internet.
   void airfields_step();
+  /// Run by the upload task: a firmware check soon after power up and every few hours, over the internet if there is
+  /// one, otherwise over the LoRa link, so the operator hears of an update without asking.
+  void update_check_step();
+  /// What the last of those checks found.
+  UpdateNotice update_notice() {
+    std::lock_guard<std::mutex> guard(this->firmware_lock_);
+    return this->update_notice_;
+  }
 
   /// Asks the server, from the upload task, whether there is firmware for this device other than what it runs.
   void request_firmware_check();
@@ -226,6 +248,15 @@ class TugLogger : public Component
 #ifdef USE_TUG_LOGGER_WIFI_NETWORKS
   wifi_networks::WifiNetworks *wifi_networks_{nullptr};
 #endif
+  // The SkyEcho's state at the last sample, for the flight log: it shows why a pressure altitude is missing
+  struct SkyEchoState {
+    bool present{false};
+    bool gps_valid{false};
+    bool has_ownship{false};
+    uint32_t ownship_age_ms{0};
+    bool geometric_valid{false};
+    float geometric_m{0.0f};
+  } skyecho_state_{};
   // The latest backup fix
   uint32_t nmea_ms_{0};
   float nmea_speed_mps_{0.0f};
@@ -248,15 +279,6 @@ class TugLogger : public Component
 #ifdef USE_TUG_LOGGER_POSITION_LINK
   void send_position_(const PositionSample &sample);
   packet_interface::PacketInterface *position_link_{nullptr};
-  // The SkyEcho's state at the last sample, for the flight log: it shows why a pressure altitude is missing
-  struct SkyEchoState {
-    bool present{false};
-    bool gps_valid{false};
-    bool has_ownship{false};
-    uint32_t ownship_age_ms{0};
-    bool geometric_valid{false};
-    float geometric_m{0.0f};
-  } skyecho_state_{};
   uint32_t last_position_sent_ms_{0};
   bool position_sent_{false};
 #endif
@@ -323,6 +345,10 @@ class TugLogger : public Component
   std::atomic<bool> airfields_fetched_{false};
   uint32_t last_airfields_ms_{0};
   bool airfields_tried_{false};
+  void set_update_notice_(bool update, const FirmwareOffer &offer);
+  uint32_t last_update_check_ms_{0};
+  bool update_check_failed_{false};
+  UpdateNotice update_notice_{};
 
   // The last minute on the ground, which goes at the start of a flight's record
   std::deque<std::string> ground_lines_;

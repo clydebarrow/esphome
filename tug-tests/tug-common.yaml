@@ -64,6 +64,8 @@ esphome:
             w.tow_height = id(tow_height);
             w.picker_keyboard = id(picker_keyboard)->obj;
             w.theme_label = id(theme_label);
+            w.update_notice = id(update_notice);
+            w.update_notice_label = id(update_notice_label);
             w.traffic = id(traffic);
             id(ui).bind(id(logger_id), w);
             id(ui).set_dark_mode(id(dark_mode));
@@ -206,6 +208,29 @@ lvgl:
           text_font: bold_28
           text_color: white
           text: ""
+      # A newer build the tug's own check found: over the bottom of the page on the ground, until tapped. A tap opens
+      # the settings, where Wi-Fi is joined and the update installed
+      - button:
+          id: update_notice
+          hidden: true
+          align: bottom_mid
+          y: "${(-16 * scale) | round | int}"
+          width: 94%
+          height: size_content
+          pad_all: "${(16 * scale) | round | int}"
+          radius: "${(10 * scale) | round | int}"
+          bg_color: 0x1565C0
+          bg_opa: cover
+          on_click:
+            - lambda: id(ui).open_update_notice();
+          widgets:
+            - label:
+                id: update_notice_label
+                width: 100%
+                text_align: center
+                text_font: bold_28
+                text_color: white
+                text: ""
   pages:
     # Shown at the start. White in either theme, as the logo is drawn for a light background
     - id: splash_page

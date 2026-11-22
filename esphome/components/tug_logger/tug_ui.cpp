@@ -103,6 +103,14 @@ static void row_event(lv_event_t *event) {
   }
 }
 
+static void set_hidden(lv_obj_t *obj, bool hidden) {
+  if (hidden) {
+    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
+  }
+}
+
 void TugUi::add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click) {
   lv_obj_t *button = lv_button_create(list);
   lv_obj_set_width(button, lv_pct(100));
@@ -242,6 +250,7 @@ void TugUi::refresh() {
     this->fill_wifi_list_();
   if (lv_screen_active() == this->w_.settings_page->obj)
     this->refresh_settings_();
+  this->refresh_update_notice_();
   if (this->refuel_armed_ticks_ != 0 && --this->refuel_armed_ticks_ == 0)
     lv_label_set_text(this->w_.refuel_label, "Refuelled");
   if (this->shutdown_armed_ticks_ != 0 && --this->shutdown_armed_ticks_ == 0)
@@ -696,6 +705,9 @@ void TugUi::refresh_settings_() {
     info += "\n" + this->logger_->firmware_offer().message;
     if (state == FirmwareState::FIRMWARE_STATE_AVAILABLE)
       button = "Install update";
+  } else if (this->logger_->update_notice().available) {
+    // Found by the tug's own check: installing starts with a check over the internet, which fetches the link
+    info += "\nNew firmware available: connect to Wi-Fi with internet, then check for it";
   }
   if (strcmp(lv_label_get_text(this->w_.settings_info), info.c_str()) != 0)
     lv_label_set_text(this->w_.settings_info, info.c_str());
@@ -727,6 +739,33 @@ bool TugUi::firmware_button() {
 void TugUi::firmware_install_failed() {
   this->logger_->firmware_install_failed();
   this->refresh_settings_();
+}
+
+// Over the pages on the ground, until it is tapped; never in flight, nor over the settings, which say it anyway
+void TugUi::refresh_update_notice_() {
+  if (this->w_.update_notice == nullptr)
+    return;
+  const UpdateNotice notice = this->logger_->update_notice();
+  const bool show = notice.available && notice != this->notice_seen_ && !this->splash_active_ &&
+                    !this->logger_->is_flying() && lv_screen_active() != this->w_.settings_page->obj;
+  if (show) {
+    std::string text = "New firmware";
+    if (notice.built != 0) {
+      text += ", built " + local_time_text(notice.built);
+    } else if (notice.uploaded != 0) {
+      text += ", uploaded " + local_time_text(notice.uploaded);
+    }
+    text += "\nConnect to Wi-Fi with internet and install it in Settings";
+    if (strcmp(lv_label_get_text(this->w_.update_notice_label), text.c_str()) != 0)
+      lv_label_set_text(this->w_.update_notice_label, text.c_str());
+  }
+  set_hidden(this->w_.update_notice, !show);
+}
+
+void TugUi::open_update_notice() {
+  this->notice_seen_ = this->logger_->update_notice();
+  this->show_settings();
+  this->refresh_update_notice_();
 }
 
 void TugUi::show_settings() {
@@ -780,14 +819,6 @@ void TugUi::fill_wifi_list_() {
     });
   }
 #endif
-}
-
-static void set_hidden(lv_obj_t *obj, bool hidden) {
-  if (hidden) {
-    lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
-  } else {
-    lv_obj_remove_flag(obj, LV_OBJ_FLAG_HIDDEN);
-  }
 }
 
 void TugUi::open_wifi_dialog_(bool saved, bool can_set_password) {

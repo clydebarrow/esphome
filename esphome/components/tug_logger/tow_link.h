@@ -26,6 +26,11 @@ namespace esphome::tug_logger {
  *   /api/tows.
  * - Answer, from the receiver: 'K', the first 4 bytes of that HMAC, then the 16-bit HTTP status from the Worker, or 0
  *   if the Worker could not be reached.
+ * - Firmware check, from the tug: 'F', the 32-byte HMAC-SHA256 of the body, then the JSON body of POST
+ *   /api/firmware/check.
+ * - Firmware answer, from the receiver: 'U', the first 4 bytes of that HMAC, the 16-bit HTTP status (0 as above),
+ *   1 if there is an update, then its build time and upload time as 32-bit UTC seconds, 0 if not known. The download
+ *   link is left out: it is long, it expires, and the update is installed over the internet, which checks again.
  *
  * A tow is several fragments over LoRa, so the link needs a fragmentation layer; an encryption layer keeps the names
  * in it private. The Worker takes the same tow again as a duplicate, so a tow whose answer is lost is sent again.
@@ -33,10 +38,13 @@ namespace esphome::tug_logger {
 namespace tow_packet {
 static constexpr uint8_t TYPE_TOW = 'T';
 static constexpr uint8_t TYPE_ANSWER = 'K';
+static constexpr uint8_t TYPE_FIRMWARE_CHECK = 'F';
+static constexpr uint8_t TYPE_FIRMWARE_ANSWER = 'U';
 static constexpr size_t MAC_SIZE = 32;
 static constexpr size_t TAG_SIZE = 4;
 static constexpr size_t TOW_HEADER_SIZE = 1 + MAC_SIZE;
 static constexpr size_t ANSWER_SIZE = 1 + TAG_SIZE + 2;
+static constexpr size_t FIRMWARE_ANSWER_SIZE = 1 + TAG_SIZE + 2 + 1 + 4 + 4;
 }  // namespace tow_packet
 
 class TowLink {
@@ -64,6 +72,16 @@ class TowLink {
    */
   Outcome post(const std::string &body, const uint8_t *mac, uint32_t timeout_ms, int &status);
 
+  /// What the Worker said to a firmware check, as the receiver passed it on.
+  struct FirmwareAnswer {
+    int status{0};
+    bool update{false};
+    uint32_t built{0};
+    uint32_t uploaded{0};
+  };
+  /// Upload task: sends a firmware check and waits for the answer, as post() does for a tow.
+  Outcome check_firmware(const std::string &body, const uint8_t *mac, uint32_t timeout_ms, FirmwareAnswer &answer);
+
  protected:
   enum class State : uint8_t {
     STATE_IDLE,
@@ -75,13 +93,16 @@ class TowLink {
   };
 
   void on_packet_(const packet_interface::PacketBuffer &data);
+  /// Sends a request of this type and waits for its answer, which is left in answer_
+  Outcome request_(uint8_t type, uint8_t answer_type, const std::string &body, const uint8_t *mac, uint32_t timeout_ms);
 
   packet_interface::PacketInterface *link_;
   std::mutex lock_;
   State state_{State::STATE_IDLE};
   std::vector<uint8_t> packet_;
   uint8_t tag_[tow_packet::TAG_SIZE]{};
-  uint16_t status_{0};
+  uint8_t answer_type_{0};
+  std::vector<uint8_t> answer_;
 };
 
 }  // namespace esphome::tug_logger

@@ -283,72 +283,193 @@ void TugLogger::firmware_install_failed() {
   this->firmware_state_ = FirmwareState::FIRMWARE_STATE_FAILED;
 }
 
+// This build, for the Worker to compare with the newest it has
+static std::string firmware_check_body() {
+  const esp_app_desc_t *app = esp_app_get_description();
+  // The whole hash, as the Worker reads it from the image: esp_app_get_elf_sha256() gives only the first
+  // CONFIG_APP_RETRIEVE_LEN_ELF_SHA - 1 digits, 8 by default, which never match
+  char elf_sha256[2 * SHA256_SIZE + 1];
+  format_hex_to(elf_sha256, app->app_elf_sha256, sizeof(app->app_elf_sha256));
+  return json::build_json([&](JsonObject root) {
+    root["project"] = app->project_name;
+    root["elf_sha256"] = elf_sha256;
+    root["build_time"] = (int64_t) App.get_build_time();
+  });
+}
+
+// What a firmware check found, by either route
+struct FirmwareCheck {
+  /// The Worker's status, or 0 if it was not reached
+  int status{0};
+  bool update{false};
+  FirmwareOffer offer;
+  /// Over the LoRa link, which gives no download link
+  bool over_link{false};
+};
+
+static std::string firmware_message(const FirmwareOffer &offer) {
+  // In this device's time zone, like the time of the running build
+  if (offer.built != 0)
+    return "New firmware, built " + local_time_text(offer.built);
+  if (offer.uploaded != 0)
+    return "New firmware, uploaded " + local_time_text(offer.uploaded);
+  return "New firmware";
+}
+
+// Asks the Worker over the internet
+static FirmwareCheck check_firmware_online(const Provisioning &settings) {
+  FirmwareCheck check;
+  // The check goes beside the upload address: .../api/tows becomes .../api/firmware/check
+  const std::string &upload_url = settings.upload_url;
+  const size_t slash = upload_url.rfind('/');
+  Answer answer{};
+  esp_err_t err;
+  check.status =
+      post_signed(settings, upload_url.substr(0, slash) + "/firmware/check", firmware_check_body(), answer, err);
+  if (check.status == 200) {
+    json::parse_json(std::string(answer.text, answer.length), [&](JsonObject root) -> bool {
+      check.update = root["update"] | false;
+      check.offer.url = root["url"] | "";
+      check.offer.md5 = root["md5"] | "";
+      check.offer.built = root["built"] | (int64_t) 0;
+      check.offer.uploaded = root["uploaded"] | (int64_t) 0;
+      return true;
+    });
+  } else if (check.status != 0) {
+    ESP_LOGW(TAG, "Firmware check refused: HTTP %d. Server: %s", check.status, answer.text);
+  } else {
+    ESP_LOGW(TAG, "Firmware check failed: %s", esp_err_to_name(err));
+  }
+  return check;
+}
+
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+// Asks the Worker through the clubhouse receiver, as a tow is sent. A status of 0 is also no answer at all.
+static FirmwareCheck check_firmware_link(TowLink &link, const Provisioning &settings) {
+  FirmwareCheck check;
+  check.over_link = true;
+  const std::string body = firmware_check_body();
+  uint8_t mac[SHA256_SIZE];
+  if (!hmac(settings.upload_key, body, mac)) {
+    ESP_LOGW(TAG, "Signing failed");
+    return check;
+  }
+  TowLink::FirmwareAnswer answer;
+  if (link.check_firmware(body, mac, LINK_ANSWER_TIMEOUT_MS, answer) != TowLink::Outcome::OUTCOME_ANSWERED) {
+    ESP_LOGW(TAG, "No answer to the firmware check over the link");
+    return check;
+  }
+  check.status = answer.status;
+  check.update = answer.update;
+  check.offer.built = answer.built;
+  check.offer.uploaded = answer.uploaded;
+  if (check.status != 200) {
+    ESP_LOGW(TAG, "Firmware check over the link: HTTP %d", check.status);
+  }
+  return check;
+}
+#endif
+
 void TugLogger::firmware_step() {
   if (!this->firmware_check_requested_.exchange(false))
     return;
   FirmwareOffer offer;
   FirmwareState state = FirmwareState::FIRMWARE_STATE_FAILED;
-  // The check goes beside the upload address: .../api/tows becomes .../api/firmware/check
-  const std::string &upload_url = this->provisioning_.upload_url;
-  const size_t slash = upload_url.rfind('/');
-  if (!this->provisioned_ || slash == std::string::npos) {
+  const bool internet = network::is_connected() && !this->on_skyecho_network_;
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  const bool link = this->tow_link_ != nullptr;
+#else
+  const bool link = false;
+#endif
+  if (!this->provisioned_ || this->provisioning_.upload_url.rfind('/') == std::string::npos) {
     offer.message = "No tug file on the SD card";
-  } else if (!network::is_connected() || this->on_skyecho_network_) {
+  } else if (!internet && !link) {
     offer.message = "Connect to a Wi-Fi network with internet first";
   } else {
-    const esp_app_desc_t *app = esp_app_get_description();
-    // The whole hash, as the Worker reads it from the image: esp_app_get_elf_sha256() gives only the first
-    // CONFIG_APP_RETRIEVE_LEN_ELF_SHA - 1 digits, 8 by default, which never match
-    char elf_sha256[2 * SHA256_SIZE + 1];
-    format_hex_to(elf_sha256, app->app_elf_sha256, sizeof(app->app_elf_sha256));
-    const std::string body = json::build_json([&](JsonObject root) {
-      root["project"] = app->project_name;
-      root["elf_sha256"] = elf_sha256;
-      root["build_time"] = (int64_t) App.get_build_time();
-    });
-    Answer answer{};
-    esp_err_t err;
-    const int status =
-        post_signed(this->provisioning_, upload_url.substr(0, slash) + "/firmware/check", body, answer, err);
-    if (status == 200) {
-      bool update = false;
-      json::parse_json(std::string(answer.text, answer.length), [&](JsonObject root) -> bool {
-        update = root["update"] | false;
-        offer.url = root["url"] | "";
-        offer.md5 = root["md5"] | "";
-        offer.built = root["built"] | (int64_t) 0;
-        offer.uploaded = root["uploaded"] | (int64_t) 0;
-        return true;
-      });
-      if (!update) {
+    FirmwareCheck check;
+    if (internet) {
+      check = check_firmware_online(this->provisioning_);
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+    } else {
+      check = check_firmware_link(*this->tow_link_, this->provisioning_);
+#endif
+    }
+    if (check.status == 200) {
+      this->set_update_notice_(check.update, check.offer);
+      if (!check.update) {
         state = FirmwareState::FIRMWARE_STATE_CURRENT;
-        offer = {};
         offer.message = "This is the newest firmware";
-      } else if (offer.url.empty() || offer.md5.size() != 32) {
+      } else if (check.over_link) {
+        state = FirmwareState::FIRMWARE_STATE_NEEDS_INTERNET;
+        offer = check.offer;
+        offer.message = firmware_message(offer) + ". Connect to Wi-Fi with internet to install it";
+      } else if (check.offer.url.empty() || check.offer.md5.size() != 32) {
         offer.message = "The server's answer was not understood";
       } else {
         state = FirmwareState::FIRMWARE_STATE_AVAILABLE;
-        // In this device's time zone, like the time of the running build
-        if (offer.built != 0) {
-          offer.message = "New firmware, built " + local_time_text(offer.built);
-        } else if (offer.uploaded != 0) {
-          offer.message = "New firmware, uploaded " + local_time_text(offer.uploaded);
-        } else {
-          offer.message = "New firmware";
-        }
+        offer = check.offer;
+        offer.message = firmware_message(offer);
       }
-    } else if (status != 0) {
-      ESP_LOGW(TAG, "Firmware check refused: HTTP %d. Server: %s", status, answer.text);
-      offer.message = status == 401 ? "The server doesn't accept this tug's key" : "The server refused the check";
+    } else if (check.status == 401) {
+      offer.message = "The server doesn't accept this tug's key";
+    } else if (check.status != 0) {
+      offer.message = "The server refused the check";
     } else {
-      ESP_LOGW(TAG, "Firmware check failed: %s", esp_err_to_name(err));
-      offer.message = "The server could not be reached";
+      offer.message = check.over_link ? "No answer over LoRa. Connect to Wi-Fi with internet to check"
+                                      : "The server could not be reached";
     }
   }
   ESP_LOGI(TAG, "Firmware check: %s", offer.message.c_str());
   std::lock_guard<std::mutex> guard(this->firmware_lock_);
   this->firmware_offer_ = std::move(offer);
   this->firmware_state_ = state;
+}
+
+// The first check waits for the network, or for the relay to hear the tug; a failed one is tried again sooner
+static constexpr uint32_t UPDATE_CHECK_FIRST_MS = 2 * 60 * 1000;
+static constexpr uint32_t UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
+static constexpr uint32_t UPDATE_CHECK_RETRY_MS = 20 * 60 * 1000;
+
+void TugLogger::set_update_notice_(bool update, const FirmwareOffer &offer) {
+  UpdateNotice notice;
+  if (update) {
+    notice.available = true;
+    notice.built = offer.built;
+    notice.uploaded = offer.uploaded;
+  }
+  std::lock_guard<std::mutex> guard(this->firmware_lock_);
+  this->update_notice_ = notice;
+}
+
+void TugLogger::update_check_step() {
+  const uint32_t now = millis();
+  if (this->last_update_check_ms_ == 0
+          ? now < UPDATE_CHECK_FIRST_MS
+          : now - this->last_update_check_ms_ <
+                (this->update_check_failed_ ? UPDATE_CHECK_RETRY_MS : UPDATE_CHECK_INTERVAL_MS))
+    return;
+  // Not in flight: the link is kept for the tow, and nothing could be done about an update there
+  if (!this->provisioned_ || this->provisioning_.upload_url.rfind('/') == std::string::npos || this->is_flying())
+    return;
+  FirmwareCheck check;
+  if (network::is_connected() && !this->on_skyecho_network_) {
+    check = check_firmware_online(this->provisioning_);
+#ifdef USE_TUG_LOGGER_UPLOAD_LINK
+  } else if (this->tow_link_ != nullptr) {
+    check = check_firmware_link(*this->tow_link_, this->provisioning_);
+#endif
+  } else {
+    // Nothing to ask through yet: tried again when there is
+    return;
+  }
+  this->last_update_check_ms_ = now == 0 ? 1 : now;
+  this->update_check_failed_ = check.status != 200;
+  if (check.status != 200)
+    return;
+  this->set_update_notice_(check.update, check.offer);
+  const std::string found = check.update ? firmware_message(check.offer) : "this is the newest firmware";
+  ESP_LOGI(TAG, "Update check%s: %s", check.over_link ? LOG_STR_LITERAL(" over LoRa") : LOG_STR_LITERAL(""),
+           found.c_str());
 }
 
 // Airfields change seldom; a failed fetch is tried again sooner
@@ -395,6 +516,7 @@ static void uploader_task(void *param) {
     // Woken early for a firmware check
     ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(CHECK_INTERVAL_MS));
     logger->firmware_step();
+    logger->update_check_step();
     logger->upload_step();
     logger->flight_log_step();
     logger->airfields_step();
@@ -426,6 +548,8 @@ void TugLogger::upload_step() {}
 void TugLogger::firmware_step() {}
 void TugLogger::flight_log_step() {}
 void TugLogger::airfields_step() {}
+void TugLogger::update_check_step() {}
+void TugLogger::set_update_notice_(bool update, const FirmwareOffer &offer) {}
 
 void TugLogger::request_firmware_check() {
   this->firmware_check_callback_.call();

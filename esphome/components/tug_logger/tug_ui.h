@@ -71,6 +71,9 @@ struct TugUiWidgets {
   lv_obj_t *tow_height;
   lv_obj_t *picker_keyboard;
   lv_obj_t *theme_label;
+  /// A button over the pages, hidden until the tug's own check finds an update; update_notice_label is its text
+  lv_obj_t *update_notice;
+  lv_obj_t *update_notice_label;
 #ifdef USE_TUG_LOGGER_SKYECHO
   skyecho::TrafficWidget *traffic;
 #endif
@@ -94,6 +97,8 @@ class TugUi {
 
   void show_review();
   void show_settings();
+  /// The update notice was tapped: it goes until another build is offered, and the settings show how to install it
+  void open_update_notice();
   void show_wifi_list();
   /// The dialog for the known network chosen in the Wi-Fi list.
   void wifi_connect();
@@ -145,6 +150,7 @@ class TugUi {
   void add_row_(lv_obj_t *list, const std::string &text, std::function<void()> on_click);
   void fill_wifi_list_();
   void refresh_settings_();
+  void refresh_update_notice_();
   std::string wifi_text_();
   void open_wifi_dialog_(bool saved, bool can_set_password);
   bool current_tow_(TowRecord &record);
@@ -166,6 +172,8 @@ class TugUi {
   // Counts down while the splash shows; it stays up longer until the card has been read
   uint8_t splash_ticks_;
   bool splash_active_{true};
+  /// The update the operator has seen, which the notice is not shown for again
+  UpdateNotice notice_seen_{};
   bool splash_loaded_{false};
   runtime_image::RuntimeImage *logo_{nullptr};
   bool dark_mode_{false};

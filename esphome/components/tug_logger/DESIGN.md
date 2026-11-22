@@ -114,6 +114,14 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   in the tug's file, signed with its key) for firmware built with this device's name other than the running build.
   A second press installs it with `ota.http_request.flash`, after saving any flight and unmounting the card. The link
   expires after 10 minutes, so a failed install asks for a fresh check. The Worker's README covers uploads.
+- **Update notice:** the tug also checks by itself, 2 minutes after power up and every 6 hours (20 minutes after a
+  failed check), on the ground only. It asks over the internet when it has one, otherwise over the LoRa link: an 'F'
+  packet, signed like a tow, that the clubhouse receiver posts to `/api/firmware/check` and answers with a 'U' saying
+  whether there is an update and when it was built (`tow_link.h`). The download link is left out, as it is long and
+  expires; installing still needs the internet, where Check for update fetches one. A found update shows a blue
+  button over the bottom of the page, which blocks no touch elsewhere; tapping it opens Settings and hides it until
+  another build is offered or the tug restarts. Check for update with no internet also asks over the link, and says
+  to connect to Wi-Fi if there is an update.
 - **Settings:** refreshed every second while it shows, including the Wi-Fi state ("joining" while connecting). A
   saved network can be joined from its dialog with Connect.
 - **JC1060P470 power:** the USB-C ports and 4-pin socket share a 5 V rail the battery doesn't feed, so a USB GPS needs

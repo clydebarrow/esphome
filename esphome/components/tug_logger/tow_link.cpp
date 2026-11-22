@@ -41,36 +41,44 @@ void TowLink::loop() {
   this->state_ = top->send_to_interface(PacketBuffer(this->packet_), {}) ? State::STATE_SENT : State::STATE_NOT_SENT;
 }
 
+static uint32_t get32(const uint8_t *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | (uint32_t(p[3]) << 24); }
+
 void TowLink::on_packet_(const PacketBuffer &data) {
-  uint8_t answer[tow_packet::ANSWER_SIZE];
-  if (data.size() != sizeof(answer)) {
-    ESP_LOGD(TAG, "Packet of %zu bytes is not an answer", data.size());
+  if (data.size() == 0)
+    return;
+  uint8_t type;
+  data.copy_to(&type, 1);
+  const size_t expected = type == tow_packet::TYPE_ANSWER            ? tow_packet::ANSWER_SIZE
+                          : type == tow_packet::TYPE_FIRMWARE_ANSWER ? tow_packet::FIRMWARE_ANSWER_SIZE
+                                                                     : 0;
+  if (expected == 0 || data.size() != expected) {
+    ESP_LOGD(TAG, "Packet of %zu bytes, type 0x%02X, is not an answer", data.size(), type);
     return;
   }
-  data.copy_to(answer, sizeof(answer));
-  if (answer[0] != tow_packet::TYPE_ANSWER) {
-    ESP_LOGD(TAG, "Packet of type 0x%02X is not an answer", answer[0]);
-    return;
-  }
-  const uint16_t status = answer[1 + tow_packet::TAG_SIZE] | (answer[2 + tow_packet::TAG_SIZE] << 8);
+  std::vector<uint8_t> answer(expected);
+  data.copy_to(answer.data(), expected);
   std::lock_guard<std::mutex> guard(this->lock_);
-  // An answer to a tow sent before, whose answer came late, or to a tow sent again after a lost answer
-  if (this->state_ != State::STATE_SENT || memcmp(answer + 1, this->tag_, tow_packet::TAG_SIZE) != 0) {
-    ESP_LOGD(TAG, "Answer %u for a tow not waiting", status);
+  // An answer to a request sent before, whose answer came late, or to one sent again after a lost answer
+  if (this->state_ != State::STATE_SENT || type != this->answer_type_ ||
+      memcmp(answer.data() + 1, this->tag_, tow_packet::TAG_SIZE) != 0) {
+    ESP_LOGD(TAG, "Answer of type 0x%02X for a request not waiting", type);
     return;
   }
-  this->status_ = status;
+  this->answer_ = std::move(answer);
   this->state_ = State::STATE_ANSWERED;
 }
 
-TowLink::Outcome TowLink::post(const std::string &body, const uint8_t *mac, uint32_t timeout_ms, int &status) {
+TowLink::Outcome TowLink::request_(uint8_t type, uint8_t answer_type, const std::string &body, const uint8_t *mac,
+                                   uint32_t timeout_ms) {
   {
     std::lock_guard<std::mutex> guard(this->lock_);
     this->packet_.resize(tow_packet::TOW_HEADER_SIZE + body.size());
-    this->packet_[0] = tow_packet::TYPE_TOW;
+    this->packet_[0] = type;
     memcpy(this->packet_.data() + 1, mac, tow_packet::MAC_SIZE);
     memcpy(this->packet_.data() + tow_packet::TOW_HEADER_SIZE, body.data(), body.size());
     memcpy(this->tag_, mac, tow_packet::TAG_SIZE);
+    this->answer_type_ = answer_type;
+    this->answer_.clear();
     this->state_ = State::STATE_WAITING_TO_SEND;
   }
   const uint32_t start = millis();
@@ -87,16 +95,40 @@ TowLink::Outcome TowLink::post(const std::string &body, const uint8_t *mac, uint
       break;
     }
     if (this->state_ == State::STATE_ANSWERED) {
-      status = this->status_;
       outcome = Outcome::OUTCOME_ANSWERED;
       break;
     }
-    // A tow loop() has not sent yet is taken back too, so it is not sent after post() has given up
+    // A request loop() has not sent yet is taken back too, so it is not sent after this has given up
     if (millis() - start >= timeout_ms)
       break;
   }
   std::lock_guard<std::mutex> guard(this->lock_);
   this->state_ = State::STATE_IDLE;
+  return outcome;
+}
+
+TowLink::Outcome TowLink::post(const std::string &body, const uint8_t *mac, uint32_t timeout_ms, int &status) {
+  const Outcome outcome = this->request_(tow_packet::TYPE_TOW, tow_packet::TYPE_ANSWER, body, mac, timeout_ms);
+  if (outcome == Outcome::OUTCOME_ANSWERED) {
+    std::lock_guard<std::mutex> guard(this->lock_);
+    const uint8_t *p = this->answer_.data() + 1 + tow_packet::TAG_SIZE;
+    status = p[0] | (p[1] << 8);
+  }
+  return outcome;
+}
+
+TowLink::Outcome TowLink::check_firmware(const std::string &body, const uint8_t *mac, uint32_t timeout_ms,
+                                         FirmwareAnswer &answer) {
+  const Outcome outcome =
+      this->request_(tow_packet::TYPE_FIRMWARE_CHECK, tow_packet::TYPE_FIRMWARE_ANSWER, body, mac, timeout_ms);
+  if (outcome == Outcome::OUTCOME_ANSWERED) {
+    std::lock_guard<std::mutex> guard(this->lock_);
+    const uint8_t *p = this->answer_.data() + 1 + tow_packet::TAG_SIZE;
+    answer.status = p[0] | (p[1] << 8);
+    answer.update = p[2] != 0;
+    answer.built = get32(p + 3);
+    answer.uploaded = get32(p + 7);
+  }
   return outcome;
 }
 
