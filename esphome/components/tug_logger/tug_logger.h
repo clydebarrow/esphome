@@ -248,6 +248,15 @@ class TugLogger : public Component
 #ifdef USE_TUG_LOGGER_POSITION_LINK
   void send_position_(const PositionSample &sample);
   packet_interface::PacketInterface *position_link_{nullptr};
+  // The SkyEcho's state at the last sample, for the flight log: it shows why a pressure altitude is missing
+  struct SkyEchoState {
+    bool present{false};
+    bool gps_valid{false};
+    bool has_ownship{false};
+    uint32_t ownship_age_ms{0};
+    bool geometric_valid{false};
+    float geometric_m{0.0f};
+  } skyecho_state_{};
   uint32_t last_position_sent_ms_{0};
   bool position_sent_{false};
 #endif

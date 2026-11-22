@@ -167,16 +167,63 @@ TEST(TugFlightDetector, PrefersPressureAltitude) {
   EXPECT_FALSE(flight.detector.flight().approximate);
 }
 
-TEST(TugFlightDetector, NeverMixesAltitudeKinds) {
+TEST(TugFlightDetector, ShortPressureGapWaitsForTheNextOne) {
   Flight flight;
-  // Both on the ground, then only GPS altitude, which reads far higher: it is not used
   flight.run(30, 0, 1500, 900);
   flight.run(10, 60, 1500, 900);
   flight.run(5, 70, 2500, 1900);
   EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
+  // Under 10 s without it, GPS altitude is not used
+  flight.run(9, 70, 9000, -1);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
+  flight.run(5, 70, 2500, 1900);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
+  EXPECT_FALSE(flight.detector.flight().approximate);
+}
+
+TEST(TugFlightDetector, LostPressureAltitudeCarriesOnWithTheGpsClimb) {
+  Flight flight;
+  // GPS reads the climb short and well apart from pressure altitude: only its change since the last pressure counts
+  flight.run(30, 0, 1500, 900);
+  flight.run(10, 60, 1500, 900);
+  flight.run(5, 70, 2300, 1900);
+  ASSERT_EQ(flight.detector.flight().max_height_ft, 1000);
+  for (int i = 1; i <= 30; i++)
+    flight.step(70, 2300 + i * 10, -1);
+  flight.run(3, 70, 2600, -1);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1300);
+  // Launched at second 1030, and the GPS climb went on to second 1074
+  EXPECT_EQ(flight.detector.flight().climb_s, 45u);
+  EXPECT_TRUE(flight.detector.flight().approximate);
+  // When it comes back it is used again, and the GPS height does not stick
+  flight.run(5, 70, 2600, 2000);
+  EXPECT_EQ(flight.detector.current_height_ft(), 1100);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1300);
+}
+
+TEST(TugFlightDetector, PressureLostAtTakeoffUsesTheGroundGpsAltitude) {
+  Flight flight;
+  // As DGS logged a tow: pressure altitude on the ground, then none in the climb
+  flight.run(30, 0, 1640, 1275);
+  flight.run(10, 60, 1640, 1275);
+  for (int i = 1; i <= 150; i++)
+    flight.step(65, 1640 + i * 12, -1);
+  flight.run(3, 65, 3440, -1);
+  EXPECT_EQ(flight.detector.flight().kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1800);
+  EXPECT_TRUE(flight.detector.flight().approximate);
+}
+
+TEST(TugFlightDetector, LostPressureAltitudeIgnoresAnotherGpsReceiver) {
+  Flight flight;
+  flight.run(30, 0, 1500, 900);
+  flight.run(10, 60, 1500, 900);
+  flight.run(5, 70, 2500, 1900);
+  flight.source = 1;
   flight.run(20, 70, 9000, -1);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
+  EXPECT_FALSE(flight.detector.flight().approximate);
 }
 
 TEST(TugFlightDetector, FallsBackToGpsAltitude) {

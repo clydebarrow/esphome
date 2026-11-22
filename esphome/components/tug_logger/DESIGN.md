@@ -30,7 +30,7 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 | `tows-pending.jsonl`, `tows-sending.jsonl` | Confirmed tows to send: the exact bytes that are signed and posted |
 | `tows-sent.jsonl`, `tows-failed.jsonl`, `tows-discarded.jsonl` | What was sent, refused (any 4xx but 401), or marked as not a tow |
 | `recent.json` | Recent gliders and pilots for the picker |
-| `flights/*.csv` | A record of each flight, named by its takeoff in UTC: the last minute on the ground, then a line a second until landing, with speed, both altitudes, and the height worked out. For checking a tow's figures |
+| `flights/*.csv` | A record of each flight, named by its takeoff in UTC: the last minute on the ground, then a line a second until landing, with speed, both altitudes, and the height worked out, then the SkyEcho's GPS state, the age of its last ownship report and its own GPS altitude, which show why a pressure altitude is missing. For checking a tow's figures |
 
 ## Decisions
 
@@ -44,6 +44,13 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   whole flight, as the SkyEcho's reads about 300 ft above the relay's. The field elevation is only used with no recent ground altitude, and that tow is marked
   approximate, as is one with more than 60 s without data in flight; the Worker shows such heights with "≈". A median
   of three samples rejects a single bad fix, which delays the peak by one sample.
+- **Pressure altitude dropouts**: on 22 November 2026 the SkyEcho's pressure altitude went missing for 100 to 258 s on
+  most tows, and a tow to about 1750 ft (from the glider's trace) logged 425 ft at 44 s, as the height froze. Two
+  changes. The pressure altitude is taken from any ownship report under 5 s old with a valid altitude, whether or not
+  the heartbeat says the SkyEcho's GPS has a position: the barometer needs no fix, and the SkyEcho loses its fix in the
+  cabin. And after 10 s without one in flight, the change in GPS altitude since the last pressure altitude (from the
+  same receiver) carries the height on, and the tow is marked approximate. Replayed, the logs of that day gave 1743 ft
+  at 157 s for that tow, and 2372 and 2410 ft for two others logged at 1400 and 1875 ft.
 - **Altitude MSL** is what the display shows and what a pilot enters: the height plus the field elevation, as a QNH
   altimeter reads, and what tows are charged by. Heights above the field are kept and logged; an upload gives both.
 - **Launch field**: the Worker keeps a list of airfields, in the tug file and fetched hourly from `/api/airfields` while

@@ -141,7 +141,14 @@ class SkyEcho : public PollingComponent {
   /// SkyEcho's own report. False if neither is recent.
   bool get_traffic_ownship(OwnshipT *position) const;
   /// True if the traffic ownship's altitude is the SkyEcho's pressure altitude, false if it is a GPS height
-  bool has_pressure_altitude() const { return this->is_gps_connected_() && this->ownship_.report.isAltitudeValid; }
+  bool has_pressure_altitude() const { return this->is_pressure_recent_(); }
+  /// The SkyEcho's pressure altitude in meters, from a recent ownship report. Its barometer needs no GPS fix, so this
+  /// holds while the heartbeat says the GPS has no position. False if the report is stale or has no altitude.
+  bool get_pressure_altitude(float *meters) const;
+  /// Whether the last heartbeat said the SkyEcho's GPS had a position.
+  bool heartbeat_gps_valid() const { return this->heartbeat_.gpsPosValid; }
+  /// How long ago the last ownship report arrived; false if none has.
+  bool get_ownship_age_ms(uint32_t *age_ms) const;
 
   /// Add an aircraft heard on FLARM by another receiver, such as the tug's LoRa relay. It joins the SkyEcho's own
   /// traffic, as the same aircraft when the SkyEcho reports its address too. This aircraft's own FLARM is dropped.
@@ -170,6 +177,7 @@ class SkyEcho : public PollingComponent {
   void set_ownship_position_(const gdl90PositionReport_t *position);
   void set_heartbeat_(const gdl90Heartbeat_t *heartbeat);
   bool is_gps_connected_() const;
+  bool is_pressure_recent_() const;
 
   // Traffic tracking helper methods
   static int compare_traffic(const void *tp1, const void *tp2);

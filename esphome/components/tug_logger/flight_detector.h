@@ -44,6 +44,9 @@ struct DetectorSettings {
   uint32_t reference_window_ms{30000};
   /// A silence longer than this in flight makes the figures approximate.
   uint32_t max_data_gap_ms{60000};
+  /// Pressure altitude missing in flight for longer than this: the GPS climb since the last pressure altitude carries
+  /// the height on, and the figures are approximate. A shorter gap just waits for the next one.
+  uint32_t pressure_gap_ms{10000};
 };
 
 /// What a flight measured so far. Also the state written to the card so a restart does not lose a flight.
@@ -103,7 +106,9 @@ enum class FlightEvent : uint8_t {
 /// mean altitude on the ground just before takeoff, with the same kind of altitude throughout the flight, which cancels
 /// QNH and geoid errors. Adding the field elevation gives the altitude a QNH altimeter shows. Pressure altitude is used
 /// when there is one: it matched the tug pilots' altimeters within 100 ft, where the relay's GPS read climbs up to 40%
-/// short. GPS altitude stands in without it, from one receiver for the whole flight.
+/// short. GPS altitude stands in without it, from one receiver for the whole flight. If the pressure altitude drops out
+/// in flight, the change in GPS altitude since the last pressure altitude stands in until it comes back: GPS reads
+/// climbs short, but a frozen height reads them far shorter.
 class FlightDetector {
  public:
   FlightDetector() = default;
@@ -138,6 +143,7 @@ class FlightDetector {
   void start_flight_(const PositionSample &sample);
   void track_flight_(const PositionSample &sample);
   bool altitude_for_(const PositionSample &sample, float &altitude_m) const;
+  bool height_for_(const PositionSample &sample, float &height_ft);
   float median_height_(float height_ft);
 
   DetectorSettings settings_{};
@@ -160,6 +166,13 @@ class FlightDetector {
   uint8_t ground_geometric_source_{0};
   LaunchField launch_field_{LaunchField::LAUNCH_FIELD_DEFAULT};
   float launch_elevation_ft_{0.0f};
+
+  // The last pressure altitude in flight, and the height and GPS altitude there, for when the pressure altitude stops
+  uint32_t last_pressure_ms_{0};
+  bool has_anchor_{false};
+  float anchor_height_ft_{0.0f};
+  float anchor_geometric_m_{0.0f};
+  uint8_t anchor_source_{0};
 
   // Last three heights; a median rejects a single bad fix
   float heights_[3]{};

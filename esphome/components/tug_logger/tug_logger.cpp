@@ -69,7 +69,7 @@ void TugLogger::on_safe_shutdown() {
 }
 
 std::string TugLogger::log_line_(const PositionSample &sample) const {
-  char line[128];
+  char line[192];
   int length = snprintf(line, sizeof(line), "%.1f,%lld,%u,", sample.now_ms / 1000.0f, (long long) sample.epoch,
                         unsigned(this->source_));
   auto add = [&](bool valid, float value) {
@@ -81,11 +81,17 @@ std::string TugLogger::log_line_(const PositionSample &sample) const {
   add(sample.geometric_valid, sample.geometric_m / METERS_PER_FOOT);
   const bool flying = this->detector_.is_flying();
   add(flying, float(this->detector_.current_height_ft()));
-  if (flying) {
-    snprintf(line + length, sizeof(line) - length, "%" PRId32 "\n", this->detector_.flight().max_height_ft);
+  add(flying, float(this->detector_.flight().max_height_ft));
+  const SkyEchoState &skyecho = this->skyecho_state_;
+  add(skyecho.present, skyecho.gps_valid ? 1.0f : 0.0f);
+  if (skyecho.has_ownship) {
+    length += snprintf(line + length, sizeof(line) - length, "%.1f,", skyecho.ownship_age_ms / 1000.0f);
   } else {
-    snprintf(line + length, sizeof(line) - length, "\n");
+    length += snprintf(line + length, sizeof(line) - length, ",");
   }
+  add(skyecho.geometric_valid, skyecho.geometric_m / METERS_PER_FOOT);
+  // The last comma ends the line instead
+  line[length - 1] = '\n';
   return line;
 }
 
@@ -106,12 +112,15 @@ void TugLogger::start_flight_log_(const char *why) {
     snprintf(field, sizeof(field), "%s",
              this->provisioning_.airfields.empty() ? "home field" : "no airfield within 3 km, from GPS altitude");
   }
-  char header[448];
+  char header[704];
   snprintf(
       header, sizeof(header),
       "# %s. Heights from %s altitude, reference %s%.0f ft%s; field elevation %.0f ft, %s\n"
       "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet; heights above the field\n"
-      "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft\n",
+      "# skyecho_gps: 1 if its heartbeat said its GPS had a position; ownship_age_s: since its last ownship report; "
+      "skyecho_gps_alt_ft: its own GPS altitude\n"
+      "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft,skyecho_gps,ownship_age_s,"
+      "skyecho_gps_alt_ft\n",
       why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
       flight.has_reference ? flight.reference_m / METERS_PER_FOOT : flight.field_elevation_ft,
       flight.approximate ? ", approximate" : "", flight.field_elevation_ft, field);
@@ -337,14 +346,19 @@ PositionSample TugLogger::read_position_() {
     this->location_.satellites = this->nmea_satellites_;
   }
 #ifdef USE_TUG_LOGGER_SKYECHO
+  this->skyecho_state_ = SkyEchoState{};
   if (this->skyecho_ != nullptr) {
+    SkyEchoState &state = this->skyecho_state_;
+    state.present = true;
+    state.gps_valid = this->skyecho_->heartbeat_gps_valid();
+    state.has_ownship = this->skyecho_->get_ownship_age_ms(&state.ownship_age_ms);
+    state.geometric_valid = this->skyecho_->get_ownship_geo_altitude(&state.geometric_m);
+    // Its pressure altitude is kept either way: only the SkyEcho has one, and the flight log records it beside the
+    // GPS altitude. Its barometer needs no GPS fix, and it loses its fix in the cabin for minutes on end
+    sample.pressure_valid = this->skyecho_->get_pressure_altitude(&sample.pressure_m);
     skyecho::OwnshipT ownship;
     if (this->skyecho_->get_ownship_position(&ownship)) {
       const auto &report = ownship.report;
-      // Its pressure altitude is kept either way: only the SkyEcho has one, and the flight log records it beside the
-      // GPS altitude
-      sample.pressure_valid = report.isAltitudeValid;
-      sample.pressure_m = report.altitude;
       if (!nmea) {
         this->source_ = GpsSource::GPS_SOURCE_SKYECHO;
         sample.speed_valid = report.isGroundSpeedValid;

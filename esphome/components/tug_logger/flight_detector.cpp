@@ -70,6 +70,8 @@ void FlightDetector::start_flight_(const PositionSample &sample) {
   this->launch_ms_ = this->crossing_ms_;
   this->height_count_ = 0;
   this->current_height_ft_ = 0;
+  this->has_anchor_ = false;
+  this->last_pressure_ms_ = this->launch_ms_;
   if (this->crossing_epoch_ != 0) {
     this->flight_.launch = this->crossing_epoch_;
   } else if (sample.epoch != 0) {
@@ -93,6 +95,12 @@ void FlightDetector::start_flight_(const PositionSample &sample) {
   if (this->ground_pressure_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
     this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
     this->flight_.has_reference = true;
+    // Zero height is at the ground GPS altitude too, in case the pressure altitude stops straight after takeoff
+    if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->anchor_geometric_m_)) {
+      this->has_anchor_ = true;
+      this->anchor_height_ft_ = 0.0f;
+      this->anchor_source_ = this->ground_geometric_source_;
+    }
   } else if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
     this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
     this->flight_.geometric_source = this->ground_geometric_source_;
@@ -133,18 +141,43 @@ void FlightDetector::track_flight_(const PositionSample &sample) {
       return;
     }
   }
-  float altitude_m;
-  if (!this->altitude_for_(sample, altitude_m))
+  float raw_ft;
+  if (!this->height_for_(sample, raw_ft))
     return;
-  const float altitude_ft = altitude_m / METERS_PER_FOOT;
-  const float zero_ft =
-      this->flight_.has_reference ? this->flight_.reference_m / METERS_PER_FOOT : this->flight_.field_elevation_ft;
-  const float height_ft = this->median_height_(altitude_ft - zero_ft);
+  const float height_ft = this->median_height_(raw_ft);
   this->current_height_ft_ = int32_t(height_ft + (height_ft < 0 ? -0.5f : 0.5f));
   if (this->current_height_ft_ > this->flight_.max_height_ft) {
     this->flight_.max_height_ft = this->current_height_ft_;
     this->flight_.climb_s = (sample.now_ms - this->launch_ms_) / 1000;
   }
+}
+
+bool FlightDetector::height_for_(const PositionSample &sample, float &height_ft) {
+  const bool pressure = this->flight_.kind == AltitudeKind::ALTITUDE_KIND_PRESSURE;
+  float altitude_m;
+  if (this->altitude_for_(sample, altitude_m)) {
+    const float zero_ft =
+        this->flight_.has_reference ? this->flight_.reference_m / METERS_PER_FOOT : this->flight_.field_elevation_ft;
+    height_ft = altitude_m / METERS_PER_FOOT - zero_ft;
+    if (pressure) {
+      this->last_pressure_ms_ = sample.now_ms;
+      if (sample.geometric_valid) {
+        this->has_anchor_ = true;
+        this->anchor_height_ft_ = height_ft;
+        this->anchor_geometric_m_ = sample.geometric_m;
+        this->anchor_source_ = sample.geometric_source;
+      }
+    }
+    return true;
+  }
+  // Only the GPS climb since the last pressure altitude counts, from the same receiver: the two kinds read hundreds of
+  // feet apart
+  if (!pressure || !this->has_anchor_ || !sample.geometric_valid || sample.geometric_source != this->anchor_source_ ||
+      sample.now_ms - this->last_pressure_ms_ < this->settings_.pressure_gap_ms)
+    return false;
+  height_ft = this->anchor_height_ft_ + (sample.geometric_m - this->anchor_geometric_m_) / METERS_PER_FOOT;
+  this->flight_.approximate = true;
+  return true;
 }
 
 void GroundAltitudes::add(uint32_t now_ms, float altitude_m) {
@@ -198,6 +231,9 @@ void FlightDetector::resume(const FlightSnapshot &snapshot, uint32_t now_ms) {
   this->launch_ms_ = now_ms - snapshot.elapsed_s * 1000;
   this->last_sample_ms_ = now_ms;
   this->has_last_sample_ = true;
+  // The GPS altitude to carry on from is not saved: the next pressure altitude gives one
+  this->has_anchor_ = false;
+  this->last_pressure_ms_ = now_ms;
 }
 
 }  // namespace esphome::tug_logger

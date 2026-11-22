@@ -164,7 +164,7 @@ bool SkyEcho::get_traffic_ownship(OwnshipT *position) const {
   }
   *position = this->external_;
   // The traffic reports' altitudes are pressure altitudes, so the ownship's must be too while the SkyEcho gives one
-  if (skyecho && this->ownship_.report.isAltitudeValid) {
+  if (this->is_pressure_recent_()) {
     position->report.altitude = this->ownship_.report.altitude;
     position->report.isAltitudeValid = true;
   }
@@ -182,6 +182,20 @@ bool SkyEcho::traffic_geo_altitude_(float *meters) const {
     return true;
   }
   return this->get_ownship_geo_altitude(meters);
+}
+
+bool SkyEcho::get_pressure_altitude(float *meters) const {
+  if (!this->is_pressure_recent_())
+    return false;
+  *meters = this->ownship_.report.altitude;
+  return true;
+}
+
+bool SkyEcho::get_ownship_age_ms(uint32_t *age_ms) const {
+  if (this->ownship_.timestampMs == 0)
+    return false;
+  *age_ms = millis() - this->ownship_.timestampMs;
+  return true;
 }
 
 bool SkyEcho::get_ownship_geo_altitude(float *meters) const {
@@ -369,6 +383,12 @@ void SkyEcho::set_heartbeat_(const gdl90Heartbeat_t *heartbeat) { this->heartbea
 bool SkyEcho::is_gps_connected_() const {
   return this->heartbeat_.gpsPosValid && this->ownship_.timestampMs > 0 &&
          (millis() - this->ownship_.timestampMs) < MAX_POSITION_AGE_MS;
+}
+
+// The barometer works without a GPS fix: only the report's age and altitude flag count
+bool SkyEcho::is_pressure_recent_() const {
+  return this->ownship_.timestampMs > 0 && (millis() - this->ownship_.timestampMs) < MAX_POSITION_AGE_MS &&
+         this->ownship_.report.isAltitudeValid;
 }
 
 int SkyEcho::compare_traffic(const void *tp1, const void *tp2) {
