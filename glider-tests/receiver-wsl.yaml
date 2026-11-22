@@ -9,7 +9,8 @@
 # - Posts its status every minute (receiver/status): its Wi-Fi network and signal, uptime, build, noise floor and
 #   the LoRa packets it heard in the last hour, for the Admin page.
 # - Posts each tow from a known tug (tug_logger's upload link, through its relay) to the Worker with the tug's own
-#   signature, and answers the tug with the Worker's status.
+#   signature, and answers the tug with the Worker's status. A tug's firmware check is posted the same way, and the
+#   answer says whether there is an update and when it was built.
 # The receiver's key, the Worker's address and the club's name come from the dashboard: in the Worker's Admin, add a
 # receiver and save its file here as receiver-ywck.yaml (or change the name below). It holds the key, so it is not
 # committed. For bench tests against `npx wrangler dev --ip 0.0.0.0`, set worker_url to http://<its address>:8787.
@@ -72,7 +73,7 @@ esphome:
             ESP_LOGD("receiver", "Posting %s", upload.body.c_str());
             id(upload_flight).execute();
           };
-          // A tow from a tug: post it with the tug's own signature, and answer with the Worker's status
+          // A tow or firmware check from a tug: post it with the tug's own signature, and answer with what the Worker said
           auto on_tow = [](const receiver::Tug &tug, const packet_interface::PacketBuffer &data,
                            const packet_interface::PacketMetaData &meta) {
             receiver::heard.add(millis());
@@ -83,22 +84,28 @@ esphome:
               ESP_LOGW("receiver", "%s: unexpected packet of %zu bytes", tug.name.c_str(), data.size());
               return;
             }
-            ESP_LOGI("receiver", "%s tow, %zu bytes, rssi %.0f snr %.1f: %s", tug.name.c_str(), tow.body.size(),
+            const bool firmware = tow.type == 'F';
+            const char *what = firmware ? "firmware check" : "tow";
+            ESP_LOGI("receiver", "%s %s, %zu bytes, rssi %.0f snr %.1f: %s", tug.name.c_str(), what, tow.body.size(),
                      meta.rssi, meta.snr, tow.body.c_str());
             if (receiver::tow_upload.busy) {
-              ESP_LOGI("receiver", "%s: a tow upload is running; the tug will send it again", tug.name.c_str());
+              ESP_LOGI("receiver", "%s: an upload is running; the tug will send the %s again", tug.name.c_str(), what);
               return;
             }
             tow.busy = true;
             tow.tug = tug;
             receiver::tow_upload = std::move(tow);
             if (!wifi::global_wifi_component->is_connected()) {
-              ESP_LOGW("receiver", "%s: no Wi-Fi, so the tow is not posted", tug.name.c_str());
-              receiver::answer_tow(0);
+              ESP_LOGW("receiver", "%s: no Wi-Fi, so the %s is not posted", tug.name.c_str(), what);
+              receiver::answer_unreached();
               receiver::tow_upload.busy = false;
               return;
             }
-            id(upload_tow).execute();
+            if (firmware) {
+              id(upload_firmware_check).execute();
+            } else {
+              id(upload_tow).execute();
+            }
           };
           auto ack_on = [](packet_interface::PacketInterface *top) {
             return [top](uint32_t takeoff, uint8_t type) {
@@ -614,4 +621,29 @@ script:
                   const char *name = receiver::tow_upload.tug.name.c_str();
                   ESP_LOGW("receiver", "%s: posting the tow failed; answering 0 so the tug tries again", name);
                   receiver::answer_tow(0);
+                  receiver::tow_upload.busy = false;
+  - id: upload_firmware_check
+    then:
+      - http_request.post:
+          url: ${worker_url}/api/firmware/check
+          request_headers:
+            Content-Type: application/json
+            X-Signature: !lambda return receiver::tow_upload.signature.c_str();
+          body: !lambda return receiver::tow_upload.body;
+          capture_response: true
+          on_response:
+            then:
+              - lambda: |-
+                  const char *name = receiver::tow_upload.tug.name.c_str();
+                  int status = response->status_code;
+                  ESP_LOGI("receiver", "%s: Worker answered %d for the firmware check: %s", name, status, body.c_str());
+                  bool ok = receiver::answer_firmware(status, body);
+                  ESP_LOGI("receiver", "%s: answer sent: %s", name, ok ? "ok" : "refused");
+                  receiver::tow_upload.busy = false;
+          on_error:
+            then:
+              - lambda: |-
+                  const char *name = receiver::tow_upload.tug.name.c_str();
+                  ESP_LOGW("receiver", "%s: the firmware check failed; answering 0 so the tug tries again", name);
+                  receiver::answer_firmware(0, "");
                   receiver::tow_upload.busy = false;

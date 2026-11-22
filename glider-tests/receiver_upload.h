@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <algorithm>
 #include <cstring>
 #include <ctime>
@@ -80,7 +81,9 @@ inline Positions positions;
 /// A tug the receiver has a stack for. Its tows are posted with the tug's own signature, so the Worker checks the
 /// tug's key; answer sends the Worker's status back on that stack. The packets are those of tow_link.h in the
 /// tug_logger component: a tow is 'T', the 32-byte HMAC-SHA256 of the body, then the body; an answer is 'K', the
-/// first 4 bytes of that HMAC, then the 16-bit status, or 0 if the Worker could not be reached.
+/// first 4 bytes of that HMAC, then the 16-bit status, or 0 if the Worker could not be reached. A firmware check is
+/// 'F' and posted to /api/firmware/check the same way; its answer is 'U', the tag and status, 1 if there is an update,
+/// then the update's build and upload times as 32-bit UTC seconds (0 if not known). The download link is left out.
 struct Tug {
   uint16_t address{0};
   std::string name;
@@ -95,7 +98,10 @@ struct TowUpload {
   static constexpr size_t MAC_SIZE = 32;
   static constexpr size_t TAG_SIZE = 4;
   static constexpr size_t ANSWER_SIZE = 1 + TAG_SIZE + 2;
+  static constexpr size_t FIRMWARE_ANSWER_SIZE = 1 + TAG_SIZE + 2 + 1 + 4 + 4;
   bool busy{false};
+  /// 'T' for a tow, 'F' for a firmware check
+  uint8_t type{0};
   Tug tug;
   uint8_t tag[TAG_SIZE]{};
   std::string body;
@@ -104,10 +110,11 @@ struct TowUpload {
 
 inline TowUpload tow_upload;
 
-/// Takes a tow packet apart into the body and the X-Signature header; false if it isn't one
+/// Takes a tow or firmware check packet apart into the body and the X-Signature header; false if it isn't one
 inline bool decode_tow(const uint8_t *p, size_t len, TowUpload &out) {
-  if (len <= 1 + TowUpload::MAC_SIZE || p[0] != 'T')
+  if (len <= 1 + TowUpload::MAC_SIZE || (p[0] != 'T' && p[0] != 'F'))
     return false;
+  out.type = p[0];
   out.signature = "sha256=";
   char hex[3];
   for (size_t i = 0; i != TowUpload::MAC_SIZE; i++) {
@@ -127,6 +134,36 @@ inline bool answer_tow(int status) {
   glider::put16(out + 1 + TowUpload::TAG_SIZE, static_cast<uint16_t>(status < 0 ? 0 : status));
   return tow_upload.tug.send(out, sizeof(out));
 }
+
+/// A field of the Worker's answer to a firmware check, which is compact JSON: "update":true, "built":1795315603
+inline bool json_flag(const std::string &body, const char *name) {
+  return body.find(std::string("\"") + name + "\":true") != std::string::npos;
+}
+inline uint32_t json_number(const std::string &body, const char *name) {
+  const std::string key = std::string("\"") + name + "\":";
+  const size_t at = body.find(key);
+  if (at == std::string::npos)
+    return 0;
+  return static_cast<uint32_t>(strtoul(body.c_str() + at + key.size(), nullptr, 10));
+}
+
+/// Sends the Worker's answer to a firmware check back to the tug: whether there is an update, and when it was built
+inline bool answer_firmware(int status, const std::string &body) {
+  uint8_t out[TowUpload::FIRMWARE_ANSWER_SIZE]{};
+  out[0] = 'U';
+  memcpy(out + 1, tow_upload.tag, TowUpload::TAG_SIZE);
+  uint8_t *p = out + 1 + TowUpload::TAG_SIZE;
+  glider::put16(p, static_cast<uint16_t>(status < 0 ? 0 : status));
+  if (status == 200) {
+    p[2] = json_flag(body, "update") ? 1 : 0;
+    glider::put32(p + 3, json_number(body, "built"));
+    glider::put32(p + 7, json_number(body, "uploaded"));
+  }
+  return tow_upload.tug.send(out, sizeof(out));
+}
+
+/// Answers the request in progress with no answer from the Worker, so the tug tries again later
+inline bool answer_unreached() { return tow_upload.type == 'F' ? answer_firmware(0, "") : answer_tow(0); }
 
 inline const Tug *find_tug(uint16_t address) {
   for (const auto &tug : pool_tugs) {
