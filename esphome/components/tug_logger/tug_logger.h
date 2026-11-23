@@ -47,6 +47,14 @@ enum class GpsSource : uint8_t {
   GPS_SOURCE_NMEA,
 };
 
+/// Where a pressure altitude is from (PositionSample::pressure_source).
+enum class PressureSource : uint8_t {
+  PRESSURE_SOURCE_NONE,
+  PRESSURE_SOURCE_SKYECHO,
+  /// The display's own barometer (pressure_id)
+  PRESSURE_SOURCE_BARO,
+};
+
 enum class FirmwareState : uint8_t {
   FIRMWARE_STATE_IDLE,
   FIRMWARE_STATE_CHECKING,
@@ -102,6 +110,8 @@ class TugLogger : public Component
   void set_time(time::RealTimeClock *time) { this->time_ = time; }
   void set_external_power(binary_sensor::BinarySensor *sensor) { this->external_power_ = sensor; }
   void set_battery(sensor::Sensor *sensor) { this->battery_ = sensor; }
+  /// A barometer in the display, in hPa: it is used before the SkyEcho's pressure altitude.
+  void set_pressure_sensor(sensor::Sensor *sensor);
 #ifdef USE_TUG_LOGGER_SKYECHO
   void set_skyecho(skyecho::SkyEcho *skyecho) { this->skyecho_ = skyecho; }
 #endif
@@ -238,10 +248,22 @@ class TugLogger : public Component
   void log_sample_(const PositionSample &sample, FlightEvent event);
   void start_flight_log_(const char *why);
   void flush_flight_log_();
+  static const char *pressure_source_text_(const FlightSnapshot &flight);
 
   time::RealTimeClock *time_{nullptr};
   binary_sensor::BinarySensor *external_power_{nullptr};
   sensor::Sensor *battery_{nullptr};
+  // The display's barometer: its latest reading as a pressure altitude, and when it came
+  sensor::Sensor *pressure_sensor_{nullptr};
+  uint32_t baro_ms_{0};
+  float baro_m_{0.0f};
+  // Both pressure altitudes at the last sample, for the flight log
+  struct PressureReadings {
+    bool baro_valid{false};
+    float baro_m{0.0f};
+    bool skyecho_valid{false};
+    float skyecho_m{0.0f};
+  } pressure_readings_{};
 #ifdef USE_TUG_LOGGER_SKYECHO
   skyecho::SkyEcho *skyecho_{nullptr};
 #endif

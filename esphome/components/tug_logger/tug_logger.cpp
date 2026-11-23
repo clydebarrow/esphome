@@ -33,6 +33,8 @@ static constexpr uint32_t NETWORK_CHECK_MS = 5000;
 // How long a flight found at start waits for a position before it is closed
 static constexpr uint32_t RESUME_WAIT_MS = 120000;
 static constexpr uint32_t NMEA_MAX_AGE_MS = 5000;
+// A barometer reading older than this is not used
+static constexpr uint32_t BARO_MAX_AGE_MS = 5000;
 static constexpr uint32_t POSITION_LOG_MS = 15000;
 // Position reports for the live map, as often as a glider tracker sends them
 static constexpr uint32_t POSITION_FLYING_MS = 5000;
@@ -48,6 +50,17 @@ void TugLogger::setup() {
     this->tow_link_->setup();
 #endif
   this->last_activity_ms_ = millis();
+}
+
+void TugLogger::set_pressure_sensor(sensor::Sensor *sensor) {
+  this->pressure_sensor_ = sensor;
+  sensor->add_on_state_callback([this](float pressure_hpa) {
+    // A failed reading is NaN; anything outside this range is not a cabin in flight or on the ground
+    if (!std::isfinite(pressure_hpa) || pressure_hpa < 300.0f || pressure_hpa > 1100.0f)
+      return;
+    this->baro_m_ = pressure_altitude_m(pressure_hpa);
+    this->baro_ms_ = millis();
+  });
 }
 
 void TugLogger::dump_config() {
@@ -98,9 +111,26 @@ std::string TugLogger::log_line_(const PositionSample &sample) const {
     length += snprintf(line + length, sizeof(line) - length, ",,");
   }
   add(location.valid && location.course_valid, location.course_deg);
+  // Both barometers, whichever the height is from
+  const PressureReadings &pressure = this->pressure_readings_;
+  add(pressure.baro_valid, pressure.baro_m / METERS_PER_FOOT);
+  add(pressure.skyecho_valid, pressure.skyecho_m / METERS_PER_FOOT);
   // The last comma ends the line instead
   line[length - 1] = '\n';
   return line;
+}
+
+const char *TugLogger::pressure_source_text_(const FlightSnapshot &flight) {
+  if (flight.kind != AltitudeKind::ALTITUDE_KIND_PRESSURE)
+    return "not used";
+  switch (PressureSource(flight.pressure_source)) {
+    case PressureSource::PRESSURE_SOURCE_BARO:
+      return "the display's barometer";
+    case PressureSource::PRESSURE_SOURCE_SKYECHO:
+      return "the SkyEcho";
+    default:
+      return "either";
+  }
 }
 
 void TugLogger::start_flight_log_(const char *why) {
@@ -120,18 +150,20 @@ void TugLogger::start_flight_log_(const char *why) {
     snprintf(field, sizeof(field), "%s",
              this->provisioning_.airfields.empty() ? "home field" : "no airfield within 3 km, from GPS altitude");
   }
-  char header[832];
+  char header[1024];
   snprintf(
       header, sizeof(header),
       "# %s. Heights from %s altitude, reference %s%.0f ft%s; field elevation %.0f ft, %s\n"
       "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet; heights above the field\n"
       "# skyecho_gps: 1 if its heartbeat said its GPS had a position; ownship_age_s: since its last ownship report; "
       "skyecho_gps_alt_ft: its own GPS altitude. lat and lon in degrees, course_deg true, from the source's GPS\n"
+      "# pressure_alt_ft: the one the height is from (%s); baro_alt_ft: the display's barometer; skyecho_pressure_ft: "
+      "the SkyEcho's\n"
       "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft,skyecho_gps,ownship_age_s,"
-      "skyecho_gps_alt_ft,lat,lon,course_deg\n",
+      "skyecho_gps_alt_ft,lat,lon,course_deg,baro_alt_ft,skyecho_pressure_ft\n",
       why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
       flight.has_reference ? flight.reference_m / METERS_PER_FOOT : flight.field_elevation_ft,
-      flight.approximate ? ", approximate" : "", flight.field_elevation_ft, field);
+      flight.approximate ? ", approximate" : "", flight.field_elevation_ft, field, this->pressure_source_text_(flight));
   this->flight_log_ = header;
   for (const std::string &line : this->ground_lines_)
     this->flight_log_ += line;
@@ -336,6 +368,10 @@ PositionSample TugLogger::read_position_() {
   sample.epoch = this->epoch_();
   this->source_ = GpsSource::GPS_SOURCE_NONE;
   this->location_ = Location{};
+  PressureReadings &pressure = this->pressure_readings_;
+  pressure = PressureReadings{};
+  pressure.baro_valid = this->baro_ms_ != 0 && sample.now_ms - this->baro_ms_ < BARO_MAX_AGE_MS;
+  pressure.baro_m = this->baro_m_;
   // The NMEA fix (the relay's own GNSS) comes first while it is fresh: a dedicated receiver with a clear view gives a
   // better position and GPS altitude than the SkyEcho in the cabin, which stands in when there is none
   const bool nmea = this->nmea_ms_ != 0 && sample.now_ms - this->nmea_ms_ < NMEA_MAX_AGE_MS;
@@ -361,9 +397,9 @@ PositionSample TugLogger::read_position_() {
     state.gps_valid = this->skyecho_->heartbeat_gps_valid();
     state.has_ownship = this->skyecho_->get_ownship_age_ms(&state.ownship_age_ms);
     state.geometric_valid = this->skyecho_->get_ownship_geo_altitude(&state.geometric_m);
-    // Its pressure altitude is kept either way: only the SkyEcho has one, and the flight log records it beside the
-    // GPS altitude. Its barometer needs no GPS fix, and it loses its fix in the cabin for minutes on end
-    sample.pressure_valid = this->skyecho_->get_pressure_altitude(&sample.pressure_m);
+    // Its pressure altitude is kept either way: the flight log records it beside the GPS altitude. Its barometer
+    // needs no GPS fix, and it loses its fix in the cabin for minutes on end
+    pressure.skyecho_valid = this->skyecho_->get_pressure_altitude(&pressure.skyecho_m);
     skyecho::OwnshipT ownship;
     if (this->skyecho_->get_ownship_position(&ownship)) {
       const auto &report = ownship.report;
@@ -386,6 +422,22 @@ PositionSample TugLogger::read_position_() {
     }
   }
 #endif
+  // The display's own barometer first: it never drops out with the SkyEcho's Wi-Fi. A flight keeps the barometer it
+  // took off with, as the two read tens of feet apart; the detector carries a gap in it on with GPS.
+  uint8_t source = 0;
+  const FlightSnapshot &flight = this->detector_.flight();
+  if (this->detector_.is_flying() && flight.kind == AltitudeKind::ALTITUDE_KIND_PRESSURE)
+    source = flight.pressure_source;
+  const bool use_baro = source == uint8_t(PressureSource::PRESSURE_SOURCE_BARO) || (source == 0 && pressure.baro_valid);
+  if (use_baro) {
+    sample.pressure_valid = pressure.baro_valid;
+    sample.pressure_m = pressure.baro_m;
+    sample.pressure_source = uint8_t(PressureSource::PRESSURE_SOURCE_BARO);
+  } else {
+    sample.pressure_valid = pressure.skyecho_valid;
+    sample.pressure_m = pressure.skyecho_m;
+    sample.pressure_source = uint8_t(PressureSource::PRESSURE_SOURCE_SKYECHO);
+  }
   return sample;
 }
 

@@ -18,6 +18,7 @@ DEPENDENCIES = ["network", "time"]
 DOMAIN = "tug_logger"
 
 CONF_BATTERY_ID = "battery_id"
+CONF_PRESSURE_ID = "pressure_id"
 CONF_CARD_PATH = "card_path"
 CONF_EXTERNAL_POWER_ID = "external_power_id"
 CONF_GPS_ID = "gps_id"
@@ -88,6 +89,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_WIFI_NETWORKS_ID): cv.use_id(WifiNetworks),
             cv.Optional(CONF_EXTERNAL_POWER_ID): cv.use_id(binary_sensor.BinarySensor),
             cv.Optional(CONF_BATTERY_ID): cv.use_id(sensor.Sensor),
+            # A barometer in the display, in hPa, used before the SkyEcho's pressure altitude
+            cv.Optional(CONF_PRESSURE_ID): cv.use_id(sensor.Sensor),
             # The mount point of the SD card in the C library (vfs_path of the filesystem)
             cv.Optional(CONF_CARD_PATH, default="/sdcard"): cv.string_strict,
             cv.Optional(CONF_TAKEOFF_SPEED, default="40kt"): knots,
@@ -155,6 +158,8 @@ async def to_code(config: ConfigType) -> None:
         cg.add(var.set_external_power(await cg.get_variable(power)))
     if (battery := config.get(CONF_BATTERY_ID)) is not None:
         cg.add(var.set_battery(await cg.get_variable(battery)))
+    if (pressure := config.get(CONF_PRESSURE_ID)) is not None:
+        cg.add(var.set_pressure_sensor(await cg.get_variable(pressure)))
 
     cg.add(var.set_takeoff_speed(config[CONF_TAKEOFF_SPEED]))
     cg.add(var.set_takeoff_confirm(config[CONF_TAKEOFF_CONFIRM]))

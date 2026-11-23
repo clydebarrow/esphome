@@ -157,6 +157,17 @@ binary_sensor:
       mode: INPUT_PULLUP
 
 sensor:
+  # A BME688 inside the case, for its barometer only: on the misc I2C bus, soldered to the RTC's SDA and SCL (U20 pins 5
+  # and 6), with 3V3 and GND from the Wio-LR1121 pads. The gas heater is off, so it doesn't warm itself.
+  - platform: bme680
+    id: bme688
+    i2c_id: misc_i2c
+    address: 0x76
+    update_interval: 1s
+    iir_filter: 3X
+    pressure:
+      id: baro_pressure
+      name: Cabin pressure
   - platform: adc
     id: vbat
     name: Battery voltage

@@ -22,7 +22,14 @@ struct PositionSample {
   uint8_t geometric_source{0};
   bool pressure_valid{false};
   float pressure_m{0.0f};
+  /// Which barometer the pressure altitude is from: two read tens of feet apart, so a flight uses only one.
+  uint8_t pressure_source{0};
 };
+
+/// ISA pressure altitude in meters, from a static pressure in hPa.
+inline float pressure_altitude_m(float pressure_hpa) {
+  return 44330.77f * (1.0f - std::pow(pressure_hpa / 1013.25f, 0.190263f));
+}
 
 enum class AltitudeKind : uint8_t {
   ALTITUDE_KIND_NONE,
@@ -64,6 +71,8 @@ struct FlightSnapshot {
   bool has_reference{false};
   /// For GPS altitude, the receiver it comes from (PositionSample::geometric_source).
   uint8_t geometric_source{0};
+  /// For pressure altitude, the barometer it comes from (PositionSample::pressure_source).
+  uint8_t pressure_source{0};
   /// Elevation of the field it launched from, which turns heights into altitudes above mean sea level.
   float field_elevation_ft{0.0f};
 };
@@ -164,6 +173,7 @@ class FlightDetector {
   GroundAltitudes ground_geometric_;
   GroundAltitudes ground_pressure_;
   uint8_t ground_geometric_source_{0};
+  uint8_t ground_pressure_source_{0};
   LaunchField launch_field_{LaunchField::LAUNCH_FIELD_DEFAULT};
   float launch_elevation_ft_{0.0f};
 

@@ -1,5 +1,5 @@
 # The tug's LoRa relay (tug-relay-common.yaml), linked to the tug's display over Bluetooth, for a display with no
-# header to wire to, such as the D1001 (tug-d1001-lora.yaml).
+# header to wire to. The D1001 is now wired to a relay by a UART instead (tug-d1001-lora.yaml).
 packages:
   relay: !include tug-relay-common.yaml
 

@@ -1,45 +1,20 @@
-# tug-d1001.yaml, with tows also sent over LoRa while there is no internet, as on the SkyEcho's Wi-Fi: over Bluetooth
-# to the relay in the tug (tug-relay-wsl.yaml), which passes them to the clubhouse receiver (glider-tests/
-# receiver-wsl.yaml in the glider-lora worktree). The receiver posts each tow to the Worker with this tug's own
-# signature and answers with the Worker's status; a tow leaves the queue only once that answer says it is stored.
+# tug-d1001.yaml, with tows also sent over LoRa while there is no internet, as on the SkyEcho's Wi-Fi: over a UART to
+# the relay (tug-relay-link.yaml), a Heltec Wireless Tracker (tug-relay-tracker.yaml) in a bracket outside the case,
+# which also gives a GNSS fix and the FLARM traffic it hears.
+#
+# Wiring, to the pads for the Wio-LR1121 module (U19), which is not fitted. Pad numbers are the module's; check with a
+# meter first:
+# - Pad 20 or 21 (VDD_RF, from VDD_3V3) to the tracker's 3V3.
+# - Pad 1 (GND) to the tracker's GND.
+# - Pad 6 (SPI_MOSI, GPIO50), the display's TX, to the tracker's GPIO4 (RX).
+# - Pad 7 (SPI_MISO, GPIO49), the display's RX, to the tracker's GPIO5 (TX).
+# Pads 4, 5, 8, 12 and 14 (GPIO5, 51, 52, 53 and 54) are spare.
 substitutions:
-  relay_mac: F4:12:FA:82:61:5E
   tug_address: "0x0010"
   clubhouse_address: "0x0001"
+  relay_tx_pin: GPIO50
+  relay_rx_pin: GPIO49
 
 packages:
   tug: !include tug-d1001.yaml
-
-esp32_ble:
-
-esp32_ble_tracker:
-  scan_parameters:
-    active: false
-
-ble_client:
-  - mac_address: ${relay_mac}
-    id: relay
-
-packet_interface:
-  - platform: ble_client
-    id: tow_link
-    ble_client_id: relay
-    # The relay passes each packet to LoRa as it is, so none may be larger than a LoRa packet
-    max_packet_size: 255
-    addressing:
-      id: tug_addressing
-      # Until the tug file gives this tug's own address, with its key (tug_logger: lora_addressing_id)
-      address: ${tug_address}
-      destination: ${clubhouse_address}
-    encryption:
-      id: tow_link_key
-      key_at_runtime: true
-    # A tow is about 300 bytes
-    fragmentation:
-      max_packet_size: 512
-
-tug_logger:
-  upload_link_id: tow_link
-  # The tug's LoRa address and key are in its tug file, from the dashboard
-  lora_addressing_id: tug_addressing
-  lora_encryption_id: tow_link_key
+  relay_link: !include tug-relay-link.yaml

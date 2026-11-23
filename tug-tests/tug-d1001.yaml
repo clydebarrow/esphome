@@ -32,6 +32,8 @@ globals:
 tug_logger:
   external_power_id: external_power
   battery_id: vbat
+  # The BME688 in the case (tug-d1001-board.yaml)
+  pressure_id: baro_pressure
   on_power_off:
     - switch.turn_off: power_hold
     # Still running: external power came back. The card is unmounted, so start again

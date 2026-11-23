@@ -501,6 +501,7 @@ bool TowStore::save_flight(const FlightSnapshot &snapshot, const TowDetails &det
     root["reference"] = snapshot.reference_m;
     root["has_reference"] = snapshot.has_reference;
     root["source"] = snapshot.geometric_source;
+    root["pressure_source"] = snapshot.pressure_source;
     root["field"] = snapshot.field_elevation_ft;
     root["saved_at"] = (int64_t) saved_at;
     root["glider"] = details.glider_registration;
@@ -529,6 +530,7 @@ bool TowStore::load_flight(FlightSnapshot &snapshot, TowDetails &details, time_t
     snapshot.reference_m = root["reference"] | 0.0f;
     snapshot.has_reference = root["has_reference"] | false;
     snapshot.geometric_source = root["source"] | (uint8_t) 0;
+    snapshot.pressure_source = root["pressure_source"] | (uint8_t) 0;
     snapshot.field_elevation_ft = root["field"] | this->default_field_elevation_ft_;
     saved_at = (time_t) (root["saved_at"] | (int64_t) 0);
     details_from_json(root, details);

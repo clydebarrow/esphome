@@ -26,8 +26,13 @@ FlightEvent FlightDetector::update(const PositionSample &sample) {
         this->ground_geometric_source_ = sample.geometric_source;
         this->ground_geometric_.add(sample.now_ms, sample.geometric_m);
       }
-      if (sample.pressure_valid)
+      if (sample.pressure_valid) {
+        // As for GPS: a change of barometer starts again
+        if (sample.pressure_source != this->ground_pressure_source_)
+          this->ground_pressure_.clear();
+        this->ground_pressure_source_ = sample.pressure_source;
         this->ground_pressure_.add(sample.now_ms, sample.pressure_m);
+      }
     }
   }
 
@@ -94,6 +99,7 @@ void FlightDetector::start_flight_(const PositionSample &sample) {
   }
   if (this->ground_pressure_.mean(this->launch_ms_, window, max_age, this->flight_.reference_m)) {
     this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
+    this->flight_.pressure_source = this->ground_pressure_source_;
     this->flight_.has_reference = true;
     // Zero height is at the ground GPS altitude too, in case the pressure altitude stops straight after takeoff
     if (this->ground_geometric_.mean(this->launch_ms_, window, max_age, this->anchor_geometric_m_)) {
@@ -123,7 +129,9 @@ bool FlightDetector::altitude_for_(const PositionSample &sample, float &altitude
              (this->flight_.geometric_source == 0 || sample.geometric_source == this->flight_.geometric_source);
     case AltitudeKind::ALTITUDE_KIND_PRESSURE:
       altitude_m = sample.pressure_m;
-      return sample.pressure_valid;
+      // A flight saved before the barometer was kept has none
+      return sample.pressure_valid &&
+             (this->flight_.pressure_source == 0 || sample.pressure_source == this->flight_.pressure_source);
     default:
       return false;
   }
@@ -134,6 +142,7 @@ void FlightDetector::track_flight_(const PositionSample &sample) {
   if (this->flight_.kind == AltitudeKind::ALTITUDE_KIND_NONE) {
     if (sample.pressure_valid) {
       this->flight_.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
+      this->flight_.pressure_source = sample.pressure_source;
     } else if (sample.geometric_valid) {
       this->flight_.kind = AltitudeKind::ALTITUDE_KIND_GEOMETRIC;
       this->flight_.geometric_source = sample.geometric_source;

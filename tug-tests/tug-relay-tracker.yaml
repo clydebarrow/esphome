@@ -9,9 +9,10 @@
 # (anything but a broadcast, such as the tug's position). On the ground it stays on LoRa. Flying is the relay's own
 # GNSS speed: above 40 kt for 5 s, as the tug's logger takes off, until below 30 kt for 10 s.
 #
-# Wiring, to the display's 40-pin header (tug-wave8-lora.yaml):
+# Wiring, to the display's 40-pin header on the Waveshare (tug-wave8-lora.yaml), or the Wio-LR1121 pads on the D1001
+# (tug-d1001-lora.yaml):
 # - Tracker 3V3 to the display's 3V3, GND to GND
-# - Tracker GPIO4 (RX) to the display's GPIO21 (TX), tracker GPIO5 (TX) to the display's GPIO22 (RX)
+# - Tracker GPIO4 (RX) to the display's TX, tracker GPIO5 (TX) to the display's RX
 # Both on the tracker's right-hand header, beside GPIO6 and 7.
 #
 # The radio, SPI and LoRa pins are the same as the Wireless Stick Lite V3's (tug-relay-common.yaml).

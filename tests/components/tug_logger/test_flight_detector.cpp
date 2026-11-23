@@ -24,6 +24,7 @@ class Flight {
     sample.geometric_source = this->source;
     sample.pressure_valid = pressure_ft >= 0;
     sample.pressure_m = pressure_ft * FT;
+    sample.pressure_source = this->pressure_source;
     this->seconds++;
     return this->detector.update(sample);
   }
@@ -44,6 +45,8 @@ class Flight {
   bool clock_set{true};
   // The receiver the GPS altitude is from
   uint8_t source{2};
+  // The barometer the pressure altitude is from
+  uint8_t pressure_source{2};
 };
 
 // On the ground at 1500 ft for 30 s, then a takeoff run, flight, and landing: launch at second 1030
@@ -224,6 +227,43 @@ TEST(TugFlightDetector, LostPressureAltitudeIgnoresAnotherGpsReceiver) {
   flight.run(20, 70, 9000, -1);
   EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
   EXPECT_FALSE(flight.detector.flight().approximate);
+}
+
+TEST(TugFlightDetector, KeepsToOneBarometer) {
+  Flight flight;
+  flight.run(30, 0, 1500, 900);
+  flight.run(10, 60, 1500, 900);
+  flight.run(5, 70, 2500, 1900);
+  EXPECT_EQ(flight.detector.flight().pressure_source, 2);
+  ASSERT_EQ(flight.detector.flight().max_height_ft, 1000);
+  // The other barometer reads higher: it must not set a new highest, and a short spell of it is a gap
+  flight.pressure_source = 1;
+  flight.run(5, 70, 2500, 2400);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
+  flight.pressure_source = 2;
+  flight.run(5, 70, 2300, 1700);
+  EXPECT_EQ(flight.detector.current_height_ft(), 800);
+  EXPECT_FALSE(flight.detector.flight().approximate);
+}
+
+TEST(TugFlightDetector, GroundReferenceIsFromOneBarometer) {
+  Flight flight;
+  // Readings from the other barometer before the last one are not part of the mean
+  flight.pressure_source = 1;
+  flight.run(20, 0, 1500, 1200);
+  flight.pressure_source = 2;
+  flight.run(10, 0, 1500, 900);
+  flight.run(10, 60, 1500, 900);
+  flight.run(5, 70, 2500, 1900);
+  EXPECT_EQ(flight.detector.flight().pressure_source, 2);
+  EXPECT_EQ(flight.detector.flight().max_height_ft, 1000);
+}
+
+TEST(TugFlightDetector, PressureAltitudeIsTheStandardAtmosphere) {
+  EXPECT_NEAR(pressure_altitude_m(1013.25f), 0.0f, 0.1f);
+  EXPECT_NEAR(pressure_altitude_m(900.0f), 988.6f, 1.0f);
+  // About 27 ft for each hPa near sea level
+  EXPECT_NEAR((pressure_altitude_m(1012.25f) - pressure_altitude_m(1013.25f)) / FT, 27.4f, 0.5f);
 }
 
 TEST(TugFlightDetector, FallsBackToGpsAltitude) {

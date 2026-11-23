@@ -1,0 +1,185 @@
+# The tug display's link to its LoRa relay over a UART, included by tug-wave8-lora.yaml and tug-d1001-lora.yaml, which
+# give the pins as relay_tx_pin and relay_rx_pin, and tug_address and clubhouse_address. Tows go to the clubhouse
+# receiver (glider-tests/receiver-wsl.yaml in the glider-lora worktree) through the relay, which passes them on over
+# LoRa. The receiver posts each tow to the Worker with this tug's own signature and answers with the Worker's status; a
+# tow leaves the queue only once that answer says it is stored.
+#
+# The relay is a Heltec Wireless Stick Lite V3 (tug-relay-wsl-uart.yaml) or a Heltec Wireless Tracker
+# (tug-relay-tracker.yaml). The tracker also sends its GNSS fix once a second over the link, from the relay's own
+# address (relay_fix.h). It is the backup to the SkyEcho for takeoff, landing and heights, and sets the clock when
+# nothing else has. The traffic is placed from its fix rather than the SkyEcho's while it has one. It also sends the
+# aircraft it hears on FLARM (relay_fix::Traffic), which join the SkyEcho's traffic. The display can ask it to turn its
+# Wi-Fi on (relay_wifi), as it does when a firmware check is asked for on the settings screen.
+#
+# Wiring: the relay's 3V3 and GND to the display's 3V3 and GND, the display's TX to the relay's RX and the display's RX
+# to the relay's TX. Both are 3.3V logic.
+esphome:
+  includes:
+    - relay_fix.h
+  on_boot:
+    - priority: -100
+      then:
+        - lambda: |-
+            // The relay's GNSS fix: to the tug's address, or broadcast before the relay has learned it, when it
+            // arrives on the positions peer
+            auto on_relay_fix = [](const packet_interface::PacketBuffer &data,
+                                   const packet_interface::PacketMetaData &meta) {
+                  if (meta.source_address != relay_fix::RELAY_ADDRESS)
+                    return;
+                  // An aircraft the relay heard on FLARM, added to the SkyEcho's traffic
+                  uint8_t type;
+                  if (data.copy_to(&type, 1) == 1 && type == relay_fix::Traffic::TYPE) {
+                    uint8_t packet[relay_fix::Traffic::SIZE];
+                    relay_fix::Traffic traffic;
+                    if (data.size() != sizeof(packet) || data.copy_to(packet, sizeof(packet)) != sizeof(packet) ||
+                        !traffic.decode(packet, sizeof(packet))) {
+                      ESP_LOGW("relay_flarm", "Unexpected traffic packet of %zu bytes from the relay", data.size());
+                      return;
+                    }
+                    id(relay_traffic)++;
+                    skyecho::FlarmTarget target{};
+                    target.address = traffic.address;
+                    target.icao = traffic.address_type == 1;
+                    target.aircraft_type = traffic.aircraft_type;
+                    target.no_track = (traffic.flags & relay_fix::Traffic::FLAG_NO_TRACK) != 0;
+                    target.latitude = traffic.lat_e7 / 1e7f;
+                    target.longitude = traffic.lon_e7 / 1e7f;
+                    target.altitude_hae = traffic.altitude_cm / 100.0f;
+                    target.speed = traffic.speed_cms / 100.0f;
+                    target.track = traffic.course_cdeg / 100.0f;
+                    target.climb_rate = traffic.climb_cms / 100.0f;
+                    ESP_LOGD("relay_flarm", "%06X: %.5f,%.5f %.0fm %.0fm/s %.0fdeg, %ddBm", unsigned(target.address),
+                             target.latitude, target.longitude, target.altitude_hae, target.speed, target.track,
+                             traffic.rssi);
+                    id(skyecho_hub).add_flarm_target(target);
+                    return;
+                  }
+                  uint8_t buffer[relay_fix::Fix::SIZE];
+                  relay_fix::Fix fix;
+                  const size_t length = data.size();
+                  if (length > sizeof(buffer) || data.copy_to(buffer, length) != length ||
+                      !fix.decode(buffer, length)) {
+                    ESP_LOGW("relay_gps", "Unexpected packet of %zu bytes from the relay", data.size());
+                    return;
+                  }
+                  id(relay_packets)++;
+                  id(relay_satellites) = fix.satellites;
+                  if ((fix.flags & relay_fix::FLAG_LOCATION) == 0)
+                    return;
+                  id(relay_fixes)++;
+                  id(logger_id).set_backup_fix((fix.flags & relay_fix::FLAG_SPEED) != 0, fix.speed_cms / 100.0f,
+                                               (fix.flags & relay_fix::FLAG_ALTITUDE) != 0,
+                                               fix.altitude_cm / 100.0f);
+                  id(logger_id).set_backup_location(fix.lat_e7 / 1e7, fix.lon_e7 / 1e7,
+                                                    (fix.flags & relay_fix::FLAG_COURSE) != 0,
+                                                    fix.course_cdeg / 100.0f, fix.satellites);
+                  // The traffic is placed from it, in preference to the SkyEcho's position
+                  skyecho::SkyEcho::ExternalFix own{};
+                  own.latitude = fix.lat_e7 / 1e7;
+                  own.longitude = fix.lon_e7 / 1e7;
+                  own.altitude_valid = (fix.flags & relay_fix::FLAG_ALTITUDE) != 0;
+                  own.altitude = fix.altitude_cm / 100.0f;
+                  own.speed_valid = (fix.flags & relay_fix::FLAG_SPEED) != 0;
+                  own.speed = fix.speed_cms / 100.0f;
+                  own.track_valid = (fix.flags & relay_fix::FLAG_COURSE) != 0;
+                  own.track = fix.course_cdeg / 100.0f;
+                  id(skyecho_hub).set_external_fix(own);
+                  // Set the clock from the fix if it is unset or off by more than 2 s
+                  if ((fix.flags & relay_fix::FLAG_TIME) != 0) {
+                    const time_t now = ::time(nullptr);
+                    if (now < 1700000000 || std::abs(int64_t(now) - int64_t(fix.time)) > 2) {
+                      struct timeval tv{time_t(fix.time), 0};
+                      settimeofday(&tv, nullptr);
+                      ESP_LOGI("relay_gps", "Clock set from the relay's GNSS");
+                    }
+                  }
+            };
+            id(relay_gps)->top()->add_packet_interface_listener(on_relay_fix);
+            id(positions)->top()->add_packet_interface_listener(on_relay_fix);
+
+# What the relay's GNSS has sent, logged every 30 s
+globals:
+  - id: relay_packets
+    type: uint32_t
+    initial_value: "0"
+  - id: relay_fixes
+    type: uint32_t
+    initial_value: "0"
+  - id: relay_satellites
+    type: uint8_t
+    initial_value: "0"
+  - id: relay_traffic
+    type: uint32_t
+    initial_value: "0"
+
+interval:
+  - interval: 30s
+    then:
+      - lambda: |-
+          ESP_LOGI("relay_gps", "From the relay in 30 s: %u packets, %u with a position, %u satellites, %u FLARM reports",
+                   (unsigned) id(relay_packets), (unsigned) id(relay_fixes), (unsigned) id(relay_satellites),
+                   (unsigned) id(relay_traffic));
+          id(relay_traffic) = 0;
+          id(relay_packets) = 0;
+          id(relay_fixes) = 0;
+
+uart:
+  - id: relay_uart
+    tx_pin: ${relay_tx_pin}
+    rx_pin: ${relay_rx_pin}
+    baud_rate: 115200
+    # A whole LoRa packet, escaped, with room to spare
+    rx_buffer_size: 1024
+
+packet_interface:
+  - platform: uart
+    id: tow_link
+    uart_id: relay_uart
+    # The relay passes each packet to LoRa as it is, so none may be larger than a LoRa packet
+    max_packet_size: 255
+    addressing:
+      id: tug_addressing
+      # Until the tug file gives this tug's own address, with its key (tug_logger: lora_addressing_id)
+      address: ${tug_address}
+      peers:
+        - id: to_clubhouse
+          destination: ${clubhouse_address}
+          encryption:
+            id: to_clubhouse_key
+            key_at_runtime: true
+          # A tow is about 300 bytes
+          fragmentation:
+            max_packet_size: 512
+        # The relay's GNSS fix, if it has one (relay_fix.h): plain, and only on the wire to the relay
+        - id: relay_gps
+          destination: 0x00FE
+        # The tug's position, broadcast over LoRa through the relay for the live map, as a glider tracker's is
+        - id: positions
+          destination: broadcast
+
+tug_logger:
+  upload_link_id: to_clubhouse
+  position_link_id: positions
+  # The tug's LoRa address and key are in its tug file, from the dashboard
+  lora_addressing_id: tug_addressing
+  lora_encryption_id: to_clubhouse_key
+  # Checking for firmware from the settings screen opens the relay's Wi-Fi too, so it checks for its own
+  on_firmware_check:
+    - script.execute: relay_wifi
+
+script:
+  # Asks the relay to turn its Wi-Fi on for 5 minutes and check for firmware (relay_fix.h); a relay without Wi-Fi
+  # ignores it. Sent from the relay's peer, so it goes to the relay's address and never over LoRa.
+  - id: relay_wifi
+    then:
+      - lambda: |-
+          const uint8_t request = relay_fix::WIFI_REQUEST;
+          bool ok = id(relay_gps)->top()->send_to_interface(packet_interface::PacketBuffer(&request, 1), {});
+          ESP_LOGI("relay_gps", "Asked the relay for Wi-Fi: %s", ok ? "sent" : "refused");
+
+button:
+  - platform: template
+    name: Relay Wi-Fi
+    icon: mdi:wifi
+    on_press:
+      - script.execute: relay_wifi

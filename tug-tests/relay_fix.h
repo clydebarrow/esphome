@@ -2,7 +2,7 @@
 // A GPS fix from the tug's LoRa relay (a Heltec Wireless Tracker, with its own GNSS) to the tug's display, over the
 // UART link between them. The display uses it while the SkyEcho gives none. It goes from the relay's own address to
 // broadcast, unencrypted, as the tug's address comes from its tug file; the relay never sends it over LoRa.
-// Used by tug-relay-tracker.yaml and tug-wave8-lora.yaml. The relay also sends the aircraft it hears on FLARM the
+// Used by tug-relay-tracker.yaml and tug-relay-link.yaml. The relay also sends the aircraft it hears on FLARM the
 // same way (Traffic, below).
 
 #include <cstddef>

@@ -392,6 +392,7 @@ TEST_F(TowStoreTest, FlightInProgressSurvivesARestart) {
   snapshot.kind = AltitudeKind::ALTITUDE_KIND_PRESSURE;
   snapshot.reference_m = 450.5f;
   snapshot.has_reference = true;
+  snapshot.pressure_source = 2;
   ASSERT_TRUE(this->store->save_flight(snapshot, {"WGQ", "Alex", "", "Sam"}, LAUNCH + 300));
   this->reopen();
   FlightSnapshot loaded;
@@ -404,6 +405,7 @@ TEST_F(TowStoreTest, FlightInProgressSurvivesARestart) {
   EXPECT_EQ(loaded.kind, AltitudeKind::ALTITUDE_KIND_PRESSURE);
   EXPECT_FLOAT_EQ(loaded.reference_m, 450.5f);
   EXPECT_TRUE(loaded.has_reference);
+  EXPECT_EQ(loaded.pressure_source, 2);
   EXPECT_EQ(saved_at, LAUNCH + 300);
   EXPECT_EQ(details.glider_registration, "WGQ");
   this->store->clear_flight();
