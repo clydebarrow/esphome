@@ -90,6 +90,14 @@ std::string TugLogger::log_line_(const PositionSample &sample) const {
     length += snprintf(line + length, sizeof(line) - length, ",");
   }
   add(skyecho.geometric_valid, skyecho.geometric_m / METERS_PER_FOOT);
+  // Where the tug was, from the same GPS as the speed, so a tow can be drawn on a map beside the glider's track
+  const Location &location = this->location_;
+  if (location.valid) {
+    length += snprintf(line + length, sizeof(line) - length, "%.6f,%.6f,", location.lat, location.lon);
+  } else {
+    length += snprintf(line + length, sizeof(line) - length, ",,");
+  }
+  add(location.valid && location.course_valid, location.course_deg);
   // The last comma ends the line instead
   line[length - 1] = '\n';
   return line;
@@ -112,15 +120,15 @@ void TugLogger::start_flight_log_(const char *why) {
     snprintf(field, sizeof(field), "%s",
              this->provisioning_.airfields.empty() ? "home field" : "no airfield within 3 km, from GPS altitude");
   }
-  char header[704];
+  char header[832];
   snprintf(
       header, sizeof(header),
       "# %s. Heights from %s altitude, reference %s%.0f ft%s; field elevation %.0f ft, %s\n"
       "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet; heights above the field\n"
       "# skyecho_gps: 1 if its heartbeat said its GPS had a position; ownship_age_s: since its last ownship report; "
-      "skyecho_gps_alt_ft: its own GPS altitude\n"
+      "skyecho_gps_alt_ft: its own GPS altitude. lat and lon in degrees, course_deg true, from the source's GPS\n"
       "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft,skyecho_gps,ownship_age_s,"
-      "skyecho_gps_alt_ft\n",
+      "skyecho_gps_alt_ft,lat,lon,course_deg\n",
       why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
       flight.has_reference ? flight.reference_m / METERS_PER_FOOT : flight.field_elevation_ft,
       flight.approximate ? ", approximate" : "", flight.field_elevation_ft, field);

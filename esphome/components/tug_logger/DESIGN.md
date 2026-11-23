@@ -30,7 +30,7 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
 | `tows-pending.jsonl`, `tows-sending.jsonl` | Confirmed tows to send: the exact bytes that are signed and posted |
 | `tows-sent.jsonl`, `tows-failed.jsonl`, `tows-discarded.jsonl` | What was sent, refused (any 4xx but 401), or marked as not a tow |
 | `recent.json` | Recent gliders and pilots for the picker |
-| `flights/*.csv` | A record of each flight, named by its takeoff in UTC: the last minute on the ground, then a line a second until landing, with speed, both altitudes, and the height worked out, then the SkyEcho's GPS state, the age of its last ownship report and its own GPS altitude, which show why a pressure altitude is missing. For checking a tow's figures |
+| `flights/*.csv` | A record of each flight, named by its takeoff in UTC: the last minute on the ground, then a line a second until landing, with speed, both altitudes, and the height worked out, then the SkyEcho's GPS state, the age of its last ownship report and its own GPS altitude, which show why a pressure altitude is missing, and the tug's position and course, so a tow can be drawn on a map beside the glider's track. For checking a tow's figures |
 
 ## Decisions
 
