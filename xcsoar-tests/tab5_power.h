@@ -6,6 +6,7 @@
 #include <cmath>
 
 #include <driver/gpio.h>
+#include <driver/usb_serial_jtag.h>
 #include <esp_sleep.h>
 
 #include "esphome/components/ina226/ina226.h"
@@ -25,6 +26,9 @@ static constexpr float SUPPLY_MAX_BATTERY_CURRENT = 0.15f;
 static constexpr uint32_t FIRST_READING_DELAY_MS = 100;
 
 inline bool woken_by_timer() { return esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER; }
+
+/// A computer is on the USB port, as for an update; a charger or power bank is not.
+inline bool computer_attached() { return usb_serial_jtag_is_connected(); }
 
 /// Called before the backlight is set up. After a timer wake the backlight stays held off.
 inline void release_backlight() {

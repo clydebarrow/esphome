@@ -151,11 +151,16 @@ display:
       if (!id(xcsoar_stopped))
         return;
       it.fill(Color::BLACK);
+      const char *message = id(ready_for_update) ? "Ready to update"
+                            : id(xcsoar_quit)    ? "Switching off"
+                                                 : "XCSoar has stopped";
+      const char *hint = id(ready_for_update) ? "Unplug the cable to switch off"
+                         : id(xcsoar_quit)    ? "Press the side button to start again"
+                                              : "Restart the device to start it again";
       it.print(it.get_width() / 2, it.get_height() / 2 - 40, id(message_font), Color::WHITE,
-               display::TextAlign::CENTER, id(xcsoar_quit) ? "Switching off" : "XCSoar has stopped");
+               display::TextAlign::CENTER, message);
       it.print(it.get_width() / 2, it.get_height() / 2 + 40, id(hint_font), Color(0xA0A0A0),
-               display::TextAlign::CENTER,
-               id(xcsoar_quit) ? "Press the side button to start again" : "Restart the device to start it again");
+               display::TextAlign::CENTER, hint);
 
 globals:
   - id: xcsoar_stopped
@@ -167,17 +172,20 @@ globals:
   - id: start_battery_current
     type: float
     initial_value: NAN
+  - id: ready_for_update
+    type: bool
+    initial_value: "false"
 
 # Only the characters of the messages above: the whole character set at these sizes takes about 200 kB of flash
 font:
   - file: ../tests/components/lvgl/roboto.ttf
     id: message_font
     size: 56
-    glyphs: " CPRSXabcdefghinoprstuvw"
+    glyphs: " CPRSUXabcdefghilnoprstuvwy"
   - file: ../tests/components/lvgl/roboto.ttf
     id: hint_font
     size: 32
-    glyphs: " CPRSXabcdefghinoprstuvw"
+    glyphs: " CPRSUXabcdefghilnoprstuvwy"
 
 touchscreen:
   - platform: st7123
@@ -192,8 +200,8 @@ touchscreen:
 
 xcsoar:
   id: xcsoar_app
-  # After Quit in XCSoar (its files are saved by then), unmount the SD card, then sleep while a supply is
-  # connected, or switch off
+  # After Quit in XCSoar (its files are saved by then), unmount the SD card. With a computer on the USB port, wait to
+  # be updated until it is unplugged; then sleep while a supply is connected, or switch off
   on_stopped:
     - globals.set:
         id: xcsoar_stopped
@@ -207,8 +215,19 @@ xcsoar:
           lambda: return quit;
         then:
           - delay: 2s
+          - lambda: App.run_safe_shutdown_hooks();
+          - if:
+              condition:
+                lambda: return tab5_power::computer_attached();
+              then:
+                - globals.set:
+                    id: ready_for_update
+                    value: "true"
+                - component.update: lcd
+                - wait_until:
+                    condition:
+                      lambda: return !tab5_power::computer_attached();
           - lambda: |-
-              App.run_safe_shutdown_hooks();
               const float current = tab5_power::read_battery_current(id(battery_monitor), id(battery_current));
               ESP_LOGI("tab5_power", "Battery current %.3f A", current);
               tab5_power::sleep_or_switch_off(current, id(wifi_power), id(power_off));
