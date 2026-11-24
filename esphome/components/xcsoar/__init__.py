@@ -43,8 +43,12 @@ DOMAIN = "xcsoar"
 
 
 def AUTO_LOAD(config: ConfigType | None = None) -> list[str]:
-    """The flight uploader reads club.json with the json component."""
-    if not config or config.get(CONF_FLIGHT_UPLOAD):
+    """The flight uploader and the club Wi-Fi list read club.json with the json component."""
+    if (
+        not config
+        or config.get(CONF_FLIGHT_UPLOAD)
+        or config.get(CONF_WIFI_NETWORKS_ID)
+    ):
         return ["json"]
     return []
 

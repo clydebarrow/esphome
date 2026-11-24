@@ -1,6 +1,7 @@
 #ifdef USE_ESP32_VARIANT_ESP32P4
 
 #include "xcsoar.h"
+#include "club_wifi.h"
 #include "flight_upload.h"
 
 #include "esphome/core/application.h"
@@ -119,6 +120,10 @@ void XCSoarComponent::setup() {
 #ifdef USE_FILESYSTEM_VFS
   if (this->data_fs_ != nullptr)
     snprintf(this->data_path_, sizeof(this->data_path_), "%s/%s", this->data_fs_->get_vfs()->get_base_path(), DATA_DIR);
+#endif
+#if defined(USE_XCSOAR_WIFI_NETWORKS) && defined(USE_FILESYSTEM_VFS)
+  if (this->data_fs_ != nullptr && this->wifi_host_.ctx != nullptr)
+    load_club_wifi(this->data_path_, static_cast<wifi_networks::WifiNetworks *>(this->wifi_host_.ctx));
 #endif
 #ifdef USE_XCSOAR_FLIGHT_UPLOAD
   if (this->data_fs_ != nullptr && !start_flight_uploader(this->data_path_)) {
