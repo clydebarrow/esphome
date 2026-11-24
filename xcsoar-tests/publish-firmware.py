@@ -27,6 +27,8 @@ MY_DEVICES = ROOT.parent.parent / "my-devices"
 SECRET_FILES = ("secrets.yaml", "wifi.yaml", "ota.yaml")
 # Values shorter than this, such as "16db" or "true", would match by chance
 MIN_SECRET_LENGTH = 6
+# Values that are also ordinary strings in ESPHome and lwIP, such as an SSID named after ESPHome
+PUBLIC_VALUES = {b"esphome", b"ESPHome", b".local"}
 
 # esp_app_desc_t follows the image header (24 bytes) and the first segment header (8 bytes)
 APP_DESC_OFFSET = 32
@@ -104,7 +106,11 @@ def secret_values() -> list[bytes]:
             if match is None:
                 continue
             value = match.group(1).strip("'\"")
-            if value.startswith("!") or len(value) < MIN_SECRET_LENGTH:
+            if (
+                value.startswith("!")
+                or len(value) < MIN_SECRET_LENGTH
+                or value.encode() in PUBLIC_VALUES
+            ):
                 continue
             values.append(value.encode())
     return values

@@ -8,4 +8,4 @@ packages:
 
 # Apart from the flight build, which has the same device name
 esphome:
-  build_path: .esphome/build/release-t-display-p4
+  build_path: build/release-t-display-p4

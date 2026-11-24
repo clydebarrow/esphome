@@ -5,4 +5,4 @@ packages:
 
 # Apart from the flight build, which has the same device name
 esphome:
-  build_path: .esphome/build/release-tab5-st7123
+  build_path: build/release-tab5-st7123
