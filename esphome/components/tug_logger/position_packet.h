@@ -7,6 +7,8 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
+#include <string>
 
 namespace esphome::tug_logger {
 
@@ -54,6 +56,27 @@ struct PositionReport {
                 ? 0
                 : static_cast<uint8_t>(std::lround(std::min(5.1f, std::max(0.02f, this->battery_v)) * 50));
     return SIZE;
+  }
+};
+
+/// The tug's registration, broadcast after a change and once a minute: a receiver shows the tug's positions under it,
+/// in place of the tug file's. 'N', the length, then the registration in ASCII. A receiver from before ignores it.
+struct NameReport {
+  static constexpr uint8_t TYPE = 'N';
+  static constexpr size_t MAX_LENGTH = 15;
+  static constexpr size_t MAX_SIZE = 2 + MAX_LENGTH;
+
+  std::string registration;
+
+  /// The packet's size, or 0 if the registration is blank or too long
+  size_t encode(uint8_t *p) const {
+    const size_t length = this->registration.size();
+    if (length == 0 || length > MAX_LENGTH)
+      return 0;
+    p[0] = TYPE;
+    p[1] = uint8_t(length);
+    std::memcpy(p + 2, this->registration.data(), length);
+    return 2 + length;
   }
 };
 

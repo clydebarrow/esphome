@@ -44,7 +44,7 @@ static constexpr uint8_t SPLASH_WAIT_TICKS = 12;
 static constexpr int SPLASH_LOGO_WIDTH_PERCENT = 80;
 static constexpr size_t LOGO_MAX_BYTES = 1024 * 1024;
 
-static const char *const FIELD_TITLES[TOW_FIELD_COUNT] = {"Glider", "Pilot 1", "Pilot 2", "Tug pilot"};
+static const char *const FIELD_TITLES[] = {"Glider", "Pilot 1", "Pilot 2", "Tug pilot", "Tug"};
 
 // A short formatted text on the stack; these run every second
 struct Text {
@@ -65,6 +65,8 @@ static std::string &field_of(TowDetails &details, TowField field) {
       return details.glider_pilot_1;
     case TowField::TOW_FIELD_PILOT_2:
       return details.glider_pilot_2;
+    case TowField::TOW_FIELD_TUG:
+      return details.tug_registration;
     default:
       return details.tug_pilot;
   }
@@ -226,8 +228,28 @@ void TugUi::set_status_() {
 }
 
 void TugUi::refresh_next_() {
+  const TowDetails &details = this->logger_->next_details();
   for (size_t i = 0; i != TOW_FIELD_COUNT; i++)
-    lv_label_set_text(this->w_.next_fields[i], field_text(this->logger_->next_details(), TowField(i)));
+    lv_label_set_text(this->w_.next_fields[i], field_text(details, TowField(i)));
+  lv_label_set_text(this->w_.next_fields[size_t(TowField::TOW_FIELD_TUG_PILOT)],
+                    this->tug_pilot_text_(details, this->logger_->tug_registration()).c_str());
+}
+
+std::string TugUi::tug_pilot_text_(const TowDetails &details, const std::string &tug) {
+  std::string text = field_text(details, TowField::TOW_FIELD_TUG_PILOT);
+  if (!tug.empty() && strcasecmp(tug.c_str(), this->logger_->provisioning().tug_registration.c_str()) != 0)
+    text += "  (" + tug + ")";
+  return text;
+}
+
+std::string TugUi::picker_tug_() {
+  if (this->mode_ == PickerMode::PICKER_MODE_TOW) {
+    TowRecord record;
+    if (this->current_tow_(record) && !record.details.tug_registration.empty())
+      return record.details.tug_registration;
+    return this->logger_->provisioning().tug_registration;
+  }
+  return this->logger_->tug_registration();
 }
 
 void TugUi::refresh() {
@@ -351,7 +373,14 @@ void TugUi::open_picker_(PickerMode mode, TowField field) {
   this->mode_ = mode;
   this->field_ = field;
   std::string value;
-  if (mode == PickerMode::PICKER_MODE_NEXT) {
+  if (field == TowField::TOW_FIELD_TUG) {
+    if (mode == PickerMode::PICKER_MODE_TOW) {
+      TowRecord record;
+      if (!this->current_tow_(record))
+        return;
+    }
+    value = this->picker_tug_();
+  } else if (mode == PickerMode::PICKER_MODE_NEXT) {
     value = field_of(this->logger_->next_details(), field);
   } else if (mode == PickerMode::PICKER_MODE_TOW) {
     TowRecord record;
@@ -364,15 +393,25 @@ void TugUi::open_picker_(PickerMode mode, TowField field) {
     lv_label_set_text(this->w_.picker_title, ("Password for " + this->wifi_ssid_).c_str());
   } else {
     lv_label_set_text(this->w_.picker_title, FIELD_TITLES[size_t(field)]);
-    this->picker_names_ = field == TowField::TOW_FIELD_GLIDER ? this->logger_->store().recent_gliders()
-                                                              : this->logger_->store().recent_pilots();
+    if (field == TowField::TOW_FIELD_TUG) {
+      // The tug file's tug is always on the list
+      this->picker_names_ = this->logger_->store().recent_tugs();
+      const std::string &own = this->logger_->provisioning().tug_registration;
+      if (!own.empty() &&
+          std::find(this->picker_names_.begin(), this->picker_names_.end(), own) == this->picker_names_.end())
+        this->picker_names_.insert(this->picker_names_.begin(), own);
+    } else {
+      this->picker_names_ = field == TowField::TOW_FIELD_GLIDER ? this->logger_->store().recent_gliders()
+                                                                : this->logger_->store().recent_pilots();
+    }
   }
   this->picker_initial_ = value;
   this->picker_filter_.clear();
   this->delete_armed_.clear();
   this->fill_picker_();
   lv_textarea_set_text(this->w_.picker_text, value.c_str());
-  const bool registration = mode != PickerMode::PICKER_MODE_WIFI_PASSWORD && field == TowField::TOW_FIELD_GLIDER;
+  const bool registration = mode != PickerMode::PICKER_MODE_WIFI_PASSWORD &&
+                            (field == TowField::TOW_FIELD_GLIDER || field == TowField::TOW_FIELD_TUG);
   lv_keyboard_set_mode(this->w_.picker_keyboard,
                        registration ? LV_KEYBOARD_MODE_TEXT_UPPER : LV_KEYBOARD_MODE_TEXT_LOWER);
   this->picker_text_changed();
@@ -396,8 +435,21 @@ static bool name_matches(const std::string &name, const std::string &typed) {
 
 void TugUi::fill_picker_() {
   lv_obj_clean(this->w_.picker_list);
+  // The tug pilot's picker also changes the tug
+  if (this->field_ == TowField::TOW_FIELD_TUG_PILOT && this->picker_filter_.empty()) {
+    this->add_row_(this->w_.picker_list, "Tug " + this->picker_tug_() + ": change", [this]() {
+      // Not from inside this row's own event: the list it is in is rebuilt
+      lv_async_call(
+          [](void *ui) {
+            auto *self = static_cast<TugUi *>(ui);
+            self->open_picker_(self->mode_, TowField::TOW_FIELD_TUG);
+          },
+          this);
+    });
+  }
   // Blank clears an optional field, which the keyboard alone makes hard to reach
-  if (this->field_ != TowField::TOW_FIELD_GLIDER && this->picker_filter_.empty())
+  if (this->field_ != TowField::TOW_FIELD_GLIDER && this->field_ != TowField::TOW_FIELD_TUG &&
+      this->picker_filter_.empty())
     this->add_row_(this->w_.picker_list, "(blank)", [this]() { this->accept_(""); });
   for (const std::string &name : this->picker_names_) {
     if (name_matches(name, this->picker_filter_))
@@ -428,7 +480,11 @@ void TugUi::add_name_row_(const std::string &name) {
       this->delete_armed_ = name;
     } else {
       this->delete_armed_.clear();
-      this->logger_->store().forget_name(this->field_ == TowField::TOW_FIELD_GLIDER, name);
+      this->logger_->store().forget_name(
+          this->field_ == TowField::TOW_FIELD_GLIDER ? TowStore::NameList::NAME_LIST_GLIDERS
+          : this->field_ == TowField::TOW_FIELD_TUG  ? TowStore::NameList::NAME_LIST_TUGS
+                                                     : TowStore::NameList::NAME_LIST_PILOTS,
+          name);
       this->picker_names_.erase(std::remove(this->picker_names_.begin(), this->picker_names_.end(), name),
                                 this->picker_names_.end());
     }
@@ -513,10 +569,20 @@ void TugUi::accept_(const std::string &entered) {
     return;
   }
   std::string value = trimmed(entered);
-  if (this->field_ == TowField::TOW_FIELD_GLIDER) {
+  if (this->field_ == TowField::TOW_FIELD_GLIDER || this->field_ == TowField::TOW_FIELD_TUG) {
     std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return std::toupper(c); });
   } else {
     value = capital_case(value);
+  }
+  // A tug can't be blank: Done on an empty box keeps the one there was
+  if (this->field_ == TowField::TOW_FIELD_TUG && value.empty()) {
+    this->picker_cancel();
+    return;
+  }
+  if (this->mode_ == PickerMode::PICKER_MODE_NEXT && this->field_ == TowField::TOW_FIELD_TUG) {
+    this->logger_->set_tug_registration(value);
+    this->back_to_ground();
+    return;
   }
   if (this->mode_ == PickerMode::PICKER_MODE_NEXT) {
     field_of(this->logger_->next_details(), this->field_) = value;
@@ -583,6 +649,8 @@ void TugUi::refresh_tow_() {
                                              .text);
   for (size_t i = 0; i != TOW_FIELD_COUNT; i++)
     lv_label_set_text(this->w_.tow_fields[i], field_text(record.details, TowField(i)));
+  lv_label_set_text(this->w_.tow_fields[size_t(TowField::TOW_FIELD_TUG_PILOT)],
+                    this->tug_pilot_text_(record.details, record.details.tug_registration).c_str());
 }
 
 void TugUi::confirm_tow() {
@@ -681,8 +749,9 @@ void TugUi::refresh_settings_() {
   const Provisioning &settings = this->logger_->provisioning();
   std::string info;
   if (this->logger_->has_provisioning()) {
-    info = settings.tug_registration + "   " + settings.organisation +
-           Text("\nField elevation %.0f ft", settings.field_elevation_ft).text;
+    const std::string &tug = this->logger_->tug_registration();
+    info = (tug == settings.tug_registration ? tug : tug + " (tug file " + settings.tug_registration + ")") + "   " +
+           settings.organisation + Text("\nField elevation %.0f ft", settings.field_elevation_ft).text;
   } else {
     info = "No tug.json on the SD card";
   }

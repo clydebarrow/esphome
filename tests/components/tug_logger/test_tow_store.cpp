@@ -290,6 +290,48 @@ TEST_F(TowStoreTest, EditedDetailsReachTheQueue) {
   EXPECT_NE(read_all(this->file("tows-pending.jsonl")).find("\"glider_registration\":\"WGQ\""), std::string::npos);
 }
 
+TEST_F(TowStoreTest, ATowGoesUnderTheTugItFlewWith) {
+  TowRecord changed = tow("WGQ");
+  changed.details.tug_registration = "VH-ABC";
+  ASSERT_TRUE(this->store->add_review(changed));
+  ASSERT_TRUE(this->store->add_review(tow("GBK")));
+  this->reopen();
+  auto list = this->store->review_list();
+  ASSERT_EQ(list[0].details.tug_registration, "VH-ABC");
+  EXPECT_EQ(this->store->confirm(list[0].id, "VH-TUG"), ConfirmResult::CONFIRM_RESULT_OK);
+  // One from before the tug could be changed goes under the tug file's
+  EXPECT_EQ(this->store->confirm(list[1].id, "VH-TUG"), ConfirmResult::CONFIRM_RESULT_OK);
+  const std::string queued = read_all(this->file("tows-pending.jsonl"));
+  EXPECT_NE(queued.find("\"tug_registration\":\"VH-ABC\",\"glider_registration\":\"WGQ\""), std::string::npos);
+  EXPECT_NE(queued.find("\"tug_registration\":\"VH-TUG\",\"glider_registration\":\"GBK\""), std::string::npos);
+}
+
+TEST_F(TowStoreTest, AFlightInProgressKeepsItsTug) {
+  FlightSnapshot snapshot;
+  snapshot.elapsed_s = 60;
+  TowDetails details{"WGQ", "Alex", "", "Sam"};
+  details.tug_registration = "VH-ABC";
+  ASSERT_TRUE(this->store->save_flight(snapshot, details, LAUNCH));
+  this->reopen();
+  TowDetails loaded;
+  time_t saved_at;
+  ASSERT_TRUE(this->store->load_flight(snapshot, loaded, saved_at));
+  EXPECT_EQ(loaded.tug_registration, "VH-ABC");
+}
+
+TEST_F(TowStoreTest, RemembersTugsUsed) {
+  TowDetails details;
+  details.tug_registration = "VH-ABC";
+  this->store->remember(details);
+  details.tug_registration = "VH-XYZ";
+  this->store->remember(details);
+  this->reopen();
+  EXPECT_EQ(this->store->recent_tugs(), (std::vector<std::string>{"VH-XYZ", "VH-ABC"}));
+  this->store->forget_name(TowStore::NameList::NAME_LIST_TUGS, "vh-xyz");
+  EXPECT_EQ(this->store->recent_tugs(), (std::vector<std::string>{"VH-ABC"}));
+  EXPECT_TRUE(this->store->recent_pilots().empty());
+}
+
 TEST_F(TowStoreTest, DiscardedTowIsKeptButNotSent) {
   ASSERT_TRUE(this->store->add_review(tow()));
   ASSERT_TRUE(this->store->discard(this->store->review_list()[0].id));
@@ -454,6 +496,23 @@ TEST(TowTotals, ANewDayStartsTheDayCountsButNotTheFuel) {
   EXPECT_EQ(totals.fuel_s, 840u);
 }
 
+TEST(TowTotals, ANewDayGoesBackToTheTugFilesTug) {
+  TowTotals totals;
+  totals.roll_to(20261102);
+  totals.tug_registration = "VH-ABC";
+  EXPECT_FALSE(totals.roll_to(20261102));
+  EXPECT_EQ(totals.tug_registration, "VH-ABC");
+  EXPECT_TRUE(totals.roll_to(20261103));
+  EXPECT_TRUE(totals.tug_registration.empty());
+}
+
+TEST(TowTotals, ATugChosenBeforeTheClockIsSetIsKept) {
+  TowTotals totals;
+  totals.tug_registration = "VH-ABC";
+  EXPECT_TRUE(totals.roll_to(20261102));
+  EXPECT_EQ(totals.tug_registration, "VH-ABC");
+}
+
 TEST(TowTotals, ACountBeforeTheClockIsSetBelongsToTheFirstDate) {
   TowTotals totals;
   EXPECT_FALSE(totals.roll_to(0));
@@ -482,9 +541,11 @@ TEST_F(TowStoreTest, TotalsAreZeroWithNoFileAndSurviveARestart) {
   TowTotals totals;
   totals.roll_to(20261102);
   totals.add_flight(840);
+  totals.tug_registration = "VH-ABC";
   ASSERT_TRUE(this->store->save_totals(totals));
   this->reopen();
   const TowTotals loaded = this->store->load_totals();
+  EXPECT_EQ(loaded.tug_registration, "VH-ABC");
   EXPECT_EQ(loaded.day, 20261102u);
   EXPECT_EQ(loaded.tows, 1u);
   EXPECT_EQ(loaded.flight_s, 840u);
@@ -584,8 +645,8 @@ TEST(FlightLogBody, EscapesTheRecordAsJson) {
 TEST_F(TowStoreTest, ForgetsANameAndKeepsItForgotten) {
   TowDetails details{"WGQ", "Dan", "Dan P", "Sam"};
   this->store->remember(details);
-  this->store->forget_name(false, "dan");
-  this->store->forget_name(true, "WGQ");
+  this->store->forget_name(TowStore::NameList::NAME_LIST_PILOTS, "dan");
+  this->store->forget_name(TowStore::NameList::NAME_LIST_GLIDERS, "WGQ");
   this->reopen();
   EXPECT_EQ(this->store->recent_pilots(), (std::vector<std::string>{"Sam", "Dan P"}));
   EXPECT_TRUE(this->store->recent_gliders().empty());
@@ -603,6 +664,20 @@ TEST_F(TowStoreTest, ThePilotsReleaseHeightReplacesTheMeasuredOne) {
   EXPECT_FALSE(stored.approximate);
   EXPECT_TRUE(stored.height_entered);
   EXPECT_FALSE(this->store->update_height(id + 100, 1000));
+}
+
+TEST(TugNameReport, EncodesTheRegistration) {
+  NameReport name;
+  name.registration = "VH-ABC";
+  uint8_t p[NameReport::MAX_SIZE];
+  ASSERT_EQ(name.encode(p), 8u);
+  EXPECT_EQ(p[0], 'N');
+  EXPECT_EQ(p[1], 6);
+  EXPECT_EQ(std::string(reinterpret_cast<const char *>(p + 2), 6), "VH-ABC");
+  name.registration = "";
+  EXPECT_EQ(name.encode(p), 0u);
+  name.registration = std::string(16, 'A');
+  EXPECT_EQ(name.encode(p), 0u);
 }
 
 // The same bytes as a glider tracker's position (glider_packets.h), which the receiver decodes for both

@@ -66,6 +66,7 @@ bool TowTotals::roll_to(uint32_t new_day) {
   if (this->day != 0) {
     this->tows = 0;
     this->flight_s = 0;
+    this->tug_registration.clear();
   }
   this->day = new_day;
   return true;
@@ -153,6 +154,8 @@ static std::string record_to_json(const TowRecord &record) {
     root["pilot1"] = record.details.glider_pilot_1;
     root["pilot2"] = record.details.glider_pilot_2;
     root["tug_pilot"] = record.details.tug_pilot;
+    if (!record.details.tug_registration.empty())
+      root["tug"] = record.details.tug_registration;
   });
 }
 
@@ -161,6 +164,7 @@ static void details_from_json(JsonObject root, TowDetails &details) {
   details.glider_pilot_1 = root["pilot1"] | "";
   details.glider_pilot_2 = root["pilot2"] | "";
   details.tug_pilot = root["tug_pilot"] | "";
+  details.tug_registration = root["tug"] | "";
 }
 
 // A record from before each had its field's elevation gets NAN, until set_default_field_elevation_ft() fills it
@@ -508,6 +512,8 @@ bool TowStore::save_flight(const FlightSnapshot &snapshot, const TowDetails &det
     root["pilot1"] = details.glider_pilot_1;
     root["pilot2"] = details.glider_pilot_2;
     root["tug_pilot"] = details.tug_pilot;
+    if (!details.tug_registration.empty())
+      root["tug"] = details.tug_registration;
   });
   std::lock_guard<std::mutex> guard(this->lock_);
   return this->write_atomic_(CURRENT_FILE, text);
@@ -600,10 +606,12 @@ ConfirmResult TowStore::confirm(uint32_t id, const std::string &tug_registration
     return ConfirmResult::CONFIRM_RESULT_NO_GLIDER;
   if (found->launch == 0)
     return ConfirmResult::CONFIRM_RESULT_NO_TIME;
-  if (tug_registration.empty())
+  // The tug it was flown by, or the tug file's for a tow from before the tug could be changed
+  const std::string &tug = found->details.tug_registration.empty() ? tug_registration : found->details.tug_registration;
+  if (tug.empty())
     return ConfirmResult::CONFIRM_RESULT_NO_TUG;
   // Queued first: a restart before the list is saved confirms it twice, which the server takes as a duplicate
-  if (!this->append_line_(PENDING_FILE, tow_to_upload_json(*found, tug_registration)))
+  if (!this->append_line_(PENDING_FILE, tow_to_upload_json(*found, tug)))
     return ConfirmResult::CONFIRM_RESULT_WRITE_FAILED;
   this->review_.erase(found);
   this->save_review_();
@@ -657,6 +665,7 @@ TowTotals TowStore::load_totals() {
     totals.tows = root["tows"] | 0u;
     totals.flight_s = root["flight"] | 0u;
     totals.fuel_s = root["fuel"] | 0u;
+    totals.tug_registration = root["tug"] | "";
     return true;
   });
   return totals;
@@ -668,6 +677,8 @@ bool TowStore::save_totals(const TowTotals &totals) {
     root["tows"] = totals.tows;
     root["flight"] = totals.flight_s;
     root["fuel"] = totals.fuel_s;
+    if (!totals.tug_registration.empty())
+      root["tug"] = totals.tug_registration;
   });
   std::lock_guard<std::mutex> guard(this->lock_);
   return this->write_atomic_(TOTALS_FILE, text);
@@ -683,18 +694,26 @@ std::vector<std::string> TowStore::recent_pilots() {
   return this->recent_pilots_;
 }
 
+std::vector<std::string> TowStore::recent_tugs() {
+  std::lock_guard<std::mutex> guard(this->lock_);
+  return this->recent_tugs_;
+}
+
 void TowStore::remember(const TowDetails &details) {
   std::lock_guard<std::mutex> guard(this->lock_);
   remember_name(this->recent_gliders_, details.glider_registration);
   remember_name(this->recent_pilots_, details.glider_pilot_2);
   remember_name(this->recent_pilots_, details.glider_pilot_1);
   remember_name(this->recent_pilots_, details.tug_pilot);
+  remember_name(this->recent_tugs_, details.tug_registration);
   this->save_recent_();
 }
 
-void TowStore::forget_name(bool glider, const std::string &name) {
+void TowStore::forget_name(NameList which, const std::string &name) {
   std::lock_guard<std::mutex> guard(this->lock_);
-  auto &list = glider ? this->recent_gliders_ : this->recent_pilots_;
+  auto &list = which == NameList::NAME_LIST_GLIDERS ? this->recent_gliders_
+               : which == NameList::NAME_LIST_TUGS  ? this->recent_tugs_
+                                                    : this->recent_pilots_;
   auto same = [&name](const std::string &other) { return strcasecmp(other.c_str(), name.c_str()) == 0; };
   list.erase(std::remove_if(list.begin(), list.end(), same), list.end());
   this->save_recent_();
@@ -707,10 +726,13 @@ bool TowStore::load_recent_() {
   return json::parse_json(content, [this](JsonObject root) -> bool {
     this->recent_gliders_.clear();
     this->recent_pilots_.clear();
+    this->recent_tugs_.clear();
     for (const char *name : root["gliders"].as<JsonArray>())
       this->recent_gliders_.emplace_back(name);
     for (const char *name : root["pilots"].as<JsonArray>())
       this->recent_pilots_.emplace_back(name);
+    for (const char *name : root["tugs"].as<JsonArray>())
+      this->recent_tugs_.emplace_back(name);
     return true;
   });
 }
@@ -723,6 +745,9 @@ bool TowStore::save_recent_() {
     JsonArray pilots = root["pilots"].to<JsonArray>();
     for (const std::string &name : this->recent_pilots_)
       pilots.add(name);
+    JsonArray tugs = root["tugs"].to<JsonArray>();
+    for (const std::string &name : this->recent_tugs_)
+      tugs.add(name);
   });
   return this->write_atomic_(RECENT_FILE, text);
 }

@@ -39,6 +39,10 @@ static constexpr uint32_t POSITION_LOG_MS = 15000;
 // Position reports for the live map, as often as a glider tracker sends them
 static constexpr uint32_t POSITION_FLYING_MS = 5000;
 static constexpr uint32_t POSITION_GROUND_MS = 30000;
+// The tug's registration for the live map: this often, and after a change
+static constexpr uint32_t NAME_INTERVAL_MS = 60000;
+// Kept apart from a position report, so the relay has sent one before the next comes
+static constexpr uint32_t NAME_AFTER_POSITION_MS = 2000;
 // The flight record: how much of the time on the ground goes before a takeoff, and how often it is written
 static constexpr size_t GROUND_LINES = 60;
 static constexpr uint32_t FLIGHT_LOG_FLUSH_MS = 10000;
@@ -133,7 +137,7 @@ const char *TugLogger::pressure_source_text_(const FlightSnapshot &flight) {
   }
 }
 
-void TugLogger::start_flight_log_(const char *why) {
+void TugLogger::start_flight_log_(const char *why, const std::string &tug) {
   const FlightSnapshot &flight = this->detector_.flight();
   if (!this->store_ready_ || !this->store_.start_flight_log(flight.launch, millis())) {
     ESP_LOGW(TAG, "The flight record could not be started");
@@ -153,6 +157,7 @@ void TugLogger::start_flight_log_(const char *why) {
   char header[1024];
   snprintf(
       header, sizeof(header),
+      "# tug: %s\n"
       "# %s. Heights from %s altitude, reference %s%.0f ft%s; field elevation %.0f ft, %s\n"
       "# source: 0 none, 1 SkyEcho, 2 NMEA. Speed in knots, altitudes and heights in feet; heights above the field\n"
       "# skyecho_gps: 1 if its heartbeat said its GPS had a position; ownship_age_s: since its last ownship report; "
@@ -161,7 +166,7 @@ void TugLogger::start_flight_log_(const char *why) {
       "the SkyEcho's\n"
       "uptime_s,utc,source,speed_kt,pressure_alt_ft,gps_alt_ft,height_ft,max_height_ft,skyecho_gps,ownship_age_s,"
       "skyecho_gps_alt_ft,lat,lon,course_deg,baro_alt_ft,skyecho_pressure_ft\n",
-      why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
+      tug.c_str(), why, kind, flight.has_reference ? "" : "(none, the field elevation) ",
       flight.has_reference ? flight.reference_m / METERS_PER_FOOT : flight.field_elevation_ft,
       flight.approximate ? ", approximate" : "", flight.field_elevation_ft, field, this->pressure_source_text_(flight));
   this->flight_log_ = header;
@@ -184,7 +189,7 @@ void TugLogger::flush_flight_log_() {
 void TugLogger::log_sample_(const PositionSample &sample, FlightEvent event) {
   std::string line = this->log_line_(sample);
   if (event == FlightEvent::FLIGHT_EVENT_TAKEOFF)
-    this->start_flight_log_("Takeoff");
+    this->start_flight_log_("Takeoff", this->tug_registration());
   if (this->detector_.is_flying() || event == FlightEvent::FLIGHT_EVENT_LANDED) {
     this->flight_log_ += line;
     if (event == FlightEvent::FLIGHT_EVENT_LANDED) {
@@ -270,6 +275,22 @@ void TugLogger::resend_failed_tows() {
 void TugLogger::mark_refuelled() {
   this->totals_.fuel_s = 0;
   this->store_.save_totals(this->totals_);
+}
+
+void TugLogger::set_tug_registration(const std::string &registration) {
+  const bool tug_file =
+      registration.empty() || strcasecmp(registration.c_str(), this->provisioning_.tug_registration.c_str()) == 0;
+  this->totals_.tug_registration = tug_file ? "" : registration;
+  ESP_LOGI(TAG, "Tug %s", this->tug_registration().c_str());
+  if (!tug_file) {
+    TowDetails details;
+    details.tug_registration = registration;
+    this->store_.remember(details);
+  }
+  this->store_.save_totals(this->totals_);
+#ifdef USE_TUG_LOGGER_POSITION_LINK
+  this->name_due_ = true;
+#endif
 }
 
 void TugLogger::next_details_changed() {
@@ -477,8 +498,10 @@ void TugLogger::send_position_(const PositionSample &sample) {
     return;
   const bool flying = this->detector_.is_flying();
   const uint32_t interval = flying ? POSITION_FLYING_MS : POSITION_GROUND_MS;
-  if (this->position_sent_ && sample.now_ms - this->last_position_sent_ms_ < interval)
+  if (this->position_sent_ && sample.now_ms - this->last_position_sent_ms_ < interval) {
+    this->send_name_(sample.now_ms);
     return;
+  }
   this->position_sent_ = true;
   this->last_position_sent_ms_ = sample.now_ms;
   const Location &where = this->location_;
@@ -501,6 +524,24 @@ void TugLogger::send_position_(const PositionSample &sample) {
   const bool ok = this->position_link_->send_to_interface(packet_interface::PacketBuffer(packet, sizeof(packet)), {});
   ESP_LOGV(TAG, "Position report sent: %s, fix %s", ok ? LOG_STR_LITERAL("ok") : LOG_STR_LITERAL("refused"),
            YESNO(where.valid));
+}
+
+// The registration, after a change and once a minute, so the receiver shows the tug's position under the tug chosen
+void TugLogger::send_name_(uint32_t now_ms) {
+  if (!this->name_due_ && now_ms - this->last_name_sent_ms_ < NAME_INTERVAL_MS)
+    return;
+  if (now_ms - this->last_position_sent_ms_ < NAME_AFTER_POSITION_MS)
+    return;
+  NameReport name;
+  name.registration = this->tug_registration();
+  uint8_t packet[NameReport::MAX_SIZE];
+  const size_t size = name.encode(packet);
+  if (size == 0)
+    return;
+  if (this->position_link_->send_to_interface(packet_interface::PacketBuffer(packet, size), {})) {
+    this->name_due_ = false;
+    this->last_name_sent_ms_ = now_ms;
+  }
 }
 #endif
 
@@ -548,6 +589,7 @@ void TugLogger::save_flight_() {
 void TugLogger::on_takeoff_() {
   ESP_LOGI(TAG, "Takeoff");
   this->flight_details_ = this->next_details_;
+  this->flight_details_.tug_registration = this->tug_registration();
   const std::string tug_pilot = this->next_details_.tug_pilot;
   this->next_details_ = TowDetails{};
   this->next_details_.tug_pilot = tug_pilot;
@@ -617,7 +659,9 @@ void TugLogger::tick_() {
       this->flight_details_ = this->saved_details_;
       this->has_saved_flight_ = false;
       ESP_LOGI(TAG, "Carrying on the flight");
-      this->start_flight_log_("Carried on after a restart");
+      this->start_flight_log_("Carried on after a restart", this->flight_details_.tug_registration.empty()
+                                                                ? this->provisioning_.tug_registration
+                                                                : this->flight_details_.tug_registration);
       this->takeoff_callback_.call();
     } else {
       this->close_saved_flight_();
@@ -644,8 +688,13 @@ void TugLogger::tick_() {
   if (sample.epoch != 0)
     this->store_.resolve_launch_times(sample.epoch, now);
   this->check_tow_watch_();
-  if (this->store_ready_ && this->totals_.roll_to(this->today_()))
+  if (this->store_ready_ && this->totals_.roll_to(this->today_())) {
     this->store_.save_totals(this->totals_);
+#ifdef USE_TUG_LOGGER_POSITION_LINK
+    // A new day goes back to the tug file's tug
+    this->name_due_ = true;
+#endif
+  }
 
   this->check_network_();
   this->check_power_();

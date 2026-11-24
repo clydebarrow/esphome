@@ -19,6 +19,8 @@ struct TowDetails {
   std::string glider_pilot_1;
   std::string glider_pilot_2;
   std::string tug_pilot;
+  /// The tug flown; empty means the one in the tug file
+  std::string tug_registration;
 };
 
 /// The registration to record for a glider from its callsign, as the club writes it: "VHWGQ" or "VH-WGQ" is "WGQ".
@@ -46,6 +48,8 @@ struct TowTotals {
   uint32_t flight_s{0};
   /// Flight time since the pilot last marked the tug as refuelled.
   uint32_t fuel_s{0};
+  /// The tug chosen for the day, if not the one in the tug file. A new day goes back to the tug file's.
+  std::string tug_registration;
 
   /// Moves to a date, which starts the day's counts again; a count made before the clock was set belongs to the first
   /// date known. True if anything changed.
@@ -165,9 +169,11 @@ class TowStore {
   // Recent names, most recent first
   std::vector<std::string> recent_gliders();
   std::vector<std::string> recent_pilots();
+  std::vector<std::string> recent_tugs();
   void remember(const TowDetails &details);
-  /// Takes a name off the list of recent gliders or pilots.
-  void forget_name(bool glider, const std::string &name);
+  enum class NameList : uint8_t { NAME_LIST_GLIDERS, NAME_LIST_PILOTS, NAME_LIST_TUGS };
+  /// Takes a name off one of the lists of recent names.
+  void forget_name(NameList list, const std::string &name);
 
   /// Sends each queued tow with post. Tows to try again go back in the queue, refused ones to the failed file.
   void process_queue(const std::function<UploadResult(const std::string &body)> &post);
@@ -209,6 +215,7 @@ class TowStore {
   uint32_t next_id_{1};
   std::vector<std::string> recent_gliders_;
   std::vector<std::string> recent_pilots_;
+  std::vector<std::string> recent_tugs_;
 };
 
 }  // namespace esphome::tug_logger

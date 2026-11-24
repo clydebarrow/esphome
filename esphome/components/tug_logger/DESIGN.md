@@ -56,6 +56,11 @@ Worker (`POST /api/tows` in `clydebarrow/flight-upload`). This branch (`tug`) is
   atmosphere, as the SkyEcho's is. A flight keeps the barometer it took off with (`FlightSnapshot::pressure_source`),
   as two read tens of feet apart; if that one stops, the GPS climb carries the height on as above. The flight log
   records both, whichever is used.
+- **Tug registration**: the tug pilot's picker has a "Tug ...: change" row, for when the display moves to another
+  tug. The choice holds for the day (`TowTotals::tug_registration`); a new day goes back to the tug file's. Each tow
+  keeps the tug it was flown with (`TowDetails::tug_registration`), which its upload gives, and the flight log says
+  it on its first line (`# tug: ...`), which the Worker files the log under. Once a minute the tug broadcasts it in a
+  name report ('N', `position_packet.h`), and the clubhouse receiver shows the tug's positions under it.
 - **Altitude MSL** is what the display shows and what a pilot enters: the height plus the field elevation, as a QNH
   altimeter reads, and what tows are charged by. Heights above the field are kept and logged; an upload gives both.
 - **Launch field**: the Worker keeps a list of airfields, in the tug file and fetched hourly from `/api/airfields` while

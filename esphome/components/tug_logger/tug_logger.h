@@ -176,6 +176,13 @@ class TugLogger : public Component
   void next_details_changed();
   const std::string &card_path() const { return this->card_path_; }
   const Provisioning &provisioning() const { return this->provisioning_; }
+  /// The tug flown now: the one chosen for the day, or the tug file's.
+  const std::string &tug_registration() const {
+    return this->totals_.tug_registration.empty() ? this->provisioning_.tug_registration
+                                                  : this->totals_.tug_registration;
+  }
+  /// Chooses the tug for the rest of the day; blank, or the tug file's, goes back to the tug file's.
+  void set_tug_registration(const std::string &registration);
   bool has_provisioning() const { return this->provisioned_; }
   bool card_ok() const { return this->card_ok_; }
   GpsSource gps_source() const { return this->source_; }
@@ -246,7 +253,7 @@ class TugLogger : public Component
   // A record of each flight on the card, to check its figures against
   std::string log_line_(const PositionSample &sample) const;
   void log_sample_(const PositionSample &sample, FlightEvent event);
-  void start_flight_log_(const char *why);
+  void start_flight_log_(const char *why, const std::string &tug);
   void flush_flight_log_();
   static const char *pressure_source_text_(const FlightSnapshot &flight);
 
@@ -303,6 +310,10 @@ class TugLogger : public Component
   packet_interface::PacketInterface *position_link_{nullptr};
   uint32_t last_position_sent_ms_{0};
   bool position_sent_{false};
+  // The tug's registration, broadcast for the live map: sent again on a change
+  uint32_t last_name_sent_ms_{0};
+  bool name_due_{true};
+  void send_name_(uint32_t now_ms);
 #endif
   bool nmea_speed_valid_{false};
   bool nmea_altitude_valid_{false};

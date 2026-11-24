@@ -26,7 +26,10 @@ enum class TowField : uint8_t {
   TOW_FIELD_PILOT_1,
   TOW_FIELD_PILOT_2,
   TOW_FIELD_TUG_PILOT,
+  /// The tug's registration: chosen from the tug pilot's picker, so it has no button of its own
+  TOW_FIELD_TUG,
 };
+/// The fields with a button on the ground and tow pages
 static constexpr size_t TOW_FIELD_COUNT = 4;
 
 /// The widgets of the pages in the configuration, which this fills in. All on the main loop.
@@ -154,6 +157,10 @@ class TugUi {
   std::string wifi_text_();
   void open_wifi_dialog_(bool saved, bool can_set_password);
   bool current_tow_(TowRecord &record);
+  /// The tug of the next tow, or of the tow open on the tow page
+  std::string picker_tug_();
+  /// The tug pilot's label: the name, and the tug when it isn't the tug file's
+  std::string tug_pilot_text_(const TowDetails &details, const std::string &tug);
 
   TugLogger *logger_{nullptr};
   TugUiWidgets w_{};
