@@ -1,0 +1,11 @@
+# The public build of xcsoar-t-display-p4.yaml (LilyGO T-Display-P4), for the web flasher
+substitutions:
+  xcsoar_path: ../../xcsoar-src-flarm
+
+packages:
+  flight: !include xcsoar-t-display-p4.yaml
+  release: !include release-common.yaml
+
+# Apart from the flight build, which has the same device name
+esphome:
+  build_path: .esphome/build/release-t-display-p4

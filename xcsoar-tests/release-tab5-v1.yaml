@@ -1,0 +1,8 @@
+# The public build of xcsoar-tab5-v1-flarm.yaml (Tab5 V1), for the web flasher
+packages:
+  flight: !include xcsoar-tab5-v1-flarm.yaml
+  release: !include release-common.yaml
+
+# Apart from the flight build, which has the same device name
+esphome:
+  build_path: .esphome/build/release-tab5-v1

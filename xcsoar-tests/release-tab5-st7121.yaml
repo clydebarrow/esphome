@@ -1,0 +1,8 @@
+# The public build of xcsoar-tab5-st7121-flarm.yaml (Tab5 with the ST7121 panel), for the web flasher
+packages:
+  flight: !include xcsoar-tab5-st7121-flarm.yaml
+  release: !include release-common.yaml
+
+# Apart from the flight build, which has the same device name
+esphome:
+  build_path: .esphome/build/release-tab5-st7121

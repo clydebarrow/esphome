@@ -1,0 +1,11 @@
+# Takes out of a flight config what must not be published: the Wi-Fi credentials, the API and OTA. The networks come
+# from XCSoar's Wi-Fi dialog, the "wifi" list of club.json and the glider's SkyEcho instead, and updates from the web
+# flasher (see publish-firmware.py).
+wifi:
+  ssid: !remove
+  password: !remove
+  domain: !remove
+  fast_connect: !remove
+
+api: !remove
+ota: !remove
