@@ -141,6 +141,21 @@ esphome:
                 receiver::heard.add(millis());
                 uint8_t buf[64];
                 size_t len = data.copy_to(buf, sizeof(buf));
+                // A tug's name report: its positions go on the map under the registration it gives
+                if (len != 0 && buf[0] == 'N') {
+                  const auto *tug = receiver::find_tug(meta.source_address);
+                  const std::string name = receiver::parse_tug_name(buf, len);
+                  if (tug == nullptr || name.empty()) {
+                    ESP_LOGW("receiver", "Name report of %zu bytes from 0x%04X not used", len, meta.source_address);
+                    return;
+                  }
+                  auto &known = receiver::tug_names[meta.source_address];
+                  if (known != name)
+                    ESP_LOGI("receiver", "Tug 0x%04X (%s) is flying as %s", meta.source_address, tug->name.c_str(),
+                             name.c_str());
+                  known = name;
+                  return;
+                }
                 glider::Position pos;
                 if (!pos.decode(buf, len)) {
                   ESP_LOGW("receiver", "Broadcast of %zu bytes from 0x%04X is not a position", len,
@@ -162,7 +177,8 @@ esphome:
                   receiver::queue_position(
                       receiver::position_json(glider->registration, false, pos, meta.rssi, meta.snr));
                 } else if (const auto *tug = receiver::find_tug(meta.source_address)) {
-                  receiver::queue_position(receiver::position_json(tug->name, true, pos, meta.rssi, meta.snr));
+                  receiver::queue_position(
+                      receiver::position_json(receiver::tug_map_name(*tug), true, pos, meta.rssi, meta.snr));
                 } else {
                   // Perhaps a device made in the dashboard since the last fetch: fetch the list now, not at the next
                   // 15 minutes, but at most once a minute, so a tracker from elsewhere can't keep it fetching

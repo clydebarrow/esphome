@@ -29,6 +29,7 @@
 #include <ctime>
 #include <sys/time.h>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -92,6 +93,33 @@ struct Tug {
 
 /// As for gliders, one for each slot of the tugs pool
 inline std::vector<Tug> pool_tugs;
+
+/// The registration each tug last broadcast in a name report, by its address. The tug's pilot can change the tug the
+/// display is in, and its positions go on the map under this rather than the Worker's name for the device.
+inline std::map<uint16_t, std::string> tug_names;
+
+/// The registration in a tug's name report (position_packet.h in the tug_logger component): 'N', the length, then the
+/// registration in ASCII. Empty if the packet is not one, or the registration has anything but letters, digits and
+/// hyphens.
+inline std::string parse_tug_name(const uint8_t *p, size_t len) {
+  static constexpr size_t MAX_LENGTH = 15;
+  if (len < 3 || p[0] != 'N' || p[1] == 0 || p[1] > MAX_LENGTH || len != size_t(2 + p[1]))
+    return "";
+  std::string name;
+  for (size_t i = 2; i != len; i++) {
+    const char c = char(p[i]);
+    if (!isalnum((unsigned char) c) && c != '-')
+      return "";
+    name += char(toupper((unsigned char) c));
+  }
+  return name;
+}
+
+/// The name a tug's position goes on the map under
+inline const std::string &tug_map_name(const Tug &tug) {
+  auto found = tug_names.find(tug.address);
+  return found != tug_names.end() ? found->second : tug.name;
+}
 
 /// The tow upload in progress
 struct TowUpload {
