@@ -45,6 +45,10 @@ globals:
   - id: xcsoar_stopped
     type: bool
     initial_value: "false"
+  # XCSoar's Master Volume, which a low alert plays below
+  - id: alarm_volume
+    type: float
+    initial_value: "1.0"
 
 # Only the characters of the message above
 font:
@@ -64,18 +68,24 @@ xcsoar:
   touchscreen_id: touch
   # Master Volume in XCSoar's Config > System > Audio
   on_volume:
+    - globals.set:
+        id: alarm_volume
+        value: !lambda return volume;
     - lambda: id(alarm_tone)->set_gain(volume);
     - if:
         condition:
           lambda: return preview;
         then:
           - rtttl.play: "beep:d=16,o=6,b=150:a"
-  # A high-low tone once for a low alarm, twice for an important one and three times for an urgent one
+  # A quiet rising chirp for a low alert, a high-low tone twice for an important alarm and three times for an urgent one
   on_traffic_alarm:
+    # A low alert is a quieter rising chirp, an octave lower, so it is not taken for an alarm
+    - lambda: |-
+        id(alarm_tone)->set_gain(level <= 1 ? id(alarm_volume) * 0.3f : id(alarm_volume));
     - rtttl.play:
         rtttl: !lambda |-
           static const char *const TUNES[] = {
-              "alarm:d=4,o=6,b=150:a,e",
+              "alert:d=8,o=5,b=150:c,e",
               "alarm:d=4,o=6,b=150:a,e,a,e",
               "alarm:d=4,o=6,b=150:a,e,a,e,a,e",
           };
