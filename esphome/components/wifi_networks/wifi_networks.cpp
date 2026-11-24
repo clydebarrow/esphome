@@ -82,7 +82,7 @@ void WifiNetworks::set_skyecho(skyecho::SkyEcho *skyecho) {
 
 void WifiNetworks::loop() {
   if (this->has_commands_.load(std::memory_order_acquire)) {
-    StaticVector<Command, 4> commands;
+    decltype(this->commands_) commands;
     {
       LockGuard guard(this->lock_);
       commands = this->commands_;
@@ -147,6 +147,22 @@ void WifiNetworks::run_(const Command &command) {
       copy_string(this->pinned_, sizeof(this->pinned_), command.ssid);
       this->apply_(true);
       wifi->enable();
+      return;
+    }
+
+    case CommandType::COMMAND_TYPE_REMEMBER: {
+      SavedNetwork *saved = this->find_saved_(command.ssid);
+      if (saved != nullptr && strcmp(saved->password, command.password) == 0)
+        return;
+      if (saved == nullptr)
+        saved = this->add_saved_(command.ssid);
+      if (saved == nullptr)
+        return;
+      copy_string(saved->password, sizeof(saved->password), command.password);
+      this->save_();
+      ESP_LOGI(TAG, "Saved " LOG_SECRET("'%s'"), command.ssid);
+      // Not connected, it starts again with the new network in the list
+      this->apply_(!wifi->is_connected());
       return;
     }
 

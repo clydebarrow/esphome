@@ -81,6 +81,11 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
   void connect(const char *ssid, const char *password) {
     this->queue_(CommandType::COMMAND_TYPE_CONNECT, ssid, password);
   }
+  /// Saves a network, or changes the password of a saved one, without joining it. An empty password is an open
+  /// network.
+  void remember(const char *ssid, const char *password) {
+    this->queue_(CommandType::COMMAND_TYPE_REMEMBER, ssid, password);
+  }
   /// Removes a saved network.
   void forget(const char *ssid) { this->queue_(CommandType::COMMAND_TYPE_FORGET, ssid, nullptr); }
   /// Turns Wi-Fi off until connect(), set_automatic() or a restart.
@@ -100,6 +105,7 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
   enum class CommandType : uint8_t {
     COMMAND_TYPE_SCAN,
     COMMAND_TYPE_CONNECT,
+    COMMAND_TYPE_REMEMBER,
     COMMAND_TYPE_FORGET,
     COMMAND_TYPE_DISCONNECT,
     COMMAND_TYPE_AUTOMATIC,
@@ -169,7 +175,8 @@ class WifiNetworks : public Component, public wifi::WiFiScanResultsListener, pub
 
   // Shared with other tasks, under lock_
   Mutex lock_;
-  StaticVector<Command, 4> commands_;
+  // Room for the networks of a club file, saved at start-up, and a request from XCSoar
+  StaticVector<Command, 8> commands_;
   std::atomic<bool> has_commands_{false};
   std::array<NetworkInfo, MAX_LISTED> listed_{};
   size_t listed_count_{0};
