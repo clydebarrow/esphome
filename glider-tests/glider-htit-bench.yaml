@@ -1,0 +1,14 @@
+# glider-htit.yaml on the bench: also joins the bench networks, below the SkyEcho, with the API for logs and ESPHome
+# updates over Wi-Fi. Never publish this build: it holds the networks' passwords and the API key.
+packages:
+  tracker: !include glider-htit.yaml
+  bench_wifi:
+    wifi:
+      networks: !include ../../../my-devices/wifi-networks.yaml
+
+api:
+  reboot_timeout: 0s
+  encryption: !include ../../../my-devices/api-encryption.yaml
+
+ota:
+  - platform: esphome

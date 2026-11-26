@@ -140,6 +140,8 @@ void GliderTracker::loop() {
 }
 
 bool GliderTracker::send_(packet_interface::PacketInterface *port, const uint8_t *data, size_t length, bool answered) {
+  if (!this->identified_)
+    return false;
 #ifdef USE_GLIDER_TRACKER_FLARM
   // The radio must be on LoRa to send; with an answer to come, it stays there for it
   if (this->flarm_ != nullptr && !this->flarm_->hold_lora(answered ? ANSWER_HOLD_MS : 0))

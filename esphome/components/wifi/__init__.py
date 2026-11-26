@@ -496,6 +496,8 @@ def final_validate(config):
     has_improv_serial = "improv_serial" in full_config
     # Keeps networks entered on the device's own screen
     has_wifi_networks = "wifi_networks" in full_config
+    # Joins the SkyEcho it finds, so it needs no network configured
+    has_skyecho_wifi = "skyecho_wifi" in full_config
     has_captive_portal = "captive_portal" in full_config
     has_web_server = "web_server" in full_config
     if not (
@@ -505,6 +507,7 @@ def final_validate(config):
         or has_improv
         or has_improv_serial
         or has_wifi_networks
+        or has_skyecho_wifi
     ):
         raise cv.Invalid(
             "Please specify at least an SSID or an Access Point to create, or configure DPP (Easy Connect)."

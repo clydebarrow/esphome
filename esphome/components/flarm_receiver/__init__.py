@@ -74,12 +74,21 @@ REGISTRATION_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 
 def australian_address(value: str) -> int:
-    """The ICAO address of an Australian registration: 7C0000 plus its three characters in base 36."""
-    value = cv.string_strict(value).upper().removeprefix("VH-").removeprefix("VH")
-    if len(value) != 3 or any(ch not in REGISTRATION_CHARS for ch in value):
+    """The ICAO address of an Australian registration: 7C0000 plus its three characters in base 36.
+
+    Any other registration of up to 16 letters, digits and hyphens, as the LoRa address registry allows, gives 0:
+    the unit then sends the FLARM ID made from its MAC address.
+    """
+    registration = cv.string_strict(value).upper()
+    if not 1 <= len(registration) <= 16 or any(
+        ch not in REGISTRATION_CHARS + "-" for ch in registration
+    ):
         raise cv.Invalid(
-            "Give an Australian registration, such as VH-GKP: three letters or digits after VH-"
+            "Give a registration of up to 16 letters, digits and hyphens, such as VH-GKP"
         )
+    value = registration.removeprefix("VH-").removeprefix("VH")
+    if len(value) != 3 or any(ch not in REGISTRATION_CHARS for ch in value):
+        return 0
     total = 0
     for ch in value:
         total = total * 36 + REGISTRATION_CHARS.index(ch)

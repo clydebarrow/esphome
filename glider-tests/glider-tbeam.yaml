@@ -1,0 +1,153 @@
+# A glider's tracker on a LilyGO T-Beam with an SX1276 radio, as glider-htit.yaml is on the Heltec Wireless Tracker:
+# positions for the live map, its takeoff, and its flight summary after landing, to the clubhouse receiver over LoRa.
+# No FLARM: flarm_receiver needs an SX1262. No SkyEcho or Bluetooth either.
+#
+# One build serves every T-Beam: the glider's address, registration and LoRa key are kept in flash apart from the
+# firmware (tracker_identity), written once from the dashboard's tracker page over USB, and kept through updates.
+# Until then it sends nothing on LoRa. This is the build published for that page, so it holds no secrets.
+#
+# The T-Beam's power chip (AXP192 or AXP2101, at 0x34) is set at boot to power the GPS.
+packages:
+  radio: !include radio.yaml
+
+esphome:
+  name: glider-tbeam
+  on_boot:
+    - priority: 800
+      then:
+        - lambda: |-
+            auto *bus = id(pmu_bus);
+            auto reg = [bus](uint8_t r) {
+              uint8_t v = 0;
+              bus->write_readv(0x34, &r, 1, &v, 1);
+              return v;
+            };
+            auto set = [bus](uint8_t r, uint8_t v) {
+              uint8_t b[2] = {r, v};
+              bus->write(0x34, b, 2);
+            };
+            const uint8_t chip = reg(0x03);
+            if (chip == 0x03) {
+              set(0x28, (reg(0x28) & 0xF0) | 0x0F);  // AXP192: LDO3 3.3 V, for the GPS
+              set(0x12, reg(0x12) | 0x08);           // LDO3 on
+            } else if (chip == 0x4A) {
+              set(0x94, 28);                         // AXP2101: ALDO3 3.3 V, for the GPS
+              set(0x90, reg(0x90) | 0x04);           // ALDO3 on
+            }
+            ESP_LOGI("tbeam", "Power chip id 0x%02X", chip);
+
+esp32:
+  board: ttgo-t-beam
+  framework:
+    type: esp-idf
+
+# On UART0, through the board's USB serial chip, which also carries the ID and SET lines
+logger:
+  level: DEBUG
+
+i2c:
+  id: pmu_bus
+  sda: GPIO21
+  scl: GPIO22
+
+uart:
+  id: gps_uart
+  rx_pin: GPIO34
+  tx_pin: GPIO12
+  baud_rate: 9600
+
+gps:
+  id: gnss
+  uart_id: gps_uart
+  update_interval: 60s
+
+time:
+  - platform: gps
+    id: gps_time
+    gps_id: gnss
+
+spi:
+  clk_pin: GPIO5
+  mosi_pin: GPIO27
+  miso_pin: GPIO19
+
+sx127x:
+  id: radio
+  cs_pin: GPIO18
+  rst_pin: GPIO23
+  dio0_pin: GPIO26
+  pa_pin: BOOST
+  pa_power: 17
+  frequency: ${lora_frequency}
+  modulation: LORA
+  spreading_factor: ${lora_spreading_factor}
+  bandwidth: ${lora_bandwidth}
+  preamble_size: ${lora_preamble_size}
+  crc_enable: true
+
+packet_interface:
+  - platform: sx127x
+    id: lora
+    max_packet_size: 255
+    addressing:
+      id: lora_addressing
+      # Until tracker_identity gives the glider's own
+      address: "0x00FF"
+      peers:
+        - id: to_clubhouse
+          destination: ${clubhouse_address}
+          encryption:
+            id: clubhouse_key
+            key_at_runtime: true
+        - id: broadcasts
+          destination: broadcast
+
+tracker_identity:
+  id: identity
+  addressing_id: lora_addressing
+  encryption_id: clubhouse_key
+  glider_tracker_id: tracker
+
+glider_tracker:
+  id: tracker
+  gps_id: gnss
+  clubhouse_id: to_clubhouse
+  broadcast_id: broadcasts
+
+binary_sensor:
+  # The middle button: a long press on the bench makes a fake takeoff, or the landing of the fake flight
+  - platform: gpio
+    id: user_button
+    pin:
+      number: GPIO38
+      inverted: true
+    on_click:
+      - min_length: 3s
+        max_length: 10s
+        then:
+          - lambda: id(tracker).fake_takeoff_or_landing();
+
+font:
+  - file: "gfonts://Roboto"
+    id: small
+    size: 12
+
+display:
+  - platform: ssd1306_i2c
+    model: "SSD1306 128x64"
+    i2c_id: pmu_bus
+    address: 0x3C
+    # The board's display is mounted turned a quarter
+    rotation: 90
+    update_interval: 1s
+    lambda: |-
+      auto &gps = id(gnss).get_tiny_gps();
+      const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+      if (!id(identity).is_set()) {
+        it.print(0, 0, id(small), "Not set up");
+      } else {
+        it.print(0, 0, id(small), id(identity).registration());
+        it.print(0, 14, id(small), id(tracker).is_flying() ? "Flying" : "Ground");
+      }
+      it.printf(0, 28, id(small), "GPS %s", fix ? "fix" : "-");
+      it.printf(0, 42, id(small), "%u sats", unsigned(gps.satellites.isValid() ? gps.satellites.value() : 0));

@@ -87,8 +87,9 @@ void FlarmReceiver::setup() {
   if (this->pressure_sensor_ != nullptr)
     this->pressure_sensor_->add_on_state_callback([this](float hpa) { this->on_pressure_(hpa); });
 #endif
+  // A registration given before setup, as by tracker_identity, is kept
   if (this->transmit_ && !this->address_fixed_)
-    this->set_registration("");
+    this->set_registration(this->registration_.c_str());
 }
 
 bool FlarmReceiver::australian_address(const char *registration, uint32_t &address) {
@@ -117,7 +118,11 @@ bool FlarmReceiver::australian_address(const char *registration, uint32_t &addre
   return true;
 }
 
-void FlarmReceiver::set_registration(const char *registration) {
+void FlarmReceiver::set_registration(const char *given) {
+  // A copy first: the argument may be this->registration_ itself
+  const std::string copy = given;
+  this->registration_ = copy;
+  const char *registration = copy.c_str();
   if (!this->transmit_)
     return;
   if (this->address_fixed_) {

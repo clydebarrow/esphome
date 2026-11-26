@@ -46,6 +46,8 @@ class GliderTracker : public Component {
   void set_flarm(flarm_receiver::FlarmReceiver *flarm) { this->flarm_ = flarm; }
 #endif
   void set_flarm_on_ground(bool listen) { this->flarm_on_ground_ = listen; }
+  /// False until the tracker has an address and key (tracker_identity): it then sends nothing
+  void set_identified(bool identified) { this->identified_ = identified; }
 
   bool is_flying() const { return this->log_.is_flying(); }
   /// Seconds since takeoff, 0 on the ground or without a clock
@@ -74,6 +76,7 @@ class GliderTracker : public Component {
   void send_takeoff_();
   void send_summary_();
   bool send_(packet_interface::PacketInterface *port, const uint8_t *data, size_t length, bool answered);
+  bool identified_{true};
   void receive_(const packet_interface::PacketBuffer &data, const packet_interface::PacketMetaData &meta);
 
   gps::GPS *gps_{nullptr};

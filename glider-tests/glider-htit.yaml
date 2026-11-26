@@ -10,8 +10,10 @@
 #   (GPRMC, GPGGA, PGRMZ, PFLAU, PFLAA), over Bluetooth LE to a flight app such as XCSoar: the HM-10 and Nordic UART
 #   serial services both carry it.
 #
-# The glider's address, registration and LoRa key come from the dashboard: in the Worker's Admin, add a tracker for
-# the glider (ESPHome) and save its file here as tracker.yaml. It holds the key, so it is not committed.
+# One build serves every glider: the glider's address, registration and LoRa key are kept in flash apart from the
+# firmware (tracker_identity), written once from the dashboard's tracker page over USB, and kept through updates.
+# Until then it sends nothing on LoRa. This is the build published for that page, so it holds no secrets: no Wi-Fi
+# networks but the SkyEcho's, no API and no Wi-Fi updates. glider-htit-bench.yaml adds those for the bench.
 substitutions:
   # "true" to hear and send FLARM on the ground too, for bench tests
   flarm_on_ground: "false"
@@ -19,11 +21,6 @@ substitutions:
 packages:
   board: !include htit-tracker-board.yaml
   radio: !include radio.yaml
-  tracker: !include tracker.yaml
-  # Bench networks, for logs and updates; joined below the SkyEcho
-  bench_wifi:
-    wifi:
-      networks: !include ../../../my-devices/wifi-networks.yaml
 
 esphome:
   name: glider-htit
@@ -51,15 +48,9 @@ esphome:
 wifi:
   reboot_timeout: 0s
 
-api:
-  reboot_timeout: 0s
-  encryption: !include ../../../my-devices/api-encryption.yaml
-
-ota:
-  - platform: esphome
-
+# Named "<registration> FLARM" by tracker_identity
 esp32_ble:
-  name: ${glider_registration} FLARM
+  id: ble_hub
 
 esp32_ble_server:
 
@@ -81,14 +72,17 @@ packet_interface:
     id: lora
     max_packet_size: 255
     addressing:
-      address: ${glider_address}
+      id: lora_addressing
+      # Until tracker_identity gives the glider's own
+      address: "0x00FF"
       peers:
         # Flight reports and their acknowledgements. No rolling code: a replayed report is a duplicate the server
         # already ignores, and a replayed acknowledgement names a flight that was already acknowledged
         - id: to_clubhouse
           destination: ${clubhouse_address}
           encryption:
-            key_hex: ${glider_key}
+            id: clubhouse_key
+            key_at_runtime: true
         # Position reports, readable by anyone
         - id: broadcasts
           destination: broadcast
@@ -100,10 +94,17 @@ flarm_receiver:
   sx126x_id: radio
   band: AU
   gps_id: gnss
+  # Sent as the glider's ICAO address, from its Australian registration (tracker_identity)
   transmit:
-    # The glider's ICAO address, from its Australian registration
-    registration: ${glider_registration}
     aircraft_type: GLIDER
+
+tracker_identity:
+  id: identity
+  addressing_id: lora_addressing
+  encryption_id: clubhouse_key
+  glider_tracker_id: tracker
+  flarm_receiver_id: flarm
+  esp32_ble_id: ble_hub
 
 glider_tracker:
   id: tracker
@@ -151,12 +152,14 @@ display:
       const int row = 13;
       int y = 0;
       it.fill(Color::BLACK);
-      if (id(tracker).is_flying()) {
+      if (!id(identity).is_set()) {
+        it.printf(0, y, id(small), Color(0xFF8000), "Not set up");
+      } else if (id(tracker).is_flying()) {
         const uint32_t s = id(tracker).flight_seconds();
-        it.printf(0, y, id(small), Color(0x00FF00), "%s  FLYING %u:%02u", "${glider_registration}",
+        it.printf(0, y, id(small), Color(0x00FF00), "%s  FLYING %u:%02u", id(identity).registration(),
                   unsigned(s / 3600), unsigned(s / 60 % 60));
       } else {
-        it.printf(0, y, id(small), Color::WHITE, "%s  ground", "${glider_registration}");
+        it.printf(0, y, id(small), Color::WHITE, "%s  ground", id(identity).registration());
       }
       y += row;
       it.printf(0, y, id(small), fix ? Color::WHITE : Color(0xFF8000), "GPS %s, %u sats", fix ? "fix" : "no fix",

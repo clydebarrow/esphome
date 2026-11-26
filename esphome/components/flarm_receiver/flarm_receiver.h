@@ -1,5 +1,6 @@
 #pragma once
 
+#include <string>
 #include <array>
 #include <cmath>
 
@@ -107,6 +108,8 @@ class FlarmReceiver : public Component,
   uint32_t get_transmit_count() const { return this->transmit_count_; }
 
  protected:
+  /// The last registration given, used again by setup()
+  std::string registration_;
   struct Traffic {
     LegacyTarget target;
     uint32_t last_seen_ms;
