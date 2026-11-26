@@ -10,7 +10,7 @@
 # firmware (tracker_identity), written once from the dashboard's tracker page over USB, and kept through updates.
 # Until then it sends nothing on LoRa. This is the build published for that page, so it holds no secrets.
 #
-# The T-Beam's power chip (AXP192 or AXP2101, at 0x34) is set at boot to power the GPS.
+# The T-Beam's power chip (AXP192 or AXP2101, at 0x34) is set at boot to power the GPS and measure the battery.
 substitutions:
   # "true" to hear and send FLARM on the ground too, for bench tests
   flarm_on_ground: "false"
@@ -39,9 +39,14 @@ esphome:
             if (chip == 0x03) {
               set(0x28, (reg(0x28) & 0xF0) | 0x0F);  // AXP192: LDO3 3.3 V, for the GPS
               set(0x12, reg(0x12) | 0x08);           // LDO3 on
+              set(0x82, reg(0x82) | 0x80);           // battery voltage ADC on
+              id(pmu_type) = 1;
             } else if (chip == 0x4A) {
               set(0x94, 28);                         // AXP2101: ALDO3 3.3 V, for the GPS
               set(0x90, reg(0x90) | 0x04);           // ALDO3 on
+              set(0x30, reg(0x30) | 0x01);           // battery voltage ADC on
+              set(0x68, reg(0x68) | 0x01);           // battery detection on
+              id(pmu_type) = 2;
             }
             ESP_LOGI("tbeam", "Power chip id 0x%02X", chip);
 
@@ -53,6 +58,34 @@ esp32:
 # On UART0, through the board's USB serial chip, which also carries the ID and SET lines
 logger:
   level: DEBUG
+
+globals:
+  # The power chip: 1 for an AXP192, 2 for an AXP2101, 0 if neither answered
+  - id: pmu_type
+    type: uint8_t
+    initial_value: "0"
+
+sensor:
+  # The battery's voltage, from the power chip; no reading without a battery
+  - platform: template
+    id: battery
+    name: Battery
+    unit_of_measurement: V
+    device_class: voltage
+    accuracy_decimals: 2
+    update_interval: 30s
+    lambda: |-
+      auto *bus = id(pmu_bus);
+      auto reg = [bus](uint8_t r) {
+        uint8_t v = 0;
+        bus->write_readv(0x34, &r, 1, &v, 1);
+        return v;
+      };
+      if (id(pmu_type) == 1)
+        return ((reg(0x78) << 4) | (reg(0x79) & 0x0F)) * 1.1f / 1000.0f;
+      if (id(pmu_type) == 2 && (reg(0x00) & 0x08))
+        return (((reg(0x34) & 0x3F) << 8) | reg(0x35)) / 1000.0f;
+      return NAN;
 
 i2c:
   id: pmu_bus
@@ -134,6 +167,7 @@ glider_tracker:
   gps_id: gnss
   clubhouse_id: to_clubhouse
   broadcast_id: broadcasts
+  battery_id: battery
   flarm_receiver_id: flarm
   flarm_on_ground: ${flarm_on_ground}
 
@@ -177,3 +211,5 @@ display:
       it.printf(0, 42, id(small), "SkyEcho %s", id(skyecho_join).has_skyecho() ? "on" : "-");
       it.printf(0, 56, id(small), "BLE %s", id(ble).is_connected() ? "app" : "-");
       it.printf(0, 70, id(small), "FLARM %s", id(flarm).is_receiving_flarm() ? "rx" : "-");
+      if (id(battery).has_state() && !std::isnan(id(battery).state))
+        it.printf(0, 84, id(small), "%.2f V", id(battery).state);
