@@ -248,14 +248,13 @@ inline std::string takeoff_json(const char *organisation, const Glider &glider, 
          "\"}";
 }
 
-/// One position for the live map. Fields the glider doesn't know without a fix are left out.
-/// For a tug, \p tug is set, and the Worker shows it as one: tugs send the same position packet as gliders
-inline std::string position_json(const std::string &registration, bool tug, const glider::Position &pos, float rssi,
-                                 float snr) {
+/// One position for the live map, after \p who: the fields that say which aircraft it is. Fields the glider doesn't
+/// know without a fix are left out.
+inline std::string position_json_for(const std::string &who, const glider::Position &pos, float rssi, float snr) {
   char buf[340];
-  int n = snprintf(buf, sizeof(buf), "{\"registration\":%s,%s\"time\":%u,\"fix\":%s,\"flying\":%s,\"satellites\":%u",
-                   json_string(registration).c_str(), tug ? "\"kind\":\"tug\"," : "", (unsigned) pos.time,
-                   pos.fix ? "true" : "false", pos.flying ? "true" : "false", (unsigned) pos.satellites);
+  int n = snprintf(buf, sizeof(buf), "{%s\"time\":%u,\"fix\":%s,\"flying\":%s,\"satellites\":%u", who.c_str(),
+                   (unsigned) pos.time, pos.fix ? "true" : "false", pos.flying ? "true" : "false",
+                   (unsigned) pos.satellites);
   if (pos.fix) {
     n += snprintf(buf + n, sizeof(buf) - n,
                   ",\"lat\":%.6f,\"lon\":%.6f,\"alt_m\":%d,\"speed_kmh\":%.1f,\"course_deg\":%.1f,\"climb_ms\":%.2f",
@@ -265,6 +264,47 @@ inline std::string position_json(const std::string &registration, bool tug, cons
     n += snprintf(buf + n, sizeof(buf) - n, ",\"battery_v\":%.2f", pos.battery_v);
   snprintf(buf + n, sizeof(buf) - n, ",\"rssi\":%.0f,\"snr\":%.1f}", rssi, snr);
   return buf;
+}
+
+/// A position from this club's glider or tug. For a tug, \p tug is set, and the Worker shows it as one: tugs send the
+/// same position packet as gliders
+inline std::string position_json(const std::string &registration, bool tug, const glider::Position &pos, float rssi,
+                                 float snr) {
+  return position_json_for("\"registration\":" + json_string(registration) + "," + (tug ? "\"kind\":\"tug\"," : ""),
+                           pos, rssi, snr);
+}
+
+/// A position from an address this receiver doesn't know, by its address alone: the Worker finds another club's
+/// aircraft in the LoRa address registry's directory, and drops any other
+inline std::string visitor_position_json(uint16_t address, const glider::Position &pos, float rssi, float snr) {
+  char who[24];
+  snprintf(who, sizeof(who), "\"address\":\"0x%04X\",", address);
+  return position_json_for(who, pos, rssi, snr);
+}
+
+/// True at most once a minute for each unknown address, so a stranger's tracker can't fill the Worker's batches.
+/// Only the 32 addresses heard most recently are remembered.
+inline bool visitor_due(uint16_t address, uint32_t now_ms) {
+  static std::map<uint16_t, uint32_t> last_sent;
+  static constexpr uint32_t INTERVAL_MS = 60000;
+  static constexpr size_t MAX_REMEMBERED = 32;
+  auto found = last_sent.find(address);
+  if (found != last_sent.end()) {
+    if (now_ms - found->second < INTERVAL_MS)
+      return false;
+    found->second = now_ms;
+    return true;
+  }
+  if (last_sent.size() >= MAX_REMEMBERED) {
+    auto oldest = last_sent.begin();
+    for (auto it = last_sent.begin(); it != last_sent.end(); ++it) {
+      if (now_ms - it->second > now_ms - oldest->second)
+        oldest = it;
+    }
+    last_sent.erase(oldest);
+  }
+  last_sent[address] = now_ms;
+  return true;
 }
 
 /// Queues a position, dropping the oldest if too many are waiting

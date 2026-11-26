@@ -180,10 +180,14 @@ esphome:
                   receiver::queue_position(
                       receiver::position_json(receiver::tug_map_name(*tug), true, pos, meta.rssi, meta.snr));
                 } else {
-                  // Perhaps a device made in the dashboard since the last fetch: fetch the list now, not at the next
+                  const uint32_t now = App.get_loop_component_start_time();
+                  // Perhaps another club's aircraft: the Worker looks it up in the LoRa address registry
+                  if (receiver::visitor_due(meta.source_address, now))
+                    receiver::queue_position(
+                        receiver::visitor_position_json(meta.source_address, pos, meta.rssi, meta.snr));
+                  // Or a device made in the dashboard since the last fetch: fetch the list now, not at the next
                   // 15 minutes, but at most once a minute, so a tracker from elsewhere can't keep it fetching
                   static uint32_t last_fetch_ms = 0;
-                  const uint32_t now = App.get_loop_component_start_time();
                   if (last_fetch_ms == 0 || now - last_fetch_ms >= 60000) {
                     last_fetch_ms = now;
                     ESP_LOGI("receiver", "0x%04X is not in the device list; fetching it", meta.source_address);
