@@ -10,7 +10,7 @@
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
-#include "esphome/components/sx126x/sx126x.h"
+#include "flarm_radio.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
@@ -41,14 +41,14 @@ class FlarmReceiver : public Component,
 #ifdef USE_FLARM_RECEIVER_GPS
                       public gps::GPSListener,
 #endif
-                      public sx126x::SX126xListener {
+                      public FrameSink {
  public:
-  FlarmReceiver(sx126x::SX126x *radio, const BandPlan &plan) : radio_(radio), plan_(plan) {}
+  FlarmReceiver(FlarmRadio *radio, const BandPlan &plan) : radio_(radio), plan_(plan) {}
   void setup() override;
   void loop() override;
   void dump_config() override;
 
-  void on_packet(const std::vector<uint8_t> &packet, float rssi, float snr) override;
+  void on_frame(const std::vector<uint8_t> &frame, float rssi) override;
 #ifdef USE_FLARM_RECEIVER_GPS
   /// From a gps component, in place of the GPS UART
   void on_update(TinyGPSPlus &tiny_gps) override;
@@ -137,7 +137,7 @@ class FlarmReceiver : public Component,
   void send_sentence_(const char *body);
   void send_line_(const char *line, size_t len);
 
-  sx126x::SX126x *radio_;
+  FlarmRadio *radio_;
   BandPlan plan_;
   CallbackManager<void(const uint8_t *, size_t)> nmea_callback_;
   CallbackManager<void(const LegacyTarget &, float)> traffic_callback_;
@@ -146,7 +146,6 @@ class FlarmReceiver : public Component,
   uint32_t last_gps_time_{0};  // hhmmsscc of the last epoch taken from the gps component
 #endif
   // Sharing the radio with LoRa
-  sx126x::RadioProfile fsk_profile_;
   uint32_t hold_until_ms_{0};
   bool shared_{false};
   bool listening_{false};

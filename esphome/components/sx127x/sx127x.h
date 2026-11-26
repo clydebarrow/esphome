@@ -68,6 +68,29 @@ class SX127xListener {
   virtual void on_packet(const std::vector<uint8_t> &packet, float rssi, float snr) = 0;
 };
 
+// The modem settings apply_profile() puts in place of the configured ones; the power amplifier stays as configured
+struct SX127xProfile {
+  std::vector<uint8_t> sync_value;
+  uint32_t bitrate{0};
+  uint32_t deviation{0};
+  uint32_t frequency{0};
+  uint32_t payload_length{0};
+  uint16_t preamble_size{0};
+  SX127xBw afc_bandwidth{SX127X_BW_50_0};
+  SX127xBw bandwidth{SX127X_BW_125_0};
+  uint8_t coding_rate{0};
+  uint8_t modulation{0};
+  uint8_t preamble_detect{0};
+  uint8_t preamble_errors{0};
+  uint8_t preamble_polarity{0};
+  uint8_t shaping{0};
+  uint8_t spreading_factor{0};
+  bool bitsync{false};
+  bool crc_enable{false};
+  bool packet_mode{false};
+  bool rx_start{false};
+};
+
 class SX127x final : public Component,
                      public spi::SPIDevice<spi::BIT_ORDER_MSB_FIRST, spi::CLOCK_POLARITY_LOW, spi::CLOCK_PHASE_LEADING,
                                            spi::DATA_RATE_8MHZ> {
@@ -111,6 +134,15 @@ class SX127x final : public Component,
   void run_image_cal();
   // Ignored while a send is on air; discards a held packet
   void configure();
+  // The settings from the configuration
+  SX127xProfile get_requested_profile() const;
+  // Configures the radio with another profile, such as another modulation, until it is called again with null to go
+  // back to the configured one. While another profile is applied, received packets go only to its owner. Returns
+  // false if the radio is sending or not set up, leaving the profile as it was.
+  bool apply_profile(const SX127xProfile *profile, SX127xListener *owner);
+  // Moves the radio to another frequency without configuring it again, then receives or sleeps as its profile says.
+  // Ignored unless the radio is idle.
+  void retune(uint32_t frequency);
   SX127xError transmit_packet(const uint8_t *data, size_t len);
   SX127xError transmit_packet(const std::vector<uint8_t> &packet) {
     return this->transmit_packet(packet.data(), packet.size());
@@ -174,6 +206,10 @@ class SX127x final : public Component,
   uint8_t read_register_(uint8_t reg);
   Trigger<std::vector<uint8_t>, float, float> packet_trigger_;
   std::vector<SX127xListener *> listeners_;
+  // While a profile other than the configured one is applied: the configured one, and the listener it is for
+  SX127xProfile saved_profile_;
+  SX127xListener *profile_owner_{nullptr};
+  void load_profile_(const SX127xProfile &profile);
   std::vector<uint8_t> packet_;
   std::vector<uint8_t> sync_value_;
   AppliedSettings applied_;

@@ -47,9 +47,6 @@ static constexpr float MAX_CLIMB_MPS = 50.0f;
 static constexpr float POSITION_SLACK_M = 200.0f;
 // A gps component's fix is used while this recent
 static constexpr uint32_t GPS_FIX_MAX_AGE_MS = 3000;
-// The legacy protocol's FSK settings, as the configuration checks for a radio of its own
-static constexpr uint32_t LEGACY_BITRATE = 100000;
-static constexpr uint32_t LEGACY_DEVIATION = 50000;
 
 // FLARM's channel hash, from SoftRF's freqplan.h
 static uint32_t freq_hop_hash(uint32_t value) {
@@ -62,27 +59,9 @@ static uint32_t freq_hop_hash(uint32_t value) {
 }
 
 void FlarmReceiver::setup() {
-  this->radio_->register_listener(this);
+  this->radio_->setup(this, this->plan_.base_frequency);
   // A radio set up for LoRa is shared with the LoRa link
-  this->shared_ = this->radio_->get_requested_profile().modulation == sx126x::PACKET_TYPE_LORA;
-  if (this->shared_) {
-    // The radio's own settings, such as its TCXO, RF switch and power, with the legacy protocol's modulation
-    sx126x::RadioProfile &fsk = this->fsk_profile_;
-    fsk = this->radio_->get_requested_profile();
-    fsk.modulation = sx126x::PACKET_TYPE_GFSK;
-    fsk.frequency = this->plan_.base_frequency;
-    fsk.bitrate = LEGACY_BITRATE;
-    fsk.deviation = LEGACY_DEVIATION;
-    fsk.bandwidth = sx126x::SX126X_BW_234300;
-    fsk.shaping = sx126x::GAUSSIAN_BT_0_5;
-    fsk.preamble_size = 8;
-    fsk.preamble_detect = 0;
-    fsk.set_sync_value(LEGACY_SYNC_WORD);
-    fsk.payload_length = LEGACY_FRAME_SIZE;
-    fsk.crc_enable = false;
-    fsk.whitening_enable = false;
-    fsk.rx_start = true;
-  }
+  this->shared_ = this->radio_->shared();
 #ifdef USE_SENSOR
   if (this->pressure_sensor_ != nullptr)
     this->pressure_sensor_->add_on_state_callback([this](float hpa) { this->on_pressure_(hpa); });
@@ -208,7 +187,7 @@ bool FlarmReceiver::hold_lora(uint32_t duration_ms) {
     this->hold_until_ms_ = until;
   if (!this->fsk_active_)
     return true;
-  if (!this->radio_->apply_profile(nullptr, nullptr))
+  if (!this->radio_->stop_fsk())
     return false;
   this->fsk_active_ = false;
   ESP_LOGV(TAG, "Radio given to LoRa for %" PRIu32 " ms", duration_ms);
@@ -224,16 +203,16 @@ void FlarmReceiver::share_radio_() {
     return;
   if (want) {
     // Not over a LoRa packet being sent or received
-    if (this->radio_->is_transmitting() || this->radio_->is_receiving())
+    if (this->radio_->busy())
       return;
-    if (!this->radio_->apply_profile(&this->fsk_profile_, this))
+    if (!this->radio_->start_fsk())
       return;
     this->fsk_active_ = true;
     // The profile starts on channel 0's frequency; hop_() moves it to the slot's
     this->channel_ = 0;
     ESP_LOGD(TAG, "Listening for FLARM");
   } else {
-    if (!this->radio_->apply_profile(nullptr, nullptr))
+    if (!this->radio_->stop_fsk())
       return;
     this->fsk_active_ = false;
     ESP_LOGD(TAG, "Radio back to LoRa");
@@ -373,7 +352,7 @@ void FlarmReceiver::send_position_() {
   legacy_encode(own, packet);
   uint8_t frame[LEGACY_FRAME_SIZE];
   legacy_pack(packet, frame);
-  if (this->radio_->transmit_packet(frame, sizeof(frame)) != sx126x::SX126xError::SX126X_ERROR_NONE) {
+  if (!this->radio_->transmit(frame, sizeof(frame))) {
     this->status_set_warning();
     return;
   }
@@ -509,7 +488,7 @@ void FlarmReceiver::parse_sentence_(char *line, size_t len) {
   }
 }
 
-void FlarmReceiver::on_packet(const std::vector<uint8_t> &frame, float rssi, float snr) {
+void FlarmReceiver::on_frame(const std::vector<uint8_t> &frame, float rssi) {
   // A shared radio's LoRa packets are for the LoRa link
   if (this->shared_ && !this->fsk_active_)
     return;

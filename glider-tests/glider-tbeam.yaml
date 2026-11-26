@@ -1,14 +1,23 @@
 # A glider's tracker on a LilyGO T-Beam with an SX1276 radio, as glider-htit.yaml is on the Heltec Wireless Tracker:
-# positions for the live map, its takeoff, and its flight summary after landing, to the clubhouse receiver over LoRa.
-# No FLARM: flarm_receiver needs an SX1262. No SkyEcho or Bluetooth either.
+# - Tracks for the club (glider_tracker): positions for the live map, its takeoff, and its flight summary after
+#   landing, to the clubhouse receiver over LoRa.
+# - Hears FLARM on the same radio while flying, and sends its own position in the legacy FLARM protocol, in the slots
+#   when LoRa isn't holding the radio.
+# - Joins the glider's SkyEcho over Wi-Fi, merges its ADS-B traffic with FLARM's, and streams it to a flight app over
+#   Bluetooth LE (glider-tracker-traffic.yaml).
 #
 # One build serves every T-Beam: the glider's address, registration and LoRa key are kept in flash apart from the
 # firmware (tracker_identity), written once from the dashboard's tracker page over USB, and kept through updates.
 # Until then it sends nothing on LoRa. This is the build published for that page, so it holds no secrets.
 #
 # The T-Beam's power chip (AXP192 or AXP2101, at 0x34) is set at boot to power the GPS.
+substitutions:
+  # "true" to hear and send FLARM on the ground too, for bench tests
+  flarm_on_ground: "false"
+
 packages:
   radio: !include radio.yaml
+  traffic: !include glider-tracker-traffic.yaml
 
 esphome:
   name: glider-tbeam
@@ -102,17 +111,31 @@ packet_interface:
         - id: broadcasts
           destination: broadcast
 
+# Shares the LoRa radio, switching it to FSK while it listens, and takes the time and position from the GPS
+flarm_receiver:
+  id: flarm
+  sx127x_id: radio
+  band: AU
+  gps_id: gnss
+  # Sent as the glider's ICAO address, from its Australian registration (tracker_identity)
+  transmit:
+    aircraft_type: GLIDER
+
 tracker_identity:
   id: identity
   addressing_id: lora_addressing
   encryption_id: clubhouse_key
   glider_tracker_id: tracker
+  flarm_receiver_id: flarm
+  esp32_ble_id: ble_hub
 
 glider_tracker:
   id: tracker
   gps_id: gnss
   clubhouse_id: to_clubhouse
   broadcast_id: broadcasts
+  flarm_receiver_id: flarm
+  flarm_on_ground: ${flarm_on_ground}
 
 binary_sensor:
   # The middle button: a long press on the bench makes a fake takeoff, or the landing of the fake flight
@@ -149,5 +172,8 @@ display:
         it.print(0, 0, id(small), id(identity).registration());
         it.print(0, 14, id(small), id(tracker).is_flying() ? "Flying" : "Ground");
       }
-      it.printf(0, 28, id(small), "GPS %s", fix ? "fix" : "-");
-      it.printf(0, 42, id(small), "%u sats", unsigned(gps.satellites.isValid() ? gps.satellites.value() : 0));
+      it.printf(0, 28, id(small), "GPS %s %u", fix ? "fix" : "-",
+                unsigned(gps.satellites.isValid() ? gps.satellites.value() : 0));
+      it.printf(0, 42, id(small), "SkyEcho %s", id(skyecho_join).has_skyecho() ? "on" : "-");
+      it.printf(0, 56, id(small), "BLE %s", id(ble).is_connected() ? "app" : "-");
+      it.printf(0, 70, id(small), "FLARM %s", id(flarm).is_receiving_flarm() ? "rx" : "-");

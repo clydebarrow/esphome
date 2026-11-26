@@ -484,6 +484,10 @@ bool SX127x::packet_waiting_() {
 }
 
 void SX127x::call_listeners_(const std::vector<uint8_t> &packet, float rssi, float snr) {
+  if (this->profile_owner_ != nullptr) {
+    this->profile_owner_->on_packet(packet, rssi, snr);
+    return;
+  }
   for (auto &listener : this->listeners_) {
     listener->on_packet(packet, rssi, snr);
   }
@@ -651,6 +655,95 @@ void SX127x::change_mode_(uint8_t mode) {
     ok = this->set_mode_(this->applied_.modulation, mode);
   }
   if (!ok) {
+    this->fail_(set_mode_failure());
+  }
+}
+
+SX127xProfile SX127x::get_requested_profile() const {
+  if (this->profile_owner_ != nullptr) {
+    return this->saved_profile_;
+  }
+  SX127xProfile profile;
+  profile.sync_value = this->sync_value_;
+  profile.bitrate = this->bitrate_;
+  profile.deviation = this->deviation_;
+  profile.frequency = this->frequency_;
+  profile.payload_length = this->payload_length_;
+  profile.preamble_size = this->preamble_size_;
+  profile.afc_bandwidth = this->afc_bandwidth_;
+  profile.bandwidth = this->bandwidth_;
+  profile.coding_rate = this->coding_rate_;
+  profile.modulation = this->modulation_;
+  profile.preamble_detect = this->preamble_detect_;
+  profile.preamble_errors = this->preamble_errors_;
+  profile.preamble_polarity = this->preamble_polarity_;
+  profile.shaping = this->shaping_;
+  profile.spreading_factor = this->spreading_factor_;
+  profile.bitsync = this->bitsync_;
+  profile.crc_enable = this->crc_enable_;
+  profile.packet_mode = this->packet_mode_;
+  profile.rx_start = this->rx_start_;
+  return profile;
+}
+
+void SX127x::load_profile_(const SX127xProfile &profile) {
+  this->sync_value_ = profile.sync_value;
+  this->bitrate_ = profile.bitrate;
+  this->deviation_ = profile.deviation;
+  this->frequency_ = profile.frequency;
+  this->payload_length_ = profile.payload_length;
+  this->preamble_size_ = profile.preamble_size;
+  this->afc_bandwidth_ = profile.afc_bandwidth;
+  this->bandwidth_ = profile.bandwidth;
+  this->coding_rate_ = profile.coding_rate;
+  this->modulation_ = profile.modulation;
+  this->preamble_detect_ = profile.preamble_detect;
+  this->preamble_errors_ = profile.preamble_errors;
+  this->preamble_polarity_ = profile.preamble_polarity;
+  this->shaping_ = profile.shaping;
+  this->spreading_factor_ = profile.spreading_factor;
+  this->bitsync_ = profile.bitsync;
+  this->crc_enable_ = profile.crc_enable;
+  this->packet_mode_ = profile.packet_mode;
+  this->rx_start_ = profile.rx_start;
+}
+
+bool SX127x::apply_profile(const SX127xProfile *profile, SX127xListener *owner) {
+  if (!this->is_ready() || this->is_transmitting()) {
+    return false;
+  }
+  if (profile != nullptr) {
+    if (this->profile_owner_ == nullptr) {
+      this->saved_profile_ = this->get_requested_profile();
+    }
+    this->load_profile_(*profile);
+    this->profile_owner_ = owner;
+  } else if (this->profile_owner_ != nullptr) {
+    this->load_profile_(this->saved_profile_);
+    this->profile_owner_ = nullptr;
+  } else {
+    return true;
+  }
+  this->configure();
+  return this->state_ == RadioState::RADIO_STATE_IDLE;
+}
+
+void SX127x::retune(uint32_t frequency) {
+  if (this->state_ != RadioState::RADIO_STATE_IDLE) {
+    ESP_LOGW(TAG, "Radio unavailable, retune ignored");
+    return;
+  }
+  if (!this->set_mode_(this->applied_.modulation, MODE_STDBY)) {
+    this->fail_(set_mode_failure());
+    return;
+  }
+  this->frequency_ = frequency;
+  this->applied_.frequency = frequency;
+  uint64_t frf = ((uint64_t) frequency << 19) / FXOSC;
+  uint8_t frf_bytes[3];
+  put_be24(frf_bytes, static_cast<uint32_t>(frf));
+  this->write_registers_(REG_FRF_MSB, frf_bytes, sizeof(frf_bytes));
+  if (!this->restore_()) {
     this->fail_(set_mode_failure());
   }
 }
