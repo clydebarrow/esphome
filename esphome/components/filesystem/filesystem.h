@@ -170,6 +170,7 @@ class Filesystem : public Component {
   /// Close everything still open, so its data and directory entries reach the media before a restart.
   void on_shutdown() override;
 
+  /// At most 32 files and 8 directories; codegen checks the limits.
   void set_pool_sizes(uint8_t max_files, uint8_t max_dirs) {
     this->max_files_ = max_files;
     this->max_dirs_ = max_dirs;

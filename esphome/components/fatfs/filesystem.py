@@ -15,4 +15,5 @@ async def to_code(config: ConfigType) -> None:
     esp32.require_fatfs()
     # Use ESPHome's time zone for file times; see __wrap_get_fattime() in fatfs.cpp
     cg.add_build_flag("-Wl,--wrap=get_fattime")
-    await filesystem.new_filesystem(config)
+    var = await filesystem.new_filesystem(config)
+    await cg.register_component(var, config)

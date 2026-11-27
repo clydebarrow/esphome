@@ -154,10 +154,12 @@ async def _emit_pool_sizes() -> None:
 
 
 async def new_filesystem(config: ConfigType, *args: SafeExpType) -> MockObj:
-    """Create a filesystem platform component on its block device and register it."""
+    """Create a filesystem platform component on its block device.
+
+    The platform registers it with cg.register_component(), which names the component after the module that calls it.
+    """
     device = await cg.get_variable(config[CONF_STORAGE_ID])
     var = cg.new_Pvariable(config[CONF_ID], device, *args)
-    await cg.register_component(var, config)
     if config[CONF_FORMAT_IF_MOUNT_FAILED]:
         cg.add(var.set_format_if_mount_failed(True))
     data = _get_data()

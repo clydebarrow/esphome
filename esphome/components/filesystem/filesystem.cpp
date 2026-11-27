@@ -4,47 +4,18 @@
 #include <utility>
 
 #include "esphome/core/application.h"
+#include "esphome/core/progmem.h"
 
 namespace esphome::filesystem {
 
 ESPHOME_LOG_TAG(TAG, "filesystem");
 
-static constexpr uint8_t MAX_FILE_SLOTS = 32;
-static constexpr uint8_t MAX_DIR_SLOTS = 8;
+// Indexed by the negated FsError value; the last entry is the fallback
+PROGMEM_STRING_TABLE(FsErrorStrings, "none", "I/O error", "no media", "not found", "already exists", "not a directory",
+                     "is a directory", "no space", "too many open", "invalid argument", "no filesystem", "read only",
+                     "access denied", "closed", "unknown");
 
-const LogString *fs_error_to_string(FsError error) {
-  switch (error) {
-    case FsError::FS_ERROR_NONE:
-      return LOG_STR("none");
-    case FsError::FS_ERROR_IO:
-      return LOG_STR("I/O error");
-    case FsError::FS_ERROR_NO_MEDIA:
-      return LOG_STR("no media");
-    case FsError::FS_ERROR_NOT_FOUND:
-      return LOG_STR("not found");
-    case FsError::FS_ERROR_EXISTS:
-      return LOG_STR("already exists");
-    case FsError::FS_ERROR_NOT_DIR:
-      return LOG_STR("not a directory");
-    case FsError::FS_ERROR_IS_DIR:
-      return LOG_STR("is a directory");
-    case FsError::FS_ERROR_NO_SPACE:
-      return LOG_STR("no space");
-    case FsError::FS_ERROR_TOO_MANY_OPEN:
-      return LOG_STR("too many open");
-    case FsError::FS_ERROR_INVALID:
-      return LOG_STR("invalid argument");
-    case FsError::FS_ERROR_NO_FILESYSTEM:
-      return LOG_STR("no filesystem");
-    case FsError::FS_ERROR_READ_ONLY:
-      return LOG_STR("read only");
-    case FsError::FS_ERROR_DENIED:
-      return LOG_STR("access denied");
-    case FsError::FS_ERROR_CLOSED:
-      return LOG_STR("closed");
-  }
-  return LOG_STR("unknown");
-}
+const LogString *fs_error_to_string(FsError error) { return FsErrorStrings::get_log_str(-static_cast<int>(error)); }
 
 #ifdef USE_FILESYSTEM_VFS
 static constexpr TickType_t LOCK_WAIT_TICKS = pdMS_TO_TICKS(100);
@@ -183,10 +154,6 @@ FsError Dir::close() {
 // Filesystem
 
 void Filesystem::setup() {
-  if (this->max_files_ > MAX_FILE_SLOTS)
-    this->max_files_ = MAX_FILE_SLOTS;
-  if (this->max_dirs_ > MAX_DIR_SLOTS)
-    this->max_dirs_ = MAX_DIR_SLOTS;
   FsError err = this->fs_init(this->max_files_, this->max_dirs_);
   if (err != FsError::FS_ERROR_NONE) {
     this->mark_failed(fs_error_to_string(err));

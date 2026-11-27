@@ -269,4 +269,11 @@ TEST_F(FilesystemTest, PathCallsReportErrors) {
   EXPECT_EQ(this->fs_.mkdir("/d"), FsError::FS_ERROR_NO_MEDIA);
 }
 
+TEST(Filesystem, ErrorNames) {
+  EXPECT_STREQ(LOG_STR_ARG(fs_error_to_string(FsError::FS_ERROR_NONE)), "none");
+  EXPECT_STREQ(LOG_STR_ARG(fs_error_to_string(FsError::FS_ERROR_NO_SPACE)), "no space");
+  EXPECT_STREQ(LOG_STR_ARG(fs_error_to_string(FsError::FS_ERROR_CLOSED)), "closed");
+  EXPECT_STREQ(LOG_STR_ARG(fs_error_to_string(static_cast<FsError>(1))), "unknown");
+}
+
 }  // namespace esphome::filesystem::testing
