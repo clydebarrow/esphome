@@ -31,8 +31,7 @@ CONFIG_SCHEMA = (
             cv.Optional(CONF_CARD_DETECT_PIN): pins.gpio_input_pin_schema,
             # Whole sectors, at least two so that single sector writes are cached
             cv.Optional(CONF_WRITE_CACHE): cv.All(
-                storage.storage_size,
-                cv.int_range(min=1024, max=65536),
+                storage.storage_size_range(min_size=1024, max_size=65536),
                 whole_sectors,
             ),
         }

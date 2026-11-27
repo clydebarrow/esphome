@@ -3,7 +3,7 @@ import esphome.codegen as cg
 from esphome.components import file, runtime_image
 from esphome.components.image import CONF_TRANSPARENCY, add_metadata
 from esphome.components.runtime_image import IMAGE_FORMATS
-from esphome.components.storage import storage_size
+from esphome.components.storage import storage_size_range
 import esphome.config_validation as cv
 from esphome.const import CONF_FORMAT, CONF_ID, CONF_ON_ERROR, CONF_PATH, CONF_TYPE
 from esphome.types import ConfigType
@@ -52,8 +52,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_FILE_ID): cv.use_id(file.FileRef),
             # AUTO tells the format from the first bytes of the file, at the cost of building every decoder
             cv.Required(CONF_FORMAT): cv.one_of(*IMAGE_FORMATS, "AUTO", upper=True),
-            cv.Optional(CONF_CHUNK_SIZE, default=4096): cv.All(
-                storage_size, cv.int_range(min=256, max=65536)
+            cv.Optional(CONF_CHUNK_SIZE, default=4096): storage_size_range(
+                min_size=256, max_size=65536
             ),
             cv.Optional(CONF_ON_LOAD_FINISHED): automation.validate_automation({}),
             cv.Optional(CONF_ON_LOAD_PROGRESS): automation.validate_automation({}),
