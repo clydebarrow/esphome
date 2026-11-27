@@ -84,6 +84,14 @@ class SX126x final : public Component {
   // idle and configured; after a cold sleep it is kept and applied when the radio wakes. The image is calibrated for
   // the band the radio started in: run run_image_cal() after a move to another band.
   void retune(uint32_t frequency);
+  // The settings from the configuration.
+  const RadioProfile &get_requested_profile() const { return this->requested_profile_; }
+  // Configures the radio with another profile, such as another modulation, until it is called again with null to go
+  // back to the configured one. While another profile is applied, received packets go only to its owner, not to the
+  // other listeners. Returns false if the radio is sending or not set up, leaving the profile as it was.
+  bool apply_profile(const RadioProfile *profile, SX126xListener *owner);
+  // The listener that owns the profile now applied, or null for the configured one.
+  SX126xListener *get_profile_owner() const { return this->profile_owner_; }
   // Mode changes and configuration are allowed during RX callbacks when the radio
   // is available; they never modify the borrowed packet buffer.
   void configure();
@@ -118,6 +126,13 @@ class SX126x final : public Component {
   // then the completion or packet listeners. SX126xRadio has already committed its state.
   void apply_(const RadioEffects &effects);
   void watch_configuration_();
+  // The profile to configure the radio with: the configured one, or the one applied in its place
+  const RadioProfile &profile_() const {
+    return this->profile_owner_ != nullptr ? this->alternate_profile_ : this->requested_profile_;
+  }
+  RadioProfile &active_profile_() {
+    return this->profile_owner_ != nullptr ? this->alternate_profile_ : this->requested_profile_;
+  }
   SX126xError start_transmit_(SX126xTransmitListener *listener, const uint8_t *data, size_t len, uint32_t timeout_ms);
   SX126xRadio radio_;
   RadioProfile requested_profile_;
@@ -128,6 +143,9 @@ class SX126x final : public Component {
   bool rx_dispatching_{false};
   bool cold_sleep_{false};
   bool reconfigure_pending_{false};
+  // While a profile other than the configured one is applied: that profile, and the listener it is for
+  RadioProfile alternate_profile_;
+  SX126xListener *profile_owner_{nullptr};
 };
 
 }  // namespace esphome::sx126x

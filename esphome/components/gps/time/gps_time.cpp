@@ -6,8 +6,9 @@ namespace esphome::gps {
 ESPHOME_LOG_TAG(TAG, "gps.time");
 
 void GPSTime::from_tiny_gps_(TinyGPSPlus &tiny_gps) {
-  if (!tiny_gps.time.isValid() || !tiny_gps.date.isValid() || !tiny_gps.time.isUpdated() ||
-      !tiny_gps.date.isUpdated() || tiny_gps.date.year() < 2025) {
+  // Without a fix a receiver may send its default date: an MTK's 060180 reads as the year 2080, not 1980
+  if (!tiny_gps.location.isValid() || !tiny_gps.time.isValid() || !tiny_gps.date.isValid() ||
+      !tiny_gps.time.isUpdated() || !tiny_gps.date.isUpdated() || tiny_gps.date.year() < 2025) {
     return;
   }
 

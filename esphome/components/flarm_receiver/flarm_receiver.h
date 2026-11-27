@@ -1,12 +1,16 @@
 #pragma once
 
+#include <string>
 #include <array>
 #include <cmath>
 
+#ifdef USE_FLARM_RECEIVER_GPS
+#include "esphome/components/gps/gps.h"
+#endif
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
 #endif
-#include "esphome/components/sx126x/sx126x.h"
+#include "flarm_radio.h"
 #include "esphome/components/uart/uart.h"
 #include "esphome/core/component.h"
 #include "esphome/core/helpers.h"
@@ -26,16 +30,46 @@ struct BandPlan {
 /// Receives legacy FLARM position packets with an SX126x radio, following FLARM's channel hopping, and sends what
 /// a FLARM sends to a navigation program: the GPS sentences, $PFLAU and a $PFLAA for each aircraft heard.
 /// The radio needs the GPS time, to the tenth of a second, to hop with the senders and to decrypt the packets, and a
-/// position near the senders to place them. Both come from the GPS UART, or from the system clock and a fixed
-/// position when there is none.
-class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::SX126xListener {
+/// position near the senders to place them. Both come from the GPS UART or a gps component, or from the system clock
+/// and a fixed position when there is neither.
+///
+/// The radio may also be configured for LoRa, for another link. The receiver then shares it: it applies its own FSK
+/// profile only while set_listening(true) and not held for LoRa by hold_lora(), and gives the radio back to LoRa
+/// otherwise. A position to transmit is sent only while it has the profile, so a slot held for LoRa goes unsent.
+class FlarmReceiver : public Component,
+                      public uart::UARTDevice,
+#ifdef USE_FLARM_RECEIVER_GPS
+                      public gps::GPSListener,
+#endif
+                      public FrameSink {
  public:
-  FlarmReceiver(sx126x::SX126x *radio, const BandPlan &plan) : radio_(radio), plan_(plan) {}
+  FlarmReceiver(FlarmRadio *radio, const BandPlan &plan) : radio_(radio), plan_(plan) {}
   void setup() override;
   void loop() override;
   void dump_config() override;
 
-  void on_packet(const std::vector<uint8_t> &packet, float rssi, float snr) override;
+  void on_frame(const std::vector<uint8_t> &frame, float rssi) override;
+#ifdef USE_FLARM_RECEIVER_GPS
+  /// From a gps component, in place of the GPS UART
+  void on_update(TinyGPSPlus &tiny_gps) override;
+  void set_gps(gps::GPS *gps) { this->gps_ = gps; }
+#endif
+
+  /// With a shared radio: whether to listen for FLARM, when not held for LoRa
+  void set_listening(bool listening) { this->listening_ = listening; }
+  bool is_listening() const { return this->listening_; }
+  /// With a shared radio: true while the radio has the FSK profile and is hearing FLARM
+  bool is_receiving_flarm() const { return this->fsk_active_; }
+  /// With a shared radio: give the radio to LoRa now, and keep it there for at least this long, as before a LoRa send
+  /// that may be answered. Returns false if the radio could not be given back now, as it is sending.
+  bool hold_lora(uint32_t duration_ms);
+  /// Meters from the WGS84 ellipsoid up to mean sea level, from the GPS's GGA; 0 when it does not give it. A target's
+  /// altitude plus this is its height above the ellipsoid, which is what FLARM sends.
+  float get_geoid_separation() const { return this->geoid_separation_; }
+  /// Called once a second for each aircraft heard and confirmed, with the RSSI of its last packet
+  template<typename F> void add_on_traffic_callback(F &&callback) {
+    this->traffic_callback_.add(std::forward<F>(callback));
+  }
 
   /// The position used until the GPS has a fix, and always without a GPS
   void set_fixed_position(float latitude, float longitude, float altitude) {
@@ -74,6 +108,8 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   uint32_t get_transmit_count() const { return this->transmit_count_; }
 
  protected:
+  /// The last registration given, used again by setup()
+  std::string registration_;
   struct Traffic {
     LegacyTarget target;
     uint32_t last_seen_ms;
@@ -84,7 +120,13 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   static constexpr size_t MAX_TRAFFIC = 16;
   static constexpr size_t NMEA_LINE_SIZE = 100;
 
-  bool has_gps_() const { return this->parent_ != nullptr; }
+  bool has_gps_() const { return this->uart::UARTDevice::parent_ != nullptr; }
+  /// Take the GPS time, which arrived age_ms ago, for hopping and decrypting
+  void set_gps_time_(int64_t utc_ms, uint32_t age_ms);
+  /// Altitude in meters MSL from a GPS fix, for the climb rate
+  void set_gps_altitude_(float altitude);
+  /// With a shared radio: apply or release the FSK profile as listening and holds say
+  void share_radio_();
   bool utc_ms_(int64_t &utc_ms) const;
   void hop_();
   void send_position_();
@@ -95,9 +137,19 @@ class FlarmReceiver : public Component, public uart::UARTDevice, public sx126x::
   void send_sentence_(const char *body);
   void send_line_(const char *line, size_t len);
 
-  sx126x::SX126x *radio_;
+  FlarmRadio *radio_;
   BandPlan plan_;
   CallbackManager<void(const uint8_t *, size_t)> nmea_callback_;
+  CallbackManager<void(const LegacyTarget &, float)> traffic_callback_;
+#ifdef USE_FLARM_RECEIVER_GPS
+  gps::GPS *gps_{nullptr};
+  uint32_t last_gps_time_{0};  // hhmmsscc of the last epoch taken from the gps component
+#endif
+  // Sharing the radio with LoRa
+  uint32_t hold_until_ms_{0};
+  bool shared_{false};
+  bool listening_{false};
+  bool fsk_active_{false};
   LineReader<NMEA_LINE_SIZE> line_reader_;
   std::array<Traffic, MAX_TRAFFIC> traffic_{};
 

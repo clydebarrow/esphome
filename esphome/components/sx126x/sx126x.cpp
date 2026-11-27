@@ -62,10 +62,14 @@ void SX126x::apply_(const RadioEffects &effects) {
     effects.listener->on_transmit_complete(effects.result);
   }
   if (effects.received) {
-    for (auto *listener : this->listeners_) {
-      listener->on_packet(this->packet_, effects.rssi, effects.snr);
+    if (this->profile_owner_ != nullptr) {
+      this->profile_owner_->on_packet(this->packet_, effects.rssi, effects.snr);
+    } else {
+      for (auto *listener : this->listeners_) {
+        listener->on_packet(this->packet_, effects.rssi, effects.snr);
+      }
+      this->packet_trigger_.trigger(this->packet_, effects.rssi, effects.snr);
     }
-    this->packet_trigger_.trigger(this->packet_, effects.rssi, effects.snr);
     this->rx_dispatching_ = false;
   }
 }
@@ -80,7 +84,21 @@ void SX126x::configure() {
     return;
   }
   this->cold_sleep_ = false;
-  this->apply_(this->radio_.configure(this->requested_profile_, this->version_));
+  this->apply_(this->radio_.configure(this->profile_(), this->version_));
+}
+
+bool SX126x::apply_profile(const RadioProfile *profile, SX126xListener *owner) {
+  if (!this->is_ready() || !this->radio_.can_configure()) {
+    return false;
+  }
+  if (profile != nullptr) {
+    this->alternate_profile_ = *profile;
+    this->profile_owner_ = owner;
+  } else {
+    this->profile_owner_ = nullptr;
+  }
+  this->configure();
+  return true;
 }
 
 // A failed command leaves the radio needing configuration, which nothing else would do, so a node
@@ -113,14 +131,14 @@ void SX126x::retune(uint32_t frequency) {
   }
   if (this->cold_sleep_) {
     // The configuration was lost; waking configures the radio again, on this frequency
-    this->requested_profile_.frequency = frequency;
+    this->active_profile_().frequency = frequency;
     return;
   }
   if (!this->radio_.can_change_mode()) {
     ESP_LOGW(TAG, "Radio unavailable, frequency change ignored");
     return;
   }
-  this->requested_profile_.frequency = frequency;
+  this->active_profile_().frequency = frequency;
   this->apply_(this->radio_.retune(frequency));
   // A packet held for a radio that sleeps is read by loop()
   this->enable_loop();

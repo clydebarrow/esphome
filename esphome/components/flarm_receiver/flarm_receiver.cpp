@@ -45,6 +45,8 @@ static constexpr uint8_t ADDRESS_TYPE_FLARM = 2;
 static constexpr float MAX_SPEED_MPS = 300.0f;
 static constexpr float MAX_CLIMB_MPS = 50.0f;
 static constexpr float POSITION_SLACK_M = 200.0f;
+// A gps component's fix is used while this recent
+static constexpr uint32_t GPS_FIX_MAX_AGE_MS = 3000;
 
 // FLARM's channel hash, from SoftRF's freqplan.h
 static uint32_t freq_hop_hash(uint32_t value) {
@@ -57,13 +59,16 @@ static uint32_t freq_hop_hash(uint32_t value) {
 }
 
 void FlarmReceiver::setup() {
-  this->radio_->register_listener(this);
+  this->radio_->setup(this, this->plan_.base_frequency);
+  // A radio set up for LoRa is shared with the LoRa link
+  this->shared_ = this->radio_->shared();
 #ifdef USE_SENSOR
   if (this->pressure_sensor_ != nullptr)
     this->pressure_sensor_->add_on_state_callback([this](float hpa) { this->on_pressure_(hpa); });
 #endif
+  // A registration given before setup, as by tracker_identity, is kept
   if (this->transmit_ && !this->address_fixed_)
-    this->set_registration("");
+    this->set_registration(this->registration_.c_str());
 }
 
 bool FlarmReceiver::australian_address(const char *registration, uint32_t &address) {
@@ -92,7 +97,11 @@ bool FlarmReceiver::australian_address(const char *registration, uint32_t &addre
   return true;
 }
 
-void FlarmReceiver::set_registration(const char *registration) {
+void FlarmReceiver::set_registration(const char *given) {
+  // A copy first: the argument may be this->registration_ itself
+  const std::string copy = given;
+  this->registration_ = copy;
+  const char *registration = copy.c_str();
   if (!this->transmit_)
     return;
   if (this->address_fixed_) {
@@ -127,8 +136,16 @@ void FlarmReceiver::dump_config() {
                 "  Channels: %u from %" PRIu32 " Hz, %" PRIu32 " Hz apart\n"
                 "  GPS: %s\n"
                 "  Traffic timeout: %" PRIu32 " ms",
-                this->plan_.channels, this->plan_.base_frequency, this->plan_.spacing, YESNO(this->has_gps_()),
+                this->plan_.channels, this->plan_.base_frequency, this->plan_.spacing,
+#ifdef USE_FLARM_RECEIVER_GPS
+                YESNO(this->has_gps_() || this->gps_ != nullptr),
+#else
+                YESNO(this->has_gps_()),
+#endif
                 this->timeout_ms_);
+  if (this->shared_) {
+    ESP_LOGCONFIG(TAG, "  Sharing the radio with LoRa");
+  }
   if (this->transmit_) {
     ESP_LOGCONFIG(TAG, "  Transmitting as %06" PRIX32 " (%s), aircraft type %u%s", this->own_address_,
                   this->own_address_type_ == ADDRESS_TYPE_ICAO ? LOG_STR_LITERAL("ICAO") : LOG_STR_LITERAL("FLARM"),
@@ -145,15 +162,125 @@ void FlarmReceiver::dump_config() {
 void FlarmReceiver::loop() {
   if (this->has_gps_())
     this->read_gps_();
-  this->hop_();
-  if (this->transmit_pending_)
-    this->send_position_();
+  if (this->shared_)
+    this->share_radio_();
+  if (!this->shared_ || this->fsk_active_)
+    this->hop_();
+  // A shared radio sends only while it has the FSK profile; a slot that falls while LoRa holds it goes unsent
+  if (this->transmit_pending_) {
+    if (!this->shared_ || this->fsk_active_) {
+      this->send_position_();
+    } else {
+      this->transmit_pending_ = false;
+    }
+  }
   const uint32_t now = App.get_loop_component_start_time();
   if (now - this->last_traffic_ms_ >= TRAFFIC_INTERVAL_MS) {
     this->last_traffic_ms_ = now;
     this->send_traffic_();
   }
 }
+
+bool FlarmReceiver::hold_lora(uint32_t duration_ms) {
+  const uint32_t until = millis() + duration_ms;
+  if (static_cast<int32_t>(until - this->hold_until_ms_) > 0)
+    this->hold_until_ms_ = until;
+  if (!this->fsk_active_)
+    return true;
+  if (!this->radio_->stop_fsk())
+    return false;
+  this->fsk_active_ = false;
+  ESP_LOGV(TAG, "Radio given to LoRa for %" PRIu32 " ms", duration_ms);
+  return true;
+}
+
+void FlarmReceiver::share_radio_() {
+  int64_t utc_ms;
+  // Without the time the receiver can neither hop nor decrypt
+  const bool want = this->listening_ && static_cast<int32_t>(millis() - this->hold_until_ms_) >= 0 &&
+                    this->has_position_ && this->utc_ms_(utc_ms);
+  if (want == this->fsk_active_)
+    return;
+  if (want) {
+    // Not over a LoRa packet being sent or received
+    if (this->radio_->busy())
+      return;
+    if (!this->radio_->start_fsk())
+      return;
+    this->fsk_active_ = true;
+    // The profile starts on channel 0's frequency; hop_() moves it to the slot's
+    this->channel_ = 0;
+    ESP_LOGD(TAG, "Listening for FLARM");
+  } else {
+    if (!this->radio_->stop_fsk())
+      return;
+    this->fsk_active_ = false;
+    ESP_LOGD(TAG, "Radio back to LoRa");
+  }
+}
+
+void FlarmReceiver::set_gps_time_(int64_t utc_ms, uint32_t age_ms) {
+  const int64_t offset = utc_ms - (static_cast<int64_t>(millis_64()) - age_ms - NMEA_DELAY_MS);
+  // A late sentence makes the offset too small: keep the largest, but let it fall slowly so that it follows the drift
+  // of the local clock
+  if (!this->gps_time_valid_ || std::llabs(offset - this->utc_offset_ms_) > 1000) {
+    this->utc_offset_ms_ = offset;
+  } else {
+    this->utc_offset_ms_ = std::max(offset, this->utc_offset_ms_ - 1);
+  }
+  this->gps_time_valid_ = true;
+}
+
+void FlarmReceiver::set_gps_altitude_(float altitude) {
+  const uint32_t now = millis();
+  const float seconds = (now - this->last_altitude_ms_) / 1000.0f;
+  if (this->has_altitude_ && seconds > 0.1f && seconds < 5.0f) {
+    // Smoothed, as the GPS altitude jumps by a meter or so from fix to fix
+    this->climb_rate_ += CLIMB_SMOOTHING * ((altitude - this->altitude_) / seconds - this->climb_rate_);
+  } else {
+    this->climb_rate_ = 0;
+  }
+  this->altitude_ = altitude;
+  this->last_altitude_ms_ = now;
+  this->has_altitude_ = true;
+}
+
+#ifdef USE_FLARM_RECEIVER_GPS
+void FlarmReceiver::on_update(TinyGPSPlus &tiny) {
+  this->gps_fix_ = tiny.location.isValid() && tiny.location.age() < GPS_FIX_MAX_AGE_MS;
+  if (!this->gps_fix_) {
+    this->gps_time_valid_ = false;
+    this->has_altitude_ = false;
+    return;
+  }
+  this->latitude_ = static_cast<float>(tiny.location.lat());
+  this->longitude_ = static_cast<float>(tiny.location.lng());
+  this->has_position_ = true;
+  this->ground_speed_ =
+      tiny.speed.isValid() && tiny.speed.age() < GPS_FIX_MAX_AGE_MS ? static_cast<float>(tiny.speed.mps()) : 0.0f;
+  if (tiny.course.isValid() && tiny.course.age() < GPS_FIX_MAX_AGE_MS)
+    this->course_ = static_cast<float>(tiny.course.deg());
+  // Each epoch once, from its first sentence: the one that changed the time
+  if (!tiny.time.isValid() || !tiny.date.isValid() || tiny.time.value() == this->last_gps_time_)
+    return;
+  this->last_gps_time_ = tiny.time.value();
+  ESPTime t{};
+  t.hour = tiny.time.hour();
+  t.minute = tiny.time.minute();
+  t.second = tiny.time.second();
+  t.day_of_month = tiny.date.day();
+  t.month = tiny.date.month();
+  t.year = tiny.date.year();
+  t.recalc_timestamp_utc(false);
+  if (t.timestamp >= MIN_VALID_TIME)
+    this->set_gps_time_(static_cast<int64_t>(t.timestamp) * 1000 + tiny.time.centisecond() * 10, tiny.time.age());
+  if (tiny.altitude.isValid() && tiny.altitude.age() < GPS_FIX_MAX_AGE_MS) {
+    this->set_gps_altitude_(static_cast<float>(tiny.altitude.meters()));
+  } else {
+    this->has_altitude_ = false;
+  }
+}
+#endif
 
 bool FlarmReceiver::utc_ms_(int64_t &utc_ms) const {
   if (this->gps_time_valid_) {
@@ -225,7 +352,7 @@ void FlarmReceiver::send_position_() {
   legacy_encode(own, packet);
   uint8_t frame[LEGACY_FRAME_SIZE];
   legacy_pack(packet, frame);
-  if (this->radio_->transmit_packet(frame, sizeof(frame)) != sx126x::SX126xError::SX126X_ERROR_NONE) {
+  if (!this->radio_->transmit(frame, sizeof(frame))) {
     this->status_set_warning();
     return;
   }
@@ -329,16 +456,7 @@ void FlarmReceiver::parse_sentence_(char *line, size_t len) {
       t.recalc_timestamp_utc(false);
       if (t.timestamp >= MIN_VALID_TIME) {
         const int64_t fraction_ms = lengths[1] > 7 ? std::lround(parse_float(fields[1] + 6, lengths[1] - 6) * 1000) : 0;
-        const int64_t utc_ms = static_cast<int64_t>(t.timestamp) * 1000 + fraction_ms;
-        const int64_t offset = utc_ms - (static_cast<int64_t>(millis_64()) - NMEA_DELAY_MS);
-        // A late sentence makes the offset too small: keep the largest, but let it fall slowly so that it follows
-        // the drift of the local clock
-        if (!this->gps_time_valid_ || std::llabs(offset - this->utc_offset_ms_) > 1000) {
-          this->utc_offset_ms_ = offset;
-        } else {
-          this->utc_offset_ms_ = std::max(offset, this->utc_offset_ms_ - 1);
-        }
-        this->gps_time_valid_ = true;
+        this->set_gps_time_(static_cast<int64_t>(t.timestamp) * 1000 + fraction_ms, 0);
       }
     }
     if (this->gps_fix_) {
@@ -362,26 +480,18 @@ void FlarmReceiver::parse_sentence_(char *line, size_t len) {
     } else {
       const float altitude = parse_float(fields[9], lengths[9]);
       const float separation = parse_float(fields[11], lengths[11]);
-      if (!std::isnan(altitude)) {
-        const uint32_t now = millis();
-        const float seconds = (now - this->last_altitude_ms_) / 1000.0f;
-        if (this->has_altitude_ && seconds > 0.1f && seconds < 5.0f) {
-          // Smoothed, as the GPS altitude jumps by a meter or so from fix to fix
-          this->climb_rate_ += CLIMB_SMOOTHING * ((altitude - this->altitude_) / seconds - this->climb_rate_);
-        } else {
-          this->climb_rate_ = 0;
-        }
-        this->altitude_ = altitude;
-        this->last_altitude_ms_ = now;
-        this->has_altitude_ = true;
-      }
+      if (!std::isnan(altitude))
+        this->set_gps_altitude_(altitude);
       if (!std::isnan(separation))
         this->geoid_separation_ = separation;
     }
   }
 }
 
-void FlarmReceiver::on_packet(const std::vector<uint8_t> &frame, float rssi, float snr) {
+void FlarmReceiver::on_frame(const std::vector<uint8_t> &frame, float rssi) {
+  // A shared radio's LoRa packets are for the LoRa link
+  if (this->shared_ && !this->fsk_active_)
+    return;
   uint8_t packet[LEGACY_PACKET_SIZE];
   if (!legacy_unpack(frame.data(), frame.size(), packet)) {
     ESP_LOGVV(TAG, "Bad frame on channel %d, RSSI %.1f dBm", this->channel_, rssi);
@@ -453,8 +563,10 @@ void FlarmReceiver::send_traffic_() {
       }
       entry.active = false;
     }
-    if (entry.active && entry.confirmed)
+    if (entry.active && entry.confirmed) {
       count++;
+      this->traffic_callback_.call(entry.target, entry.rssi);
+    }
   }
   if (this->nmea_callback_.size() == 0)
     return;

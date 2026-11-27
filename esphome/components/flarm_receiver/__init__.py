@@ -1,12 +1,14 @@
 import esphome.codegen as cg
-from esphome.components import sensor, sx126x, uart
+from esphome.components import gps, sensor, sx126x, sx127x, uart
 from esphome.components.const import CONF_BITRATE, CONF_CRC_ENABLE, CONF_MODULATION
+from esphome.components.gps import CONF_GPS_ID
 from esphome.components.sx126x import (
     CONF_DEVIATION,
     CONF_PAYLOAD_LENGTH,
     CONF_SX126X_ID,
     CONF_SYNC_VALUE,
 )
+from esphome.components.sx127x import CONF_SX127X_ID
 import esphome.config_validation as cv
 from esphome.const import (
     CONF_ADDRESS,
@@ -23,7 +25,6 @@ from esphome.types import ConfigType
 
 DOMAIN = "flarm_receiver"
 CODEOWNERS = ["@clydebarrow"]
-DEPENDENCIES = ["sx126x"]
 AUTO_LOAD = ["uart"]
 
 CONF_ADDRESS_TYPE = "address_type"
@@ -36,9 +37,11 @@ CONF_TRANSMIT = "transmit"
 CONF_FLARM_RECEIVER_ID = "flarm_receiver_id"
 
 flarm_receiver_ns = cg.esphome_ns.namespace("flarm_receiver")
-FlarmReceiver = flarm_receiver_ns.class_(
-    "FlarmReceiver", cg.Component, uart.UARTDevice, sx126x.SX126xListener
-)
+FlarmReceiver = flarm_receiver_ns.class_("FlarmReceiver", cg.Component, uart.UARTDevice)
+FlarmRadio = flarm_receiver_ns.class_("FlarmRadio")
+SX126xFlarmRadio = flarm_receiver_ns.class_("SX126xFlarmRadio", FlarmRadio)
+SX127xFlarmRadio = flarm_receiver_ns.class_("SX127xFlarmRadio", FlarmRadio)
+CONF_RADIO = "radio"
 BandPlan = flarm_receiver_ns.struct("BandPlan")
 
 # The legacy FLARM channels, from SoftRF's freqplan.h: base frequency, spacing, channels, hopping
@@ -73,12 +76,21 @@ REGISTRATION_CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 
 
 def australian_address(value: str) -> int:
-    """The ICAO address of an Australian registration: 7C0000 plus its three characters in base 36."""
-    value = cv.string_strict(value).upper().removeprefix("VH-").removeprefix("VH")
-    if len(value) != 3 or any(ch not in REGISTRATION_CHARS for ch in value):
+    """The ICAO address of an Australian registration: 7C0000 plus its three characters in base 36.
+
+    Any other registration of up to 16 letters, digits and hyphens, as the LoRa address registry allows, gives 0:
+    the unit then sends the FLARM ID made from its MAC address.
+    """
+    registration = cv.string_strict(value).upper()
+    if not 1 <= len(registration) <= 16 or any(
+        ch not in REGISTRATION_CHARS + "-" for ch in registration
+    ):
         raise cv.Invalid(
-            "Give an Australian registration, such as VH-GKP: three letters or digits after VH-"
+            "Give a registration of up to 16 letters, digits and hyphens, such as VH-GKP"
         )
+    value = registration.removeprefix("VH-").removeprefix("VH")
+    if len(value) != 3 or any(ch not in REGISTRATION_CHARS for ch in value):
+        return 0
     total = 0
     for ch in value:
         total = total * 36 + REGISTRATION_CHARS.index(ch)
@@ -125,13 +137,16 @@ def _validate_position(config: ConfigType) -> ConfigType:
         raise cv.Invalid(
             f"'{CONF_ALTITUDE}' needs '{CONF_LATITUDE}' and '{CONF_LONGITUDE}'"
         )
-    if CONF_TRANSMIT in config and CONF_UART_ID not in config:
+    has_gps = CONF_UART_ID in config or CONF_GPS_ID in config
+    if CONF_TRANSMIT in config and not has_gps:
         raise cv.Invalid(
-            f"'{CONF_TRANSMIT}' needs a GPS ('{CONF_UART_ID}'): the position sent comes only from a GPS fix"
+            f"'{CONF_TRANSMIT}' needs a GPS ('{CONF_UART_ID}' or '{CONF_GPS_ID}'): the position sent comes only "
+            "from a GPS fix"
         )
-    if CONF_UART_ID not in config and CONF_LATITUDE not in config:
+    if not has_gps and CONF_LATITUDE not in config:
         raise cv.Invalid(
-            f"Without a GPS ('{CONF_UART_ID}'), set the position with '{CONF_LATITUDE}' and '{CONF_LONGITUDE}'"
+            f"Without a GPS ('{CONF_UART_ID}' or '{CONF_GPS_ID}'), set the position with '{CONF_LATITUDE}' and "
+            f"'{CONF_LONGITUDE}'"
         )
     return config
 
@@ -140,10 +155,15 @@ CONFIG_SCHEMA = cv.All(
     cv.Schema(
         {
             cv.GenerateID(): cv.declare_id(FlarmReceiver),
-            cv.GenerateID(CONF_SX126X_ID): cv.use_id(sx126x.SX126x),
+            # The radio: an SX1262, shared with LoRa or of its own, or an SX1276, shared with LoRa
+            cv.Exclusive(CONF_SX126X_ID, CONF_RADIO): cv.use_id(sx126x.SX126x),
+            cv.Exclusive(CONF_SX127X_ID, CONF_RADIO): cv.use_id(sx127x.SX127x),
+            cv.GenerateID(CONF_RADIO): cv.declare_id(FlarmRadio),
             cv.Required(CONF_BAND): cv.one_of(*BANDS, upper=True),
             # The GPS, whose sentences are passed on with the traffic
-            cv.Optional(CONF_UART_ID): cv.use_id(uart.UARTComponent),
+            cv.Exclusive(CONF_UART_ID, "gps"): cv.use_id(uart.UARTComponent),
+            # Or a gps component, for the time and position only; no sentences are passed on
+            cv.Exclusive(CONF_GPS_ID, "gps"): cv.use_id(gps.GPS),
             cv.Optional(CONF_LATITUDE): cv.float_range(min=-90, max=90),
             cv.Optional(CONF_LONGITUDE): cv.float_range(min=-180, max=180),
             cv.Optional(CONF_ALTITUDE): cv.float_range(min=-500, max=10000),
@@ -157,18 +177,27 @@ CONFIG_SCHEMA = cv.All(
         }
     ).extend(cv.COMPONENT_SCHEMA),
     _validate_position,
+    cv.has_exactly_one_key(CONF_SX126X_ID, CONF_SX127X_ID),
 )
 
 
 def _final_validate(config: ConfigType) -> ConfigType:
     full_config = fv.full_config.get()
-    radio_path = full_config.get_path_for_id(config[CONF_SX126X_ID])[:-1]
+    radio_key = CONF_SX126X_ID if CONF_SX126X_ID in config else CONF_SX127X_ID
+    radio_path = full_config.get_path_for_id(config[radio_key])[:-1]
     radio = full_config.get_config_for_path(radio_path)
-    for key, value in RADIO_SETTINGS.items():
+    # A radio set up for LoRa is shared: the receiver applies its own FSK settings while it listens
+    if radio_key == CONF_SX127X_ID and radio.get(CONF_MODULATION) != "LORA":
+        raise cv.Invalid(
+            "An SX127x radio for FLARM is shared with LoRa: set its 'modulation' to LORA",
+            path=[radio_key],
+        )
+    radio_items = {} if radio.get(CONF_MODULATION) == "LORA" else RADIO_SETTINGS
+    for key, value in radio_items.items():
         if radio.get(key) != value:
             raise cv.Invalid(
                 f"The legacy FLARM protocol needs the radio's '{key}' set to {value}",
-                path=[CONF_SX126X_ID],
+                path=[radio_key],
             )
     # The radio calibrates its image rejection for the frequency it starts on, so that must be in the band
     base, spacing, channels, _ = BANDS[config[CONF_BAND]]
@@ -176,7 +205,7 @@ def _final_validate(config: ConfigType) -> ConfigType:
         raise cv.Invalid(
             f"Set the radio's '{CONF_FREQUENCY}' to a frequency in the {config[CONF_BAND]} band, "
             f"such as {base} Hz",
-            path=[CONF_SX126X_ID],
+            path=[radio_key],
         )
     return config
 
@@ -193,12 +222,28 @@ async def to_code(config: ConfigType) -> None:
         ("channels", channels),
         ("hopping", hopping),
     )
-    var = cg.new_Pvariable(
-        config[CONF_ID], await cg.get_variable(config[CONF_SX126X_ID]), plan
-    )
+    radio_id = config[CONF_RADIO]
+    if CONF_SX126X_ID in config:
+        cg.add_define("USE_FLARM_RECEIVER_SX126X")
+        radio_id.type = SX126xFlarmRadio
+        radio = cg.new_Pvariable(
+            radio_id, await cg.get_variable(config[CONF_SX126X_ID])
+        )
+    else:
+        cg.add_define("USE_FLARM_RECEIVER_SX127X")
+        radio_id.type = SX127xFlarmRadio
+        radio = cg.new_Pvariable(
+            radio_id, await cg.get_variable(config[CONF_SX127X_ID])
+        )
+    var = cg.new_Pvariable(config[CONF_ID], radio, plan)
     await cg.register_component(var, config)
     if (uart_id := config.get(CONF_UART_ID)) is not None:
         cg.add(var.set_uart_parent(await cg.get_variable(uart_id)))
+    if (gps_id := config.get(CONF_GPS_ID)) is not None:
+        cg.add_define("USE_FLARM_RECEIVER_GPS")
+        gps_var = await cg.get_variable(gps_id)
+        await gps.register_listener(gps_var, var)
+        cg.add(var.set_gps(gps_var))
     if CONF_LATITUDE in config:
         cg.add(
             var.set_fixed_position(

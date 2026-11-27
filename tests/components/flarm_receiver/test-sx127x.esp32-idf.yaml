@@ -1,0 +1,27 @@
+# The receiver sharing an SX1276's LoRa radio, as on a LilyGO T-Beam
+packages:
+  spi: !include ../../test_build_components/common/spi/esp32-idf.yaml
+  uart: !include ../../test_build_components/common/uart/esp32-idf.yaml
+
+sx127x:
+  id: radio
+  cs_pin: GPIO12
+  rst_pin: GPIO13
+  dio0_pin: GPIO26
+  pa_pin: BOOST
+  pa_power: 17
+  frequency: 917000000
+  modulation: LORA
+  spreading_factor: 7
+  bandwidth: 250_0kHz
+  preamble_size: 8
+  crc_enable: true
+
+flarm_receiver:
+  id: receiver
+  sx127x_id: radio
+  band: AU
+  uart_id: uart_bus
+  transmit:
+    registration: VH-GKP
+    aircraft_type: GLIDER
