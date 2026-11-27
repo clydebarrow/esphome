@@ -11,6 +11,9 @@
 namespace esphome::sx126x {
 
 static constexpr size_t SX126X_MAX_PACKET_SIZE = 255;
+// The frequencies the configuration accepts, which retune() also checks
+static constexpr uint32_t MIN_FREQUENCY = 137000000;
+static constexpr uint32_t MAX_FREQUENCY = 1020000000;
 
 class SX126xListener {
  public:
@@ -76,8 +79,10 @@ class SX126x final : public Component {
   void set_tcxo_voltage(uint8_t tcxo_voltage) { this->requested_profile_.tcxo_voltage = tcxo_voltage; }
   void set_tcxo_delay(uint32_t tcxo_delay) { this->requested_profile_.tcxo_delay = tcxo_delay; }
   void run_image_cal();
-  // Moves the running radio to another frequency, without a reset, in the band its image was calibrated for, then
-  // receives or sleeps as its profile says. Ignored with a warning unless the radio is idle and configured.
+  // Moves the running radio to another frequency, without configuring it again, then receives or sleeps as the
+  // configuration says. The frequency is kept for later configurations. Ignored with a warning unless the radio is
+  // idle and configured; after a cold sleep it is kept and applied when the radio wakes. The image is calibrated for
+  // the band the radio started in: run run_image_cal() after a move to another band.
   void retune(uint32_t frequency);
   // The settings from the configuration.
   const RadioProfile &get_requested_profile() const { return this->requested_profile_; }
@@ -123,6 +128,9 @@ class SX126x final : public Component {
   void watch_configuration_();
   // The profile to configure the radio with: the configured one, or the one applied in its place
   const RadioProfile &profile_() const {
+    return this->profile_owner_ != nullptr ? this->alternate_profile_ : this->requested_profile_;
+  }
+  RadioProfile &active_profile_() {
     return this->profile_owner_ != nullptr ? this->alternate_profile_ : this->requested_profile_;
   }
   SX126xError start_transmit_(SX126xTransmitListener *listener, const uint8_t *data, size_t len, uint32_t timeout_ms);

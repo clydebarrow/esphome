@@ -101,14 +101,6 @@ bool SX126x::apply_profile(const RadioProfile *profile, SX126xListener *owner) {
   return true;
 }
 
-void SX126x::retune(uint32_t frequency) {
-  if (!this->radio_.can_change_mode()) {
-    ESP_LOGW(TAG, "Radio unavailable, retune ignored");
-    return;
-  }
-  this->apply_(this->radio_.retune(frequency));
-}
-
 // A failed command leaves the radio needing configuration, which nothing else would do, so a node
 // that only uses YAML would stay deaf. Cold sleep is asked for, so it waits for a mode command.
 void SX126x::watch_configuration_() {
@@ -131,6 +123,26 @@ void SX126x::set_mode_sleep(bool cold) {
   this->change_mode_(cold ? ModeCommand::MODE_COMMAND_COLD_SLEEP : ModeCommand::MODE_COMMAND_SLEEP);
 }
 void SX126x::run_image_cal() { this->change_mode_(ModeCommand::MODE_COMMAND_IMAGE_CAL); }
+
+void SX126x::retune(uint32_t frequency) {
+  if (frequency < MIN_FREQUENCY || frequency > MAX_FREQUENCY) {
+    ESP_LOGW(TAG, "Frequency %" PRIu32 " Hz out of range, ignored", frequency);
+    return;
+  }
+  if (this->cold_sleep_) {
+    // The configuration was lost; waking configures the radio again, on this frequency
+    this->active_profile_().frequency = frequency;
+    return;
+  }
+  if (!this->radio_.can_change_mode()) {
+    ESP_LOGW(TAG, "Radio unavailable, frequency change ignored");
+    return;
+  }
+  this->active_profile_().frequency = frequency;
+  this->apply_(this->radio_.retune(frequency));
+  // A packet held for a radio that sleeps is read by loop()
+  this->enable_loop();
+}
 
 void SX126x::change_mode_(ModeCommand command, uint8_t arg) {
   const bool sleep = command == ModeCommand::MODE_COMMAND_SLEEP || command == ModeCommand::MODE_COMMAND_COLD_SLEEP;

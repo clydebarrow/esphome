@@ -213,13 +213,6 @@ void SX126xCommands::encode_packet_params(const RadioProfile &profile, AppliedPr
   }
 }
 
-void SX126xCommands::set_frequency(uint32_t frequency) {
-  uint8_t buf[4];
-  const uint64_t freq = ((uint64_t) frequency << 25) / XTAL_FREQ;
-  put_be32(buf, static_cast<uint32_t>(freq));
-  this->write_opcode_(RADIO_SET_RFFREQUENCY, buf, 4);
-}
-
 void SX126xCommands::set_packet_length(AppliedProfile &applied, uint8_t length) {
   applied.packet_params[applied.modulation == PACKET_TYPE_LORA ? 3 : 6] = length;
   this->write_opcode_(RADIO_SET_PACKETPARAMS, applied.packet_params.data(), applied.packet_params_size);
@@ -292,6 +285,13 @@ void SX126xCommands::sleep(bool cold) {
   // 0x04 = warm start (config retained), 0x00 = cold start (config lost, lowest power)
   const uint8_t mode = cold ? 0x00 : 0x04;
   this->write_opcode_(RADIO_SET_SLEEP, &mode, 1);
+}
+
+void SX126xCommands::set_frequency(uint32_t frequency) {
+  uint8_t buf[4];
+  const uint64_t freq = ((uint64_t) frequency << 25) / XTAL_FREQ;
+  put_be32(buf, static_cast<uint32_t>(freq));
+  this->write_opcode_(RADIO_SET_RFFREQUENCY, buf, 4);
 }
 
 void SX126xCommands::standby(SX126xStandbyMode mode) {
