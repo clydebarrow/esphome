@@ -7,15 +7,18 @@
 #include <vector>
 
 #include "esphome/components/filesystem/filesystem.h"
-#include "esphome/components/ram_disk/ram_disk.h"
+#include "esphome/components/storage/block_device.h"
 #include "fake_fs.h"
 
 namespace esphome::filesystem::testing {
 
-// A RAM disk whose media can be taken out and put back.
-class SwapDisk : public ram_disk::RamDisk {
+// A disk in RAM whose media can be taken out and put back.
+class SwapDisk : public storage::BlockDevice {
  public:
-  using RamDisk::RamDisk;
+  SwapDisk(uint32_t block_size, uint32_t block_count)
+      : data_(static_cast<size_t>(block_size) * block_count), block_count_(block_count) {
+    this->geometry_.block_size = block_size;
+  }
   void eject() {
     this->geometry_.block_count = 0;
     this->media_changed_();
@@ -24,12 +27,28 @@ class SwapDisk : public ram_disk::RamDisk {
     this->geometry_.block_count = this->block_count_;
     this->media_changed_();
   }
+
+ protected:
+  storage::StorageError device_read(uint32_t block, uint32_t offset, void *buf, uint32_t len) override {
+    memcpy(buf, this->data_.data() + this->offset_(block, offset), len);
+    return storage::StorageError::STORAGE_ERROR_NONE;
+  }
+  storage::StorageError device_program(uint32_t block, uint32_t offset, const void *buf, uint32_t len) override {
+    memcpy(this->data_.data() + this->offset_(block, offset), buf, len);
+    return storage::StorageError::STORAGE_ERROR_NONE;
+  }
+  size_t offset_(uint32_t block, uint32_t offset) const {
+    return static_cast<size_t>(block) * this->geometry_.block_size + offset;
+  }
+
+  std::vector<uint8_t> data_;
+  uint32_t block_count_;
 };
 
 class FilesystemTest : public ::testing::Test {
  protected:
   void SetUp() override {
-    this->disk_.setup();
+    this->disk_.insert();
     this->fs_.set_pool_sizes(2, 1);
   }
 
