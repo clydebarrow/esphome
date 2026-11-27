@@ -105,7 +105,7 @@ void SdSpi::setup() {
 // Write out the cache and wait for the card to finish, so a restart does not cut it off part way through a write.
 // Writes after this, such as a filesystem shutting down later, go straight to the card.
 void SdSpi::on_shutdown() {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   if (this->state_ == CardState::CARD_STATE_READY)
     this->device_sync();
   this->cache_capacity_ = 0;

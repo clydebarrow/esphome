@@ -79,7 +79,7 @@ int32_t File::read(void *buf, uint32_t len) {
   if (this->fs_ == nullptr)
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
   // The mount is checked under the lock, as another task may unmount
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
   return this->fs_->fs_read(this->slot_, buf, len);
@@ -88,7 +88,7 @@ int32_t File::read(void *buf, uint32_t len) {
 int32_t File::write(const void *buf, uint32_t len) {
   if (this->fs_ == nullptr)
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
   return this->fs_->fs_write(this->slot_, buf, len);
@@ -97,7 +97,7 @@ int32_t File::write(const void *buf, uint32_t len) {
 int32_t File::seek(int32_t offset, Whence whence) {
   if (this->fs_ == nullptr)
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
   return this->fs_->fs_seek(this->slot_, offset, whence);
@@ -106,7 +106,7 @@ int32_t File::seek(int32_t offset, Whence whence) {
 int32_t File::tell() {
   if (this->fs_ == nullptr)
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
   return this->fs_->fs_tell(this->slot_);
@@ -115,7 +115,7 @@ int32_t File::tell() {
 int32_t File::size() {
   if (this->fs_ == nullptr)
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return static_cast<int32_t>(FsError::FS_ERROR_CLOSED);
   return this->fs_->fs_size(this->slot_);
@@ -124,7 +124,7 @@ int32_t File::size() {
 FsError File::sync() {
   if (this->fs_ == nullptr)
     return FsError::FS_ERROR_CLOSED;
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return FsError::FS_ERROR_CLOSED;
   return this->fs_->fs_sync(this->slot_);
@@ -133,7 +133,7 @@ FsError File::sync() {
 FsError File::truncate() {
   if (this->fs_ == nullptr)
     return FsError::FS_ERROR_CLOSED;
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return FsError::FS_ERROR_CLOSED;
   return this->fs_->fs_truncate(this->slot_);
@@ -165,7 +165,7 @@ void Dir::take_(Dir &other) {
 FsError Dir::read_next(FileInfo &info, char *name, size_t name_size) {
   if (this->fs_ == nullptr)
     return FsError::FS_ERROR_CLOSED;
-  const std::lock_guard lock{this->fs_->mutex_};
+  const std::scoped_lock lock{this->fs_->mutex_};
   if (!this->fs_->file_valid_(this->mount_))
     return FsError::FS_ERROR_CLOSED;
   if (name == nullptr || name_size == 0)
@@ -199,7 +199,7 @@ void Filesystem::setup() {
   }
 #endif
   if (this->device_->has_media()) {
-    const std::lock_guard lock{this->mutex_};
+    const std::scoped_lock lock{this->mutex_};
     this->ready_();
   }
 }
@@ -221,7 +221,7 @@ void Filesystem::dump_config() {
 }
 
 FsError Filesystem::mount() {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   if (this->is_failed())
     return FsError::FS_ERROR_INVALID;
   this->mount_error_ = FsError::FS_ERROR_NONE;
@@ -229,7 +229,7 @@ FsError Filesystem::mount() {
 }
 
 void Filesystem::unmount() {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   if (!this->mounted_)
     return;
   // Close what is still open so buffered data reaches the media while it is there. After a media change the
@@ -283,7 +283,7 @@ FsError Filesystem::ready_() {
 }
 
 File Filesystem::open(const char *path, uint8_t flags) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   FsError err = this->ready_();
   if (err != FsError::FS_ERROR_NONE) {
     this->fail_(err);
@@ -310,7 +310,7 @@ File Filesystem::open(const char *path, uint8_t flags) {
 }
 
 Dir Filesystem::open_dir(const char *path) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   FsError err = this->ready_();
   if (err != FsError::FS_ERROR_NONE) {
     this->fail_(err);
@@ -337,7 +337,7 @@ Dir Filesystem::open_dir(const char *path) {
 }
 
 FsError Filesystem::release_file_(uint8_t slot, uint8_t mount) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   // A handle from an earlier mount has no driver state left; its slot was freed by unmount()
   if (!this->file_valid_(mount))
     return FsError::FS_ERROR_CLOSED;
@@ -346,7 +346,7 @@ FsError Filesystem::release_file_(uint8_t slot, uint8_t mount) {
 }
 
 FsError Filesystem::release_dir_(uint8_t slot, uint8_t mount) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   if (!this->file_valid_(mount))
     return FsError::FS_ERROR_CLOSED;
   this->dirs_in_use_ &= ~(1U << slot);
@@ -354,7 +354,7 @@ FsError Filesystem::release_dir_(uint8_t slot, uint8_t mount) {
 }
 
 FsError Filesystem::remove(const char *path) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   FsError err = this->ready_();
   if (err == FsError::FS_ERROR_NONE)
     err = path == nullptr ? FsError::FS_ERROR_INVALID : this->fs_remove(path);
@@ -362,7 +362,7 @@ FsError Filesystem::remove(const char *path) {
 }
 
 FsError Filesystem::rename(const char *from, const char *to) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   FsError err = this->ready_();
   if (err == FsError::FS_ERROR_NONE)
     err = from == nullptr || to == nullptr ? FsError::FS_ERROR_INVALID : this->fs_rename(from, to);
@@ -370,7 +370,7 @@ FsError Filesystem::rename(const char *from, const char *to) {
 }
 
 FsError Filesystem::stat(const char *path, FileInfo &info) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   FsError err = this->ready_();
   if (err == FsError::FS_ERROR_NONE)
     err = path == nullptr ? FsError::FS_ERROR_INVALID : this->fs_stat(path, info);
@@ -378,7 +378,7 @@ FsError Filesystem::stat(const char *path, FileInfo &info) {
 }
 
 FsError Filesystem::mkdir(const char *path) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   FsError err = this->ready_();
   if (err == FsError::FS_ERROR_NONE)
     err = path == nullptr ? FsError::FS_ERROR_INVALID : this->fs_mkdir(path);
@@ -386,7 +386,7 @@ FsError Filesystem::mkdir(const char *path) {
 }
 
 FsError Filesystem::space(uint64_t &total, uint64_t &free) {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   FsError err = this->ready_();
   if (err == FsError::FS_ERROR_NONE)
     err = this->fs_space(total, free);
@@ -394,7 +394,7 @@ FsError Filesystem::space(uint64_t &total, uint64_t &free) {
 }
 
 FsError Filesystem::format() {
-  const std::lock_guard lock{this->mutex_};
+  const std::scoped_lock lock{this->mutex_};
   if (this->is_failed())
     return this->fail_(FsError::FS_ERROR_INVALID);
   this->unmount();
