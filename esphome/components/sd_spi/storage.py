@@ -2,6 +2,7 @@ from esphome import pins
 import esphome.codegen as cg
 from esphome.components import spi, storage
 import esphome.config_validation as cv
+from esphome.const import CONF_ID
 from esphome.types import ConfigType
 
 CODEOWNERS = ["@clydebarrow"]
@@ -45,7 +46,8 @@ FINAL_VALIDATE_SCHEMA = spi.final_validate_device_schema(
 
 
 async def to_code(config: ConfigType) -> None:
-    var = await storage.new_block_device(config)
+    var = cg.new_Pvariable(config[CONF_ID])
+    await cg.register_component(var, config)
     await spi.register_spi_device(var, config)
     await cg.add_pin(var.set_card_detect_pin, config.get(CONF_CARD_DETECT_PIN))
     if (write_cache := config.get(CONF_WRITE_CACHE)) is not None:
