@@ -225,7 +225,7 @@ void FlarmReceiver::send_position_() {
   legacy_encode(own, packet);
   uint8_t frame[LEGACY_FRAME_SIZE];
   legacy_pack(packet, frame);
-  if (this->radio_->transmit_packet(frame, sizeof(frame)) != sx126x::SX126xError::NONE) {
+  if (this->radio_->transmit_packet(frame, sizeof(frame)) != sx126x::SX126xError::SX126X_ERROR_NONE) {
     this->status_set_warning();
     return;
   }
