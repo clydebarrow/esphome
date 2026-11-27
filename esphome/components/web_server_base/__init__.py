@@ -28,6 +28,9 @@ WebServerBase = web_server_base_ns.class_("WebServerBase")
 
 CONF_WEB_SERVER_BASE_ID = "web_server_base_id"
 
+# Longest Origin the ESP32 server can read; keep in sync with MAX_ORIGIN_LENGTH in origin.h.
+MAX_ORIGIN_LENGTH = 127
+
 
 @dataclass
 class WebServerBaseData:
@@ -102,9 +105,9 @@ async def to_code(config: ConfigType) -> None:
     var = cg.new_Pvariable(config[CONF_ID])
     cg.add(cg.RawExpression(f"{web_server_base_ns}::global_web_server_base = {var}"))
 
+    # Default headers added in init(): web_server_idf's StaticVector, or the library's DefaultHeaders
+    cg.add_define("WEB_SERVER_DEFAULT_HEADERS_COUNT", 1)
     if CORE.is_esp32:
-        # Count for StaticVector in web_server_idf - matches headers added in init()
-        cg.add_define("WEB_SERVER_DEFAULT_HEADERS_COUNT", 1)
         return
 
     # ESP32 uses IDF web server (early return above), so this is for other Arduino platforms
@@ -129,7 +132,7 @@ async def to_code(config: ConfigType) -> None:
             )
             cg.add_platformio_option("extra_scripts", ["pre:fix_rp2040_hash.py"])
         # https://github.com/ESP32Async/ESPAsyncWebServer/blob/main/library.json
-        cg.add_library("ESP32Async/ESPAsyncWebServer", "3.9.6")
+        cg.add_library("ESP32Async/ESPAsyncWebServer", "3.12.1")
 
 
 # The DNS server used for captive portals on ESP32; other platforms use the Arduino

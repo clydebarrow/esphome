@@ -65,7 +65,7 @@ bool VevorDtxComponent::on_receive(remote_base::RemoteReceiveData data) {
 // through a register until the sync word appears, then the payload is collected and its checksum tested.
 // A run is never treated as a gap, since a payload may hold long runs of zeros; a gap simply shifts zeros
 // through the register, and one longer than a frame is cut to a frame's worth, which has the same effect.
-bool VevorDtxComponent::decode_timings_(const remote_base::RawTimings &timings, Payload &payload) const {
+bool VevorDtxComponent::decode_timings_(remote_base::RawTimingsView timings, Payload &payload) const {
   uint64_t stream = 0;
   uint16_t collected = 0;  // payload bits gathered since the sync word, 0 while still searching for it
 
@@ -140,8 +140,8 @@ bool VevorDtxComponent::publish_(const Payload &payload) {
 #endif
 #ifdef USE_TEXT_SENSOR
   if (this->sensor_id_text_sensor_ != nullptr) {
-    char text[7];
-    snprintf(text, sizeof(text), "0x%04X", sensor_id);
+    char text[7] = "0x";
+    format_hex_pretty_to(text + 2, sizeof(text) - 2, &sensor_id, 1, 0);
     this->sensor_id_text_sensor_->publish_state(text);
   }
 #endif

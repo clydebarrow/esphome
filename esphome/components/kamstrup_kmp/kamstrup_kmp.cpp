@@ -28,9 +28,9 @@ void KamstrupKMPComponent::dump_config() {
   LOG_SENSOR("  ", "Flow", this->flow_sensor_);
   LOG_SENSOR("  ", "Volume", this->volume_sensor_);
 
-  for (size_t i = 0; i < this->custom_sensors_.size(); i++) {
-    LOG_SENSOR("  ", "Custom Sensor", this->custom_sensors_[i]);
-    ESP_LOGCONFIG(TAG, "    Command: 0x%04X", this->custom_commands_[i]);
+  for (const auto &custom : this->custom_sensors_) {
+    LOG_SENSOR("  ", "Custom Sensor", custom.sensor);
+    ESP_LOGCONFIG(TAG, "    Command: 0x%04X", custom.command);
   }
 }
 
@@ -63,8 +63,8 @@ void KamstrupKMPComponent::update() {
     this->command_queue_.push(CMD_VOLUME);
   }
 
-  for (uint16_t custom_command : this->custom_commands_) {
-    this->command_queue_.push(custom_command);
+  for (const auto &custom : this->custom_sensors_) {
+    this->command_queue_.push(custom.command);
   }
 }
 
@@ -83,8 +83,7 @@ void KamstrupKMPComponent::send_command_(uint16_t command) {
   msg[0] = 0x3F;
   msg[1] = 0x10;
   msg[2] = 0x01;
-  msg[3] = command >> 8;
-  msg[4] = command & 0xFF;
+  put_be16(msg + 3, command);
 
   this->discard_available();
   this->send_message_(msg, msg_len);
@@ -100,9 +99,7 @@ void KamstrupKMPComponent::send_message_(const uint8_t *msg, int msg_len) {
     buffer[i] = msg[i];
   }
 
-  uint16_t crc = crc16be(buffer, buffer_len - 2);
-  buffer[buffer_len - 2] = crc >> 8;
-  buffer[buffer_len - 1] = crc & 0xFF;
+  put_be16(buffer + buffer_len - 2, crc16be(buffer, buffer_len - 2));
 
   // Prepare actual TX message
   uint8_t tx_msg[20];
@@ -264,9 +261,9 @@ void KamstrupKMPComponent::set_sensor_value_(uint16_t command, float value, uint
   }
 
   // Custom sensors
-  for (size_t i = 0; i < this->custom_commands_.size(); i++) {
-    if (command == this->custom_commands_[i]) {
-      this->custom_sensors_[i]->publish_state(value);
+  for (const auto &custom : this->custom_sensors_) {
+    if (command == custom.command) {
+      custom.sensor->publish_state(value);
     }
   }
 

@@ -186,6 +186,10 @@ class USBUartChannelBase : public uart::UARTComponent, public Parented<USBUartCo
   /// port per interface; a multiplexed driver would index its channels.
   uint8_t get_port_number() const { return 0; }
 
+  /// The iInterface string of the interface `get_interface_number()` names, read when the
+  /// device connected. Empty when it has none, or while no device is connected.
+  const char *get_interface_description() const { return this->interface_description_; }
+
   /// Store DTR/RTS and send them to the device. False when not connected.
   bool set_modem_control(bool dtr, bool rts);
   bool get_dtr() const { return this->dtr_; }
@@ -198,6 +202,7 @@ class USBUartChannelBase : public uart::UARTComponent, public Parented<USBUartCo
   LineStopBits line_stop_bits_() const;
   LineParity line_parity_() const;
   // Larger structures first (8+ bytes)
+  char interface_description_[usb_host::DESC_STRING_BUF_SIZE]{};
   // Only the main loop touches it; the USB task hands data over through usb_data_queue_
   FixedRingBuffer<uint8_t> input_buffer_;
   LockFreeQueue<UsbOutputChunk, USB_OUTPUT_CHUNK_COUNT> output_queue_;
@@ -238,9 +243,9 @@ class USBUartComponent : public usb_host::USBClient {
   void setup() override;
   void loop() override;
   void dump_config() override;
-  std::vector<USBUartChannelBase *> get_channels() { return this->channels_; }
+  const auto &get_channels() const { return this->channels_; }
 
-  void add_channel(USBUartChannelBase *channel) { this->channels_.push_back(channel); }
+  SLOT_LIST(USBUartChannelBase, channels_, add_channel, USB_UART_CHANNEL_COUNT)
 
   virtual void start_input(USBUartChannelBase *channel);
   void start_output(USBUartChannelBase *channel);
@@ -296,7 +301,10 @@ class USBUartComponent : public usb_host::USBClient {
   // settings, so the connected report waits for run_config_machine_() to finish the init
   bool reports_connection_itself() const override { return true; }
 
-  std::vector<USBUartChannelBase *> channels_{};
+  // Copy each channel's interface string, one read at a time, then enable the channels.
+  // Called at the end of on_connected(); continues in on_interface_string().
+  void read_interface_descriptions_();
+  void on_interface_string(uint8_t interface_number, const usb_str_desc_t *desc) override;
 
   // Config state machine
   USBUartChannelBase *cfg_single_{nullptr};  // non-null: single-channel run (RELOAD or MODEM)
@@ -307,6 +315,7 @@ class USBUartComponent : public usb_host::USBClient {
   uint8_t cfg_response_[8]{};  // last IN transfer payload
   uint8_t cfg_channel_idx_{0};
   uint8_t cfg_step_{0};
+  uint8_t string_channel_{0};  // the channel whose interface string is being read
   ConfigMode cfg_mode_{ConfigMode::CONFIG_MODE_INIT};
   bool cfg_active_{false};
   bool cfg_device_phase_{false};

@@ -149,7 +149,7 @@ binary_sensor:
 ```
 
 **Optional child entities of a hub:** bind the config once with `sensor.sub_sensors(config)` (or
-`sub_binary_sensors`, `sub_text_sensors`, `sub_buttons`, `sub_switches`, `sub_numbers`, `sub_selects` in
+`sub_binary_sensors`, `sub_text_sensors`, `sub_buttons`, `sub_switches`, `sub_numbers`, `sub_selects`, `sub_texts` in
 their domains), adding `parent=hub` for entities that derive from `Parented<T>`, then make one call per
 key, even when there is only one. A call creates the entity only when its key is configured, passes it to
 the setter and returns it (or `None`); extra arguments such as `min_value` or `options` go on the call.
@@ -173,10 +173,10 @@ async def to_code(config):
     await buttons(CONF_RESTART, hub.set_restart_button)
 ```
 
-**Hub forwarding entities need no C++ class:** a button, switch, number or select that only calls its hub
-uses `button.ApplyButton` (`switch.ApplySwitch`, `number.ApplyNumber`, `select.ApplySelect`) in its schema
-and `apply=` on the `sub_*` call. The body is a call on the hub with `entity` and `state`, `value` or
-`index`/`option` in scope; on a switch, number or select `publish="before"` or `"after"` publishes the
+**Hub forwarding entities need no C++ class:** a button, switch, number, select or text that only calls its hub
+uses `button.ApplyButton` (`switch.ApplySwitch`, `number.ApplyNumber`, `select.ApplySelect`, `text.ApplyText`)
+in its schema and `apply=` on the `sub_*` call. The body is a call on the hub with `entity` and `state`, `value`
+or `index`/`option` in scope; on a switch, number, select or text `publish="before"` or `"after"` publishes the
 state, and `publish="on_success"` publishes only when the hub call returns true (a write the device can
 refuse). `publish="momentary"` is only for legacy action switches (restart, factory reset): it publishes off
 and runs the body only when turned on. Never use it for a new entity; an action is a button.
@@ -188,9 +188,37 @@ Restore an owned or standalone switch in `setup()` with `sw->restore()`, or `res
 drive a state when the restore mode is disabled. A hub that applies its switches' restored states itself
 reads `sw->get_initial_write_state()`, which already applies `inverted`.
 
-**Entities that each watch a register field:** one class taking register, shift, mask and match from a
-Python tuple table, in typed `StaticVector`s sized by `cg.slot_counter`; not a template per bit, not a
-virtual listener base (a second vptr per entity).
+**A hub that forwards data to its children:** when what each child does with the data is known at build time
+(decode a register field, match a key or tag, publish a value), declare a `cg.HubFunction` once in the hub's
+`__init__.py` and have each platform add one item per entity, built from codegen expressions. Code generation writes
+one function per hub. Pass `define=` and put the hub's `HUB_PUBLISHER(<name>, args...)` (in a public section; it
+ends on `public:`) and its call under that `#ifdef`; call the pointer only when it is not null. The children stay
+plain entities, with no listener class or list. A child that lost a `Component` base keeps its dump lines through
+a second hub function (`"dump"`, a `const char *` tag parameter, no define of its own) that the hub's
+`dump_config()` calls inside the value function's `#ifdef`; every child adds to both.
+
+**Entities that each watch a register field:** when every field (register, shift, mask, match) is known at
+build time, use the rule above (see `bq25186`). A binary sensor tests its field value against an on-values
+bitmap (`match`); a one-bit field reads the bit (simplified from bq25186's `_state_expression`):
+```python
+# hub __init__.py
+STATUS_PUBLISHER = cg.HubFunction(
+    "status",  # esphome__<hub>__status_fn, passed to HUB_PUBLISHER(status, ...)'s setter
+    cg.void,
+    [(BQ25186StatusRegisters.const_ref(), "status")],
+    define="USE_BQ25186_STATUS_PUBLISHER",
+)
+STATUS = STATUS_PUBLISHER.param("status")
+
+# platform to_code, per configured entity
+value = (STATUS[reg] >> shift) & mask
+if mask != 0x01 or match != 0b10:  # 0b10: a one-bit field that is on when set
+    value = (cg.MockObj(f"{match:#06b}") >> value) & 1
+STATUS_PUBLISHER.add(hub, parent_ref(var).publish_state(value))
+```
+Store a field description per entity (a struct in a `SlotList` sized by `cg.slot_list`) only when the
+field is chosen at run time, as in `sen6x`, where the status bit depends on the variant read in `setup()`.
+Never a template per bit or a virtual listener base (a second vptr per entity).
 
 ## Other helpers
 
@@ -201,6 +229,15 @@ virtual listener base (a second vptr per entity).
 - `uart.new_uart_component(config, *ctor_args)` (and `i2c.new_i2c_component`, `spi.new_spi_component`,
   `modbus.new_modbus_client_component`, `ble_client.new_ble_node_component`) constructs, registers and
   attaches in one call.
+- A fixed buffer sized from the config is a file-scope static (BSS, not heap):
+  `buf = cg.static_buffer(config[CONF_ID], cg.uint8, size)`, named after its owner so `esphome analyze-memory`
+  counts it there; pass `buf` to the constructor.
+  A buffer that may live in PSRAM takes `psram=True`: PSRAM builds get a zeroed `psram_buffer<T>(size)` allocation
+  instead, so pass `buf` once and mark the component failed in `setup()` if it is nullptr. `align=4` emits
+  `alignas(4)`, so a word-aligned byte buffer stays `uint8`. `size` may be an expression such as `MyClass.static_("buffer_size")(n)`, which renders
+  `ns::MyClass::buffer_size(n)`.
+- `cg.static_storage(config[CONF_ID], T, count)` is raw aligned storage for `count` objects as a `std::span<T>`,
+  for `StaticFixedVector::init()` when codegen knows the count.
 - `display.add_writer(var, config)` sets the lambda.
 - `MyEnum.options("on", prefix="MY_ENUM_")` builds an enum dict.
 - `button.restart_button_schema(cls)` (and `factory_reset_`, `query_`) are button presets.

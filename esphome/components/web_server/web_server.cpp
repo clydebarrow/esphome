@@ -8,13 +8,10 @@
 #include "esphome/core/application.h"
 #include "esphome/core/defines.h"
 #include "esphome/core/entity_base.h"
+#include "esphome/core/hal.h"
 #include "esphome/core/helpers.h"
 #include "esphome/core/log.h"
 #include "esphome/core/util.h"
-
-#if !defined(USE_ESP32) && defined(USE_ARDUINO)
-#include "StreamString.h"
-#endif
 
 #include <cstdlib>
 
@@ -219,162 +216,6 @@ EntityMatchResult UrlMatch::match_entity(EntityBase *entity) const {
   return result;
 }
 
-#if !defined(USE_ESP32) && defined(USE_ARDUINO)
-// helper for allowing only unique entries in the queue
-void __attribute__((flatten)) DeferredUpdateEventSource::deq_push_back_with_dedup_(
-    void *source, message_generator_t *message_generator) {
-  DeferredEvent item(source, message_generator);
-
-  // Use range-based for loop instead of std::find_if to reduce template instantiation overhead and binary size
-  for (auto &event : this->deferred_queue_) {
-    if (event == item) {
-      return;  // Already in queue, no need to update since items are equal
-    }
-  }
-  this->deferred_queue_.push_back(item);
-}
-
-void DeferredUpdateEventSource::process_deferred_queue_() {
-  while (!deferred_queue_.empty()) {
-    DeferredEvent &de = deferred_queue_.front();
-    json::JsonBuilder builder;
-    de.message_generator_(web_server_, de.source_, builder);
-    auto message = builder.serialize();
-    if (this->send(message.c_str(), "state") != DISCARDED) {
-      // O(n) but memory efficiency is more important than speed here which is why std::vector was chosen
-      deferred_queue_.erase(deferred_queue_.begin());
-      this->consecutive_send_failures_ = 0;  // Reset failure count on successful send
-    } else {
-      // NOTE: Similar logic exists in web_server_idf/web_server_idf.cpp in AsyncEventSourceResponse::drain_tail_().
-      // The close mechanisms are platform-specific (this path calls close() directly; the IDF path is time-based and
-      // closes through HTTPD to preserve session ownership), but both drop a client after roughly 20 seconds without
-      // send progress. Keep that stall policy in sync when changing either side.
-      this->consecutive_send_failures_++;
-      if (this->consecutive_send_failures_ >= MAX_CONSECUTIVE_SEND_FAILURES) {
-        // Too many failures, connection is likely dead
-        ESP_LOGW(TAG, "Closing stuck EventSource connection after %" PRIu16 " failed sends",
-                 this->consecutive_send_failures_);
-        this->close();
-        this->deferred_queue_.clear();
-      }
-      break;
-    }
-  }
-}
-
-void DeferredUpdateEventSource::loop() {
-  process_deferred_queue_();
-  // One step per loop; refusals retry next pass
-  this->entities_iterator_.try_advance(1);
-}
-
-void DeferredUpdateEventSource::deferrable_send_state(void *source, bool detail_all,
-                                                      message_generator_t *message_generator) {
-  // Skip if no connected clients to avoid unnecessary deferred queue processing
-  if (this->count() == 0)
-    return;
-
-  // Let the detail_all listing finish before bare state events, so the web UI never shows unnamed entries and
-  // initial connect sends less
-  if (!detail_all && !this->entities_iterator_.completed())
-    return;
-
-  if (!deferred_queue_.empty())
-    process_deferred_queue_();
-  if (!deferred_queue_.empty()) {
-    // deferred queue still not empty which means downstream event queue full, no point trying to send first
-    deq_push_back_with_dedup_(source, message_generator);
-  } else {
-    json::JsonBuilder builder;
-    message_generator(web_server_, source, builder);
-    auto message = builder.serialize();
-    if (this->send(message.c_str(), "state") == DISCARDED) {
-      deq_push_back_with_dedup_(source, message_generator);
-    } else {
-      this->consecutive_send_failures_ = 0;  // Reset failure count on successful send
-    }
-  }
-}
-
-// used for logs plus the initial ping/config
-void DeferredUpdateEventSource::try_send_nodefer(const char *message, size_t message_len, const char *event,
-                                                 uint32_t id, uint32_t reconnect) {
-  // ESPAsyncWebServer's send() only accepts null-terminated strings
-  (void) message_len;
-  this->send(message, event, id, reconnect);
-}
-
-bool DeferredUpdateEventSourceList::loop() {
-  for (DeferredUpdateEventSource *dues : *this) {
-    dues->loop();
-  }
-  return !this->empty();
-}
-
-void DeferredUpdateEventSourceList::deferrable_send_state(void *source, bool detail_all,
-                                                          message_generator_t *message_generator) {
-  // Skip if no event sources (no connected clients) to avoid unnecessary iteration
-  if (this->empty())
-    return;
-  for (DeferredUpdateEventSource *dues : *this) {
-    dues->deferrable_send_state(source, detail_all, message_generator);
-  }
-}
-
-void DeferredUpdateEventSourceList::try_send_nodefer(const char *message, size_t message_len, const char *event,
-                                                     uint32_t id, uint32_t reconnect) {
-  for (DeferredUpdateEventSource *dues : *this) {
-    dues->try_send_nodefer(message, message_len, event, id, reconnect);
-  }
-}
-
-void DeferredUpdateEventSourceList::add_new_client(WebServer *ws, AsyncWebServerRequest *request) {
-  DeferredUpdateEventSource *es = new DeferredUpdateEventSource(ws, ESPHOME_F("/events"));
-  this->push_back(es);
-
-  es->onConnect([this, es](AsyncEventSourceClient *client) { this->on_client_connect_(es); });
-
-  es->onDisconnect([this, es](AsyncEventSourceClient *client) { this->on_client_disconnect_(es); });
-
-  es->handleRequest(request);
-  ws->enable_loop_soon_any_context();
-}
-
-void DeferredUpdateEventSourceList::on_client_connect_(DeferredUpdateEventSource *source) {
-  WebServer *ws = source->web_server_;
-  ws->defer([ws, source]() {
-    // Configure reconnect timeout and send config
-    // this should always go through since the AsyncEventSourceClient event queue is empty on connect
-    auto message = ws->get_config_json();
-    source->try_send_nodefer(message.c_str(), message.size(), "ping", millis(), 30000);
-
-#ifdef USE_WEBSERVER_SORTING
-    for (auto &group : ws->sorting_groups_) {
-      json::JsonBuilder builder;
-      JsonObject root = builder.root();
-      root[ESPHOME_F("name")] = linked(group.second.name);
-      root[ESPHOME_F("sorting_weight")] = group.second.weight;
-      auto group_msg = builder.serialize();
-
-      // up to 31 groups should be able to be queued initially without defer
-      source->try_send_nodefer(group_msg.c_str(), group_msg.size(), "sorting_group");
-    }
-#endif
-
-    source->entities_iterator_.begin(ws->include_internal_);
-  });
-}
-
-void DeferredUpdateEventSourceList::on_client_disconnect_(DeferredUpdateEventSource *source) {
-  source->web_server_->defer([this, source]() {
-    // This method was called via WebServer->defer() and is no longer executing in the
-    // context of the network callback. The object is now dead and can be safely deleted.
-    this->remove(source);
-    delete source;  // NOLINT
-  });
-}
-#endif
-
 #ifdef USE_WEBSERVER_CAPTIVE
 WebServer *global_web_server = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 #endif
@@ -420,9 +261,6 @@ void WebServer::setup() {
   }
 #endif
 
-#ifdef USE_ESP32
-  this->base_->add_handler(&this->events_);
-#endif
   this->base_->add_handler(this);
 #ifdef USE_WEBSERVER_CAPTIVE
   // Not-found fallback (outside the auth middleware): the OS captive portal probes hit
@@ -497,6 +335,10 @@ void WebServer::handle_not_found_(AsyncWebServerRequest *request) {
 void WebServer::on_log(uint8_t level, const char *tag, const char *message, size_t message_len) {
   (void) level;
   (void) tag;
+  // Sessions are main-loop state, so logs from network callbacks are dropped, web OTA progress among them
+  // (ESP8266's SYS context and RP2's network IRQ log here directly)
+  if (!is_main_loop_thread())
+    return;
   this->events_.try_send_nodefer(message, std::min(message_len, LOG_EVENT_MAX_LEN), "log", millis());
 }
 #endif
@@ -529,62 +371,23 @@ void WebServer::handle_index_request(AsyncWebServerRequest *request) {
 }
 #endif
 
-// Read a request header value portably across the Arduino and ESP-IDF web servers.
-// Returns an empty string when the header is absent (only allocates when a value is present).
-static std::string get_request_header(AsyncWebServerRequest *request, const char *name) {
-#ifdef USE_ESP32
-  // ESP32 (Arduino and ESP-IDF) uses the web_server_idf backend.
-  optional<std::string> value = request->get_header(name);
-  return value.has_value() ? std::move(*value) : std::string();
-#else
-  // ESP8266, RP2040 and LibreTiny use the Arduino ESPAsyncWebServer backend.
-  const AsyncWebHeader *header = request->getHeader(name);
-  return header != nullptr ? std::string(header->value().c_str()) : std::string();
-#endif
-}
-
-bool WebServer::is_request_origin_allowed_(AsyncWebServerRequest *request, const std::string &origin) {
-  // No Origin header: not a browser cross-origin request (e.g. curl, native API client). Allow.
-  if (origin.empty())
-    return true;
-
-  // Same-origin: the Origin authority (scheme stripped) matches the Host the request was sent to.
-  // This covers the device's own IP, mDNS name, or DNS name without knowing any at compile time.
-  const size_t scheme_sep = origin.find("://");
-  if (scheme_sep != std::string::npos) {
-    const std::string host = get_request_header(request, "Host");
-    // Compare by hand: compare(pos, ...) carries an out_of_range throw path that can never fire here
-    const size_t authority = scheme_sep + 3;
-    if (!host.empty() && origin.size() - authority == host.size() &&
-        memcmp(origin.data() + authority, host.data(), host.size()) == 0)
-      return true;
-  }
-
-#ifdef USE_WEBSERVER_ALLOWED_ORIGINS
-  // Otherwise the origin must be explicitly allowed via configuration.
-  for (const char *const *it = this->allowed_origins_; *it != nullptr; it++) {
-    const char *allowed_origin = *it;
-    // A single "*" entry allows any origin.
-    if (allowed_origin[0] == '*' && allowed_origin[1] == '\0')
-      return true;
-    if (origin == allowed_origin)
-      return true;
-  }
-#endif
-  return false;
-}
-
 #ifdef USE_WEBSERVER_PRIVATE_NETWORK_ACCESS
 void WebServer::handle_pna_cors_request(AsyncWebServerRequest *request) {
-  const std::string origin = get_request_header(request, "Origin");
-  if (!this->is_request_origin_allowed_(request, origin)) {
-    request->send(403);
-    return;
-  }
-
+  // WebServerBase's middleware already rejected an origin that is not allowed.
+#ifdef USE_ESP32
+  char origin_buf[web_server_base::MAX_ORIGIN_LENGTH + 1];
+  const size_t origin_len = request->get_header_to("Origin", origin_buf);
+  // Only an allow-any-origin build lets through an Origin too long for the buffer; it gets "*" instead
+  const bool has_origin = origin_len != 0 && origin_len != SIZE_MAX;
+  const char *origin = origin_buf;
+#else
+  const AsyncWebHeader *origin_header = request->getHeader("Origin");
+  const bool has_origin = origin_header != nullptr && origin_header->value().length() != 0;
+  const char *origin = has_origin ? origin_header->value().c_str() : nullptr;
+#endif
   AsyncWebServerResponse *response = request->beginResponse(200, ESPHOME_F(""));
   // Echo the specific origin back so the response is valid even when auth (credentials) is enabled.
-  response->addHeader(ESPHOME_F("Access-Control-Allow-Origin"), origin.empty() ? "*" : origin.c_str());
+  response->addHeader(ESPHOME_F("Access-Control-Allow-Origin"), has_origin ? origin : "*");
   response->addHeader(ESPHOME_F("Access-Control-Allow-Private-Network"), ESPHOME_F("true"));
   response->addHeader(ESPHOME_F("Private-Network-Access-Name"), App.get_name().c_str());
   char mac_s[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
@@ -697,7 +500,7 @@ static void set_json_icon_state_value(JsonObject root, EntityBase *obj, ProgmemS
 
 void WebServer::send_state_event_(void *source, const EntityBase *entity, message_generator_t *generator) {
   if (!entity->is_internal() || this->include_internal_)
-    this->events_.deferrable_send_state(source, false, generator);
+    this->events_.deferrable_send_state(source, generator);
 }
 
 #ifdef USE_SENSOR
@@ -2282,10 +2085,8 @@ bool WebServer::canHandle(AsyncWebServerRequest *request) const {
   // Static URL checks - use ESPHOME_F to keep strings in flash on ESP8266
   if (url == ESPHOME_F("/"))
     return true;
-#if !defined(USE_ESP32) && defined(USE_ARDUINO)
-  if (url == ESPHOME_F("/events"))
+  if (method == HTTP_GET && url == ESPHOME_F("/events"))
     return true;
-#endif
 #ifdef USE_WEBSERVER_CSS_INCLUDE
   if (url == ESPHOME_F("/0.css"))
     return true;
@@ -2428,28 +2229,16 @@ void WebServer::handleRequest(AsyncWebServerRequest *request) {
     this->handle_index_request(request);
     return;
   }
-
 #ifdef USE_WEBSERVER_PRIVATE_NETWORK_ACCESS
-  // Private Network Access preflight carries a cross-origin Origin by design; its handler does the
-  // origin check itself, so let it run before the general enforcement below.
   if (request->method() == HTTP_OPTIONS && request->hasHeader(ESPHOME_F("Access-Control-Request-Private-Network"))) {
     this->handle_pna_cors_request(request);
     return;
   }
 #endif
-
-  // Reject cross-origin browser requests unless the origin is explicitly allowed.
-  if (!this->is_request_origin_allowed_(request, get_request_header(request, "Origin"))) {
-    request->send(403);
-    return;
-  }
-
-#if !defined(USE_ESP32) && defined(USE_ARDUINO)
   if (url == ESPHOME_F("/events")) {
-    this->events_.add_new_client(this, request);
+    this->events_.handle_request(request, this);
     return;
   }
-#endif
 
 #ifdef USE_WEBSERVER_CSS_INCLUDE
   if (url == ESPHOME_F("/0.css")) {
@@ -2595,10 +2384,10 @@ bool WebServer::isRequestHandlerTrivial() const { return false; }
 
 void WebServer::add_sorting_info_(JsonObject &root, EntityBase *entity) {
 #ifdef USE_WEBSERVER_SORTING
-  if (this->sorting_entitys_.contains(entity)) {
-    root[ESPHOME_F("sorting_weight")] = this->sorting_entitys_[entity].weight;
-    if (this->sorting_groups_.contains(this->sorting_entitys_[entity].group_id)) {
-      root[ESPHOME_F("sorting_group")] = linked(this->sorting_groups_[this->sorting_entitys_[entity].group_id].name);
+  if (this->sorting_entities_.contains(entity)) {
+    root[ESPHOME_F("sorting_weight")] = this->sorting_entities_[entity].weight;
+    if (this->sorting_groups_.contains(this->sorting_entities_[entity].group_id)) {
+      root[ESPHOME_F("sorting_group")] = linked(this->sorting_groups_[this->sorting_entities_[entity].group_id].name);
     }
   }
 #endif
@@ -2606,7 +2395,7 @@ void WebServer::add_sorting_info_(JsonObject &root, EntityBase *entity) {
 
 #ifdef USE_WEBSERVER_SORTING
 void WebServer::add_entity_config(EntityBase *entity, float weight, uint64_t group) {
-  this->sorting_entitys_[entity] = SortingComponents{weight, group};
+  this->sorting_entities_[entity] = SortingComponents{weight, group};
 }
 
 void WebServer::add_sorting_group(uint64_t group_id, const std::string &group_name, float weight) {
