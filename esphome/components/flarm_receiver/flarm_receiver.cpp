@@ -97,6 +97,20 @@ bool FlarmReceiver::australian_address(const char *registration, uint32_t &addre
   return true;
 }
 
+bool FlarmReceiver::australian_registration(uint32_t address, char *registration) {
+  if (address < AUSTRALIAN_ADDRESS_BASE || address >= AUSTRALIAN_ADDRESS_BASE + 36 * 36 * 36)
+    return false;
+  uint32_t value = address - AUSTRALIAN_ADDRESS_BASE;
+  memcpy(registration, "VH-", 3);
+  for (int i = 5; i >= 3; i--) {
+    const unsigned digit = value % 36;
+    value /= 36;
+    registration[i] = static_cast<char>(digit < 26 ? 'A' + digit : '0' + digit - 26);
+  }
+  registration[6] = '\0';
+  return true;
+}
+
 void FlarmReceiver::set_registration(const char *given) {
   // A copy first: the argument may be this->registration_ itself
   const std::string copy = given;
@@ -288,8 +302,8 @@ bool FlarmReceiver::utc_ms_(int64_t &utc_ms) const {
     return true;
   }
   struct timeval tv;
-  gettimeofday(&tv, nullptr);
-  if (tv.tv_sec < MIN_VALID_TIME)
+  // Zephyr has no system clock here: gettimeofday() fails and leaves tv unset
+  if (gettimeofday(&tv, nullptr) != 0 || tv.tv_sec < MIN_VALID_TIME)
     return false;
   utc_ms = static_cast<int64_t>(tv.tv_sec) * 1000 + tv.tv_usec / 1000;
   return true;
@@ -311,6 +325,11 @@ void FlarmReceiver::hop_() {
     const uint32_t key = (second << 1) + slot;
     if (this->transmit_ && key != this->slot_key_) {
       this->slot_key_ = key;
+      // The last slot's send kept failing until this slot started
+      if (this->transmit_failed_) {
+        this->transmit_failed_ = false;
+        this->status_set_warning();
+      }
       const int64_t start = static_cast<int64_t>(second) * 1000 + (slot ? 800 : 400);
       this->transmit_at_ms_ = start + random_uint32() % (SLOT_MS - AIR_TIME_MS * 2);
       this->transmit_pending_ = true;
@@ -330,9 +349,14 @@ void FlarmReceiver::send_position_() {
   // Only with a fix: other aircraft act on this position, so it must not come from the fixed position or an old fix
   if (!this->gps_fix_ || !this->gps_time_valid_ || !this->has_altitude_)
     return;
-  // Too late for the slot, after a long loop
-  if (utc_ms > this->transmit_at_ms_ + SLOT_MS / 2)
+  // Too late for the slot, after a long loop or failed sends
+  if (utc_ms > this->transmit_at_ms_ + SLOT_MS / 2) {
+    if (this->transmit_failed_) {
+      this->transmit_failed_ = false;
+      this->status_set_warning();
+    }
     return;
+  }
   // The pressure gives a smoother climb rate than the GPS altitude, while its readings arrive
   const bool pressure_recent = this->last_pressure_ms_ != 0 && millis() - this->last_pressure_ms_ < PRESSURE_MAX_AGE_MS;
   const float climb_rate = pressure_recent ? this->pressure_climb_rate_ : this->climb_rate_;
@@ -353,9 +377,12 @@ void FlarmReceiver::send_position_() {
   uint8_t frame[LEGACY_FRAME_SIZE];
   legacy_pack(packet, frame);
   if (!this->radio_->transmit(frame, sizeof(frame))) {
-    this->status_set_warning();
+    // As when a frame just received is still in the radio: try again on the next loop, within the slot
+    this->transmit_failed_ = true;
+    this->transmit_pending_ = true;
     return;
   }
+  this->transmit_failed_ = false;
   this->status_clear_warning();
   this->transmit_count_++;
   this->last_transmit_ms_ = millis();
@@ -497,6 +524,7 @@ void FlarmReceiver::on_frame(const std::vector<uint8_t> &frame, float rssi) {
     ESP_LOGVV(TAG, "Bad frame on channel %d, RSSI %.1f dBm", this->channel_, rssi);
     return;
   }
+  this->frame_count_++;
   int64_t utc_ms;
   if (!this->utc_ms_(utc_ms) || !this->has_position_) {
     ESP_LOGD(TAG, "Packet from %06" PRIX32 " ignored: no %s yet", encode_uint24(packet[2], packet[1], packet[0]),
@@ -539,7 +567,11 @@ void FlarmReceiver::on_frame(const std::vector<uint8_t> &frame, float rssi) {
         return;
     } else if (!slot->confirmed) {
       slot->confirmed = true;
-      ESP_LOGI(TAG, "New aircraft %06" PRIX32 " (type %u), RSSI %.1f dBm", target.address, target.aircraft_type, rssi);
+      char registration[REGISTRATION_SIZE];
+      if (target.address_type != ADDRESS_TYPE_ICAO || !australian_registration(target.address, registration))
+        registration[0] = '\0';
+      ESP_LOGI(TAG, "New aircraft %06" PRIX32 "%s%s (type %u), RSSI %.1f dBm", target.address,
+               registration[0] != '\0' ? LOG_STR_LITERAL(" ") : "", registration, target.aircraft_type, rssi);
     }
   } else {
     slot->active = true;

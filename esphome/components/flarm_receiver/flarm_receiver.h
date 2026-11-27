@@ -100,12 +100,27 @@ class FlarmReceiver : public Component,
 
   /// The ICAO address of an Australian registration, three letters or digits after "VH-"; false if it is not one.
   static bool australian_address(const char *registration, uint32_t &address);
+  /// The registration, such as "VH-GKP", of an ICAO address in the Australian block; false if it is not in it.
+  /// registration must have room for REGISTRATION_SIZE characters.
+  static bool australian_registration(uint32_t address, char *registration);
+  static constexpr size_t REGISTRATION_SIZE = 7;
 
   /// Called with each NMEA sentence sent, "\r\n" included
   template<typename F> void add_on_nmea_callback(F &&callback) { this->nmea_callback_.add(std::forward<F>(callback)); }
 
   uint32_t get_packet_count() const { return this->packet_count_; }
+  /// Frames with a good CRC, decoded or not; without the time none can be decoded
+  uint32_t get_frame_count() const { return this->frame_count_; }
   uint32_t get_transmit_count() const { return this->transmit_count_; }
+  /// True while the GPS has a recent fix
+  bool has_gps_fix() const { return this->gps_fix_; }
+  /// True while the time is known, so that packets can be decoded
+  bool has_time() const {
+    int64_t utc_ms;
+    return this->utc_ms_(utc_ms);
+  }
+  /// The address sent, once set_transmit() has been called and setup() has run
+  uint32_t get_own_address() const { return this->own_address_; }
 
  protected:
   /// The last registration given, used again by setup()
@@ -183,6 +198,7 @@ class FlarmReceiver : public Component,
   bool address_fixed_{false};
   bool transmit_{false};
   bool transmit_pending_{false};
+  bool transmit_failed_{false};  // a send in this slot failed and is being tried again
   uint32_t slot_key_{0};
   int64_t transmit_at_ms_{0};
   uint32_t last_transmit_ms_{0};
@@ -191,6 +207,7 @@ class FlarmReceiver : public Component,
   uint32_t timeout_ms_{0};
   uint32_t last_traffic_ms_{0};
   uint32_t packet_count_{0};
+  uint32_t frame_count_{0};
   int channel_{-1};
 };
 
