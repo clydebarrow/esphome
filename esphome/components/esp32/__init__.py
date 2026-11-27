@@ -2297,14 +2297,7 @@ def require_fatfs() -> None:
     IDF fatfs component with the components it requires.
     """
     CORE.data[KEY_ESP32][KEY_FATFS_REQUIRED] = True
-    for name in (
-        "fatfs",
-        "wear_levelling",
-        "sdmmc",
-        "esp_driver_sdmmc",
-        "esp_driver_sdspi",
-    ):
-        include_builtin_idf_component(name)
+    include_builtin_idf_component("fatfs")
 
 
 def require_adc_oneshot_iram() -> None:
