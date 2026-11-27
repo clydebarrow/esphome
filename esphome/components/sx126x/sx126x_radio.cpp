@@ -51,6 +51,28 @@ const LogString *SX126xRadio::apply_configuration_(const RadioProfile &requested
   }
 }
 
+RadioEffects SX126xRadio::retune(uint32_t frequency) {
+  ESPHOME_DEBUG_ASSERT(this->can_change_mode());
+  this->busy_ = true;
+  this->bus().begin();
+  this->commands_.standby(STDBY_XOSC);
+  // A packet begun on the old frequency is abandoned, and its header or sync word flag would keep is_receiving() true.
+  // A packet already received stays flagged for loop().
+  this->commands_.clear_irqs(IRQ_HEADER_VALID | IRQ_SYNCWORD_VALID);
+  this->commands_.set_frequency(frequency);
+  if (this->applied_.rx_start) {
+    this->commands_.receive();
+  } else {
+    this->commands_.sleep();
+  }
+  const bool ok = this->bus().ok();
+  if (ok) {
+    this->applied_.frequency = frequency;
+  }
+  this->commit_(ok ? RadioState::RADIO_STATE_IDLE : RadioState::RADIO_STATE_NEEDS_CONFIGURATION);
+  return comm_report(ok);
+}
+
 RadioEffects SX126xRadio::change_mode(ModeCommand command, uint8_t arg) {
   ESPHOME_DEBUG_ASSERT(this->can_change_mode());
   this->busy_ = true;
