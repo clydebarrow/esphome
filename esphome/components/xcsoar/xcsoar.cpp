@@ -41,6 +41,9 @@ static constexpr const char *DATA_DIR = "XCSoar";
 // starting
 static constexpr uint32_t DATA_READY_TIMEOUT_MS = 5000;
 static constexpr uint32_t SETUP_POLL_MS = 50;
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+static constexpr const char *FLARM_RECEIVER_STREAM = "FLARM";
+#endif
 #ifdef USE_XCSOAR_SKYECHO
 // The names XCSoar shows as the devices' ports
 static constexpr const char *SKYECHO_STREAM = "SkyEcho";
@@ -138,6 +141,13 @@ void XCSoarComponent::setup() {
   }
 #endif
 
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+  this->add_stream(FLARM_RECEIVER_STREAM, "FLARM");
+  this->flarm_receiver_->add_on_nmea_callback([](const uint8_t *data, size_t len) {
+    XCSoarEsp32::Feed(FLARM_RECEIVER_STREAM, std::as_bytes(std::span(data, len)));
+  });
+#endif
+
 #ifdef USE_XCSOAR_SKYECHO
   // XCSoar drops the data until its devices are open
   this->add_stream(SKYECHO_STREAM, "GDL90");
@@ -176,6 +186,11 @@ void XCSoarComponent::setup() {
 #endif
       .traffic_alarm = traffic_alarm_,
       .volume = volume_,
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
+      .club_glider = club_glider_,
+#else
+      .club_glider = nullptr,
+#endif
       .fill = this->ppa_fill_client_ != nullptr ? fill_ : nullptr,
       .blend = this->ppa_blend_client_ != nullptr ? blend_ : nullptr,
 #ifdef USE_XCSOAR_BLE_SERIAL
@@ -557,6 +572,19 @@ void XCSoarComponent::volume_(unsigned percent, bool preview, void *ctx) noexcep
   self->enable_loop_soon_any_context();
 }
 
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
+void XCSoarComponent::club_glider_(const char *type, const char *registration, void *ctx) noexcept {
+  auto *self = static_cast<XCSoarComponent *>(ctx);
+  {
+    LockGuard guard(self->registration_lock_);
+    strncpy(self->pending_registration_, registration, sizeof(self->pending_registration_) - 1);
+    self->pending_registration_[sizeof(self->pending_registration_) - 1] = '\0';
+  }
+  self->registration_pending_ = true;
+  self->enable_loop_soon_any_context();
+}
+#endif
+
 void XCSoarComponent::loop() {
   if (this->frame_pending_.exchange(false)) {
 #ifdef USE_XCSOAR_FRAME_BUFFERS
@@ -569,6 +597,24 @@ void XCSoarComponent::loop() {
 #endif
     xSemaphoreGive(this->frame_consumed_);
   }
+
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
+  if (this->registration_pending_.exchange(false)) {
+    char registration[sizeof(this->pending_registration_)];
+    {
+      LockGuard guard(this->registration_lock_);
+      memcpy(registration, this->pending_registration_, sizeof(registration));
+    }
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+    if (this->flarm_receiver_ != nullptr)
+      this->flarm_receiver_->set_registration(registration);
+#endif
+#ifdef USE_XCSOAR_WIFI_NETWORKS
+    if (this->wifi_host_.ctx != nullptr)
+      static_cast<wifi_networks::WifiNetworks *>(this->wifi_host_.ctx)->set_registration(registration);
+#endif
+  }
+#endif
 
   if (const uint8_t level = this->pending_alarm_.exchange(0); level != 0) {
     ESP_LOGI(TAG, "Traffic alarm, level %u", level);

@@ -19,6 +19,9 @@
 #include "esphome/components/filesystem/vfs.h"
 #endif
 
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+#include "esphome/components/flarm_receiver/flarm_receiver.h"
+#endif
 #ifdef USE_XCSOAR_SKYECHO
 #include "esphome/components/skyecho/skyecho.h"
 #endif
@@ -105,6 +108,10 @@ class XCSoarComponent : public Component
   /// The filesystem XCSoar keeps its data on, in XCSoar/ below its vfs_path.
   void set_filesystem(filesystem::Filesystem *fs) { this->data_fs_ = fs; }
 #endif
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+  /// Pass the FLARM receiver's GPS sentences and traffic to XCSoar, read as a FLARM.
+  void set_flarm_receiver(flarm_receiver::FlarmReceiver *receiver) { this->flarm_receiver_ = receiver; }
+#endif
 #ifdef USE_XCSOAR_SKYECHO
   /// Pass the SkyEcho's GDL90 data to XCSoar, and the data of its FLARM UART if it has one, each read as a device.
   void set_skyecho(skyecho::SkyEcho *skyecho) { this->skyecho_ = skyecho; }
@@ -150,6 +157,9 @@ class XCSoarComponent : public Component
   void conversion_done_(BaseType_t *woken);
   static void traffic_alarm_(unsigned level, void *ctx) noexcept;
   static void volume_(unsigned percent, bool preview, void *ctx) noexcept;
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
+  static void club_glider_(const char *type, const char *registration, void *ctx) noexcept;
+#endif
   static bool fill_(void *buffer, unsigned pitch, unsigned height, XCSoarEsp32::Rect rect, uint32_t argb,
                     void *ctx) noexcept;
   /// A fill or blend is finished; called from the PPA's interrupt with the drawing thread's semaphore.
@@ -234,6 +244,16 @@ class XCSoarComponent : public Component
 #endif
 #ifdef XCSOAR_ROM_FILE_COUNT
   StaticVector<XCSoarEsp32::RomFile, XCSOAR_ROM_FILE_COUNT> rom_files_;
+#endif
+#ifdef USE_XCSOAR_FLARM_RECEIVER
+  flarm_receiver::FlarmReceiver *flarm_receiver_{nullptr};
+#endif
+#if defined(USE_XCSOAR_FLARM_RECEIVER) || defined(USE_XCSOAR_WIFI_NETWORKS)
+  // The glider registration from club.json, set on XCSoar's thread and passed on in loop(): to the FLARM
+  // receiver for its address, and to wifi_networks for the glider's own SkyEcho
+  Mutex registration_lock_;
+  char pending_registration_[16]{};
+  std::atomic<bool> registration_pending_{false};
 #endif
 #ifdef USE_XCSOAR_SKYECHO
   skyecho::SkyEcho *skyecho_{nullptr};

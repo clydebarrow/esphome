@@ -1,0 +1,51 @@
+# Heltec Wireless Stick Lite V3: listen on one FLARM channel and log raw packets
+esphome:
+  name: heltec-flarm-sniff
+
+esp32:
+  variant: esp32s3
+  flash_size: 8MB
+  framework:
+    type: esp-idf
+
+logger:
+  hardware_uart: UART0
+
+wifi: !include ../../../../my-devices/wifi.yaml
+
+api:
+  reboot_timeout: 0s
+
+time:
+  - platform: sntp
+    id: sntp_time
+
+spi:
+  clk_pin: GPIO9
+  mosi_pin: GPIO10
+  miso_pin: GPIO11
+
+sx126x:
+  id: radio
+  cs_pin: GPIO8
+  rst_pin: GPIO12
+  busy_pin: GPIO13
+  dio1_pin: GPIO14
+  hw_version: sx1262
+  rf_switch: true
+  tcxo_voltage: 1_8V
+  modulation: FSK
+  frequency: 917000000
+  bitrate: 100000
+  deviation: 50kHz
+  bandwidth: 234_3kHz
+  shaping: GAUSSIAN_BT_0_5
+  preamble_size: 8
+  preamble_detect: 0
+  sync_value: [0x55, 0x99, 0xA5, 0xA9, 0x55, 0x66, 0x65, 0x96]
+  payload_length: 52
+  crc_enable: false
+  on_packet:
+    then:
+      - lambda: |-
+          ESP_LOGI("sniff", "%u bytes rssi %.1f: %s", x.size(), rssi, format_hex(x).c_str());

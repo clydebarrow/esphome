@@ -4,11 +4,21 @@ from esphome import automation, pins
 import esphome.codegen as cg
 from esphome.components import spi
 from esphome.components.const import (
+    CONF_BANDWIDTH,
     CONF_BITRATE,
     CONF_CRC_ENABLE,
+    CONF_DEVIATION,
     CONF_MODULATION,
     CONF_ON_PACKET,
+    CONF_PA_POWER,
+    CONF_PA_RAMP,
+    CONF_PACKET_MODE,
+    CONF_PAYLOAD_LENGTH,
+    CONF_PREAMBLE_SIZE,
     CONF_RST_PIN,
+    CONF_RX_START,
+    CONF_SHAPING,
+    CONF_SYNC_VALUE,
 )
 import esphome.config_validation as cv
 from esphome.const import CONF_DATA, CONF_FREQUENCY
@@ -23,25 +33,15 @@ CONF_SX127X_ID = "sx127x_id"
 
 CONF_AFC_BANDWIDTH = "afc_bandwidth"
 CONF_AUTO_CAL = "auto_cal"
-CONF_BANDWIDTH = "bandwidth"
 CONF_BITSYNC = "bitsync"
 CONF_CODING_RATE = "coding_rate"
-CONF_DEVIATION = "deviation"
 CONF_DIO0_PIN = "dio0_pin"
 CONF_PA_PIN = "pa_pin"
-CONF_PA_POWER = "pa_power"
-CONF_PA_RAMP = "pa_ramp"
-CONF_PACKET_MODE = "packet_mode"
-CONF_PAYLOAD_LENGTH = "payload_length"
 CONF_PREAMBLE_DETECT = "preamble_detect"
 CONF_PREAMBLE_ERRORS = "preamble_errors"
 CONF_PREAMBLE_POLARITY = "preamble_polarity"
-CONF_PREAMBLE_SIZE = "preamble_size"
 CONF_RX_FLOOR = "rx_floor"
-CONF_RX_START = "rx_start"
-CONF_SHAPING = "shaping"
 CONF_SPREADING_FACTOR = "spreading_factor"
-CONF_SYNC_VALUE = "sync_value"
 
 sx127x_ns = cg.esphome_ns.namespace("sx127x")
 SX127x = sx127x_ns.class_("SX127x", cg.Component, spi.SPIDevice)
@@ -180,6 +180,9 @@ def validate_config(config: ConfigType) -> ConfigType:
     return config
 
 
+validate_frequency = cv.All(cv.frequency, cv.int_range(min=int(137e6), max=int(1020e6)))
+
+
 CONFIG_SCHEMA = (
     cv.Schema(
         {
@@ -195,9 +198,7 @@ CONFIG_SCHEMA = (
                 cv.frequency, cv.int_range(min=0, max=100000)
             ),
             cv.Optional(CONF_DIO0_PIN): pins.internal_gpio_input_pin_schema,
-            cv.Required(CONF_FREQUENCY): cv.All(
-                cv.frequency, cv.int_range(min=int(137e6), max=int(1020e6))
-            ),
+            cv.Required(CONF_FREQUENCY): validate_frequency,
             cv.Required(CONF_MODULATION): cv.enum(MOD),
             cv.Optional(CONF_ON_PACKET): automation.validate_automation(single=True),
             cv.Optional(CONF_PA_PIN, default="BOOST"): cv.enum(PA_PIN),
@@ -300,4 +301,20 @@ automation.register_apply_action(
     "sx127x.send_packet",
     SEND_PACKET_ACTION_SCHEMA,
     automation.ApplyBytes(CONF_DATA, "transmit_packet({})", stack=MAX_PACKET_SIZE),
+)
+
+
+SET_FREQUENCY_ACTION_SCHEMA = cv.maybe_simple_value(
+    {
+        cv.GenerateID(): cv.use_id(SX127x),
+        cv.Required(CONF_FREQUENCY): cv.templatable(validate_frequency),
+    },
+    key=CONF_FREQUENCY,
+)
+
+
+automation.register_apply_action(
+    "sx127x.set_frequency",
+    SET_FREQUENCY_ACTION_SCHEMA,
+    automation.ApplyField(CONF_FREQUENCY, "retune", cg.uint32),
 )

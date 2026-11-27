@@ -508,6 +508,15 @@ skyecho component has a FLARM UART, and registers `add_on_gdl90_data_callback()`
 without a listener). The callbacks pass the raw bytes the skyecho component received, so XCSoar's own
 drivers decode them. `xcsoar-tests/xcsoar-tab5-skyecho.yaml` is the test config.
 
+`flarm_receiver_id` adds the stream "FLARM" with the FLARM driver, fed by the `flarm_receiver` component: legacy
+FLARM packets heard by an SX126x radio, decoded with SoftRF's code (`legacy_protocol.cpp`). The receiver reads
+the GPS UART itself and passes each GPS sentence on, followed every second by `$PFLAU` and a `$PFLAA` per
+aircraft, as a FLARM does, so the GPS UART is not also in `uarts`. It follows FLARM's channel hopping by the
+GPS time, or by the system clock (SNTP) without a fix; the packets' keys also depend on the time. An aircraft is
+reported once two packets agree on its place, since a packet decrypted with the wrong key now and then passes
+the checks. `xcsoar-tests/xcsoar-t-display-p4-flarm.yaml` is the test config, `t-display-p4-flarm.yaml` the
+same radio without XCSoar.
+
 `uarts` passes what a UART receives to a stream: `name` (default `GPS`) is the port XCSoar shows and `driver`
 (default `Generic`, plain NMEA) the driver it is set up with. Each is an `XCSoarUartStream` component whose
 `loop()` feeds the bytes waiting in the UART's buffer. `XCSOAR_STREAM_COUNT` sizes the stream list from the
@@ -751,6 +760,26 @@ The first config is for the Warwick Gliding Club. Its logo is on the club's webs
   the keyboard, then `profiles/TEST.prf` loaded with the map, airspace and all four devices.
   - Still open: a change to a glider setting made by one pilot reaches only that pilot's profile. A glider
     profile read before the pilot profile would keep them in one place.
+- **Moving the unit to another glider (done).** "Who is flying?" has a Glider button: a form with the type and
+  registration, saved into `club.json` (`SaveClubGlider()`, which keeps the other settings and replaces the file
+  through a new one), so the unit moves between gliders without flashing. The start and progress screens show
+  the new glider. XCSoar tells the host the glider at each read of the file and each change (`club_glider` in
+  `XCSoarEsp32::Config`, called on XCSoar's thread). With a `flarm_receiver` that has `transmit` and no address
+  in its YAML, the xcsoar component passes the registration on, and the receiver sends the ICAO address of an
+  Australian registration (0x7C0000 plus the three characters in base 36: A to Z are 0 to 25, 0 to 9 are 26 to
+  35; VH-GKP is 7C1FD7). With no registration, or one that is not Australian, it sends a FLARM ID made from the
+  MAC address. The XCSoar side is on the `esp32-club-glider` branch, in `../xcsoar-src-flarm`.
+- **The glider's own SkyEcho (done).** The registration from `club.json` also goes to `wifi_networks`
+  (`set_registration()`): an open network named "SkyEcho_" and the registration (in any case, without "VH-") is
+  the glider's own SkyEcho, put first in the station list and switched to when a scan sees it, also from another
+  SkyEcho. Joining a network by hand still keeps that network. Tested with gdlsim: the log shows
+  `The glider's own SkyEcho is 'SkyEcho_GKP'`; the switch to such a network is not tested yet.
+- **Climb rate from the SkyEcho's barometer (done).** The skyecho time platform takes a `pressure` sensor from
+  the `/stats` stream (once a second, the websocket then stays open), and the FLARM receiver's `pressure_id`
+  turns it into a standard-atmosphere altitude whose smoothed rate of change is the climb rate sent, while the
+  readings are less than 3 s old. The altitude sent stays the GPS's: FLARM compares GNSS altitudes, and a pressure
+  altitude would put the glider at the wrong height for other aircraft. `xcsoar-t-display-p4-flarm-skyecho.yaml`
+  has the radio, the SkyEcho and both of these.
 - **Flight upload (done).** XCSoar's `FlightLogger` keeps the confirmed takeoff time; at the landing
   `GlueFlightLogger::OnFlight()` calls `SaveClubFlight()`, which appends one JSON object per line to
   `XCSoar/flights-pending.jsonl`: `organisation`, `glider_type`, `registration`, `pilot`, `takeoff` and `landing`

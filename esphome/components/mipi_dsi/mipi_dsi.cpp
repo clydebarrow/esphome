@@ -15,14 +15,21 @@ static constexpr size_t MIPI_DSI_MAX_CMD_LOG_BYTES = 64;
 // Highest AXI QoS priority (4 bits); all masters start at 0
 static constexpr uint32_t DSI_DMA_READ_PRIORITY = 15;
 
-static bool IRAM_ATTR notify_color_trans_done(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata,
-                                              void *user_ctx) {
+// With CONFIG_LCD_DSI_ISR_CACHE_SAFE the DPI driver only accepts callbacks in IRAM
+#if CONFIG_LCD_DSI_ISR_CACHE_SAFE
+#define MIPI_DSI_ISR_ATTR IRAM_ATTR
+#else
+#define MIPI_DSI_ISR_ATTR
+#endif
+
+static bool MIPI_DSI_ISR_ATTR notify_color_trans_done(esp_lcd_panel_handle_t panel,
+                                                      esp_lcd_dpi_panel_event_data_t *edata, void *user_ctx) {
   auto *self = static_cast<MipiDsi *>(user_ctx);
   return self->on_color_trans_done_isr();
 }
 
-static bool IRAM_ATTR notify_frame_complete(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata,
-                                            void *user_ctx) {
+static bool MIPI_DSI_ISR_ATTR notify_frame_complete(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata,
+                                                    void *user_ctx) {
   auto *self = static_cast<MipiDsi *>(user_ctx);
   return self->on_frame_complete_isr();
 }
@@ -37,8 +44,7 @@ void MipiDsi::setup() {
 
   if (!this->enable_pins_.empty()) {
     for (auto *pin : this->enable_pins_) {
-      pin->setup();
-      pin->digital_write(true);
+      setup_output_pin(pin, true);
     }
     delay(10);
   }
@@ -315,13 +321,13 @@ void MipiDsi::write_to_display_(int x_start, int y_start, int w, int h, const ui
   }
 }
 
-bool IRAM_ATTR MipiDsi::on_color_trans_done_isr() {
+bool MIPI_DSI_ISR_ATTR MipiDsi::on_color_trans_done_isr() {
   BaseType_t need_yield = pdFALSE;
   xSemaphoreGiveFromISR(this->io_lock_, &need_yield);
   return need_yield == pdTRUE;
 }
 
-bool IRAM_ATTR MipiDsi::on_frame_complete_isr() {
+bool MIPI_DSI_ISR_ATTR MipiDsi::on_frame_complete_isr() {
   BaseType_t need_yield = pdFALSE;
   xSemaphoreGiveFromISR(this->frame_complete_, &need_yield);
   return need_yield == pdTRUE;
