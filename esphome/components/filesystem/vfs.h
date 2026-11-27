@@ -10,6 +10,7 @@
 #include <cstdint>
 
 #include <dirent.h>
+#include <sys/stat.h>
 
 namespace esphome::filesystem {
 
