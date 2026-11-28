@@ -95,6 +95,22 @@ TEST(SkyEchoFlarmNmea, AlarmForAHeadOnTarget) {
   EXPECT_NE(line_starting(out, "$PFLAA").find(",30,0.0,8*"), std::string::npos) << out;
 }
 
+TEST(SkyEchoFlarmNmea, NoAlarmOnTheGround) {
+  gdl90PositionReport_t own = ownship();
+  own.track = 0;
+  own.groundSpeed = 30;
+  gdl90PositionReport_t target = target_north(500, 0);
+  target.track = 180;
+  target.isTrackValid = true;
+  target.verticalSpeed = 0;
+  target.category = Light;
+  std::string out;
+  append_flarm_traffic(out, own, &target, 1, ThreatSettings{}, NmeaStatus{true, false, false});
+  const std::string pflau = line_starting(out, "$PFLAU");
+  EXPECT_EQ(pflau.substr(0, pflau.find('*')), "$PFLAU,1,0,1,1,0,,0,,,");
+  EXPECT_EQ(line_starting(out, "$PFLAA").substr(0, 8), "$PFLAA,0");
+}
+
 TEST(SkyEchoFlarmNmea, AlarmLevels) {
   ThreatAssessment a{};
   a.alarm = true;

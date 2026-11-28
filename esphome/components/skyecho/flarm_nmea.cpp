@@ -147,7 +147,9 @@ void append_flarm_traffic(std::string &out, const gdl90PositionReport_t &ownship
     const float north = trafficNorthing(&ownship, &target);
     const float east = trafficEasting(&ownship, &target);
     const float vertical = target.isAltitudeValid && ownship.isAltitudeValid ? target.altitude - ownship.altitude : 0;
-    const uint8_t level = flarm_alarm_level(assess_threat(target_geometry(ownship, target), settings));
+    // No alarm on the ground, where other aircraft are close all the time
+    const uint8_t level =
+        status.flying ? flarm_alarm_level(assess_threat(target_geometry(ownship, target), settings)) : 0;
     if (level > worst_level) {
       worst_level = level;
       worst = &target;

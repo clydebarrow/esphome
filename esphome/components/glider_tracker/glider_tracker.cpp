@@ -125,8 +125,11 @@ void GliderTracker::loop() {
     this->last_update_ms_ = now;
     this->handle_event_(this->log_.update(this->sample()));
 #ifdef USE_GLIDER_TRACKER_FLARM
-    if (this->flarm_ != nullptr)
-      this->flarm_->set_listening(this->log_.is_flying() || this->flarm_on_ground_);
+    // On the ground the radio stays on LoRa only while an acknowledgement may come
+    if (this->flarm_ != nullptr) {
+      this->flarm_->set_listening(this->log_.is_flying() || this->flarm_on_ground_ || !this->identified_ ||
+                                  !this->log_.awaiting_ack());
+    }
 #endif
   }
   const uint32_t position_ms = this->log_.is_flying() ? POSITION_FLYING_MS : POSITION_GROUND_MS;

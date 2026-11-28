@@ -26,7 +26,8 @@ namespace esphome::glider_tracker {
  * after landing, each sent every 10 s until acknowledged. Summaries are kept in flash until then.
  *
  * With a FLARM receiver on the same radio, the radio is given back to LoRa before each send, and held there a while
- * after a send to the clubhouse so its answer is heard; FLARM is listened for in flight, or always if set.
+ * after a send to the clubhouse so its answer is heard. FLARM is listened for in flight, and on the ground while
+ * nothing waits for the clubhouse's acknowledgement, or always if set.
  */
 class GliderTracker : public Component {
  public:

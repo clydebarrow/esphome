@@ -87,6 +87,19 @@ TEST(GliderFlightLog, AcknowledgementsAreMatchedByTypeAndTime) {
   EXPECT_EQ(f.log.next_summary(), nullptr);
 }
 
+TEST(GliderFlightLog, AwaitsAckForTheTakeoffAndTheSummary) {
+  Flight f;
+  EXPECT_FALSE(f.log.awaiting_ack());
+  f.run(80, 5);
+  EXPECT_TRUE(f.log.awaiting_ack());
+  f.log.acknowledge(Ack{START, TAKEOFF_ACK});
+  EXPECT_FALSE(f.log.awaiting_ack());
+  f.run(2, 40);
+  EXPECT_TRUE(f.log.awaiting_ack());
+  f.log.acknowledge(Ack{START, ACK});
+  EXPECT_FALSE(f.log.awaiting_ack());
+}
+
 TEST(GliderFlightLog, QueueKeepsEightAndDropsTheOldest) {
   FlightLog log;
   Sample sample{};

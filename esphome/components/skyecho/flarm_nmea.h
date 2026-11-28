@@ -55,7 +55,8 @@ void append_pgrmz(std::string &out, float pressure_altitude_m);
 /**
  * PFLAU and a PFLAA for each target, as a FLARM sends them each second. Targets are placed relative to the ownship,
  * and their altitudes must be on the same scale as its own. At most max_targets PFLAA are sent, the first in the
- * list, which should be nearest first. PFLAU gives the target with the highest alarm level, if any has one.
+ * list, which should be nearest first. PFLAU gives the target with the highest alarm level, if any has one. On the
+ * ground (status.flying false) no target has an alarm level.
  */
 void append_flarm_traffic(std::string &out, const gdl90PositionReport_t &ownship, const gdl90PositionReport_t *targets,
                           size_t count, const ThreatSettings &settings, const NmeaStatus &status,

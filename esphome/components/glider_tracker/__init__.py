@@ -41,7 +41,7 @@ CONFIG_SCHEMA = cv.Schema(
         cv.Required(CONF_BROADCAST_ID): cv.use_id(AddressingPort),
         cv.Optional(CONF_BATTERY_ID): cv.use_id(sensor.Sensor),
         cv.Optional(CONF_FLARM_RECEIVER_ID): _flarm_receiver_id,
-        # Listen for FLARM on the ground too, as for tests on the bench
+        # Listen for FLARM on the ground even while a report waits for the clubhouse's acknowledgement
         cv.Optional(CONF_FLARM_ON_GROUND, default=False): cv.boolean,
         cv.Optional(CONF_ON_TAKEOFF): automation.validate_automation({}),
         cv.Optional(CONF_ON_LANDING): automation.validate_automation({}),

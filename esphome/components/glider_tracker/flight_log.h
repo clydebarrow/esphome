@@ -75,6 +75,8 @@ class FlightLog {
   /// The oldest summary waiting, as sent; nullptr when there is none.
   const uint8_t *next_summary() const;
   size_t queued() const;
+  /// A takeoff or summary is waiting for the clubhouse to acknowledge it
+  bool awaiting_ack() const { return this->takeoff_pending_ || this->queued() != 0; }
 
   /// Takes the clubhouse's acknowledgement. True if it was for something waiting.
   bool acknowledge(const Ack &ack);
