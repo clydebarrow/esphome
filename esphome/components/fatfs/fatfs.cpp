@@ -236,6 +236,11 @@ FsError FatFs::fs_open(uint8_t slot, const char *path, uint8_t flags) {
   FRESULT res = f_open(fp, full, mode);
   if (res != FR_OK)
     return to_fs_error(res);
+  // Positions and sizes are int32_t
+  if (f_size(fp) > INT32_MAX) {
+    f_close(fp);
+    return FsError::FS_ERROR_INVALID;
+  }
   if ((flags & filesystem::OPEN_TRUNCATE) && !(flags & filesystem::OPEN_CREATE))
     res = f_truncate(fp);
   if (res == FR_OK && (flags & filesystem::OPEN_APPEND))
@@ -247,13 +252,16 @@ FsError FatFs::fs_open(uint8_t slot, const char *path, uint8_t flags) {
 
 int32_t FatFs::fs_read(uint8_t slot, void *buf, uint32_t len) {
   UINT done = 0;
-  const FRESULT res = f_read(&this->files_[slot], buf, len, &done);
+  const FRESULT res = f_read(&this->files_[slot], buf, clamp_at_most<uint32_t>(len, INT32_MAX), &done);
   return res == FR_OK ? static_cast<int32_t>(done) : static_cast<int32_t>(to_fs_error(res));
 }
 
 int32_t FatFs::fs_write(uint8_t slot, const void *buf, uint32_t len) {
+  FIL *fp = &this->files_[slot];
+  // Stop the file at 2 GiB - 1 bytes, the largest size an int32_t can report
+  const uint32_t room = INT32_MAX - static_cast<uint32_t>(f_tell(fp));
   UINT done = 0;
-  const FRESULT res = f_write(&this->files_[slot], buf, len, &done);
+  const FRESULT res = f_write(fp, buf, clamp_at_most(len, room), &done);
   if (res != FR_OK)
     return static_cast<int32_t>(to_fs_error(res));
   if (done == 0 && len != 0)

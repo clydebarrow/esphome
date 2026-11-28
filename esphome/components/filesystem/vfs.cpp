@@ -126,7 +126,7 @@ bool Vfs::wait_ready(uint32_t timeout_ms) {
 }
 
 File *Vfs::get_file_(int fd) {
-  if (fd < 0 || static_cast<size_t>(fd) >= this->files_.size() || !this->files_[fd].is_open()) {
+  if (fd < 0 || static_cast<size_t>(fd) >= this->files_.size() || !(this->fds_in_use_ & (1UL << fd))) {
     errno = EBADF;
     return nullptr;
   }
@@ -158,11 +158,13 @@ int Vfs::vfs_open(void *ctx, const char *path, int flags, int mode) {
 
   const std::scoped_lock lock{self->fs_->mutex()};
   for (size_t fd = 0; fd != self->files_.size(); fd++) {
-    if (self->files_[fd].is_open())
+    // An fd stays taken until it is closed, even when its file went stale with the media
+    if (self->fds_in_use_ & (1UL << fd))
       continue;
     self->files_[fd] = self->fs_->open(path, fs_flags);
     if (!self->files_[fd])
       return fail_with(self->fs_->last_error());
+    self->fds_in_use_ |= 1UL << fd;
     return static_cast<int>(fd);
   }
   errno = ENFILE;
@@ -217,6 +219,7 @@ int Vfs::vfs_close(void *ctx, int fd) {
   auto *file = self->get_file_(fd);
   if (file == nullptr)
     return -1;
+  self->fds_in_use_ &= ~(1UL << fd);
   return fail_with(file->close());
 }
 
@@ -306,14 +309,16 @@ int Vfs::vfs_mkdir(void *ctx, const char *path, mode_t mode) {
 DIR *Vfs::vfs_opendir(void *ctx, const char *path) {
   auto *self = static_cast<Vfs *>(ctx);
   const std::scoped_lock lock{self->fs_->mutex()};
-  for (auto &open_dir : self->dirs_) {
-    if (open_dir.handle.is_open())
+  for (uint8_t i = 0; i != self->dirs_.size(); i++) {
+    if (self->dirs_in_use_ & (1U << i))
       continue;
+    auto &open_dir = self->dirs_[i];
     open_dir.handle = self->fs_->open_dir(path);
     if (!open_dir.handle) {
       fail_with(self->fs_->last_error());
       return nullptr;
     }
+    self->dirs_in_use_ |= 1U << i;
     return &open_dir.dir;
   }
   errno = ENFILE;
@@ -342,6 +347,7 @@ int Vfs::vfs_closedir(void *ctx, DIR *pdir) {
   auto *self = static_cast<Vfs *>(ctx);
   auto *open_dir = reinterpret_cast<OpenDir *>(pdir);
   const std::scoped_lock lock{self->fs_->mutex()};
+  self->dirs_in_use_ &= ~(1U << (open_dir - self->dirs_.begin()));
   return fail_with(open_dir->handle.close());
 }
 

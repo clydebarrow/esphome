@@ -62,22 +62,28 @@ def _get_data() -> FilesystemData:
     return CORE.data[DOMAIN]
 
 
-def validate_path(value: object) -> str:
-    """Validate an absolute path on a filesystem."""
-    value = cv.string_strict(value)
+def _check_path(value: str) -> str:
     if not value.startswith("/"):
         raise cv.Invalid("The path must start with '/'")
+    if "\0" in value:
+        raise cv.Invalid("The path must not contain a NUL character")
     return value
 
 
-def validate_vfs_path(value: object) -> str:
-    """Validate the C library mount point of a filesystem, such as /sdcard."""
-    value = validate_path(value)
+# An absolute path on a filesystem
+validate_path = cv.All(cv.string_strict, _check_path)
+
+
+def _check_vfs_path(value: str) -> str:
     if len(value) < 2 or value.endswith("/") or "/" in value[1:]:
         raise cv.Invalid("The mount point must be one name after '/', such as /sdcard")
     if len(value) > VFS_PATH_MAX:
         raise cv.Invalid(f"The mount point can be at most {VFS_PATH_MAX} characters")
     return value
+
+
+# The C library mount point of a filesystem, such as /sdcard
+validate_vfs_path = cv.All(validate_path, _check_vfs_path)
 
 
 def request_open_handles(filesystem_id: ID, files: int = 1, dirs: int = 0) -> None:

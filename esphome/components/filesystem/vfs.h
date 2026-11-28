@@ -73,6 +73,8 @@ class Vfs {
   const char *base_path_;
   FixedVector<File> files_;
   FixedVector<OpenDir> dirs_;
+  uint32_t fds_in_use_{0};  // One bit per fd handed out and not yet closed
+  uint8_t dirs_in_use_{0};
   uint8_t max_files_{4};
   uint8_t max_dirs_{2};
 };
