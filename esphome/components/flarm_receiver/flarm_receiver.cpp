@@ -261,6 +261,14 @@ void FlarmReceiver::set_gps_altitude_(float altitude) {
 
 #ifdef USE_FLARM_RECEIVER_GPS
 void FlarmReceiver::on_update(const gps::GPSData &data) {
+  // The fix for the app, as a FLARM's data port gives the GNSS's sentences with its own
+  if (this->nmea_callback_.size() != 0) {
+    char body[NMEA_LINE_SIZE];
+    if (rmc_body(data, body, sizeof(body)))
+      this->send_sentence_(body);
+    if (gga_body(data, body, sizeof(body)))
+      this->send_sentence_(body);
+  }
   this->gps_fix_ = this->get_age(gps::GPS_FIELD_LOCATION) < GPS_FIX_MAX_AGE_MS;
   if (!this->gps_fix_) {
     this->gps_time_valid_ = false;

@@ -6,6 +6,7 @@
 
 #ifdef USE_FLARM_RECEIVER_GPS
 #include "esphome/components/gps/gps.h"
+#include "gnss_sentences.h"
 #endif
 #ifdef USE_SENSOR
 #include "esphome/components/sensor/sensor.h"
