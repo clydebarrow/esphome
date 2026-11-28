@@ -24,8 +24,9 @@
 namespace esphome::tracker_identity {
 
 /**
- * The tracker's identity, kept in preferences rather than built in, so one build serves every tracker of a board
- * type and an update leaves the identity alone. Answers ID and SET on the logger's serial port.
+ * The tracker's identity, kept apart from the firmware, so one build serves every tracker of a board type and an
+ * update leaves the identity alone: in preferences, written with SET, on ESP32; in its own flash page, written by the
+ * set-up UF2, on nRF52. Answers ID and SET on the logger's serial port.
  */
 class TrackerIdentity : public Component {
  public:
@@ -76,7 +77,9 @@ class TrackerIdentity : public Component {
   // The name Bluetooth keeps a pointer to
   char ble_name_[REGISTRATION_SIZE + 8]{};
 #endif
+#ifndef USE_ZEPHYR
   ESPPreferenceObject pref_;
+#endif
   Identity identity_{};
   bool set_{false};
   std::string line_;
