@@ -82,7 +82,7 @@ class FileRefTest : public ::testing::Test {
  protected:
   void SetUp() override {
     this->fs_.set_pool_sizes(2, 0);
-    this->fs_.setup();
+    this->fs_.call();
     this->fs_.entries["/data.bin"] = {.size = 1234, .mtime = 1760000000, .is_dir = false};
     this->fs_.entries["/logs"] = {.size = 0, .mtime = 1750000000, .is_dir = true};
   }

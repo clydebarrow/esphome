@@ -213,7 +213,7 @@ class FilesystemImageProgress : public ::testing::TestWithParam<std::pair<const 
   void SetUp() override {
     this->disk_.setup();
     this->fs_.set_pool_sizes(1, 0);
-    this->fs_.setup();
+    this->fs_.call();
     this->fs_.files["/solid.png"] = std::vector<uint8_t>(PNG_SOLID, PNG_SOLID + sizeof(PNG_SOLID));
     this->fs_.files["/gradient.jpg"] = std::vector<uint8_t>(JPEG_GRADIENT, JPEG_GRADIENT + sizeof(JPEG_GRADIENT));
   }
