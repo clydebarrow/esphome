@@ -1,0 +1,666 @@
+# A glider's tracker on a LilyGO T-Echo (nRF52840, techo-board.yaml), the T-Echo counterpart of glider-htit.yaml:
+# - Tracks for the club (glider_tracker): positions for the live map, its takeoff, and its flight summary after landing,
+#   to the clubhouse receiver over LoRa.
+# - Hears FLARM on the same radio (flarm_receiver), and sends its own position in the legacy FLARM protocol, in the
+#   slots when LoRa isn't holding the radio.
+# - Streams the fix and the FLARM traffic in NMEA (GPRMC, GPGGA, PFLAU, PFLAA) over Bluetooth LE, on the Nordic UART
+#   service, to a flight app such as XCSoar. Logs go to the USB port.
+# - The e-paper shows the nearest aircraft, and a status page; the touch pad toggles them, and the status page goes
+#   back to traffic after 30 s.
+# - Power: holding the lower left button for 3 s powers off. Losing USB power on the ground powers off after 15 s
+#   unless the touch pad is touched. A low battery powers off. The reset button or plugging in USB powers on.
+#
+# One build serves every glider: the glider's address, registration and LoRa key are in a flash page of their own
+# (tracker_identity), written by the set-up UF2 from the dashboard's tracker page, and kept through updates. Until then
+# it sends nothing on LoRa. This is the build published for that page, so it holds no secrets.
+substitutions:
+  # Battery voltage below which the unit powers off when not on USB; check against a meter
+  battery_cutoff: "3.30"
+  # "true" to hear and send FLARM on the ground too, for bench tests
+  flarm_on_ground: "false"
+  # "true" for bench tests: a press of the lower left button of 1 to 2.5 s makes a fake takeoff, or the landing
+  fake_flights: "false"
+
+esphome:
+  name: glider-techo
+  includes:
+    - techo_power.h
+  on_boot:
+    # A start caused by unplugging USB from a unit powered off on USB goes straight back to off. At 700 the
+    # switches are set up and the display and the radio (400) are not, so the off screen stays.
+    - priority: 700
+      then:
+        - if:
+            condition:
+              lambda: return techo_unplug_reset();
+            then:
+              - switch.turn_off: gnss_wake
+              - switch.turn_off: io_power
+              - lambda: techo_power_off_now();
+    - priority: 600
+      then:
+        - lambda: |-
+            id(flarm).add_on_nmea_callback([](const uint8_t *data, size_t len) {
+              id(ble_uart).write_array(data, len);
+            });
+            id(flarm).add_on_traffic_callback([](const flarm_receiver::LegacyTarget &t, float rssi) {
+              const auto &g = id(gps_rx).get_data();
+              const uint32_t now = millis();
+              // The callback runs once a second for each aircraft: a gap starts a new round
+              if (now - id(round_ms) > 500) {
+                id(traffic_count) = id(round_count);
+                id(round_count) = 0;
+                id(round_best) = INFINITY;
+              }
+              id(round_ms) = now;
+              id(round_count)++;
+              constexpr float k = M_PI / 180.0f;
+              const float north = (t.latitude - g.latitude()) * k * 6371000.0f;
+              const float east = (t.longitude - g.longitude()) * k * 6371000.0f * cosf(g.latitude() * k);
+              const float dist = sqrtf(north * north + east * east);
+              if (dist >= id(round_best))
+                return;
+              id(round_best) = dist;
+              id(near_address) = t.address;
+              id(near_address_type) = t.address_type;
+              id(near_type) = t.aircraft_type;
+              id(near_distance) = dist;
+              float bearing = atan2f(east, north) / k;
+              id(near_bearing) = bearing < 0 ? bearing + 360.0f : bearing;
+              id(near_rel_alt) = t.altitude - g.altitude();
+              id(near_climb) = t.climb_rate;
+              id(near_rssi) = rssi;
+              id(near_ms) = now;
+            });
+
+packages:
+  board: !include techo-board.yaml
+  radio: !include radio.yaml
+
+deep_sleep:
+  id: power_off_ctl
+
+logger:
+  level: DEBUG
+
+zephyr_ble_server:
+
+ble_nus:
+  id: ble_uart
+  type: uart
+
+gps:
+  id: gps_rx
+  uart_id: gnss_uart
+  update_interval: 10s
+  latitude:
+    name: Latitude
+  longitude:
+    name: Longitude
+  altitude:
+    name: Altitude
+  satellites:
+    id: gps_satellites
+    name: Satellites
+  hdop:
+    name: HDOP
+
+time:
+  - platform: gps
+    id: gps_time
+    gps_id: gps_rx
+
+globals:
+  # Traffic: the nearest aircraft of the last round of callbacks
+  - id: round_ms
+    type: uint32_t
+    initial_value: "0"
+  - id: round_count
+    type: uint8_t
+    initial_value: "0"
+  - id: round_best
+    type: float
+    initial_value: "INFINITY"
+  - id: traffic_count
+    type: uint8_t
+    initial_value: "0"
+  - id: near_address
+    type: uint32_t
+    initial_value: "0"
+  - id: near_address_type
+    type: uint8_t
+    initial_value: "0"
+  - id: near_type
+    type: uint8_t
+    initial_value: "0"
+  - id: near_distance
+    type: float
+    initial_value: "0"
+  - id: near_bearing
+    type: float
+    initial_value: "0"
+  - id: near_rel_alt
+    type: float
+    initial_value: "0"
+  - id: near_climb
+    type: float
+    initial_value: "0"
+  - id: near_rssi
+    type: float
+    initial_value: "0"
+  - id: near_ms
+    type: uint32_t
+    initial_value: "0"
+  # The message page: 0 none, 1 USB power lost, 2 button held to power off, 3 off, 4 off for a low battery
+  - id: message
+    type: uint8_t
+    initial_value: "0"
+  # When a countdown on the message page ends
+  - id: deadline_ms
+    type: uint32_t
+    initial_value: "0"
+  # When the status page was shown, for going back to the traffic page
+  - id: page_ms
+    type: uint32_t
+    initial_value: "0"
+  # Battery checks in a row below the cutoff
+  - id: low_count
+    type: uint8_t
+    initial_value: "0"
+
+sx126x:
+  id: radio
+  tcxo_delay: 5ms
+  pa_power: 22
+  frequency: ${lora_frequency}
+  modulation: LORA
+  spreading_factor: ${lora_spreading_factor}
+  bandwidth: ${lora_bandwidth}
+  preamble_size: ${lora_preamble_size}
+  crc_enable: true
+
+packet_interface:
+  - platform: sx126x
+    id: lora
+    max_packet_size: 255
+    addressing:
+      id: lora_addressing
+      # Until tracker_identity gives the glider's own
+      address: "0x00FF"
+      peers:
+        # Flight reports and their acknowledgements
+        - id: to_clubhouse
+          destination: ${clubhouse_address}
+          encryption:
+            id: clubhouse_key
+            key_at_runtime: true
+        # Position reports, readable by anyone
+        - id: broadcasts
+          destination: broadcast
+
+# Shares the LoRa radio, and takes the time and position from the GNSS. Sends while it listens, as the radio is on
+# FLARM's channels only then.
+flarm_receiver:
+  id: flarm
+  sx126x_id: radio
+  band: AU
+  gps_id: gps_rx
+  # Sent as the glider's ICAO address, from its Australian registration (tracker_identity)
+  transmit:
+    aircraft_type: GLIDER
+
+tracker_identity:
+  id: identity
+  addressing_id: lora_addressing
+  encryption_id: clubhouse_key
+  glider_tracker_id: tracker
+  flarm_receiver_id: flarm
+
+glider_tracker:
+  id: tracker
+  gps_id: gps_rx
+  clubhouse_id: to_clubhouse
+  broadcast_id: broadcasts
+  battery_id: battery_voltage
+  flarm_receiver_id: flarm
+  flarm_on_ground: ${flarm_on_ground}
+
+sensor:
+  # Checked for the low battery cutoff
+  - id: !extend battery_voltage
+    update_interval: 10s
+
+binary_sensor:
+  # The touch pad above the display: cancels a power-loss countdown, otherwise toggles the pages
+  - id: !extend touch_pad
+    # A touch counts once held for this long, so a brush past the pad does nothing
+    filters:
+      - delayed_on: 200ms
+    on_press:
+      - if:
+          condition:
+            script.is_running: power_lost
+          then:
+            - logger.log: "Power-off cancelled by touch"
+            - script.stop: power_lost
+            - script.stop: countdown
+            - script.execute: show_traffic
+          else:
+            - if:
+                condition:
+                  lambda: return id(message) == 0;
+                then:
+                  - lambda: id(page_ms) = millis();
+                  - display.page.show: !lambda |-
+                      return id(epd).get_active_page() == id(page_traffic) ? id(page_status) : id(page_traffic);
+                  - script.execute: redraw
+  # The lower left button: held for 3 s, powers off
+  - id: !extend user_button
+    on_press:
+      - if:
+          condition:
+            lambda: return id(message) == 0 || id(message) == 1;
+          then:
+            - script.stop: power_lost
+            - script.stop: countdown
+            - script.execute: hold_to_power_off
+    on_release:
+      - if:
+          condition:
+            script.is_running: hold_to_power_off
+          then:
+            - script.stop: hold_to_power_off
+            - script.stop: countdown
+            - script.execute: show_traffic
+    on_click:
+      - min_length: 1s
+        max_length: 2500ms
+        then:
+          - lambda: |-
+              if (${fake_flights})
+                id(tracker).fake_takeoff_or_landing();
+  - platform: template
+    id: usb_power
+    name: USB power
+    lambda: return techo_usb_power();
+    # USB power lost on the ground: power off after a countdown. In the air the unit keeps going on its battery.
+    on_release:
+      - if:
+          condition:
+            lambda: |-
+              const auto &g = id(gps_rx).get_data();
+              return !id(flarm).has_gps_fix() || !g.has(gps::GPS_FIELD_SPEED) || g.speed_kmh() < 5.0f;
+          then:
+            - logger.log: "USB power lost on the ground"
+            - script.execute: power_lost
+    on_press:
+      - if:
+          condition:
+            script.is_running: power_lost
+          then:
+            - logger.log: "USB power back"
+            - script.stop: power_lost
+            - script.stop: countdown
+            - script.execute: show_traffic
+
+script:
+  # Draw the active page now; an update already being drawn refuses another
+  - id: redraw
+    mode: queued
+    then:
+      - wait_until:
+          condition:
+            lambda: return !id(epd).is_updating();
+          timeout: 3s
+      - component.update: epd
+  - id: show_traffic
+    then:
+      - lambda: id(message) = 0;
+      - display.page.show: page_traffic
+      - script.execute: redraw
+  # Shows the message page and redraws it, for the seconds left, until the deadline
+  # Stopped with its caller, so that a new start sets a new deadline
+  - id: countdown
+    mode: restart
+    parameters:
+      seconds: int
+    then:
+      - lambda: id(deadline_ms) = millis() + seconds * 1000;
+      - display.page.show: page_message
+      - while:
+          condition:
+            lambda: return static_cast<int32_t>(id(deadline_ms) - millis()) > 0;
+          then:
+            - script.execute: redraw
+            - script.wait: redraw
+            - delay: 100ms
+  - id: power_lost
+    mode: restart
+    then:
+      - lambda: id(message) = 1;
+      - script.execute:
+          id: countdown
+          seconds: 15
+      - script.wait: countdown
+      - script.execute:
+          id: shut_down
+          reason: 3
+  - id: hold_to_power_off
+    mode: restart
+    then:
+      - lambda: id(message) = 2;
+      - script.execute:
+          id: countdown
+          seconds: 3
+      - script.wait: countdown
+      - if:
+          condition:
+            binary_sensor.is_on: user_button
+          then:
+            - script.execute:
+                id: shut_down
+                reason: 3
+  # Draw the off screen with a full update, which stays without power, then turn everything off. The reset
+  # button (top left) restarts the unit.
+  - id: shut_down
+    mode: single
+    parameters:
+      reason: int
+    then:
+      - lambda: |-
+          id(message) = reason;
+          ESP_LOGI("power", "Powering off%s", reason == 4 ? ": battery low" : "");
+      - display.page.show: page_message
+      - wait_until:
+          condition:
+            lambda: return !id(epd).is_updating();
+          timeout: 3s
+      - lambda: id(epd).request_full_update();
+      - component.update: epd
+      - wait_until:
+          condition:
+            lambda: return !id(epd).is_updating();
+          timeout: 10s
+      - output.turn_off: led_red
+      - output.turn_off: led_green
+      - output.turn_off: led_blue
+      - switch.turn_off: gnss_wake
+      - switch.turn_off: io_power
+      - sx126x.set_mode_sleep:
+          id: radio
+          cold: true
+      - lambda: |-
+          techo_mark_off();
+          techo_wake_on_usb();
+      - deep_sleep.enter: power_off_ctl
+
+font:
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: bold
+    id: font_big
+    size: 34
+    glyphs: " +-.0123456789:kmNoatrficPwelsOByng"
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: bold
+    id: font_medium
+    size: 20
+  - file:
+      type: gfonts
+      family: Roboto
+      weight: medium
+    id: font_small
+    size: 15
+
+display:
+  - id: !extend epd
+    update_interval: 5s
+    full_update_every: 60
+    pages:
+      # The nearest aircraft, or why there is none
+      - id: page_traffic
+        lambda: |-
+          static const char *const TYPES[16] = {"Unknown", "Glider", "Tow plane", "Helicopter", "Skydiver",
+                                                "Drop plane", "Hang glider", "Paraglider", "Powered", "Jet",
+                                                "Unknown", "Balloon", "Airship", "UAV", "Unknown", "Obstacle"};
+          static const char *const POINTS[8] = {"N", "NE", "E", "SE", "S", "SW", "W", "NW"};
+          const auto &g = id(gps_rx).get_data();
+          const uint32_t now = millis();
+          const bool fix = id(flarm).has_gps_fix();
+          it.fill(Color::WHITE);
+
+          // Header: GPS state on the left, battery on the right; no fix is shown in reverse
+          if (fix) {
+            it.printf(2, 2, id(font_medium), Color::BLACK, "GPS %u", g.satellites);
+          } else {
+            it.filled_rectangle(0, 0, 104, 26, Color::BLACK);
+            it.printf(4, 2, id(font_medium), Color::WHITE, "NO GPS %u", g.satellites);
+          }
+          // On USB the battery reads its charging voltage, which says nothing about its charge
+          if (techo_usb_power()) {
+            it.print(198, 2, id(font_medium), Color::BLACK, TextAlign::TOP_RIGHT, "USB");
+          } else if (id(battery_voltage).has_state()) {
+            const float v = id(battery_voltage).state;
+            const int pct = techo_battery_percent(v);
+            it.printf(198, 2, id(font_medium), Color::BLACK, TextAlign::TOP_RIGHT, "%d%%", pct);
+          }
+          it.filled_rectangle(0, 28, 200, 2, Color::BLACK);
+
+          // Without its own fix the unit can't place another aircraft, though it still decodes them
+          const bool seen = fix && id(near_ms) != 0 && now - id(near_ms) < 5000;
+          if (!seen) {
+            it.print(100, 44, id(font_big), Color::BLACK, TextAlign::TOP_CENTER, "No traffic");
+            if (!fix) {
+              it.print(100, 96, id(font_medium), Color::BLACK, TextAlign::TOP_CENTER, "Waiting for GPS");
+            }
+            it.printf(100, 146, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, "Frames %u, decoded %u",
+                      (unsigned) id(flarm).get_frame_count(), (unsigned) id(flarm).get_packet_count());
+          } else {
+            // Track up while moving, as a pilot sees it; north up when still, as the track means nothing
+            const bool track_up = fix && g.has(gps::GPS_FIELD_COURSE) && g.speed_kmh() > 10.0f;
+            const float angle = track_up ? id(near_bearing) - g.course() : id(near_bearing);
+            const float a = angle * (float) M_PI / 180.0f;
+            const int cx = 50, cy = 98, r = 44;
+            it.circle(cx, cy, r, Color::BLACK);
+            it.circle(cx, cy, r - 1, Color::BLACK);
+            const int tx = cx + lroundf(r * 0.85f * sinf(a)), ty = cy - lroundf(r * 0.85f * cosf(a));
+            const int bx = cx - lroundf(r * 0.6f * sinf(a)), by = cy + lroundf(r * 0.6f * cosf(a));
+            // The arrow's shaft, three pixels wide, and its head
+            for (int d = -1; d <= 1; d++)
+              it.line(bx + d, by, tx + d, ty, Color::BLACK);
+            const float s = 0.45f;
+            it.filled_triangle(tx, ty, cx + lroundf(r * 0.4f * sinf(a - s)), cy - lroundf(r * 0.4f * cosf(a - s)),
+                               cx + lroundf(r * 0.4f * sinf(a + s)), cy - lroundf(r * 0.4f * cosf(a + s)), Color::BLACK);
+            if (!track_up)
+              it.print(cx, cy - r + 2, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, "N");
+
+            const float d = id(near_distance);
+            if (d < 1000) {
+              it.printf(198, 34, id(font_big), Color::BLACK, TextAlign::TOP_RIGHT, "%.0fm", d);
+            } else {
+              it.printf(198, 34, id(font_big), Color::BLACK, TextAlign::TOP_RIGHT, "%.1fkm", d / 1000);
+            }
+            // Height difference in feet; four digits do not fit in the large font beside the arrow
+            const int rel = (int) lroundf(id(near_rel_alt) / 0.3048f);
+            it.print(198, 86, id(font_medium), Color::BLACK, TextAlign::TOP_RIGHT, "ft");
+            if (std::abs(rel) < 1000) {
+              it.printf(176, 74, id(font_big), Color::BLACK, TextAlign::TOP_RIGHT, "%+d", rel);
+            } else {
+              it.printf(176, 86, id(font_medium), Color::BLACK, TextAlign::TOP_RIGHT, "%+d", rel);
+            }
+            it.print(198, 112, id(font_small), Color::BLACK, TextAlign::TOP_RIGHT,
+                     rel > 150 ? "above" : rel < -150 ? "below" : "same level");
+            if (track_up) {
+              int oclock = (int) lroundf(fmodf(angle + 720.0f, 360.0f) / 30.0f) % 12;
+              it.printf(198, 130, id(font_medium), Color::BLACK, TextAlign::TOP_RIGHT, "%d o'clock",
+                        oclock == 0 ? 12 : oclock);
+            } else {
+              it.print(198, 130, id(font_medium), Color::BLACK, TextAlign::TOP_RIGHT,
+                       POINTS[(int) lroundf(id(near_bearing) / 45.0f) % 8]);
+            }
+            // An Australian ICAO address shows as its registration
+            char reg[flarm_receiver::FlarmReceiver::REGISTRATION_SIZE];
+            if (id(near_address_type) == 1 &&
+                flarm_receiver::FlarmReceiver::australian_registration(id(near_address), reg)) {
+              it.printf(2, 152, id(font_small), Color::BLACK, "%s %s", reg, TYPES[id(near_type) & 15]);
+            } else {
+              it.printf(2, 152, id(font_small), Color::BLACK, "%06X %s", (unsigned) id(near_address),
+                        TYPES[id(near_type) & 15]);
+            }
+            const bool round_fresh = now - id(round_ms) < 2000;
+            if (round_fresh && id(traffic_count) > 1)
+              it.printf(198, 152, id(font_small), Color::BLACK, TextAlign::TOP_RIGHT, "+%u",
+                        (unsigned) id(traffic_count) - 1);
+          }
+
+          // Footer: what the radio has done
+          it.filled_rectangle(0, 172, 200, 2, Color::BLACK);
+          it.printf(2, 178, id(font_small), Color::BLACK, "RX %u  TX %u", (unsigned) id(flarm).get_packet_count(),
+                    (unsigned) id(flarm).get_transmit_count());
+          if (!id(identity).is_set()) {
+            it.print(198, 178, id(font_small), Color::BLACK, TextAlign::TOP_RIGHT, "Not set up");
+          } else if (id(tracker).is_flying()) {
+            const uint32_t s = id(tracker).flight_seconds();
+            it.printf(198, 178, id(font_small), Color::BLACK, TextAlign::TOP_RIGHT, "Flying %u:%02u",
+                      unsigned(s / 3600), unsigned(s / 60 % 60));
+          } else {
+            it.print(198, 178, id(font_small), Color::BLACK, TextAlign::TOP_RIGHT, id(identity).registration());
+          }
+
+      # Status boxes: a title above a large value, as on the SoftRF badge
+      - id: page_status
+        lambda: |-
+          const auto &g = id(gps_rx).get_data();
+          auto box = [&](int col, int row, const char *title, const char *value) {
+            const int x = col * 100, y = row * 58;
+            it.print(x + 50, y + 2, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, title);
+            it.print(x + 50, y + 22, id(font_medium), Color::BLACK, TextAlign::TOP_CENTER, value);
+          };
+          char buf[16];
+          it.fill(Color::WHITE);
+          snprintf(buf, sizeof(buf), "%u%s", g.satellites, id(flarm).has_gps_fix() ? "" : " no fix");
+          box(0, 0, "SATS", buf);
+          box(1, 0, "GLIDER", id(identity).is_set() ? id(identity).registration() : "Not set up");
+          if (id(tracker).is_flying()) {
+            const uint32_t s = id(tracker).flight_seconds();
+            snprintf(buf, sizeof(buf), "%u:%02u", unsigned(s / 3600), unsigned(s / 60 % 60));
+          } else {
+            snprintf(buf, sizeof(buf), "Ground");
+          }
+          box(0, 1, "FLIGHT", buf);
+          snprintf(buf, sizeof(buf), "%u", unsigned(id(tracker).queued()));
+          box(1, 1, "QUEUED", buf);
+          if (!flarm_receiver::FlarmReceiver::australian_registration(id(flarm).get_own_address(), buf))
+            snprintf(buf, sizeof(buf), "%06X", (unsigned) id(flarm).get_own_address());
+          box(0, 2, "FLARM ID", buf);
+          if (id(battery_voltage).has_state()) {
+            snprintf(buf, sizeof(buf), "%.2f V", id(battery_voltage).state);
+          } else {
+            snprintf(buf, sizeof(buf), "-");
+          }
+          box(1, 2, "BATTERY", buf);
+          it.line(100, 0, 100, 174, Color::BLACK);
+          it.line(0, 58, 200, 58, Color::BLACK);
+          it.line(0, 116, 200, 116, Color::BLACK);
+          it.filled_rectangle(0, 174, 200, 2, Color::BLACK);
+          if (id(gps_time).now().is_valid()) {
+            it.strftime(100, 182, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, "%H:%M:%S UTC",
+                        id(gps_time).utcnow());
+          } else {
+            it.print(100, 182, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, "No time");
+          }
+
+      # Power messages and the off screen
+      - id: page_message
+        lambda: |-
+          const int32_t left_ms = static_cast<int32_t>(id(deadline_ms) - millis());
+          const int secs = left_ms > 0 ? (left_ms + 999) / 1000 : 0;
+          it.fill(Color::WHITE);
+          switch (id(message)) {
+            case 1:
+              // An arrow up to the touch button, on the top edge above the left of the display
+              it.filled_triangle(12, 0, 0, 18, 24, 18, Color::BLACK);
+              it.filled_rectangle(8, 18, 9, 16, Color::BLACK);
+              it.print(32, 2, id(font_medium), Color::BLACK, "Touch button");
+              it.print(32, 24, id(font_medium), Color::BLACK, "to stay on");
+              it.print(100, 58, id(font_big), Color::BLACK, TextAlign::TOP_CENTER, "Power lost");
+              it.print(100, 104, id(font_medium), Color::BLACK, TextAlign::TOP_CENTER, "Turning off in");
+              it.printf(100, 128, id(font_big), Color::BLACK, TextAlign::TOP_CENTER, "%d s", secs);
+              it.print(100, 178, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, "or plug USB back in");
+              break;
+            case 2:
+              it.print(100, 40, id(font_medium), Color::BLACK, TextAlign::TOP_CENTER, "Powering off in");
+              it.printf(100, 70, id(font_big), Color::BLACK, TextAlign::TOP_CENTER, "%d secs", secs);
+              it.print(100, 130, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, "Keep holding the button,");
+              it.print(100, 148, id(font_small), Color::BLACK, TextAlign::TOP_CENTER, "or let go to cancel");
+              break;
+            default:
+              // An arrow left to the reset button, on the left side level with the top of the display
+              it.filled_triangle(0, 12, 18, 0, 18, 24, Color::BLACK);
+              it.filled_rectangle(18, 8, 18, 9, Color::BLACK);
+              it.print(44, 2, id(font_medium), Color::BLACK, "Press this");
+              it.print(44, 24, id(font_medium), Color::BLACK, "button to");
+              it.print(44, 46, id(font_medium), Color::BLACK, "turn on");
+              it.print(100, 96, id(font_big), Color::BLACK, TextAlign::TOP_CENTER,
+                       id(message) == 4 ? "Battery low" : "Off");
+              if (id(message) == 4)
+                it.print(100, 146, id(font_medium), Color::BLACK, TextAlign::TOP_CENTER, "Charge it first");
+              break;
+          }
+
+interval:
+  # A short flash while on the battery: green with a GPS fix, red without
+  - interval: 2500ms
+    then:
+      - if:
+          condition:
+            lambda: return !techo_usb_power() && id(message) == 0;
+          then:
+            - if:
+                condition:
+                  lambda: return id(flarm).has_gps_fix();
+                then:
+                  - output.turn_on: led_green
+                else:
+                  - output.turn_on: led_red
+            - delay: 60ms
+            - output.turn_off: led_green
+            - output.turn_off: led_red
+  - interval: 1s
+    then:
+      # The status page goes back to the traffic page after 30 s
+      - if:
+          condition:
+            lambda: |-
+              return id(message) == 0 && id(epd).get_active_page() == id(page_status) &&
+                     millis() - id(page_ms) > 30000;
+          then:
+            - script.execute: show_traffic
+  # Power off before the battery is exhausted, after three low readings in a row
+  - interval: 10s
+    then:
+      - if:
+          condition:
+            lambda: |-
+              if (techo_usb_power() || !id(battery_voltage).has_state() ||
+                  id(battery_voltage).state >= ${battery_cutoff}) {
+                id(low_count) = 0;
+                return false;
+              }
+              ESP_LOGW("power", "Battery %.2f V is below the cutoff", id(battery_voltage).state);
+              return ++id(low_count) >= 3;
+          then:
+            - script.execute:
+                id: shut_down
+                reason: 4
+  - interval: 30s
+    then:
+      - lambda: |-
+          const auto &g = id(gps_rx).get_data();
+          ESP_LOGI("status", "fix %s, sats %u, time %s, frames %u, decoded %u, sent %u, %.6f %.6f %.0f m",
+                   YESNO(id(flarm).has_gps_fix()), g.satellites, YESNO(id(flarm).has_time()),
+                   (unsigned) id(flarm).get_frame_count(), (unsigned) id(flarm).get_packet_count(),
+                   (unsigned) id(flarm).get_transmit_count(), g.latitude(), g.longitude(), g.altitude());

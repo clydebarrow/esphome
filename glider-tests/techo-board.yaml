@@ -1,0 +1,122 @@
+# LilyGO T-Echo (nRF52840, rev 2): the board's hardware, as a package.
+# Pins from SoftRF src/platform/iomap/LilyGO_TEcho.h. The app config adds the radio settings and
+# what the display draws (display lambda or pages).
+nrf52:
+  board: adafruit_itsybitsy_nrf52840
+  bootloader: adafruit_nrf52_sd140_v6
+  dfu: true
+
+logger:
+  hardware_uart: USB_CDC
+
+switch:
+  # Peripheral power: e-paper, RGB LED and, on rev 2, the GNSS
+  - platform: gpio
+    id: io_power
+    pin: P0.12
+    restore_mode: ALWAYS_ON
+    internal: true
+  - platform: gpio
+    id: gnss_wake
+    pin: P1.02
+    restore_mode: ALWAYS_ON
+    internal: true
+  # GNSS reset, active low (rev 2 only)
+  - platform: gpio
+    id: gnss_reset
+    pin: P1.05
+    restore_mode: ALWAYS_ON
+    internal: true
+
+output:
+  # RGB LED, active low. Blue checked on the bench; red and green from SoftRF (rev 2)
+  - platform: gpio
+    id: led_blue
+    pin:
+      number: P0.14
+      inverted: true
+  - platform: gpio
+    id: led_red
+    pin:
+      number: P1.03
+      inverted: true
+  - platform: gpio
+    id: led_green
+    pin:
+      number: P1.01
+      inverted: true
+  - platform: gpio
+    id: epd_backlight
+    pin: P1.11
+
+binary_sensor:
+  - platform: gpio
+    id: user_button
+    name: Button
+    pin:
+      number: P1.10
+      inverted: true
+      mode:
+        input: true
+        pullup: true
+    filters:
+      - delayed_on_off: 20ms
+  - platform: gpio
+    id: touch_pad
+    name: Touch
+    pin: P0.11
+
+sensor:
+  # 100k + 100k divider on VBAT
+  - platform: adc
+    id: battery_voltage
+    name: Battery
+    pin: P0.04
+    update_interval: 60s
+    accuracy_decimals: 2
+    filters:
+      - multiply: 2.0
+
+# L76K GNSS, 9600 baud NMEA (CASIC commands)
+uart:
+  id: gnss_uart
+  rx_pin: P1.09
+  tx_pin: P1.08
+  baud_rate: 9600
+  rx_buffer_size: 1024
+
+spi:
+  - id: radio_spi
+    interface: hardware
+    clk_pin: P0.19
+    mosi_pin: P0.22
+    miso_pin: P0.23
+  # ESPHome has one hardware SPI bus on nRF52 (spi2), used by the radio
+  - id: epd_spi
+    interface: software
+    clk_pin: P0.31
+    mosi_pin: P0.29
+
+sx126x:
+  id: radio
+  spi_id: radio_spi
+  cs_pin: P0.24
+  rst_pin: P0.25
+  busy_pin: P0.17
+  dio1_pin: P0.20
+  hw_version: sx1262
+  rf_switch: true
+  tcxo_voltage: 1_8V
+
+# GDEH0154D67, 200x200
+display:
+  - platform: epaper_spi
+    id: epd
+    spi_id: epd_spi
+    model: ssd1681
+    data_rate: 4MHz
+    cs_pin: P0.30
+    dc_pin: P0.28
+    reset_pin: P0.02
+    busy_pin: P0.03
+    rotation: 270
