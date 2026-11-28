@@ -120,7 +120,7 @@ class TugLogger : public Component
   wifi_networks::WifiNetworks *get_wifi_networks() { return this->wifi_networks_; }
 #endif
 #ifdef USE_TUG_LOGGER_GPS
-  void on_update(TinyGPSPlus &tiny_gps) override;
+  void on_update(const gps::GPSData &data) override;
 #endif
   /// A fix from a GPS other than the SkyEcho: an NMEA receiver, or the LoRa relay's own GNSS. Used while the SkyEcho
   /// gives none. Call it only with a valid location.

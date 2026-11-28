@@ -106,8 +106,8 @@ display:
       // Not drawn while dark
       if (!id(backlight).current_values.is_on())
         return;
-      auto &gps = id(gnss).get_tiny_gps();
-      const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+      const auto &gps = id(gnss).get_data();
+      const bool fix = id(gnss).get_age(gps::GPS_FIELD_LOCATION) < 3000;
       const int row = 13;
       int y = 0;
       it.fill(Color::BLACK);
@@ -122,7 +122,7 @@ display:
       }
       y += row;
       it.printf(0, y, id(small), fix ? Color::WHITE : Color(0xFF8000), "GPS %s, %u sats", fix ? "fix" : "no fix",
-                unsigned(gps.satellites.isValid() ? gps.satellites.value() : 0));
+                unsigned(gps.satellites));
       y += row;
       it.printf(0, y, id(small), Color::WHITE, "SkyEcho %s",
                 id(skyecho_join).has_skyecho() ? "on" : "off");
@@ -144,8 +144,7 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          auto &gps = id(gnss).get_tiny_gps();
-          const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+          const bool fix = id(gnss).get_age(gps::GPS_FIELD_LOCATION) < 3000;
           if (fix) {
             id(board_led).turn_on();
           } else {

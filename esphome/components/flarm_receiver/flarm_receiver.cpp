@@ -260,36 +260,40 @@ void FlarmReceiver::set_gps_altitude_(float altitude) {
 }
 
 #ifdef USE_FLARM_RECEIVER_GPS
-void FlarmReceiver::on_update(TinyGPSPlus &tiny) {
-  this->gps_fix_ = tiny.location.isValid() && tiny.location.age() < GPS_FIX_MAX_AGE_MS;
+void FlarmReceiver::on_update(const gps::GPSData &data) {
+  this->gps_fix_ = this->get_age(gps::GPS_FIELD_LOCATION) < GPS_FIX_MAX_AGE_MS;
   if (!this->gps_fix_) {
     this->gps_time_valid_ = false;
     this->has_altitude_ = false;
     return;
   }
-  this->latitude_ = static_cast<float>(tiny.location.lat());
-  this->longitude_ = static_cast<float>(tiny.location.lng());
+  this->latitude_ = data.latitude();
+  this->longitude_ = data.longitude();
   this->has_position_ = true;
   this->ground_speed_ =
-      tiny.speed.isValid() && tiny.speed.age() < GPS_FIX_MAX_AGE_MS ? static_cast<float>(tiny.speed.mps()) : 0.0f;
-  if (tiny.course.isValid() && tiny.course.age() < GPS_FIX_MAX_AGE_MS)
-    this->course_ = static_cast<float>(tiny.course.deg());
+      this->get_age(gps::GPS_FIELD_SPEED) < GPS_FIX_MAX_AGE_MS ? data.speed_knots() * KNOTS_TO_MPS : 0.0f;
+  if (this->get_age(gps::GPS_FIELD_COURSE) < GPS_FIX_MAX_AGE_MS)
+    this->course_ = data.course();
+  if (data.has(gps::GPS_FIELD_GEOID_SEPARATION))
+    this->geoid_separation_ = data.geoid_separation();
   // Each epoch once, from its first sentence: the one that changed the time
-  if (!tiny.time.isValid() || !tiny.date.isValid() || tiny.time.value() == this->last_gps_time_)
+  const uint32_t time = ((data.hour * 100u + data.minute) * 100u + data.second) * 1000u + data.millisecond;
+  if (!data.is_updated(gps::GPS_FIELD_TIME) || !data.has(gps::GPS_FIELD_DATE) || time == this->last_gps_time_)
     return;
-  this->last_gps_time_ = tiny.time.value();
+  this->last_gps_time_ = time;
   ESPTime t{};
-  t.hour = tiny.time.hour();
-  t.minute = tiny.time.minute();
-  t.second = tiny.time.second();
-  t.day_of_month = tiny.date.day();
-  t.month = tiny.date.month();
-  t.year = tiny.date.year();
+  t.hour = data.hour;
+  t.minute = data.minute;
+  t.second = data.second;
+  t.day_of_month = data.day;
+  t.month = data.month;
+  t.year = data.year;
   t.recalc_timestamp_utc(false);
+  // The sentence has just been read
   if (t.timestamp >= MIN_VALID_TIME)
-    this->set_gps_time_(static_cast<int64_t>(t.timestamp) * 1000 + tiny.time.centisecond() * 10, tiny.time.age());
-  if (tiny.altitude.isValid() && tiny.altitude.age() < GPS_FIX_MAX_AGE_MS) {
-    this->set_gps_altitude_(static_cast<float>(tiny.altitude.meters()));
+    this->set_gps_time_(static_cast<int64_t>(t.timestamp) * 1000 + data.millisecond, 0);
+  if (this->get_age(gps::GPS_FIELD_ALTITUDE) < GPS_FIX_MAX_AGE_MS) {
+    this->set_gps_altitude_(data.altitude());
   } else {
     this->has_altitude_ = false;
   }

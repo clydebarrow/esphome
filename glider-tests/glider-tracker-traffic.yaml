@@ -52,21 +52,22 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          auto &gps = id(gnss).get_tiny_gps();
-          const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+          const auto &gps = id(gnss).get_data();
+          const bool fix = id(gnss).get_age(gps::GPS_FIELD_LOCATION) < 3000;
+          const float speed = gps.speed_knots() * (1852.0f / 3600.0f);
           id(skyecho_join).set_flying(id(tracker).is_flying());
           const float geoid = id(flarm).get_geoid_separation();
           // The traffic is placed from this GNSS, a better receiver than the SkyEcho's
           if (fix) {
             skyecho::SkyEcho::ExternalFix own{};
-            own.latitude = gps.location.lat();
-            own.longitude = gps.location.lng();
-            own.altitude_valid = gps.altitude.isValid();
-            own.altitude = gps.altitude.meters() + geoid;
-            own.speed_valid = gps.speed.isValid();
-            own.speed = gps.speed.mps();
-            own.track_valid = gps.course.isValid() && gps.speed.mps() > 1.0f;
-            own.track = gps.course.deg();
+            own.latitude = gps.latitude();
+            own.longitude = gps.longitude();
+            own.altitude_valid = gps.has(gps::GPS_FIELD_ALTITUDE);
+            own.altitude = gps.altitude() + geoid;
+            own.speed_valid = gps.has(gps::GPS_FIELD_SPEED);
+            own.speed = speed;
+            own.track_valid = gps.has(gps::GPS_FIELD_COURSE) && speed > 1.0f;
+            own.track = gps.course();
             id(skyecho_hub).set_external_fix(own);
           }
           if (!id(ble).is_connected())
@@ -75,23 +76,23 @@ interval:
           // What a FLARM sends each second on its data port
           skyecho::NmeaFix nmea{};
           nmea.valid = fix;
-          nmea.latitude = gps.location.lat();
-          nmea.longitude = gps.location.lng();
-          nmea.altitude = gps.altitude.meters();
+          nmea.latitude = gps.latitude();
+          nmea.longitude = gps.longitude();
+          nmea.altitude = gps.altitude();
           nmea.geoid_separation = geoid;
-          nmea.speed = gps.speed.mps();
-          nmea.course = gps.course.deg();
-          nmea.satellites = gps.satellites.isValid() ? gps.satellites.value() : 0;
-          nmea.hdop = gps.hdop.isValid() ? gps.hdop.hdop() : 99.9f;
-          nmea.time_valid = gps.time.isValid();
-          nmea.hour = gps.time.hour();
-          nmea.minute = gps.time.minute();
-          nmea.second = gps.time.second();
-          nmea.centisecond = gps.time.centisecond();
-          nmea.date_valid = gps.date.isValid() && gps.date.year() >= 2024;
-          nmea.year = gps.date.year();
-          nmea.month = gps.date.month();
-          nmea.day = gps.date.day();
+          nmea.speed = speed;
+          nmea.course = gps.course();
+          nmea.satellites = gps.satellites;
+          nmea.hdop = gps.has(gps::GPS_FIELD_HDOP) ? gps.hdop() : 99.9f;
+          nmea.time_valid = gps.has(gps::GPS_FIELD_TIME);
+          nmea.hour = gps.hour;
+          nmea.minute = gps.minute;
+          nmea.second = gps.second;
+          nmea.centisecond = gps.millisecond / 10;
+          nmea.date_valid = gps.has(gps::GPS_FIELD_DATE) && gps.year >= 2024;
+          nmea.year = gps.year;
+          nmea.month = gps.month;
+          nmea.day = gps.day;
           std::string out;
           skyecho::append_gps_sentences(out, nmea);
 

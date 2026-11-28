@@ -71,6 +71,8 @@ gps:
   id: gnss
   uart_id: gnss_uart
   update_interval: 10s
+  # For the lambdas in the device configs
+  field_age: true
   satellites:
     id: gnss_satellites
     name: GNSS satellites

@@ -64,21 +64,20 @@ void GliderTracker::dump_config() {
 }
 
 Sample GliderTracker::sample() const {
-  auto &gps = this->gps_->get_tiny_gps();
+  const gps::GPSData &data = this->gps_->get_data();
   Sample sample{};
-  sample.fix = gps.location.isValid() && gps.location.age() < MAX_FIX_AGE_MS;
-  if (gps.date.isValid() && gps.time.isValid() && gps.date.year() >= MIN_YEAR && gps.time.age() < MAX_FIX_AGE_MS) {
-    sample.now = unix_time(gps.date.year(), gps.date.month(), gps.date.day(), gps.time.hour(), gps.time.minute(),
-                           gps.time.second()) +
-                 gps.time.age() / 1000;
+  sample.fix = this->gps_->get_age(gps::GPS_FIELD_LOCATION) < MAX_FIX_AGE_MS;
+  const uint32_t time_age = this->gps_->get_age(gps::GPS_FIELD_TIME);
+  if (data.has(gps::GPS_FIELD_DATE) && data.year >= MIN_YEAR && time_age < MAX_FIX_AGE_MS) {
+    sample.now = unix_time(data.year, data.month, data.day, data.hour, data.minute, data.second) + time_age / 1000;
   }
   if (sample.fix) {
-    sample.latitude = gps.location.lat();
-    sample.longitude = gps.location.lng();
-    sample.altitude_m = static_cast<int16_t>(std::lround(gps.altitude.meters()));
+    sample.latitude = data.latitude();
+    sample.longitude = data.longitude();
+    sample.altitude_m = static_cast<int16_t>(std::lround(data.altitude()));
   }
-  sample.speed_valid = gps.speed.isValid() && gps.speed.age() < MAX_FIX_AGE_MS;
-  sample.speed_kmh = sample.speed_valid ? gps.speed.kmph() : 0;
+  sample.speed_valid = this->gps_->get_age(gps::GPS_FIELD_SPEED) < MAX_FIX_AGE_MS;
+  sample.speed_kmh = sample.speed_valid ? data.speed_kmh() : 0;
   return sample;
 }
 
@@ -156,8 +155,8 @@ void GliderTracker::send_position_() {
   pos.flying = this->log_.is_flying();
   pos.fix = now.fix;
   pos.time = now.now;
-  auto &gps = this->gps_->get_tiny_gps();
-  pos.satellites = gps.satellites.isValid() ? gps.satellites.value() : 0;
+  const gps::GPSData &data = this->gps_->get_data();
+  pos.satellites = data.satellites;
 #ifdef USE_SENSOR
   if (this->battery_ != nullptr && this->battery_->has_state())
     pos.battery_v = this->battery_->get_state();
@@ -167,7 +166,7 @@ void GliderTracker::send_position_() {
     pos.lon = now.longitude;
     pos.alt_m = now.altitude_m;
     pos.speed_kmh = now.speed_kmh;
-    pos.course_deg = gps.course.isValid() ? gps.course.deg() : 0;
+    pos.course_deg = data.has(gps::GPS_FIELD_COURSE) ? data.course() : 0;
     const uint32_t ms = millis();
     if (this->last_altitude_ms_ != 0 && ms != this->last_altitude_ms_)
       pos.climb_cms = static_cast<int16_t>((pos.alt_m - this->last_altitude_m_) * 100000L /

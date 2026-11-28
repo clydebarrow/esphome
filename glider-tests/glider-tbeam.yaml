@@ -102,6 +102,8 @@ gps:
   id: gnss
   uart_id: gps_uart
   update_interval: 60s
+  # For the lambdas below
+  field_age: true
 
 time:
   - platform: gps
@@ -198,8 +200,8 @@ display:
     rotation: 90
     update_interval: 1s
     lambda: |-
-      auto &gps = id(gnss).get_tiny_gps();
-      const bool fix = gps.location.isValid() && gps.location.age() < 3000;
+      const auto &gps = id(gnss).get_data();
+      const bool fix = id(gnss).get_age(gps::GPS_FIELD_LOCATION) < 3000;
       if (!id(identity).is_set()) {
         it.print(0, 0, id(small), "Not set up");
       } else {
@@ -207,7 +209,7 @@ display:
         it.print(0, 14, id(small), id(tracker).is_flying() ? "Flying" : "Ground");
       }
       it.printf(0, 28, id(small), "GPS %s %u", fix ? "fix" : "-",
-                unsigned(gps.satellites.isValid() ? gps.satellites.value() : 0));
+                unsigned(gps.satellites));
       it.printf(0, 42, id(small), "SkyEcho %s", id(skyecho_join).has_skyecho() ? "on" : "-");
       it.printf(0, 56, id(small), "BLE %s", id(ble).is_connected() ? "app" : "-");
       it.printf(0, 70, id(small), "FLARM %s", id(flarm).is_receiving_flarm() ? "rx" : "-");

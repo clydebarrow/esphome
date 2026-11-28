@@ -51,7 +51,7 @@ class FlarmReceiver : public Component,
   void on_frame(const std::vector<uint8_t> &frame, float rssi) override;
 #ifdef USE_FLARM_RECEIVER_GPS
   /// From a gps component, in place of the GPS UART
-  void on_update(TinyGPSPlus &tiny_gps) override;
+  void on_update(const gps::GPSData &data) override;
   void set_gps(gps::GPS *gps) { this->gps_ = gps; }
 #endif
 
@@ -158,7 +158,7 @@ class FlarmReceiver : public Component,
   CallbackManager<void(const LegacyTarget &, float)> traffic_callback_;
 #ifdef USE_FLARM_RECEIVER_GPS
   gps::GPS *gps_{nullptr};
-  uint32_t last_gps_time_{0};  // hhmmsscc of the last epoch taken from the gps component
+  uint32_t last_gps_time_{0};  // hhmmssmmm of the last epoch taken from the gps component
 #endif
   // Sharing the radio with LoRa
   uint32_t hold_until_ms_{0};

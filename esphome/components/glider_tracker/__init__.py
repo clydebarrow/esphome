@@ -3,6 +3,7 @@
 from esphome import automation
 import esphome.codegen as cg
 from esphome.components import gps, sensor
+from esphome.components.const import CONF_FLARM_RECEIVER_ID
 from esphome.components.gps import CONF_GPS_ID
 from esphome.components.packet_interface.layers.basic_addressing import AddressingPort
 import esphome.config_validation as cv
@@ -17,7 +18,6 @@ CONF_BATTERY_ID = "battery_id"
 CONF_BROADCAST_ID = "broadcast_id"
 CONF_CLUBHOUSE_ID = "clubhouse_id"
 CONF_FLARM_ON_GROUND = "flarm_on_ground"
-CONF_FLARM_RECEIVER_ID = "flarm_receiver_id"
 CONF_ON_LANDING = "on_landing"
 CONF_ON_TAKEOFF = "on_takeoff"
 
@@ -52,6 +52,7 @@ CONFIG_SCHEMA = cv.Schema(
 async def to_code(config: ConfigType) -> None:
     var = cg.new_Pvariable(config[CONF_ID])
     await cg.register_component(var, config)
+    gps.request_field_age()
     cg.add(var.set_gps(await cg.get_variable(config[CONF_GPS_ID])))
     cg.add(var.set_clubhouse(await cg.get_variable(config[CONF_CLUBHOUSE_ID])))
     cg.add(var.set_broadcast(await cg.get_variable(config[CONF_BROADCAST_ID])))

@@ -1,6 +1,11 @@
 import esphome.codegen as cg
 from esphome.components import gps, sensor, sx126x, sx127x, uart
-from esphome.components.const import CONF_BITRATE, CONF_CRC_ENABLE, CONF_MODULATION
+from esphome.components.const import (
+    CONF_BITRATE,
+    CONF_CRC_ENABLE,
+    CONF_FLARM_RECEIVER_ID as CONF_FLARM_RECEIVER_ID,
+    CONF_MODULATION,
+)
 from esphome.components.gps import CONF_GPS_ID
 from esphome.components.sx126x import (
     CONF_DEVIATION,
@@ -34,7 +39,6 @@ CONF_NO_TRACK = "no_track"
 CONF_PRESSURE_ID = "pressure_id"
 CONF_REGISTRATION = "registration"
 CONF_TRANSMIT = "transmit"
-CONF_FLARM_RECEIVER_ID = "flarm_receiver_id"
 
 flarm_receiver_ns = cg.esphome_ns.namespace("flarm_receiver")
 FlarmReceiver = flarm_receiver_ns.class_("FlarmReceiver", cg.Component, uart.UARTDevice)
@@ -241,6 +245,9 @@ async def to_code(config: ConfigType) -> None:
         cg.add(var.set_uart_parent(await cg.get_variable(uart_id)))
     if (gps_id := config.get(CONF_GPS_ID)) is not None:
         cg.add_define("USE_FLARM_RECEIVER_GPS")
+        gps.request_field_age()
+        gps.request_millisecond()
+        gps.request_geoid_separation()
         gps_var = await cg.get_variable(gps_id)
         await gps.register_listener(gps_var, var)
         cg.add(var.set_gps(gps_var))

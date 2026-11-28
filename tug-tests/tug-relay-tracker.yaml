@@ -212,6 +212,8 @@ gps:
   id: gnss
   uart_id: gnss_uart
   update_interval: 10s
+  # For the lambdas below
+  field_age: true
   satellites:
     id: gnss_satellites
     name: GNSS satellites
@@ -280,24 +282,25 @@ interval:
   - interval: 1s
     then:
       - lambda: |-
-          auto &tiny = id(gnss).get_tiny_gps();
+          const auto &gps = id(gnss).get_data();
           relay_fix::Fix fix;
-          const bool located = tiny.location.isValid() && tiny.location.age() < 3000;
+          const bool located = id(gnss).get_age(gps::GPS_FIELD_LOCATION) < 3000;
           if (located) {
             fix.flags |= relay_fix::FLAG_LOCATION;
-            fix.lat_e7 = int32_t(lround(tiny.location.lat() * 1e7));
-            fix.lon_e7 = int32_t(lround(tiny.location.lng() * 1e7));
-            if (tiny.speed.isValid() && tiny.speed.age() < 3000) {
+            fix.lat_e7 = gps.latitude_e7;
+            fix.lon_e7 = gps.longitude_e7;
+            if (id(gnss).get_age(gps::GPS_FIELD_SPEED) < 3000) {
               fix.flags |= relay_fix::FLAG_SPEED;
-              fix.speed_cms = uint16_t(std::min(65535.0, std::max(0.0, tiny.speed.mps() * 100.0)));
+              // Knots times 1000 to centimeters a second
+              fix.speed_cms = uint16_t(std::min<uint32_t>(65535, (uint64_t(gps.speed_e3) * 1852 + 18000) / 36000));
             }
-            if (tiny.course.isValid() && tiny.course.age() < 3000) {
+            if (id(gnss).get_age(gps::GPS_FIELD_COURSE) < 3000) {
               fix.flags |= relay_fix::FLAG_COURSE;
-              fix.course_cdeg = uint16_t(lround(tiny.course.deg() * 100.0)) % 36000;
+              fix.course_cdeg = gps.course_e2 % 36000;
             }
-            if (tiny.altitude.isValid() && tiny.altitude.age() < 3000) {
+            if (id(gnss).get_age(gps::GPS_FIELD_ALTITUDE) < 3000) {
               fix.flags |= relay_fix::FLAG_ALTITUDE;
-              fix.altitude_cm = int32_t(lround(tiny.altitude.meters() * 100.0));
+              fix.altitude_cm = gps.altitude_e3 / 10;
             }
           }
           // The clock is set from the GNSS; only a time from a fix is sent
@@ -306,7 +309,7 @@ interval:
             fix.flags |= relay_fix::FLAG_TIME;
             fix.time = uint32_t(now.timestamp);
           }
-          fix.satellites = tiny.satellites.isValid() ? uint8_t(std::min<uint32_t>(255, tiny.satellites.value())) : 0;
+          fix.satellites = gps.satellites;
           if (located) {
             id(board_led).turn_on();
           } else {
@@ -345,14 +348,10 @@ interval:
             ESP_LOGI("flarm", "%u FLARM packets so far; %s", unsigned(id(flarm).get_packet_count()),
                      id(flarm).is_receiving_flarm() ? "listening" : "on LoRa");
           }
-          auto &tiny = id(gnss).get_tiny_gps();
-          if (tiny.location.isValid() && tiny.location.age() < 3000) {
-            ESP_LOGI("gnss", "Fix: %.6f,%.6f %.0fm %.1fkm/h, %u satellites", tiny.location.lat(),
-                     tiny.location.lng(), tiny.altitude.meters(), tiny.speed.kmph(),
-                     tiny.satellites.isValid() ? unsigned(tiny.satellites.value()) : 0u);
+          const auto &gps = id(gnss).get_data();
+          if (id(gnss).get_age(gps::GPS_FIELD_LOCATION) < 3000) {
+            ESP_LOGI("gnss", "Fix: %.6f,%.6f %.0fm %.1fkm/h, %u satellites", gps.latitude(), gps.longitude(),
+                     gps.altitude(), gps.speed_kmh(), unsigned(gps.satellites));
           } else {
-            ESP_LOGI("gnss", "No fix: %u satellites; %u characters, %u sentences with fixes, %u checksum failures",
-                     tiny.satellites.isValid() ? unsigned(tiny.satellites.value()) : 0u,
-                     unsigned(tiny.charsProcessed()), unsigned(tiny.sentencesWithFix()),
-                     unsigned(tiny.failedChecksum()));
+            ESP_LOGI("gnss", "No fix: %u satellites", unsigned(gps.satellites));
           }

@@ -11,7 +11,7 @@ on LoRa. The port answers two lines, as the CubeCell tracker's does:
 """
 
 import esphome.codegen as cg
-from esphome.components.glider_tracker import CONF_FLARM_RECEIVER_ID
+from esphome.components.const import CONF_FLARM_RECEIVER_ID
 from esphome.components.packet_interface.layers.basic_addressing import BasicAddressing
 from esphome.components.packet_interface.layers.xxtea_encryption import XxteaEncryption
 import esphome.config_validation as cv

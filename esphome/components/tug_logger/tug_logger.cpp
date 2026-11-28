@@ -463,14 +463,13 @@ PositionSample TugLogger::read_position_() {
 }
 
 #ifdef USE_TUG_LOGGER_GPS
-void TugLogger::on_update(TinyGPSPlus &tiny_gps) {
-  if (!tiny_gps.location.isValid())
+void TugLogger::on_update(const gps::GPSData &data) {
+  if (!data.is_updated(gps::GPS_FIELD_LOCATION))
     return;
-  this->set_backup_fix(tiny_gps.speed.isValid(), tiny_gps.speed.mps(), tiny_gps.altitude.isValid(),
-                       tiny_gps.altitude.meters());
-  this->set_backup_location(
-      tiny_gps.location.lat(), tiny_gps.location.lng(), tiny_gps.course.isValid(), tiny_gps.course.deg(),
-      tiny_gps.satellites.isValid() ? uint8_t(std::min<uint32_t>(255, tiny_gps.satellites.value())) : 0);
+  this->set_backup_fix(data.has(gps::GPS_FIELD_SPEED), data.speed_knots() * KNOTS_TO_MPS,
+                       data.has(gps::GPS_FIELD_ALTITUDE), data.altitude());
+  this->set_backup_location(data.latitude(), data.longitude(), data.has(gps::GPS_FIELD_COURSE), data.course(),
+                            data.satellites);
 }
 #endif
 
